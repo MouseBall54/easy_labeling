@@ -20,10 +20,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const drawModeBtn = document.getElementById('drawMode');
     const editModeBtn = document.getElementById('editMode');
     const labelList = document.getElementById('label-list');
+    const labelFilters = document.getElementById('label-filters');
     const zoomInBtn = document.getElementById('zoomInBtn');
     const zoomOutBtn = document.getElementById('zoomOutBtn');
     const resetZoomBtn = document.getElementById('resetZoomBtn');
     const toastContainer = document.getElementById('toast-container');
+    const canvasContainer = document.querySelector('.canvas-container');
+    const zoomLevelDisplay = document.getElementById('zoom-level');
+    const mouseCoordsDisplay = document.getElementById('mouse-coords');
 
     // --- Toast Notification ---
     function showToast(message, duration = 3000) {
@@ -104,14 +108,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Clear canvas and label list before loading new image
         canvas.clear();
-        labelList.innerHTML = ''; 
+        labelList.innerHTML = '';
+        labelFilters.innerHTML = '';
 
         fabric.Image.fromURL(url, (img) => {
             currentImage = img;
-            canvas.setWidth(img.width);
-            canvas.setHeight(img.height);
+            
+            // Set canvas dimensions to match container, not image
+            canvas.setWidth(canvasContainer.offsetWidth);
+            canvas.setHeight(canvasContainer.offsetHeight);
+
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
-            resetZoom();
+            resetZoom(); // This will fit the image to the new canvas size
             loadLabels(imageFile.name);
             URL.revokeObjectURL(url);
         });
@@ -273,23 +281,91 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Auto-save Triggers ---
     canvas.on('object:modified', triggerAutoSave);
 
-    // --- Label List Management ---
+    // --- Info Display & Canvas Events ---
+    function updateZoomDisplay() {
+        const zoom = canvas.getZoom() * 100;
+        zoomLevelDisplay.textContent = `Zoom: ${zoom.toFixed(0)}%`;
+    }
+
+    canvas.on('zoom:updated', updateZoomDisplay); // Custom event for zoom
+    
+    canvas.on('mouse:move', (options) => {
+        if (!currentImage) return;
+        const pointer = canvas.getPointer(options.e);
+        const imageX = Math.round(pointer.x);
+        const imageY = Math.round(pointer.y);
+
+        // Check if pointer is within image bounds
+        if (imageX >= 0 && imageX <= currentImage.width && imageY >= 0 && imageY <= currentImage.height) {
+            mouseCoordsDisplay.textContent = `X: ${imageX}, Y: ${imageY}`;
+            mouseCoordsDisplay.style.display = 'block';
+        } else {
+            mouseCoordsDisplay.style.display = 'none';
+        }
+    });
+
+    canvas.on('mouse:out', () => {
+        mouseCoordsDisplay.style.display = 'none';
+    });
+
+    // --- Label List, Filtering, and Drag & Drop ---
     function updateLabelList() {
         labelList.innerHTML = '';
         const rects = canvas.getObjects('rect');
+        
+        // Update Filters
+        updateLabelFilters(rects);
+
         rects.forEach((rect, index) => {
             const li = document.createElement('li');
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.draggable = true;
+            li.dataset.index = index;
+
             const color = getColorForClass(rect.labelClass);
-            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};">&nbsp;</span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};">&nbsp;</span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
                 document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
                 li.classList.add('active');
                 canvas.setActiveObject(rects[index]).renderAll();
             });
+
+            // Drag and Drop listeners
+            li.addEventListener('dragstart', handleDragStart);
+            li.addEventListener('dragover', handleDragOver);
+            li.addEventListener('drop', handleDrop);
+            li.addEventListener('dragend', handleDragEnd);
+
             labelList.appendChild(li);
         });
+
+        addEditDeleteListeners(rects);
+    }
+
+    function updateLabelFilters(rects) {
+        labelFilters.innerHTML = '';
+        const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+
+        uniqueClasses.forEach(labelClass => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 active';
+            btn.textContent = `Class ${labelClass}`;
+            btn.dataset.labelClass = labelClass;
+
+            btn.addEventListener('click', () => {
+                btn.classList.toggle('active');
+                const isActive = btn.classList.contains('active');
+                const rectsToToggle = canvas.getObjects('rect').filter(r => r.labelClass === labelClass);
+                rectsToToggle.forEach(r => r.set('visible', isActive));
+                canvas.renderAll();
+            });
+            labelFilters.appendChild(btn);
+        });
+    }
+
+    function addEditDeleteListeners(rects) {
         document.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const index = parseInt(this.dataset.index, 10);
@@ -306,15 +382,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
+
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const index = parseInt(this.dataset.index, 10);
-                const rects = canvas.getObjects('rect');
                 canvas.remove(rects[index]);
                 updateLabelList();
                 triggerAutoSave();
             });
         });
+    }
+
+    let dragSrcEl = null;
+
+    function handleDragStart(e) {
+        this.style.opacity = '0.4';
+        dragSrcEl = this;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', this.innerHTML);
+    }
+
+    function handleDragOver(e) {
+        if (e.preventDefault) {
+            e.preventDefault();
+        }
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+    }
+
+    function handleDrop(e) {
+        if (e.stopPropagation) {
+            e.stopPropagation();
+        }
+        if (dragSrcEl !== this) {
+            const srcIndex = parseInt(dragSrcEl.dataset.index, 10);
+            const destIndex = parseInt(this.dataset.index, 10);
+            
+            const rects = canvas.getObjects('rect');
+            const movedRect = rects.splice(srcIndex, 1)[0];
+            rects.splice(destIndex, 0, movedRect);
+
+            // Reorder objects on canvas for correct z-indexing and saving
+            rects.forEach(rect => canvas.remove(rect));
+            rects.forEach(rect => canvas.add(rect));
+            
+            updateLabelList();
+            triggerAutoSave();
+        }
+        return false;
+    }
+
+    function handleDragEnd() {
+        this.style.opacity = '1';
     }
 
     // --- Mode, Edit, Zoom, Pan Logic (unchanged) ---
@@ -436,6 +555,7 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
         opt.e.preventDefault();
         opt.e.stopPropagation();
+        canvas.fire('zoom:updated');
     });
     canvas.on('mouse:down', opt => {
         if (opt.e.altKey) {
@@ -468,8 +588,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function zoom(factor) {
         const center = canvas.getCenter();
         canvas.zoomToPoint(new fabric.Point(center.left, center.top), canvas.getZoom() * factor);
+        canvas.fire('zoom:updated');
     }
-    function resetZoom() { canvas.setViewportTransform([1, 0, 0, 1, 0, 0]); }
+    function resetZoom() {
+        if (!currentImage) return;
+        const containerWidth = canvasContainer.offsetWidth;
+        const containerHeight = canvasContainer.offsetHeight;
+        const imgWidth = currentImage.width;
+        const imgHeight = currentImage.height;
+
+        const scale = Math.min(containerWidth / imgWidth, containerHeight / imgHeight) * 0.95; // 95% padding
+        
+        canvas.setZoom(scale);
+        canvas.viewportTransform[4] = (containerWidth - imgWidth * scale) / 2;
+        canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
+        canvas.requestRenderAll();
+        canvas.fire('zoom:updated');
+    }
 
     // --- Initial Setup ---
     setMode(currentMode);

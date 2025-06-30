@@ -59,6 +59,12 @@
                     <label class="btn btn-outline-primary" for="editMode" title="Edit Mode"><i class="bi bi-cursor"></i></label>
                 </div>
                  <hr>
+                <div id="label-filter-container">
+                    <h5><i class="bi bi-funnel"></i> Filters</h5>
+                    <div id="label-filters" class="mb-2">
+                        <!-- Filter buttons will be added here -->
+                    </div>
+                </div>
                 <div id="label-list-container">
                     <h5><i class="bi bi-tags"></i> Labels</h5>
                     <ul id="label-list" class="list-group">
@@ -69,6 +75,10 @@
 
             <!-- Canvas Area -->
             <div class="col-lg-10 col-md-9 canvas-container">
+                <div id="info-display">
+                    <div id="zoom-level">Zoom: 100%</div>
+                    <div id="mouse-coords">X: 0, Y: 0</div>
+                </div>
                 <canvas id="canvas"></canvas>
             </div>
         </div>
