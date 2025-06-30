@@ -21,12 +21,18 @@
         <div class="row">
             <!-- Control Panel -->
             <div class="col-lg-2 col-md-3 bg-light vh-100 p-3 control-panel">
-                <h5><i class="bi bi-folder"></i> Image Files</h5>
+                <h5><i class="bi bi-folder2-open"></i> Folders</h5>
                 <hr>
+                <div class="d-grid gap-2">
+                    <button id="selectImageFolderBtn" class="btn btn-primary"><i class="bi bi-images"></i> Select Image Folder</button>
+                    <button id="selectLabelFolderBtn" class="btn btn-info text-white"><i class="bi bi-tags-fill"></i> Select Label Folder</button>
+                </div>
+                <hr>
+                <h5><i class="bi bi-list-ul"></i> Image Files</h5>
                 <div id="image-list" class="list-group mb-3">
                     <!-- Image list will be populated here -->
                 </div>
-
+                <hr>
                 <h5><i class="bi bi-tools"></i> Controls</h5>
                 <hr>
                 <div class="d-grid gap-2">
