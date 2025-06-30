@@ -20,6 +20,24 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentImage = null;
     let currentImageName = null;
 
+    // --- Color Palette for Classes ---
+    const colorPalette = [
+        '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', 
+        '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe',
+        '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000',
+        '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080',
+        '#ffffff', '#000000', '#1f77b4', '#ff7f0e', '#2ca02c',
+        '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'
+    ];
+
+    function getColorForClass(labelClass) {
+        const classNumber = parseInt(labelClass, 10);
+        if (isNaN(classNumber) || classNumber < 0) {
+            return '#000000'; // Default color for invalid classes
+        }
+        return colorPalette[classNumber % colorPalette.length];
+    }
+
     // --- Mode Management ---
     let currentMode = 'draw';
     drawModeBtn.addEventListener('change', () => setMode('draw'));
@@ -74,19 +92,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const imgHeight = currentImage.height;
 
             lines.forEach(line => {
-                const [labelClass, x_center, y_center, width, height] = line.split(' ').map(Number);
-                const rectWidth = width * imgWidth;
-                const rectHeight = height * imgHeight;
-                const rectLeft = (x_center * imgWidth) - (rectWidth / 2);
-                const rectTop = (y_center * imgHeight) - (rectHeight / 2);
+                const [labelClass, x_center, y_center, width, height] = line.split(' ').map(val => val.trim());
+                if (labelClass === undefined) return;
+
+                const rectWidth = parseFloat(width) * imgWidth;
+                const rectHeight = parseFloat(height) * imgHeight;
+                const rectLeft = (parseFloat(x_center) * imgWidth) - (rectWidth / 2);
+                const rectTop = (parseFloat(y_center) * imgHeight) - (rectHeight / 2);
+                const color = getColorForClass(labelClass);
 
                 const rect = new fabric.Rect({
                     left: rectLeft,
                     top: rectTop,
                     width: rectWidth,
                     height: rectHeight,
-                    fill: 'rgba(255, 0, 0, 0.2)',
-                    stroke: 'red',
+                    fill: `${color}33`, // Semi-transparent fill
+                    stroke: color,
                     strokeWidth: 2,
                     selectable: currentMode === 'edit',
                     labelClass: String(labelClass)
@@ -161,7 +182,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentRect.width < 5 && currentRect.height < 5) {
             canvas.remove(currentRect);
         } else {
-            currentRect.set('labelClass', '0'); // Default class
+            const newLabel = prompt('Enter label class for the new box:', '0');
+            const finalLabel = (newLabel !== null && newLabel.trim() !== '') ? newLabel.trim() : '0';
+            
+            currentRect.set('labelClass', finalLabel);
+            const color = getColorForClass(finalLabel);
+            currentRect.set({
+                fill: `${color}33`,
+                stroke: color
+            });
+
             updateLabelList();
         }
         currentRect = null;
@@ -173,16 +203,58 @@ document.addEventListener('DOMContentLoaded', () => {
         const rects = canvas.getObjects('rect');
         rects.forEach((rect, index) => {
             const li = document.createElement('li');
-            li.className = 'list-group-item';
-            li.textContent = `Label ${index + 1} (Class: ${rect.labelClass})`;
-            li.dataset.index = index;
-            li.addEventListener('click', () => {
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            
+            const color = getColorForClass(rect.labelClass);
+            li.innerHTML = `
+                <span>
+                    <span class="badge me-2" style="background-color: ${color};">&nbsp;</span>
+                    Label ${index + 1} (Class: ${rect.labelClass})
+                </span>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button>
+                </div>
+            `;
+
+            li.addEventListener('click', (e) => {
+                if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
+                
                 document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
                 li.classList.add('active');
                 canvas.setActiveObject(rects[index]);
                 canvas.renderAll();
             });
+
             labelList.appendChild(li);
+        });
+
+        // Add event listeners for edit/delete buttons
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const index = parseInt(this.dataset.index, 10);
+                const rect = rects[index];
+                const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
+                if (newLabel !== null && newLabel.trim() !== '') {
+                    const finalLabel = newLabel.trim();
+                    rect.set('labelClass', finalLabel);
+                    const color = getColorForClass(finalLabel);
+                    rect.set({
+                        fill: `${color}33`,
+                        stroke: color
+                    });
+                    updateLabelList();
+                    canvas.renderAll();
+                }
+            });
+        });
+
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const index = parseInt(this.dataset.index, 10);
+                canvas.remove(rects[index]);
+                updateLabelList();
+            });
         });
     }
 

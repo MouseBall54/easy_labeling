@@ -37,7 +37,7 @@ app.get('/api/labels/:imageName', (req, res) => {
     fs.readFile(labelFilePath, 'utf8', (err, data) => {
         if (err) {
             if (err.code === 'ENOENT') {
-                return res.json([]); // No label file found, return empty array
+                return res.send(''); // Return empty string if no file
             }
             return res.status(500).send('Error reading label file: ' + err);
         }
