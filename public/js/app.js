@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectLabelFolderBtn = document.getElementById('selectLabelFolderBtn');
     const imageList = document.getElementById('image-list');
     const saveLabelsBtn = document.getElementById('saveLabelsBtn');
+    const autoSaveToggle = document.getElementById('autoSaveToggle');
     const drawModeBtn = document.getElementById('drawMode');
     const editModeBtn = document.getElementById('editMode');
     const labelList = document.getElementById('label-list');
@@ -50,6 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentImageFile = null;
     let currentImage = null;
     let currentMode = 'draw';
+    let isAutoSaveEnabled = false;
+    let saveTimeout = null;
 
     // --- Folder Selection ---
     selectImageFolderBtn.addEventListener('click', async () => {
@@ -161,13 +164,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Save Labels ---
-    saveLabelsBtn.addEventListener('click', async () => {
+    async function saveLabels(isAuto = false) {
         if (!currentImageFile) {
-            showToast('Please select an image first.');
+            if (!isAuto) showToast('Please select an image first.');
             return;
         }
         if (!labelFolderHandle) {
-            showToast('Please select a label folder first.');
+            if (!isAuto) showToast('Please select a label folder first.');
             return;
         }
 
@@ -191,12 +194,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const writable = await fileHandle.createWritable();
             await writable.write(yoloString.trim());
             await writable.close();
-            showToast(`Labels saved to ${labelFileName}`);
+            if (!isAuto) {
+                showToast(`Labels saved to ${labelFileName}`);
+            }
         } catch (err) {
             console.error('Error saving labels:', err);
-            showToast('Failed to save labels. Check console for details.');
+            if (!isAuto) {
+                showToast('Failed to save labels. Check console for details.');
+            }
+        }
+    }
+    
+    saveLabelsBtn.addEventListener('click', () => saveLabels(false));
+
+    autoSaveToggle.addEventListener('change', (e) => {
+        isAutoSaveEnabled = e.target.checked;
+        showToast(`Auto Save ${isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
+        if (isAutoSaveEnabled) {
+            triggerAutoSave();
         }
     });
+
+    function triggerAutoSave() {
+        if (!isAutoSaveEnabled) return;
+        // Debounce save function to avoid too frequent saves
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => saveLabels(true), 1000);
+    }
 
     // --- Color Palette ---
     const colorPalette = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000', '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'];
@@ -241,9 +265,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const color = getColorForClass(finalLabel);
             currentRect.set({ fill: `${color}33`, stroke: color });
             updateLabelList();
+            triggerAutoSave();
         }
         currentRect = null;
     });
+
+    // --- Auto-save Triggers ---
+    canvas.on('object:modified', triggerAutoSave);
 
     // --- Label List Management ---
     function updateLabelList() {
@@ -253,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const li = document.createElement('li');
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
             const color = getColorForClass(rect.labelClass);
-            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};">&nbsp;</span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
                 document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
@@ -274,14 +302,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     rect.set({ fill: `${color}33`, stroke: color });
                     updateLabelList();
                     canvas.renderAll();
+                    triggerAutoSave();
                 }
             });
         });
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const index = parseInt(this.dataset.index, 10);
+                const rects = canvas.getObjects('rect');
                 canvas.remove(rects[index]);
                 updateLabelList();
+                triggerAutoSave();
             });
         });
     }
@@ -351,44 +382,49 @@ document.addEventListener('DOMContentLoaded', () => {
     function paste() {
         if (!_clipboard) return;
 
-        _clipboard.clone(clonedObj => {
+        _clipboard.clone(cloned => {
             canvas.discardActiveObject();
-            
-            clonedObj.set({
-                left: clonedObj.left + 10,
-                top: clonedObj.top + 10,
-                evented: true,
-            });
+            const newObjects = [];
 
-            if (clonedObj.type === 'activeSelection') {
-                clonedObj.canvas = canvas;
-                clonedObj.forEachObject(obj => {
-                    const color = getColorForClass(obj.labelClass);
-                    obj.set({
-                        fill: `${color}33`,
-                        stroke: color,
+            if (cloned.type === 'activeSelection') {
+                cloned.forEachObject(obj => {
+                    const newObj = fabric.util.object.clone(obj);
+                    newObj.set({
+                        left: newObj.left + 10,
+                        top: newObj.top + 10,
+                        evented: true,
                     });
-                    canvas.add(obj);
+                    const color = getColorForClass(newObj.labelClass);
+                    newObj.set({ fill: `${color}33`, stroke: color });
+                    canvas.add(newObj);
+                    newObjects.push(newObj);
                 });
-                // This is required to update the selection box
-                clonedObj.setCoords(); 
             } else {
-                const color = getColorForClass(clonedObj.labelClass);
-                clonedObj.set({
-                    fill: `${color}33`,
-                    stroke: color,
+                const newObj = fabric.util.object.clone(cloned);
+                 newObj.set({
+                    left: newObj.left + 10,
+                    top: newObj.top + 10,
+                    evented: true,
                 });
-                canvas.add(clonedObj);
+                const color = getColorForClass(newObj.labelClass);
+                newObj.set({ fill: `${color}33`, stroke: color });
+                canvas.add(newObj);
+                newObjects.push(newObj);
             }
 
-            canvas.setActiveObject(clonedObj).requestRenderAll();
+            const sel = new fabric.ActiveSelection(newObjects, { canvas: canvas });
+            canvas.setActiveObject(sel).requestRenderAll();
+            
             updateLabelList();
+            triggerAutoSave();
         }, ['labelClass']);
     }
+
     function deleteSelected() {
         canvas.getActiveObjects().forEach(obj => canvas.remove(obj));
         canvas.discardActiveObject().renderAll();
         updateLabelList();
+        triggerAutoSave();
     }
 
     canvas.on('mouse:wheel', opt => {
