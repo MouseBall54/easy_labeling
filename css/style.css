@@ -1,0 +1,41 @@
+body {
+    overflow: hidden; /* Hide scrollbars */
+}
+
+.main-container {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.control-panel {
+    height: calc(100vh - 56px); /* Full height minus navbar */
+    overflow-y: auto;
+    border-right: 1px solid #dee2e6;
+}
+
+.canvas-container {
+    height: calc(100vh - 56px);
+    padding: 0;
+    background-color: #f8f9fa;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto; /* Add scrollbars if canvas is larger than container */
+}
+
+canvas {
+    border: 1px dashed #ccc;
+}
+
+#label-list-container {
+    margin-top: 1rem;
+}
+
+.list-group-item {
+    cursor: pointer;
+}
+
+.list-group-item.active {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
