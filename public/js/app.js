@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Check for File System Access API support
     if (!('showDirectoryPicker' in window)) {
-        alert('Your browser does not support the File System Access API. Please use a modern browser like Chrome or Edge.');
+        showToast('Your browser is not supported. Please use Chrome or Edge.', 10000);
         return;
     }
 
@@ -22,6 +22,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const zoomInBtn = document.getElementById('zoomInBtn');
     const zoomOutBtn = document.getElementById('zoomOutBtn');
     const resetZoomBtn = document.getElementById('resetZoomBtn');
+    const toastContainer = document.getElementById('toast-container');
+
+    // --- Toast Notification ---
+    function showToast(message, duration = 3000) {
+        const toast = document.createElement('div');
+        toast.className = 'toast-message';
+        toast.textContent = message;
+        toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10); // Delay to allow CSS transition
+
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                toast.remove();
+            }, 300); // Wait for fade out transition
+        }, duration);
+    }
 
     // --- State Management ---
     let imageFolderHandle = null;
@@ -44,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
     selectLabelFolderBtn.addEventListener('click', async () => {
         try {
             labelFolderHandle = await window.showDirectoryPicker();
-            alert(`Label folder selected: ${labelFolderHandle.name}`);
+            showToast(`Label folder selected: ${labelFolderHandle.name}`);
         } catch (err) {
             console.error('Error selecting label folder:', err);
         }
@@ -79,7 +99,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = await imageFile.getFile();
         const url = URL.createObjectURL(file);
 
+        // Clear canvas and label list before loading new image
         canvas.clear();
+        labelList.innerHTML = ''; 
+
         fabric.Image.fromURL(url, (img) => {
             currentImage = img;
             canvas.setWidth(img.width);
@@ -140,11 +163,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Save Labels ---
     saveLabelsBtn.addEventListener('click', async () => {
         if (!currentImageFile) {
-            alert('Please select an image first.');
+            showToast('Please select an image first.');
             return;
         }
         if (!labelFolderHandle) {
-            alert('Please select a label folder first.');
+            showToast('Please select a label folder first.');
             return;
         }
 
@@ -168,10 +191,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const writable = await fileHandle.createWritable();
             await writable.write(yoloString.trim());
             await writable.close();
-            alert(`Labels saved to ${labelFileName} in ${labelFolderHandle.name}`);
+            showToast(`Labels saved to ${labelFileName}`);
         } catch (err) {
             console.error('Error saving labels:', err);
-            alert('Failed to save labels. Check console for details.');
+            showToast('Failed to save labels. Check console for details.');
         }
     });
 
@@ -276,26 +299,91 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let _clipboard = null;
     window.addEventListener('keydown', (e) => {
-        if (currentMode !== 'edit') return;
-        if ((e.ctrlKey || e.metaKey) && e.key === 'c') copy();
-        if ((e.ctrlKey || e.metaKey) && e.key === 'v') paste();
-        if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+        // Allow shortcuts only when not typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        if (currentMode === 'edit' && (e.ctrlKey || e.metaKey)) {
+            if (e.key === 'c') copy();
+            if (e.key === 'v') paste();
+        }
+        
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (currentMode === 'edit') deleteSelected();
+        }
+
+        // Image navigation shortcuts
+        if (e.key.toLowerCase() === 'd') { // Next image
+            navigateImage(1);
+        }
+        if (e.key.toLowerCase() === 'a') { // Previous image
+            navigateImage(-1);
+        }
     });
-    function copy() { canvas.getActiveObject()?.clone(cloned => _clipboard = cloned); }
+
+    function navigateImage(direction) {
+        if (imageFiles.length === 0) return;
+        const currentIndex = imageFiles.findIndex(f => f.name === currentImageFile?.name);
+        if (currentIndex === -1 && imageFiles.length > 0) {
+            loadImageAndLabels(imageFiles[0]);
+            return;
+        }
+        
+        let nextIndex = currentIndex + direction;
+        if (nextIndex >= imageFiles.length) {
+            nextIndex = 0; // Wrap around to the start
+        } else if (nextIndex < 0) {
+            nextIndex = imageFiles.length - 1; // Wrap around to the end
+        }
+        
+        loadImageAndLabels(imageFiles[nextIndex]);
+    }
+    function copy() {
+        const activeObject = canvas.getActiveObject();
+        if (!activeObject) return;
+        // Include 'labelClass' in the cloned properties
+        activeObject.clone(cloned => {
+            _clipboard = cloned;
+        }, ['labelClass']);
+    }
+
     function paste() {
         if (!_clipboard) return;
+
         _clipboard.clone(clonedObj => {
             canvas.discardActiveObject();
-            clonedObj.set({ left: clonedObj.left + 10, top: clonedObj.top + 10, evented: true });
+            
+            clonedObj.set({
+                left: clonedObj.left + 10,
+                top: clonedObj.top + 10,
+                evented: true,
+            });
+
             if (clonedObj.type === 'activeSelection') {
                 clonedObj.canvas = canvas;
-                clonedObj.forEachObject(obj => canvas.add(obj));
+                clonedObj.forEachObject(obj => {
+                    const color = getColorForClass(obj.labelClass);
+                    obj.set({
+                        fill: `${color}33`,
+                        stroke: color,
+                    });
+                    canvas.add(obj);
+                });
+                // This is required to update the selection box
+                clonedObj.setCoords(); 
             } else {
+                const color = getColorForClass(clonedObj.labelClass);
+                clonedObj.set({
+                    fill: `${color}33`,
+                    stroke: color,
+                });
                 canvas.add(clonedObj);
             }
+
             canvas.setActiveObject(clonedObj).requestRenderAll();
             updateLabelList();
-        });
+        }, ['labelClass']);
     }
     function deleteSelected() {
         canvas.getActiveObjects().forEach(obj => canvas.remove(obj));
