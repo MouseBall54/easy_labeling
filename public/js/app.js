@@ -200,7 +200,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rect = new fabric.Rect({
                     left: rectLeft, top: rectTop, width: rectWidth, height: rectHeight,
                     fill: `${color}33`, stroke: color, strokeWidth: 2,
-                    selectable: currentMode === 'edit', labelClass: String(labelClass)
+                    selectable: currentMode === 'edit', 
+                    labelClass: String(labelClass),
+                    // Store original YOLO values to preserve precision
+                    originalYolo: { x_center, y_center, width, height }
                 });
                 canvas.add(rect);
             });
@@ -234,23 +237,26 @@ document.addEventListener('DOMContentLoaded', () => {
         rects.forEach(rect => {
             const labelClass = rect.labelClass || '0';
             
-            // When objects are transformed as part of a group (active selection),
-            // their coordinates might not be immediately updated.
-            // Calling setCoords() ensures that properties like aCoords, oCoords, etc., are recalculated.
-            rect.setCoords();
-
-            // After setCoords(), getCenterPoint() will give the correct absolute center.
-            const center = rect.getCenterPoint();
-            const width = rect.getScaledWidth();
-            const height = rect.getScaledHeight();
-
-            const x_center = center.x / imgWidth;
-            const y_center = center.y / imgHeight;
-            const normWidth = width / imgWidth;
-            const normHeight = height / imgHeight;
-            
-            yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
+            if (rect.originalYolo) {
+                // If original data exists and object wasn't modified, use it to preserve precision.
+                const { x_center, y_center, width, height } = rect.originalYolo;
+                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}
 `;
+            } else {
+                // If the object was modified, calculate new YOLO values.
+                rect.setCoords();
+                const center = rect.getCenterPoint();
+                const width = rect.getScaledWidth();
+                const height = rect.getScaledHeight();
+
+                const x_center = center.x / imgWidth;
+                const y_center = center.y / imgHeight;
+                const normWidth = width / imgWidth;
+                const normHeight = height / imgHeight;
+                
+                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
+`;
+            }
         });
 
         const labelFileName = currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
@@ -335,8 +341,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Auto-save Triggers ---
-    canvas.on('object:modified', triggerAutoSave);
-    canvas.on('object:scaled', triggerAutoSave);
+    const markAsModified = (e) => {
+        if (!e.target) return;
+        const target = e.target;
+        if (target.type === 'activeSelection') {
+            target.getObjects().forEach(obj => obj.originalYolo = null);
+        } else {
+            target.originalYolo = null;
+        }
+    };
+    canvas.on('object:modified', (e) => {
+        markAsModified(e);
+        triggerAutoSave();
+    });
+    canvas.on('object:scaled', (e) => {
+        markAsModified(e);
+        triggerAutoSave();
+    });
 
     // --- Panel Splitter Logic ---
     const leftSplitter = document.getElementById('left-splitter');
@@ -703,6 +724,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const color = getColorForClass(finalLabel);
                 activeSelection.set('labelClass', finalLabel);
                 activeSelection.set({ fill: `${color}33`, stroke: color });
+                activeSelection.originalYolo = null; // Mark as modified
                 canvas.renderAll();
                 updateLabelList();
                 triggerAutoSave();
@@ -722,6 +744,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (obj.type === 'rect') {
                     obj.set('labelClass', finalLabel);
                     obj.set({ fill: `${color}33`, stroke: color });
+                    obj.originalYolo = null; // Mark as modified
                 }
             });
             
