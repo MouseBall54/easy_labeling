@@ -668,22 +668,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function changeSelectedClasses() {
-        const activeObjects = canvas.getActiveObjects();
-        if (activeObjects.length === 0) {
-            showToast('No objects selected.');
+        const activeSelection = canvas.getActiveObject();
+        if (!activeSelection || activeSelection.type !== 'activeSelection') {
+            showToast('Please select multiple objects.');
             return;
         }
 
-        const newLabel = prompt(`Enter new class for ${activeObjects.length} selected objects:`);
+        const newLabel = prompt(`Enter new class for ${activeSelection.size()} selected objects:`);
         if (newLabel !== null && newLabel.trim() !== '') {
             const finalLabel = newLabel.trim();
             const color = getColorForClass(finalLabel);
-            activeObjects.forEach(obj => {
+            
+            // Ungroup, modify, then regroup to ensure coordinates are preserved.
+            activeSelection.toActiveSelection();
+            const objects = activeSelection.getObjects();
+            canvas.discardActiveObject();
+
+            objects.forEach(obj => {
                 if (obj.type === 'rect') {
                     obj.set('labelClass', finalLabel);
                     obj.set({ fill: `${color}33`, stroke: color });
                 }
             });
+
+            const newSelection = new fabric.ActiveSelection(objects, {
+                canvas: canvas,
+            });
+            canvas.setActiveObject(newSelection);
             canvas.renderAll();
             updateLabelList();
             triggerAutoSave();
