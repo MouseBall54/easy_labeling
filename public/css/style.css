@@ -132,3 +132,27 @@ canvas {
     display: none; /* Hide by default */
 }
 
+/* --- Style for buttons inside active list group items --- */
+.list-group-item.active .btn {
+    color: #fff; /* Make icon/text white */
+    border-color: #fff; /* Make border white */
+}
+
+/* Hover effect for buttons inside active list group items */
+.list-group-item.active .btn:hover {
+    background-color: #fff; /* White background on hover */
+}
+
+/* Specific hover colors for icons */
+.list-group-item.active .btn.edit-btn:hover i {
+    color: #0d6efd; /* Blue pencil icon */
+}
+
+.list-group-item.active .btn.delete-btn:hover i {
+    color: #dc3545; /* Red trash icon */
+}
+
+.list-group-item.active .btn:hover i.bi-grip-vertical {
+    color: #212529; /* Black grip icon */
+}
+
