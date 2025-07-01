@@ -1,104 +1,98 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // Check for File System Access API support
-    if (!('showDirectoryPicker' in window)) {
-        showToast('Your browser is not supported. Please use Chrome or Edge.', 10000);
-        return;
-    }
+// =================================================================================
+// Utility Functions
+// =================================================================================
 
-    const canvas = new fabric.Canvas('canvas', {
-        width: 800,
-        height: 600,
-        backgroundColor: '#eee'
-    });
-
-    // --- UI Elements ---
-    const selectImageFolderBtn = document.getElementById('selectImageFolderBtn');
-    const selectLabelFolderBtn = document.getElementById('selectLabelFolderBtn');
-    const imageList = document.getElementById('image-list');
-    const imageSearchInput = document.getElementById('imageSearchInput');
-    const saveLabelsBtn = document.getElementById('saveLabelsBtn');
-    const autoSaveToggle = document.getElementById('autoSaveToggle');
-    const drawModeBtn = document.getElementById('drawMode');
-    const editModeBtn = document.getElementById('editMode');
-    const labelList = document.getElementById('label-list');
-    const labelFilters = document.getElementById('label-filters');
-    const zoomInBtn = document.getElementById('zoomInBtn');
-    const zoomOutBtn = document.getElementById('zoomOutBtn');
-    const resetZoomBtn = document.getElementById('resetZoomBtn');
+function showToast(message, duration = 3000) {
     const toastContainer = document.getElementById('toast-container');
-    const canvasContainer = document.querySelector('.canvas-container');
-    const zoomLevelDisplay = document.getElementById('zoom-level');
-    const mouseCoordsDisplay = document.getElementById('mouse-coords');
-    const coordXInput = document.getElementById('coordX');
-    const coordYInput = document.getElementById('coordY');
-    const currentImageNameSpan = document.getElementById('current-image-name');
+    if (!toastContainer) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast-message';
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+const colorPalette = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000', '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'];
+
+function getColorForClass(labelClass) {
+    const classNumber = parseInt(labelClass, 10);
+    return isNaN(classNumber) || classNumber < 0 ? '#000000' : colorPalette[classNumber % colorPalette.length];
+}
 
 
-    // --- Toast Notification ---
-    function showToast(message, duration = 3000) {
-        const toast = document.createElement('div');
-        toast.className = 'toast-message';
-        toast.textContent = message;
-        toastContainer.appendChild(toast);
+// =================================================================================
+// Application State
+// =================================================================================
 
-        setTimeout(() => {
-            toast.classList.add('show');
-        }, 10); // Delay to allow CSS transition
+class AppState {
+    constructor() {
+        this.imageFolderHandle = null;
+        this.labelFolderHandle = null;
+        this.imageFiles = [];
+        this.currentImageFile = null;
+        this.currentImage = null;
+        this.currentMode = 'draw'; // 'draw' or 'edit'
+        this.isAutoSaveEnabled = false;
+        this.saveTimeout = null;
+        this.currentLoadToken = 0;
+        this._clipboard = null;
+    }
+}
 
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => {
-                toast.remove();
-            }, 300); // Wait for fade out transition
-        }, duration);
+
+// =================================================================================
+// UI Manager
+// =================================================================================
+
+class UIManager {
+    constructor(state, canvasController, fileSystem) {
+        this.state = state;
+        this.canvasController = canvasController;
+        this.fileSystem = fileSystem;
+        this.elements = this.getDOMElements();
+        this.setupSplitters();
     }
 
-    // --- State Management ---
-    let imageFolderHandle = null;
-    let labelFolderHandle = null;
-    let imageFiles = [];
-    let currentImageFile = null;
-    let currentImage = null;
-    let currentMode = 'draw';
-    let isAutoSaveEnabled = false;
-    let saveTimeout = null;
-    let currentLoadToken = 0; // Token to handle race conditions
-
-    // --- Folder Selection & File Search ---
-    selectImageFolderBtn.addEventListener('click', async () => {
-        try {
-            imageFolderHandle = await window.showDirectoryPicker();
-            await listImageFiles();
-        } catch (err) {
-            console.error('Error selecting image folder:', err);
-        }
-    });
-
-    selectLabelFolderBtn.addEventListener('click', async () => {
-        try {
-            labelFolderHandle = await window.showDirectoryPicker();
-            showToast(`Label folder selected: ${labelFolderHandle.name}`);
-        } catch (err) {
-            console.error('Error selecting label folder:', err);
-        }
-    });
-
-    async function listImageFiles() {
-        if (!imageFolderHandle) return;
-        imageFiles = [];
-        imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
-        for await (const entry of imageFolderHandle.values()) {
-            if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
-                imageFiles.push(entry);
-            }
-        }
-        renderImageList();
+    getDOMElements() {
+        return {
+            selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
+            selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
+            imageList: document.getElementById('image-list'),
+            imageSearchInput: document.getElementById('imageSearchInput'),
+            saveLabelsBtn: document.getElementById('saveLabelsBtn'),
+            autoSaveToggle: document.getElementById('autoSaveToggle'),
+            drawModeBtn: document.getElementById('drawMode'),
+            editModeBtn: document.getElementById('editMode'),
+            labelList: document.getElementById('label-list'),
+            labelFilters: document.getElementById('label-filters'),
+            zoomInBtn: document.getElementById('zoomInBtn'),
+            zoomOutBtn: document.getElementById('zoomOutBtn'),
+            resetZoomBtn: document.getElementById('resetZoomBtn'),
+            canvasContainer: document.querySelector('.canvas-container'),
+            zoomLevelDisplay: document.getElementById('zoom-level'),
+            mouseCoordsDisplay: document.getElementById('mouse-coords'),
+            coordXInput: document.getElementById('coordX'),
+            coordYInput: document.getElementById('coordY'),
+            goToCoordsBtn: document.getElementById('goToCoordsBtn'),
+            currentImageNameSpan: document.getElementById('current-image-name'),
+            leftPanel: document.getElementById('left-panel'),
+            rightPanel: document.getElementById('right-panel'),
+            leftSplitter: document.getElementById('left-splitter'),
+            rightSplitter: document.getElementById('right-splitter'),
+        };
     }
 
-    function renderImageList() {
-        const searchTerm = imageSearchInput.value.toLowerCase();
-        imageList.innerHTML = '';
-        imageFiles
+    renderImageList() {
+        const searchTerm = this.elements.imageSearchInput.value.toLowerCase();
+        this.elements.imageList.innerHTML = '';
+        this.state.imageFiles
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
             .filter(file => file.name.toLowerCase().includes(searchTerm))
             .forEach(file => {
@@ -106,45 +100,255 @@ document.addEventListener('DOMContentLoaded', () => {
                 a.href = '#';
                 a.className = 'list-group-item list-group-item-action';
                 a.textContent = file.name;
-                if (currentImageFile && file.name === currentImageFile.name) {
+                if (this.state.currentImageFile && file.name === this.state.currentImageFile.name) {
                     a.classList.add('active');
                 }
                 a.addEventListener('click', (e) => {
                     e.preventDefault();
-                    loadImageAndLabels(file);
+                    this.fileSystem.loadImageAndLabels(file);
                 });
-                imageList.appendChild(a);
+                this.elements.imageList.appendChild(a);
             });
     }
 
-    imageSearchInput.addEventListener('input', renderImageList);
+    updateLabelList() {
+        this.elements.labelList.innerHTML = '';
+        const rects = this.canvasController.getObjects('rect');
+        
+        this.updateLabelFilters(rects);
+
+        rects.forEach((rect, index) => {
+            const li = document.createElement('li');
+            li.id = `label-item-${index}`;
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.draggable = true;
+            li.dataset.index = index;
+
+            const color = getColorForClass(rect.labelClass);
+            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Class: ${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            
+            li.addEventListener('click', (e) => {
+                if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
+                this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
+            });
+
+            li.addEventListener('dragstart', this.handleDragStart.bind(this));
+            li.addEventListener('dragover', this.handleDragOver.bind(this));
+            li.addEventListener('drop', this.handleDrop.bind(this));
+            li.addEventListener('dragend', this.handleDragEnd.bind(this));
+
+            this.elements.labelList.appendChild(li);
+        });
+
+        this.addEditDeleteListeners(rects);
+    }
+    
+    updateLabelFilters(rects) {
+        this.elements.labelFilters.innerHTML = '';
+        const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+
+        if (uniqueClasses.length > 1) {
+            const allBtn = document.createElement('button');
+            allBtn.className = 'btn btn-sm btn-primary me-1 mb-1';
+            allBtn.textContent = 'All';
+            allBtn.addEventListener('click', () => {
+                const allActive = document.querySelectorAll('#label-filters .btn.active').length === uniqueClasses.length;
+                document.querySelectorAll('#label-filters .btn[data-label-class]').forEach(btn => {
+                    btn.classList.toggle('active', !allActive);
+                    const isActive = btn.classList.contains('active');
+                    const rectsToToggle = this.canvasController.getObjects('rect').filter(r => r.labelClass === btn.dataset.labelClass);
+                    rectsToToggle.forEach(r => r.set('visible', isActive));
+                });
+                this.canvasController.renderAll();
+            });
+            this.elements.labelFilters.appendChild(allBtn);
+        }
+
+        uniqueClasses.forEach(labelClass => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 active';
+            btn.textContent = `Class ${labelClass}`;
+            btn.dataset.labelClass = labelClass;
+
+            btn.addEventListener('click', () => {
+                btn.classList.toggle('active');
+                const isActive = btn.classList.contains('active');
+                const rectsToToggle = this.canvasController.getObjects('rect').filter(r => r.labelClass === labelClass);
+                rectsToToggle.forEach(r => r.set('visible', isActive));
+                this.canvasController.renderAll();
+            });
+            this.elements.labelFilters.appendChild(btn);
+        });
+    }
+
+    addEditDeleteListeners(rects) {
+        this.elements.labelList.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const index = parseInt(btn.dataset.index, 10);
+                this.canvasController.editLabel(rects[index]);
+            });
+        });
+
+        this.elements.labelList.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const index = parseInt(btn.dataset.index, 10);
+                this.canvasController.removeObject(rects[index]);
+                this.updateLabelList();
+                this.fileSystem.triggerAutoSave();
+            });
+        });
+    }
+
+    setupSplitters() {
+        const setup = (splitter, panel, direction) => {
+            splitter.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const onMouseMove = (moveEvent) => {
+                    const containerRect = splitter.parentElement.getBoundingClientRect();
+                    let newWidth = (direction === 'left')
+                        ? moveEvent.clientX - containerRect.left
+                        : containerRect.right - moveEvent.clientX;
+
+                    if (newWidth > 200 && newWidth < 600) {
+                        panel.style.width = newWidth + 'px';
+                        this.canvasController.resizeCanvas();
+                        this.canvasController.resetZoom();
+                    }
+                };
+                const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                };
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        };
+        setup(this.elements.leftSplitter, this.elements.leftPanel, 'left');
+        setup(this.elements.rightSplitter, this.elements.rightPanel, 'right');
+    }
+
+    updateZoomDisplay() {
+        const zoom = this.canvasController.canvas.getZoom() * 100;
+        this.elements.zoomLevelDisplay.textContent = `Zoom: ${zoom.toFixed(0)}%`;
+    }
+
+    updateMouseCoords(x, y) {
+        this.elements.mouseCoordsDisplay.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
+        this.elements.mouseCoordsDisplay.style.display = 'block';
+    }
+
+    hideMouseCoords() {
+        this.elements.mouseCoordsDisplay.style.display = 'none';
+    }
+    
+    updateImageInfo(fileName) {
+        this.elements.currentImageNameSpan.textContent = fileName;
+    }
+
+    setActiveImageListItem(imageFile) {
+        this.elements.imageList.querySelectorAll('.list-group-item').forEach(item => {
+            const isActive = item.textContent === imageFile.name;
+            item.classList.toggle('active', isActive);
+            if (isActive) {
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+    }
+
+    // Drag and Drop for label list
+    handleDragStart(e) {
+        e.target.style.opacity = '0.4';
+        this.dragSrcEl = e.target;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', e.target.innerHTML);
+    }
+
+    handleDragOver(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }
+
+    handleDrop(e) {
+        e.stopPropagation();
+        if (this.dragSrcEl !== e.target) {
+            const srcIndex = parseInt(this.dragSrcEl.dataset.index, 10);
+            const destIndex = parseInt(e.target.closest('li').dataset.index, 10);
+            this.canvasController.reorderObject(srcIndex, destIndex);
+            this.updateLabelList();
+            this.fileSystem.triggerAutoSave();
+        }
+    }
+
+    handleDragEnd(e) {
+        e.target.style.opacity = '1';
+    }
+}
 
 
-    // --- Image and Label Loading ---
-    async function loadImageAndLabels(imageFile) {
-        const loadToken = ++currentLoadToken;
+// =================================================================================
+// File System Manager
+// =================================================================================
 
-        currentImageFile = imageFile;
-        currentImageNameSpan.textContent = imageFile.name; // Update the navbar
+class FileSystem {
+    constructor(state, uiManager, canvasController) {
+        this.state = state;
+        this.uiManager = uiManager;
+        this.canvasController = canvasController;
+    }
+
+    async selectImageFolder() {
+        try {
+            this.state.imageFolderHandle = await window.showDirectoryPicker();
+            await this.listImageFiles();
+        } catch (err) {
+            console.error('Error selecting image folder:', err);
+        }
+    }
+
+    async selectLabelFolder() {
+        try {
+            this.state.labelFolderHandle = await window.showDirectoryPicker();
+            showToast(`Label folder selected: ${this.state.labelFolderHandle.name}`);
+        } catch (err) {
+            console.error('Error selecting label folder:', err);
+        }
+    }
+
+    async listImageFiles() {
+        if (!this.state.imageFolderHandle) return;
+        this.state.imageFiles = [];
+        this.uiManager.elements.imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
+        for await (const entry of this.state.imageFolderHandle.values()) {
+            if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
+                this.state.imageFiles.push(entry);
+            }
+        }
+        this.uiManager.renderImageList();
+    }
+
+    async loadImageAndLabels(imageFile) {
+        this.state.currentLoadToken++;
+        const loadToken = this.state.currentLoadToken;
+
+        this.state.currentImageFile = imageFile;
+        this.uiManager.updateImageInfo(imageFile.name);
         const file = await imageFile.getFile();
 
         const setBackgroundImage = (img) => {
-            if (loadToken !== currentLoadToken) return; // A new image was requested, abort.
-            currentImage = img;
-            canvas.clear(); // Clear canvas only when we are sure to render the new image
-            labelList.innerHTML = '';
-            labelFilters.innerHTML = '';
-            canvas.setWidth(canvasContainer.offsetWidth);
-            canvas.setHeight(canvasContainer.offsetHeight);
-            canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
-            resetZoom();
-            loadLabels(imageFile.name, loadToken);
+            if (loadToken !== this.state.currentLoadToken) return;
+            this.state.currentImage = img;
+            this.canvasController.clear();
+            this.uiManager.elements.labelList.innerHTML = '';
+            this.uiManager.elements.labelFilters.innerHTML = '';
+            this.canvasController.setBackgroundImage(img);
+            this.canvasController.resetZoom();
+            this.loadLabels(imageFile.name, loadToken);
         };
 
         if (/\.(tif|tiff)$/i.test(file.name)) {
             const reader = new FileReader();
             reader.onload = (e) => {
-                if (loadToken !== currentLoadToken) return;
+                if (loadToken !== this.state.currentLoadToken) return;
                 const tiff = new Tiff({ buffer: e.target.result });
                 const tiffCanvas = tiff.toCanvas();
                 fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
@@ -157,111 +361,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 URL.revokeObjectURL(url);
             });
         }
-
-        // Update active item in the list and scroll it into view
-        document.querySelectorAll('#image-list .list-group-item').forEach(item => {
-            const isActive = item.textContent === imageFile.name;
-            item.classList.toggle('active', isActive);
-            if (isActive) {
-                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        });
+        this.uiManager.setActiveImageListItem(imageFile);
     }
 
-    async function loadLabels(imageName, loadToken) {
-        if (!labelFolderHandle) return;
+    async loadLabels(imageName, loadToken) {
+        if (!this.state.labelFolderHandle) return;
         
         const labelFileName = imageName.replace(/\.[^/.]+$/, "") + ".txt";
         try {
-            const labelFileHandle = await labelFolderHandle.getFileHandle(labelFileName);
+            const labelFileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName);
             const file = await labelFileHandle.getFile();
             const yoloData = await file.text();
             
-            if (loadToken !== currentLoadToken) return; // A new image was requested, abort.
+            if (loadToken !== this.state.currentLoadToken) return;
 
-            if (!yoloData) {
-                updateLabelList(); // Ensure label list is cleared if no labels found
-                return;
+            if (yoloData) {
+                this.canvasController.addLabelsFromYolo(yoloData);
             }
-            const lines = yoloData.split('\n').filter(line => line.trim() !== '');
-            const imgWidth = currentImage.width;
-            const imgHeight = currentImage.height;
-
-            lines.forEach(line => {
-                const [labelClass, x_center, y_center, width, height] = line.split(' ').map(val => val.trim());
-                if (labelClass === undefined) return;
-
-                const rectWidth = parseFloat(width) * imgWidth;
-                const rectHeight = parseFloat(height) * imgHeight;
-                const rectLeft = (parseFloat(x_center) * imgWidth) - (rectWidth / 2);
-                const rectTop = (parseFloat(y_center) * imgHeight) - (rectHeight / 2);
-                const color = getColorForClass(labelClass);
-
-                const rect = new fabric.Rect({
-                    left: rectLeft, top: rectTop, width: rectWidth, height: rectHeight,
-                    fill: `${color}33`, stroke: color, strokeWidth: 2,
-                    selectable: currentMode === 'edit', 
-                    labelClass: String(labelClass),
-                    // Store original YOLO values to preserve precision
-                    originalYolo: { x_center, y_center, width, height }
-                });
-                canvas.add(rect);
-            });
-            updateLabelList();
+            this.uiManager.updateLabelList();
         } catch (err) {
             if (err.name === 'NotFoundError') {
                 console.log(`No label file found for ${imageName}.`);
-                if (loadToken === currentLoadToken) updateLabelList(); // Still update list
+                if (loadToken === this.state.currentLoadToken) this.uiManager.updateLabelList();
             } else {
                 console.error('Error loading labels:', err);
             }
         }
     }
 
-    // --- Save Labels ---
-    async function saveLabels(isAuto = false) {
-        if (!currentImageFile) {
+    async saveLabels(isAuto = false) {
+        if (!this.state.currentImageFile) {
             if (!isAuto) showToast('Please select an image first.');
             return;
         }
-        if (!labelFolderHandle) {
+        if (!this.state.labelFolderHandle) {
             if (!isAuto) showToast('Please select a label folder first.');
             return;
         }
 
-        const rects = canvas.getObjects('rect');
-        const imgWidth = currentImage.width;
-        const imgHeight = currentImage.height;
-        let yoloString = '';
+        const yoloString = this.canvasController.getLabelsAsYolo();
+        const labelFileName = this.state.currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
 
-        rects.forEach(rect => {
-            const labelClass = rect.labelClass || '0';
-            
-            if (rect.originalYolo) {
-                // If original data exists and object wasn't modified, use it to preserve precision.
-                const { x_center, y_center, width, height } = rect.originalYolo;
-                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}
-`;
-            } else {
-                // If the object was modified, calculate new YOLO values.
-                rect.setCoords();
-                const center = rect.getCenterPoint();
-                const width = rect.getScaledWidth();
-                const height = rect.getScaledHeight();
-
-                const x_center = center.x / imgWidth;
-                const y_center = center.y / imgHeight;
-                const normWidth = width / imgWidth;
-                const normHeight = height / imgHeight;
-                
-                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
-`;
-            }
-        });
-
-        const labelFileName = currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
         try {
-            const fileHandle = await labelFolderHandle.getFileHandle(labelFileName, { create: true });
+            const fileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName, { create: true });
             const writable = await fileHandle.createWritable();
             await writable.write(yoloString.trim());
             await writable.close();
@@ -275,170 +417,264 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
-    
-    saveLabelsBtn.addEventListener('click', () => saveLabels(false));
 
-    autoSaveToggle.addEventListener('change', (e) => {
-        isAutoSaveEnabled = e.target.checked;
-        showToast(`Auto Save ${isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
-        if (isAutoSaveEnabled) {
-            triggerAutoSave();
-        }
-    });
+    triggerAutoSave() {
+        if (!this.state.isAutoSaveEnabled) return;
+        clearTimeout(this.state.saveTimeout);
+        this.state.saveTimeout = setTimeout(() => this.saveLabels(true), 1000);
+    }
+}
 
-    function triggerAutoSave() {
-        if (!isAutoSaveEnabled) return;
-        clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(() => saveLabels(true), 1000);
+
+// =================================================================================
+// Canvas Controller
+// =================================================================================
+
+class CanvasController {
+    constructor(state, uiManager, fileSystem) {
+        this.state = state;
+        this.uiManager = uiManager;
+        this.fileSystem = fileSystem;
+        this.canvas = new fabric.Canvas('canvas', {
+            width: 800,
+            height: 600,
+            backgroundColor: '#eee',
+        });
+        this.isDrawing = false;
+        this.startPoint = null;
+        this.currentRect = null;
+        this.activeLabelText = null;
     }
 
-    // --- Color Palette ---
-    const colorPalette = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000', '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'];
-    function getColorForClass(labelClass) {
-        const classNumber = parseInt(labelClass, 10);
-        return isNaN(classNumber) || classNumber < 0 ? '#000000' : colorPalette[classNumber % colorPalette.length];
+    getObjects(type) {
+        return this.canvas.getObjects(type);
     }
 
-    // --- Drawing Logic ---
-    let isDrawing = false, startPoint = null, currentRect = null;
-    canvas.on('mouse:down', (o) => {
-        if (o.e.altKey || currentMode !== 'draw' || !currentImage) return;
-        isDrawing = true;
-        startPoint = canvas.getPointer(o.e);
-        currentRect = new fabric.Rect({
-            left: startPoint.x, top: startPoint.y, width: 0, height: 0,
+    renderAll() {
+        this.canvas.renderAll();
+    }
+
+    clear() {
+        this.canvas.clear();
+    }
+
+    setBackgroundImage(img) {
+        this.canvas.setWidth(this.uiManager.elements.canvasContainer.offsetWidth);
+        this.canvas.setHeight(this.uiManager.elements.canvasContainer.offsetHeight);
+        this.canvas.setBackgroundImage(img, this.renderAll.bind(this));
+    }
+
+    setMode(mode) {
+        this.state.currentMode = mode;
+        this.canvas.selection = mode === 'edit';
+        this.canvas.defaultCursor = mode === 'draw' ? 'crosshair' : 'default';
+        this.getObjects('rect').forEach(obj => obj.set('selectable', mode === 'edit'));
+        this.renderAll();
+    }
+
+    addLabelsFromYolo(yoloData) {
+        const lines = yoloData.split('\n').filter(line => line.trim() !== '');
+        const imgWidth = this.state.currentImage.width;
+        const imgHeight = this.state.currentImage.height;
+
+        lines.forEach(line => {
+            const [labelClass, x_center, y_center, width, height] = line.split(' ').map(val => val.trim());
+            if (labelClass === undefined) return;
+
+            const rectWidth = parseFloat(width) * imgWidth;
+            const rectHeight = parseFloat(height) * imgHeight;
+            const rectLeft = (parseFloat(x_center) * imgWidth) - (rectWidth / 2);
+            const rectTop = (parseFloat(y_center) * imgHeight) - (rectHeight / 2);
+            const color = getColorForClass(labelClass);
+
+            const rect = new fabric.Rect({
+                left: rectLeft, top: rectTop, width: rectWidth, height: rectHeight,
+                fill: `${color}33`, stroke: color, strokeWidth: 2,
+                selectable: this.state.currentMode === 'edit',
+                labelClass: String(labelClass),
+                originalYolo: { x_center, y_center, width, height }
+            });
+            this.canvas.add(rect);
+        });
+    }
+
+    getLabelsAsYolo() {
+        const rects = this.getObjects('rect');
+        const imgWidth = this.state.currentImage.width;
+        const imgHeight = this.state.currentImage.height;
+        let yoloString = '';
+
+        rects.forEach(rect => {
+            const labelClass = rect.labelClass || '0';
+            if (rect.originalYolo) {
+                const { x_center, y_center, width, height } = rect.originalYolo;
+                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}\n`;
+            } else {
+                rect.setCoords();
+                const center = rect.getCenterPoint();
+                const width = rect.getScaledWidth();
+                const height = rect.getScaledHeight();
+                const x_center = center.x / imgWidth;
+                const y_center = center.y / imgHeight;
+                const normWidth = width / imgWidth;
+                const normHeight = height / imgHeight;
+                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
+            }
+        });
+        return yoloString;
+    }
+
+    // Drawing
+    startDrawing(pointer) {
+        if (this.state.currentMode !== 'draw' || !this.state.currentImage) return;
+        this.isDrawing = true;
+        this.startPoint = pointer;
+        this.currentRect = new fabric.Rect({
+            left: this.startPoint.x, top: this.startPoint.y, width: 0, height: 0,
             fill: 'rgba(255, 0, 0, 0.2)', stroke: 'red', strokeWidth: 2, selectable: false,
         });
-        canvas.add(currentRect);
-    });
-    canvas.on('mouse:move', (o) => {
-        if (!isDrawing || !currentRect) return;
-        const pointer = canvas.getPointer(o.e);
-        let width = pointer.x - startPoint.x;
-        let height = pointer.y - startPoint.y;
-        currentRect.set({
-            left: width > 0 ? startPoint.x : pointer.x,
-            top: height > 0 ? startPoint.y : pointer.y,
+        this.canvas.add(this.currentRect);
+    }
+
+    continueDrawing(pointer) {
+        if (!this.isDrawing) return;
+        let width = pointer.x - this.startPoint.x;
+        let height = pointer.y - this.startPoint.y;
+        this.currentRect.set({
+            left: width > 0 ? this.startPoint.x : pointer.x,
+            top: height > 0 ? this.startPoint.y : pointer.y,
             width: Math.abs(width), height: Math.abs(height)
         });
-        canvas.renderAll();
-    });
-    canvas.on('mouse:up', () => {
-        if (!isDrawing) return;
-        isDrawing = false;
-        if (currentRect.width < 5 && currentRect.height < 5) {
-            canvas.remove(currentRect);
+        this.renderAll();
+    }
+
+    finishDrawing() {
+        if (!this.isDrawing) return;
+        this.isDrawing = false;
+        if (this.currentRect.width < 5 && this.currentRect.height < 5) {
+            this.canvas.remove(this.currentRect);
         } else {
             const newLabel = prompt('Enter label class for the new box:', '0');
             const finalLabel = (newLabel !== null && newLabel.trim() !== '') ? newLabel.trim() : '0';
-            currentRect.set('labelClass', finalLabel);
+            this.currentRect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
-            currentRect.set({ fill: `${color}33`, stroke: color });
-            updateLabelList();
-            triggerAutoSave();
+            this.currentRect.set({ fill: `${color}33`, stroke: color });
+            this.uiManager.updateLabelList();
+            this.fileSystem.triggerAutoSave();
         }
-        currentRect = null;
-    });
+        this.currentRect = null;
+    }
 
-    // --- Auto-save Triggers ---
-    const markAsModified = (e) => {
-        if (!e.target) return;
-        const target = e.target;
-        if (target.type === 'activeSelection') {
-            target.getObjects().forEach(obj => obj.originalYolo = null);
-        } else {
-            target.originalYolo = null;
+    // Object Manipulation
+    removeObject(obj) {
+        this.canvas.remove(obj);
+    }
+
+    reorderObject(srcIndex, destIndex) {
+        const rects = this.getObjects('rect');
+        const movedRect = rects.splice(srcIndex, 1)[0];
+        rects.splice(destIndex, 0, movedRect);
+        rects.forEach(rect => this.canvas.remove(rect));
+        rects.forEach(rect => this.canvas.add(rect));
+    }
+
+    editLabel(rect) {
+        const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
+        if (newLabel !== null && newLabel.trim() !== '') {
+            const finalLabel = newLabel.trim();
+            rect.set('labelClass', finalLabel);
+            const color = getColorForClass(finalLabel);
+            rect.set({ fill: `${color}33`, stroke: color });
+            rect.originalYolo = null; // Mark as modified
+            this.uiManager.updateLabelList();
+            this.renderAll();
+            this.fileSystem.triggerAutoSave();
         }
-    };
-    canvas.on('object:modified', (e) => {
-        markAsModified(e);
-        triggerAutoSave();
-    });
-    canvas.on('object:scaled', (e) => {
-        markAsModified(e);
-        triggerAutoSave();
-    });
+    }
 
-    // --- Panel Splitter Logic ---
-    const leftSplitter = document.getElementById('left-splitter');
-    const rightSplitter = document.getElementById('right-splitter');
-    const leftPanel = document.getElementById('left-panel');
-    const rightPanel = document.getElementById('right-panel');
+    // Zoom and Pan
+    zoom(factor) {
+        const center = this.canvas.getCenter();
+        this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
+        this.uiManager.updateZoomDisplay();
+    }
 
-    function setupSplitter(splitter, panel, direction) {
-        splitter.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
+    resetZoom() {
+        if (!this.state.currentImage) return;
+        const containerWidth = this.uiManager.elements.canvasContainer.offsetWidth;
+        const containerHeight = this.uiManager.elements.canvasContainer.offsetHeight;
+        const imgWidth = this.state.currentImage.width;
+        const imgHeight = this.state.currentImage.height;
+        const scale = Math.min(containerWidth / imgWidth, containerHeight / imgHeight) * 0.95;
+        this.canvas.setZoom(scale);
+        this.canvas.viewportTransform[4] = (containerWidth - imgWidth * scale) / 2;
+        this.canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
+        this.renderAll();
+        this.uiManager.updateZoomDisplay();
+    }
+    
+    resizeCanvas() {
+        this.canvas.setWidth(this.uiManager.elements.canvasContainer.offsetWidth);
+        this.canvas.setHeight(this.uiManager.elements.canvasContainer.offsetHeight);
+    }
 
-            function onMouseMove(e) {
-                const containerRect = splitter.parentElement.getBoundingClientRect();
-                let newWidth;
+    goToCoords(x, y) {
+        if (!this.state.currentImage) {
+            showToast('Please load an image first.');
+            return;
+        }
+        if (isNaN(x) || isNaN(y)) {
+            showToast('Please enter valid X and Y coordinates.');
+            return;
+        }
+        const zoom = this.canvas.getZoom();
+        const newX = -x * zoom + this.canvas.getWidth() / 2;
+        const newY = -y * zoom + this.canvas.getHeight() / 2;
+        this.canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
+        this.renderAll();
+        this.highlightPoint(x, y);
+    }
 
-                if (direction === 'left') {
-                    newWidth = e.clientX - containerRect.left;
-                } else { // right
-                    newWidth = containerRect.right - e.clientX;
-                }
-
-                if (newWidth > 200 && newWidth < 600) { // Min and Max width constraints
-                    panel.style.width = newWidth + 'px';
-                    // The canvas will resize automatically due to flex-grow
-                    canvas.setWidth(canvasContainer.offsetWidth);
-                    canvas.setHeight(canvasContainer.offsetHeight);
-                    resetZoom();
-                }
-            }
-
-            function onMouseUp() {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
+    highlightPoint(x, y) {
+        const zoom = this.canvas.getZoom();
+        const highlightCircle = new fabric.Circle({
+            left: x, top: y, radius: 0, fill: 'transparent', stroke: 'yellow',
+            strokeWidth: 3, originX: 'center', originY: 'center',
+            selectable: false, evented: false,
+        });
+        this.canvas.add(highlightCircle);
+        highlightCircle.animate('radius', 50 / zoom, {
+            onChange: this.renderAll.bind(this),
+            duration: 500,
+            easing: fabric.util.ease.easeOutQuad,
+            onComplete: () => {
+                highlightCircle.animate('opacity', 0, {
+                    onChange: this.renderAll.bind(this),
+                    duration: 300,
+                    onComplete: () => this.canvas.remove(highlightCircle),
+                });
             }
         });
     }
-    
-    setupSplitter(leftSplitter, leftPanel, 'left');
-    setupSplitter(rightSplitter, rightPanel, 'right');
 
+    // Selection Info
+    updateSelectionLabel(e) {
+        this.clearSelectionLabel();
+        this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
 
-    // --- Show Class on Selection ---
-    let activeLabelText = null;
-    canvas.on('selection:created', updateSelectionLabel);
-    canvas.on('selection:updated', updateSelectionLabel);
-    canvas.on('selection:cleared', clearSelectionLabel);
-
-    function updateSelectionLabel(e) {
-        clearSelectionLabel();
-        
-        // Clear active state from all label list items first
-        document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
-
-        // Only show label for single selections
-        if (e.selected.length !== 1) {
-            return;
-        }
+        if (e.selected.length !== 1) return;
         const activeObject = e.selected[0];
         
         if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-            const zoom = canvas.getZoom();
-            
-            // For single objects, left/top are reliable.
-            const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                left: activeObject.left,
-                top: activeObject.top - 20 / zoom, // Position above the box
-                fontSize: 16 / zoom,
-                fill: 'black',
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                padding: 2 / zoom,
-                selectable: false,
-                evented: false,
+            const zoom = this.canvas.getZoom();
+            this.activeLabelText = new fabric.Text('Class: ' + activeObject.labelClass, {
+                left: activeObject.left, top: activeObject.top - 20 / zoom,
+                fontSize: 16 / zoom, fill: 'black', backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                padding: 2 / zoom, selectable: false, evented: false,
             });
-            activeLabelText = text;
-            canvas.add(activeLabelText);
+            this.canvas.add(this.activeLabelText);
 
-            // Find the corresponding list item and make it active
-            const rects = canvas.getObjects('rect');
-            const objectIndex = rects.indexOf(activeObject);
+            const objectIndex = this.getObjects('rect').indexOf(activeObject);
             if (objectIndex > -1) {
                 const listItem = document.getElementById(`label-item-${objectIndex}`);
                 if (listItem) {
@@ -449,434 +685,276 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function clearSelectionLabel() {
-        if (activeLabelText) {
-            canvas.remove(activeLabelText);
-            activeLabelText = null;
+    clearSelectionLabel() {
+        if (this.activeLabelText) {
+            this.canvas.remove(this.activeLabelText);
+            this.activeLabelText = null;
         }
-        // Also clear active state from the list when selection is cleared
-        document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
+        this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
+    }
+}
+
+
+// =================================================================================
+// Event Manager
+// =================================================================================
+
+class EventManager {
+    constructor(state, ui, fileSystem, canvasController) {
+        this.state = state;
+        this.ui = ui;
+        this.fileSystem = fileSystem;
+        this.canvas = canvasController;
     }
 
-    // --- Info Display & Canvas Events ---
-    function updateZoomDisplay() {
-        const zoom = canvas.getZoom() * 100;
-        zoomLevelDisplay.textContent = `Zoom: ${zoom.toFixed(0)}%`;
-    }
+    bindEventListeners() {
+        // UI Buttons
+        this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
+        this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
+        this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
+        this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
+        this.ui.elements.autoSaveToggle.addEventListener('change', (e) => {
+            this.state.isAutoSaveEnabled = e.target.checked;
+            showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
+            if (this.state.isAutoSaveEnabled) this.fileSystem.triggerAutoSave();
+        });
+        this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
+        this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
+        this.ui.elements.zoomInBtn.addEventListener('click', () => this.canvas.zoom(1.2));
+        this.ui.elements.zoomOutBtn.addEventListener('click', () => this.canvas.zoom(0.8));
+        this.ui.elements.resetZoomBtn.addEventListener('click', () => this.canvas.resetZoom());
+        this.ui.elements.goToCoordsBtn.addEventListener('click', () => {
+            const x = parseInt(this.ui.elements.coordXInput.value, 10);
+            const y = parseInt(this.ui.elements.coordYInput.value, 10);
+            this.canvas.goToCoords(x, y);
+        });
 
-    canvas.on('zoom:updated', updateZoomDisplay); // Custom event for zoom
-    
-    canvas.on('mouse:move', (options) => {
-        if (!currentImage) return;
-        const pointer = canvas.getPointer(options.e);
-        const imageX = Math.round(pointer.x);
-        const imageY = Math.round(pointer.y);
-
-        if (imageX >= 0 && imageX <= currentImage.width && imageY >= 0 && imageY <= currentImage.height) {
-            mouseCoordsDisplay.textContent = `X: ${imageX}, Y: ${imageY}`;
-            mouseCoordsDisplay.style.display = 'block';
-        } else {
-            mouseCoordsDisplay.style.display = 'none';
-        }
-    });
-
-    canvas.on('mouse:out', () => {
-        mouseCoordsDisplay.style.display = 'none';
-    });
-
-    // --- Label List, Filtering, and Drag & Drop ---
-    function updateLabelList() {
-        labelList.innerHTML = '';
-        const rects = canvas.getObjects('rect');
+        // Canvas Events
+        this.canvas.canvas.on('mouse:down', this.handleMouseDown.bind(this));
+        this.canvas.canvas.on('mouse:move', this.handleMouseMove.bind(this));
+        this.canvas.canvas.on('mouse:up', this.handleMouseUp.bind(this));
+        this.canvas.canvas.on('mouse:wheel', this.handleMouseWheel.bind(this));
+        this.canvas.canvas.on('mouse:out', () => this.ui.hideMouseCoords());
         
-        updateLabelFilters(rects);
+        const markAsModified = (e) => {
+            if (!e.target) return;
+            const target = e.target;
+            if (target.type === 'activeSelection') {
+                target.getObjects().forEach(obj => obj.originalYolo = null);
+            } else {
+                target.originalYolo = null;
+            }
+        };
 
-        rects.forEach((rect, index) => {
-            const li = document.createElement('li');
-            li.id = `label-item-${index}`; // Assign a unique ID
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.draggable = true;
-            li.dataset.index = index;
-
-            const color = getColorForClass(rect.labelClass);
-            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Class: ${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
-            
-            li.addEventListener('click', (e) => {
-                if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
-                canvas.setActiveObject(rects[index]).renderAll();
-            });
-
-            li.addEventListener('dragstart', handleDragStart);
-            li.addEventListener('dragover', handleDragOver);
-            li.addEventListener('drop', handleDrop);
-            li.addEventListener('dragend', handleDragEnd);
-
-            labelList.appendChild(li);
+        this.canvas.canvas.on('object:modified', (e) => {
+            markAsModified(e);
+            this.fileSystem.triggerAutoSave();
+        });
+        this.canvas.canvas.on('object:scaled', (e) => {
+            markAsModified(e);
+            this.fileSystem.triggerAutoSave();
         });
 
-        addEditDeleteListeners(rects);
+        this.canvas.canvas.on('selection:created', (e) => this.canvas.updateSelectionLabel(e));
+        this.canvas.canvas.on('selection:updated', (e) => this.canvas.updateSelectionLabel(e));
+        this.canvas.canvas.on('selection:cleared', () => this.canvas.clearSelectionLabel());
+
+        // Keyboard Events
+        window.addEventListener('keydown', this.handleKeyDown.bind(this));
     }
 
-    function updateLabelFilters(rects) {
-        labelFilters.innerHTML = '';
-        const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
-
-        if (uniqueClasses.length > 1) {
-            const allBtn = document.createElement('button');
-            allBtn.className = 'btn btn-sm btn-primary me-1 mb-1';
-            allBtn.textContent = 'All';
-            allBtn.addEventListener('click', () => {
-                const allActive = document.querySelectorAll('#label-filters .btn.active').length === uniqueClasses.length;
-                document.querySelectorAll('#label-filters .btn[data-label-class]').forEach(btn => {
-                    btn.classList.toggle('active', !allActive);
-                    const isActive = btn.classList.contains('active');
-                    const rectsToToggle = canvas.getObjects('rect').filter(r => r.labelClass === btn.dataset.labelClass);
-                    rectsToToggle.forEach(r => r.set('visible', isActive));
-                });
-                canvas.renderAll();
-            });
-            labelFilters.appendChild(allBtn);
+    handleMouseDown(opt) {
+        const evt = opt.e;
+        if (evt.altKey || evt.ctrlKey) {
+            this.canvas.canvas.isDragging = true;
+            this.canvas.canvas.selection = false;
+            this.canvas.canvas.lastPosX = evt.clientX;
+            this.canvas.canvas.lastPosY = evt.clientY;
+        } else {
+            this.canvas.startDrawing(this.canvas.canvas.getPointer(evt));
         }
-
-        uniqueClasses.forEach(labelClass => {
-            const btn = document.createElement('button');
-            btn.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 active';
-            btn.textContent = `Class ${labelClass}`;
-            btn.dataset.labelClass = labelClass;
-
-            btn.addEventListener('click', () => {
-                btn.classList.toggle('active');
-                const isActive = btn.classList.contains('active');
-                const rectsToToggle = canvas.getObjects('rect').filter(r => r.labelClass === labelClass);
-                rectsToToggle.forEach(r => r.set('visible', isActive));
-                canvas.renderAll();
-            });
-            labelFilters.appendChild(btn);
-        });
     }
 
-    function addEditDeleteListeners(rects) {
-        document.querySelectorAll('.edit-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const index = parseInt(this.dataset.index, 10);
-                const rect = rects[index];
-                const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
-                if (newLabel !== null && newLabel.trim() !== '') {
-                    const finalLabel = newLabel.trim();
-                    rect.set('labelClass', finalLabel);
-                    const color = getColorForClass(finalLabel);
-                    rect.set({ fill: `${color}33`, stroke: color });
-                    updateLabelList();
-                    canvas.renderAll();
-                    triggerAutoSave();
-                }
-            });
-        });
-
-        document.querySelectorAll('.delete-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const index = parseInt(this.dataset.index, 10);
-                canvas.remove(rects[index]);
-                updateLabelList();
-                triggerAutoSave();
-            });
-        });
-    }
-
-    let dragSrcEl = null;
-
-    function handleDragStart(e) {
-        this.style.opacity = '0.4';
-        dragSrcEl = this;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/html', this.innerHTML);
-    }
-
-    function handleDragOver(e) {
-        if (e.preventDefault) e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        return false;
-    }
-
-    function handleDrop(e) {
-        if (e.stopPropagation) e.stopPropagation();
-        if (dragSrcEl !== this) {
-            const srcIndex = parseInt(dragSrcEl.dataset.index, 10);
-            const destIndex = parseInt(this.dataset.index, 10);
-            
-            const rects = canvas.getObjects('rect');
-            const movedRect = rects.splice(srcIndex, 1)[0];
-            rects.splice(destIndex, 0, movedRect);
-
-            rects.forEach(rect => canvas.remove(rect));
-            rects.forEach(rect => canvas.add(rect));
-            
-            updateLabelList();
-            triggerAutoSave();
+    handleMouseMove(opt) {
+        if (this.canvas.canvas.isDragging) {
+            const vpt = this.canvas.canvas.viewportTransform;
+            vpt[4] += opt.e.clientX - this.canvas.canvas.lastPosX;
+            vpt[5] += opt.e.clientY - this.canvas.canvas.lastPosY;
+            this.canvas.renderAll();
+            this.canvas.canvas.lastPosX = opt.e.clientX;
+            this.canvas.canvas.lastPosY = opt.e.clientY;
+        } else {
+            this.canvas.continueDrawing(this.canvas.canvas.getPointer(opt.e));
         }
-        return false;
+        
+        if (this.state.currentImage) {
+            const pointer = this.canvas.canvas.getPointer(opt.e);
+            if (pointer.x >= 0 && pointer.x <= this.state.currentImage.width && pointer.y >= 0 && pointer.y <= this.state.currentImage.height) {
+                this.ui.updateMouseCoords(pointer.x, pointer.y);
+            } else {
+                this.ui.hideMouseCoords();
+            }
+        }
     }
 
-    function handleDragEnd() {
-        this.style.opacity = '1';
+    handleMouseUp() {
+        if (this.canvas.canvas.isDragging) {
+            this.canvas.canvas.setViewportTransform(this.canvas.canvas.viewportTransform);
+            this.canvas.canvas.isDragging = false;
+            this.canvas.canvas.selection = true;
+        } else {
+            this.canvas.finishDrawing();
+        }
     }
 
-    // --- Mode, Edit, Zoom, Pan Logic ---
-    function setMode(mode) {
-        currentMode = mode;
-        canvas.selection = mode === 'edit';
-        canvas.defaultCursor = mode === 'draw' ? 'crosshair' : 'default';
-        canvas.getObjects('rect').forEach(obj => obj.set('selectable', mode === 'edit'));
-        canvas.renderAll();
+    handleMouseWheel(opt) {
+        const delta = opt.e.deltaY;
+        let zoom = this.canvas.canvas.getZoom();
+        zoom *= 0.999 ** delta;
+        if (zoom > 20) zoom = 20;
+        if (zoom < 0.1) zoom = 0.1;
+        this.canvas.canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
+        this.ui.updateZoomDisplay();
     }
-    drawModeBtn.addEventListener('change', () => setMode('draw'));
-    editModeBtn.addEventListener('change', () => setMode('edit'));
 
-    let _clipboard = null;
-    window.addEventListener('keydown', (e) => {
+    handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-        if (currentMode === 'edit' && (e.ctrlKey || e.metaKey)) {
-            if (e.key === 'c') copy();
-            if (e.key === 'v') paste();
-            if (e.key === 'b') changeSelectedClasses();
-        }
-        
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-            if (currentMode === 'edit') deleteSelected();
+        if (this.state.currentMode === 'edit') {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'c') this.copy();
+                if (e.key === 'v') this.paste();
+                if (e.key === 'b') this.changeSelectedClasses();
+            }
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                this.deleteSelected();
+            }
         }
 
-        if (e.key.toLowerCase() === 'd') navigateImage(1);
-        if (e.key.toLowerCase() === 'a') navigateImage(-1);
-    });
-
-    function navigateImage(direction) {
-        if (imageFiles.length === 0) return;
-        const currentIndex = imageFiles.findIndex(f => f.name === currentImageFile?.name);
-        if (currentIndex === -1 && imageFiles.length > 0) {
-            loadImageAndLabels(imageFiles[0]);
-            return;
-        }
-        
-        let nextIndex = currentIndex + direction;
-        if (nextIndex >= imageFiles.length) nextIndex = 0;
-        else if (nextIndex < 0) nextIndex = imageFiles.length - 1;
-        
-        loadImageAndLabels(imageFiles[nextIndex]);
+        if (e.key.toLowerCase() === 'd') this.navigateImage(1);
+        if (e.key.toLowerCase() === 'a') this.navigateImage(-1);
     }
 
-    function copy() {
-        const activeObject = canvas.getActiveObject();
+    copy() {
+        const activeObject = this.canvas.canvas.getActiveObject();
         if (!activeObject) return;
-        activeObject.clone(cloned => { _clipboard = cloned; }, ['labelClass']);
+        activeObject.clone(cloned => { this.state._clipboard = cloned; }, ['labelClass', 'originalYolo']);
     }
 
-    function paste() {
-        if (!_clipboard) return;
-        _clipboard.clone(cloned => {
-            canvas.discardActiveObject();
+    paste() {
+        if (!this.state._clipboard) return;
+        this.state._clipboard.clone(cloned => {
+            this.canvas.canvas.discardActiveObject();
             const newObjects = [];
 
-            if (cloned.type === 'activeSelection') {
-                cloned.forEachObject(obj => {
-                    const newObj = fabric.util.object.clone(obj);
-                    newObj.set({ left: newObj.left + 10, top: newObj.top + 10, evented: true });
-                    const color = getColorForClass(newObj.labelClass);
-                    newObj.set({ fill: `${color}33`, stroke: color });
-                    canvas.add(newObj);
-                    newObjects.push(newObj);
-                });
-            } else {
-                const newObj = fabric.util.object.clone(cloned);
+            const pasteObject = (obj) => {
+                const newObj = fabric.util.object.clone(obj);
                 newObj.set({ left: newObj.left + 10, top: newObj.top + 10, evented: true });
                 const color = getColorForClass(newObj.labelClass);
                 newObj.set({ fill: `${color}33`, stroke: color });
-                canvas.add(newObj);
-                newObjects.push(newObj);
+                newObj.originalYolo = null; // Pasted objects are new
+                this.canvas.canvas.add(newObj);
+                return newObj;
+            };
+
+            if (cloned.type === 'activeSelection') {
+                cloned.forEachObject(obj => newObjects.push(pasteObject(obj)));
+            } else {
+                newObjects.push(pasteObject(cloned));
             }
 
-            const sel = new fabric.ActiveSelection(newObjects, { canvas: canvas });
-            canvas.setActiveObject(sel).requestRenderAll();
-            updateLabelList();
-            triggerAutoSave();
-        }, ['labelClass']);
+            const sel = new fabric.ActiveSelection(newObjects, { canvas: this.canvas.canvas });
+            this.canvas.canvas.setActiveObject(sel).requestRenderAll();
+            this.ui.updateLabelList();
+            this.fileSystem.triggerAutoSave();
+        }, ['labelClass', 'originalYolo']);
     }
 
-    function deleteSelected() {
-        canvas.getActiveObjects().forEach(obj => canvas.remove(obj));
-        canvas.discardActiveObject().renderAll();
-        updateLabelList();
-        triggerAutoSave();
+    deleteSelected() {
+        this.canvas.canvas.getActiveObjects().forEach(obj => this.canvas.removeObject(obj));
+        this.canvas.canvas.discardActiveObject().renderAll();
+        this.ui.updateLabelList();
+        this.fileSystem.triggerAutoSave();
     }
 
-    function changeSelectedClasses() {
-        const activeSelection = canvas.getActiveObject();
+    changeSelectedClasses() {
+        const activeSelection = this.canvas.canvas.getActiveObject();
         if (!activeSelection) {
             showToast('Please select one or more objects.');
             return;
         }
 
-        // Handle single object selection separately for simplicity
-        if (activeSelection.type !== 'activeSelection') {
-            const newLabel = prompt(`Enter new class for the selected object:`, activeSelection.labelClass || '0');
-            if (newLabel !== null && newLabel.trim() !== '') {
-                const finalLabel = newLabel.trim();
-                const color = getColorForClass(finalLabel);
-                activeSelection.set('labelClass', finalLabel);
-                activeSelection.set({ fill: `${color}33`, stroke: color });
-                activeSelection.originalYolo = null; // Mark as modified
-                canvas.renderAll();
-                updateLabelList();
-                triggerAutoSave();
-            }
+        const newLabel = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
+        if (newLabel === null || newLabel.trim() === '') return;
+
+        const finalLabel = newLabel.trim();
+        const color = getColorForClass(finalLabel);
+
+        const applyChanges = (obj) => {
+            obj.set('labelClass', finalLabel);
+            obj.set({ fill: `${color}33`, stroke: color });
+            obj.originalYolo = null; // Mark as modified
+        };
+
+        if (activeSelection.type === 'activeSelection') {
+            activeSelection.forEachObject(applyChanges);
+        } else {
+            applyChanges(activeSelection);
+        }
+        
+        this.canvas.renderAll();
+        this.ui.updateLabelList();
+        this.fileSystem.triggerAutoSave();
+    }
+
+    navigateImage(direction) {
+        if (this.state.imageFiles.length === 0) return;
+        const currentIndex = this.state.imageFiles.findIndex(f => f.name === this.state.currentImageFile?.name);
+        if (currentIndex === -1 && this.state.imageFiles.length > 0) {
+            this.fileSystem.loadImageAndLabels(this.state.imageFiles[0]);
             return;
         }
-
-        const newLabel = prompt(`Enter new class for ${activeSelection.size()} selected objects:`);
-        if (newLabel !== null && newLabel.trim() !== '') {
-            const finalLabel = newLabel.trim();
-            const color = getColorForClass(finalLabel);
-            
-            const objects = activeSelection.getObjects();
-            canvas.discardActiveObject(); // Ungroup
-
-            objects.forEach(obj => {
-                if (obj.type === 'rect') {
-                    obj.set('labelClass', finalLabel);
-                    obj.set({ fill: `${color}33`, stroke: color });
-                    obj.originalYolo = null; // Mark as modified
-                }
-            });
-            
-            // Re-select the modified objects
-            const newSelection = new fabric.ActiveSelection(objects, {
-                canvas: canvas,
-            });
-            canvas.setActiveObject(newSelection);
-            canvas.renderAll();
-            updateLabelList();
-            triggerAutoSave();
-        }
+        
+        let nextIndex = currentIndex + direction;
+        if (nextIndex >= this.state.imageFiles.length) nextIndex = 0;
+        else if (nextIndex < 0) nextIndex = this.state.imageFiles.length - 1;
+        
+        this.fileSystem.loadImageAndLabels(this.state.imageFiles[nextIndex]);
     }
+}
 
-    // --- Go to Coordinates and Highlight ---
-    function goToCoords() {
-        if (!currentImage) {
-            showToast('Please load an image first.');
+
+// =================================================================================
+// Main App Initialization
+// =================================================================================
+
+class App {
+    constructor() {
+        if (!('showDirectoryPicker' in window)) {
+            showToast('Your browser is not supported. Please use Chrome or Edge.', 10000);
             return;
         }
-        const x = parseInt(coordXInput.value, 10);
-        const y = parseInt(coordYInput.value, 10);
-
-        if (isNaN(x) || isNaN(y)) {
-            showToast('Please enter valid X and Y coordinates.');
-            return;
-        }
-
-        // Pan the canvas to center the specified point without changing the zoom
-        const zoom = canvas.getZoom();
-        const newX = -x * zoom + canvas.getWidth() / 2;
-        const newY = -y * zoom + canvas.getHeight() / 2;
+        this.state = new AppState();
+        this.canvasController = new CanvasController(this.state, null, null);
+        this.uiManager = new UIManager(this.state, this.canvasController, null);
+        this.fileSystem = new FileSystem(this.state, this.uiManager, this.canvasController);
         
-        canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
-        
-        // Highlight effect
-        const highlightCircle = new fabric.Circle({
-            left: x,
-            top: y,
-            radius: 0,
-            fill: 'transparent',
-            stroke: 'yellow',
-            strokeWidth: 3,
-            originX: 'center',
-            originY: 'center',
-            selectable: false,
-            evented: false,
-        });
-        canvas.add(highlightCircle);
+        // Inject dependencies
+        this.canvasController.uiManager = this.uiManager;
+        this.canvasController.fileSystem = this.fileSystem;
+        this.uiManager.fileSystem = this.fileSystem;
 
-        highlightCircle.animate('radius', 50 / zoom, { // Make radius consistent regardless of zoom
-            onChange: canvas.renderAll.bind(canvas),
-            duration: 500,
-            easing: fabric.util.ease.easeOutQuad,
-            onComplete: () => {
-                highlightCircle.animate('opacity', 0, {
-                    onChange: canvas.renderAll.bind(canvas),
-                    duration: 300,
-                    onComplete: () => canvas.remove(highlightCircle),
-                });
-            }
-        });
-        canvas.fire('zoom:updated');
+        this.eventManager = new EventManager(this.state, this.uiManager, this.fileSystem, this.canvasController);
+        
+        this.init();
     }
 
-    goToCoordsBtn.addEventListener('click', goToCoords);
-    coordXInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') goToCoords(); });
-    coordYInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') goToCoords(); });
-
-
-    canvas.on('mouse:wheel', opt => {
-        const delta = opt.e.deltaY;
-        let zoom = canvas.getZoom();
-        zoom *= 0.999 ** delta;
-        if (zoom > 20) zoom = 20;
-        if (zoom < 0.1) zoom = 0.1;
-        canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
-        opt.e.preventDefault();
-        opt.e.stopPropagation();
-        canvas.fire('zoom:updated');
-    });
-    canvas.on('mouse:down', opt => {
-        const evt = opt.e;
-        // Pan with Alt or Ctrl key
-        if (evt.altKey || evt.ctrlKey) {
-            canvas.isDragging = true;
-            canvas.selection = false;
-            canvas.lastPosX = evt.clientX;
-            canvas.lastPosY = evt.clientY;
-        }
-    });
-    canvas.on('mouse:move', opt => {
-        if (canvas.isDragging) {
-            const vpt = canvas.viewportTransform;
-            vpt[4] += opt.e.clientX - canvas.lastPosX;
-            vpt[5] += opt.e.clientY - canvas.lastPosY;
-            canvas.requestRenderAll();
-            canvas.lastPosX = opt.e.clientX;
-            canvas.lastPosY = opt.e.clientY;
-        }
-    });
-    canvas.on('mouse:up', () => {
-        if (canvas.isDragging) {
-            canvas.setViewportTransform(canvas.viewportTransform);
-            canvas.isDragging = false;
-            canvas.selection = true;
-        }
-    });
-    zoomInBtn.addEventListener('click', () => zoom(1.2));
-    zoomOutBtn.addEventListener('click', () => zoom(0.8));
-    resetZoomBtn.addEventListener('click', () => resetZoom());
-    function zoom(factor) {
-        const center = canvas.getCenter();
-        canvas.zoomToPoint(new fabric.Point(center.left, center.top), canvas.getZoom() * factor);
-        canvas.fire('zoom:updated');
+    init() {
+        this.eventManager.bindEventListeners();
+        this.canvasController.setMode(this.state.currentMode);
     }
-    function resetZoom() {
-        if (!currentImage) return;
-        const containerWidth = canvasContainer.offsetWidth;
-        const containerHeight = canvasContainer.offsetHeight;
-        const imgWidth = currentImage.width;
-        const imgHeight = currentImage.height;
+}
 
-        const scale = Math.min(containerWidth / imgWidth, containerHeight / imgHeight) * 0.95; // 95% padding
-        
-        canvas.setZoom(scale);
-        canvas.viewportTransform[4] = (containerWidth - imgWidth * scale) / 2;
-        canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
-        canvas.requestRenderAll();
-        canvas.fire('zoom:updated');
-    }
-
-    // --- Initial Setup ---
-    setMode(currentMode);
-});
+document.addEventListener('DOMContentLoaded', () => new App());
