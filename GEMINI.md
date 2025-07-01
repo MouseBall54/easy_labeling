@@ -43,3 +43,12 @@ The application is primarily a client-side tool that runs in modern web browsers
 *   **YOLO Format**: Labels are saved in the YOLO format: `<class_id> <x_center> <y_center> <width> <height>`, with values normalized to the image dimensions and stored with high precision (10 decimal places).
 
 *   **Auto-Save**: Changes to labels (creation, modification, deletion) trigger an automatic save to the corresponding `.txt` file if the feature is enabled.
+
+## 4. Gemini Work Log
+
+This section documents the work done by the Gemini assistant.
+
+*   **[2025-07-01]**:
+    *   Initialized the work log.
+    *   Reviewed the project structure and functionality to understand the codebase.
+    *   The assistant's role is to understand user requests, modify the code, and document all changes in this file.
