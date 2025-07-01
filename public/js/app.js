@@ -267,7 +267,6 @@ class UIManager {
                 const index = parseInt(btn.dataset.index, 10);
                 this.canvasController.removeObject(rects[index]);
                 this.updateLabelList();
-                this.fileSystem.triggerAutoSave();
             });
         });
     }
@@ -348,7 +347,6 @@ class UIManager {
             const destIndex = parseInt(e.target.closest('li').dataset.index, 10);
             this.canvasController.reorderObject(srcIndex, destIndex);
             this.updateLabelList();
-            this.fileSystem.triggerAutoSave();
         }
     }
 
@@ -402,6 +400,10 @@ class FileSystem {
     }
 
     async loadImageAndLabels(imageFileHandle) {
+        if (this.state.isAutoSaveEnabled && this.state.currentImageFile) {
+            await this.saveLabels(true);
+        }
+
         // Cancel any pending auto-save before loading a new image
         clearTimeout(this.state.saveTimeout);
 
@@ -505,11 +507,6 @@ class FileSystem {
         }
     }
 
-    triggerAutoSave() {
-        if (!this.state.isAutoSaveEnabled) return;
-        clearTimeout(this.state.saveTimeout);
-        this.state.saveTimeout = setTimeout(() => this.saveLabels(true), 1000);
-    }
 }
 
 
@@ -669,7 +666,6 @@ class CanvasController {
             const color = getColorForClass(finalLabel);
             this.currentRect.set({ fill: `${color}33`, stroke: color });
             this.uiManager.updateLabelList();
-            this.fileSystem.triggerAutoSave();
         }
         this.currentRect = null;
     }
@@ -697,7 +693,6 @@ class CanvasController {
             rect.originalYolo = null; // Mark as modified
             this.uiManager.updateLabelList();
             this.renderAll();
-            this.fileSystem.triggerAutoSave();
         }
     }
 
@@ -825,7 +820,6 @@ class EventManager {
         this.ui.elements.autoSaveToggle.addEventListener('change', (e) => {
             this.state.isAutoSaveEnabled = e.target.checked;
             showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
-            if (this.state.isAutoSaveEnabled) this.fileSystem.triggerAutoSave();
         });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
@@ -857,11 +851,9 @@ class EventManager {
 
         this.canvas.canvas.on('object:modified', (e) => {
             markAsModified(e);
-            this.fileSystem.triggerAutoSave();
         });
         this.canvas.canvas.on('object:scaled', (e) => {
             markAsModified(e);
-            this.fileSystem.triggerAutoSave();
         });
 
         this.canvas.canvas.on('selection:created', (e) => this.canvas.updateSelectionLabel(e));
@@ -977,7 +969,6 @@ class EventManager {
             const sel = new fabric.ActiveSelection(newObjects, { canvas: this.canvas.canvas });
             this.canvas.canvas.setActiveObject(sel).requestRenderAll();
             this.ui.updateLabelList();
-            this.fileSystem.triggerAutoSave();
         }, ['labelClass', 'originalYolo']);
     }
 
@@ -985,7 +976,6 @@ class EventManager {
         this.canvas.canvas.getActiveObjects().forEach(obj => this.canvas.removeObject(obj));
         this.canvas.canvas.discardActiveObject().renderAll();
         this.ui.updateLabelList();
-        this.fileSystem.triggerAutoSave();
     }
 
     changeSelectedClasses() {
@@ -1015,7 +1005,6 @@ class EventManager {
         
         this.canvas.renderAll();
         this.ui.updateLabelList();
-        this.fileSystem.triggerAutoSave();
     }
 
     navigateImage(direction) {
