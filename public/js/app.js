@@ -400,6 +400,9 @@ class FileSystem {
     }
 
     async loadImageAndLabels(imageFile) {
+        // Cancel any pending auto-save before loading a new image
+        clearTimeout(this.state.saveTimeout);
+
         this.state.currentLoadToken++;
         const loadToken = this.state.currentLoadToken;
 
