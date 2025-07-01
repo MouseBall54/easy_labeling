@@ -636,11 +636,13 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.fire('zoom:updated');
     });
     canvas.on('mouse:down', opt => {
-        if (opt.e.altKey) {
+        const evt = opt.e;
+        // Pan with Alt key or if in edit mode and clicking on empty space
+        if (evt.altKey || (currentMode === 'edit' && !opt.target)) {
             canvas.isDragging = true;
             canvas.selection = false;
-            canvas.lastPosX = opt.e.clientX;
-            canvas.lastPosY = opt.e.clientY;
+            canvas.lastPosX = evt.clientX;
+            canvas.lastPosY = evt.clientY;
         }
     });
     canvas.on('mouse:move', opt => {
