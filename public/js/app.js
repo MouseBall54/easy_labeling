@@ -227,15 +227,18 @@ document.addEventListener('DOMContentLoaded', () => {
         rects.forEach(rect => {
             const labelClass = rect.labelClass || '0';
             
-            // Use getBoundingRect() to get the absolute position and dimensions,
-            // which correctly accounts for scaling. This fixes issues with saving scaled objects.
-            const bound = rect.getBoundingRect();
+            // When objects are in a group (active selection), their left/top properties are relative.
+            // We need to calculate the absolute position for saving.
+            const center = rect.getCenterPoint(); // Gets absolute center
+            const width = rect.getScaledWidth();
+            const height = rect.getScaledHeight();
 
-            const x_center = (bound.left + bound.width / 2) / imgWidth;
-            const y_center = (bound.top + bound.height / 2) / imgHeight;
-            const width = bound.width / imgWidth;
-            const height = bound.height / imgHeight;
-            yoloString += `${labelClass} ${x_center.toFixed(6)} ${y_center.toFixed(6)} ${width.toFixed(6)} ${height.toFixed(6)}\n`;
+            const x_center = center.x / imgWidth;
+            const y_center = center.y / imgHeight;
+            const normWidth = width / imgWidth;
+            const normHeight = height / imgHeight;
+            
+            yoloString += `${labelClass} ${x_center.toFixed(6)} ${y_center.toFixed(6)} ${normWidth.toFixed(6)} ${normHeight.toFixed(6)}\n`;
         });
 
         const labelFileName = currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
@@ -363,13 +366,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         selectedObjects.forEach(activeObject => {
             if (activeObject.type === 'rect' && activeObject.labelClass) {
-                // Use aCoords which provides absolute coordinates of the object's corners,
+                // Use getBoundingRect(true) to get the absolute coordinates of the object,
                 // which works correctly even for grouped and transformed objects.
-                const topLeft = activeObject.aCoords.tl;
+                const bound = activeObject.getBoundingRect(true);
 
                 const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                    left: topLeft.x,
-                    top: topLeft.y - (20 / zoom), // Position above the box
+                    left: bound.left,
+                    top: bound.top - (20 / zoom), // Position above the box
                     fontSize: 16 / zoom,
                     fill: 'black',
                     backgroundColor: 'rgba(255, 255, 255, 0.7)',
