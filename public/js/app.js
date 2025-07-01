@@ -234,9 +234,13 @@ document.addEventListener('DOMContentLoaded', () => {
         rects.forEach(rect => {
             const labelClass = rect.labelClass || '0';
             
-            // When objects are in a group (active selection), their left/top properties are relative.
-            // We need to calculate the absolute position for saving.
-            const center = rect.getCenterPoint(); // Gets absolute center
+            // When objects are transformed as part of a group (active selection),
+            // their coordinates might not be immediately updated.
+            // Calling setCoords() ensures that properties like aCoords, oCoords, etc., are recalculated.
+            rect.setCoords();
+
+            // After setCoords(), getCenterPoint() will give the correct absolute center.
+            const center = rect.getCenterPoint();
             const width = rect.getScaledWidth();
             const height = rect.getScaledHeight();
 
@@ -245,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const normWidth = width / imgWidth;
             const normHeight = height / imgHeight;
             
-            yoloString += `${labelClass} ${x_center.toFixed(10)} ${y_center.toFixed(10)} ${normWidth.toFixed(10)} ${normHeight.toFixed(10)}
+            yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
 `;
         });
 
