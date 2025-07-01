@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const mouseCoordsDisplay = document.getElementById('mouse-coords');
     const coordXInput = document.getElementById('coordX');
     const coordYInput = document.getElementById('coordY');
-    const goToCoordsBtn = document.getElementById('goToCoordsBtn');
+    const currentImageNameSpan = document.getElementById('current-image-name');
 
 
     // --- Toast Notification ---
@@ -125,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const loadToken = ++currentLoadToken;
 
         currentImageFile = imageFile;
+        currentImageNameSpan.textContent = imageFile.name; // Update the navbar
         const file = await imageFile.getFile();
 
         const setBackgroundImage = (img) => {
@@ -157,8 +158,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        // Update active item in the list and scroll it into view
         document.querySelectorAll('#image-list .list-group-item').forEach(item => {
-            item.classList.toggle('active', item.textContent === imageFile.name);
+            const isActive = item.textContent === imageFile.name;
+            item.classList.toggle('active', isActive);
+            if (isActive) {
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         });
     }
 
@@ -353,50 +359,41 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Show Class on Selection ---
-    let activeLabelTexts = [];
+    let activeLabelText = null;
     canvas.on('selection:created', updateSelectionLabel);
     canvas.on('selection:updated', updateSelectionLabel);
     canvas.on('selection:cleared', clearSelectionLabel);
 
     function updateSelectionLabel(e) {
         clearSelectionLabel();
-        const selectedObjects = e.selected;
-        if (!selectedObjects || selectedObjects.length === 0) return;
-
-        const zoom = canvas.getZoom();
+        // Only show label for single selections
+        if (e.selected.length !== 1) {
+            return;
+        }
+        const activeObject = e.selected[0];
         
-        // Force recalculation of canvas offsets and object coordinates
-        canvas.calcOffset();
-        selectedObjects.forEach(obj => obj.setCoords());
-
-        selectedObjects.forEach(activeObject => {
-            if (activeObject.type === 'rect' && activeObject.labelClass) {
-                // Use getBoundingRect(true) to get the absolute coordinates of the object,
-                // which works correctly even for grouped and transformed objects.
-                const bound = activeObject.getBoundingRect(true);
-
-                const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                    left: bound.left,
-                    top: bound.top - (20 / zoom), // Position above the box
-                    fontSize: 16 / zoom,
-                    fill: 'black',
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                    padding: 2 / zoom,
-                    selectable: false,
-                    evented: false,
-                });
-                activeLabelTexts.push(text);
-                canvas.add(text);
-            }
-        });
-        canvas.requestRenderAll();
+        if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
+            const zoom = canvas.getZoom();
+            const text = new fabric.Text('Class: ' + activeObject.labelClass, {
+                left: activeObject.left,
+                top: activeObject.top - 20 / zoom, // Position above the box
+                fontSize: 16 / zoom,
+                fill: 'black',
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                padding: 2 / zoom,
+                selectable: false,
+                evented: false,
+            });
+            activeLabelText = text;
+            canvas.add(activeLabelText);
+        }
     }
 
     function clearSelectionLabel() {
-        activeLabelTexts.forEach(text => canvas.remove(text));
-        activeLabelTexts = [];
-        // Use requestRenderAll here as well to avoid unnecessary renders if another update follows quickly.
-        canvas.requestRenderAll();
+        if (activeLabelText) {
+            canvas.remove(activeLabelText);
+            activeLabelText = null;
+        }
     }
 
     // --- Info Display & Canvas Events ---
