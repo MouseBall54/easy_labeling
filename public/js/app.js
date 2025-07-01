@@ -114,8 +114,20 @@ class UIManager {
     updateLabelList() {
         this.elements.labelList.innerHTML = '';
         const rects = this.canvasController.getObjects('rect');
+
+        // Calculate average area and identify issue boxes
+        if (rects.length > 0) {
+            const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
+            const averageArea = totalArea / rects.length;
+            const threshold = averageArea * 0.5;
+            rects.forEach(rect => {
+                const area = rect.getScaledWidth() * rect.getScaledHeight();
+                rect.isIssue = area < threshold;
+            });
+        }
         
         this.updateLabelFilters(rects);
+        this.canvasController.highlightIssueBoxes();
 
         rects.forEach((rect, index) => {
             const li = document.createElement('li');
@@ -125,7 +137,9 @@ class UIManager {
             li.dataset.index = index;
 
             const color = getColorForClass(rect.labelClass);
-            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Class: ${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            const issueIcon = rect.isIssue ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>' : '';
+            
+            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Class: ${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
@@ -141,25 +155,84 @@ class UIManager {
         });
 
         this.addEditDeleteListeners(rects);
+        
+        // After list is built, re-apply the current filter state without triggering new clicks
+        const activeClassFilters = new Set();
+        this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
+            activeClassFilters.add(btn.dataset.labelClass);
+        });
+        const issueFilterActive = this.elements.labelFilters.querySelector('.btn-warning.active');
+        rects.forEach((rect, index) => {
+            let isVisible = true;
+            if (issueFilterActive) {
+                isVisible = rect.isIssue;
+            } else if (activeClassFilters.size > 0) {
+                isVisible = activeClassFilters.has(rect.labelClass);
+            }
+            const listItem = document.getElementById(`label-item-${index}`);
+            if (listItem) {
+                listItem.style.display = isVisible ? '' : 'none';
+            }
+        });
     }
     
     updateLabelFilters(rects) {
         this.elements.labelFilters.innerHTML = '';
         const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+        const hasIssues = rects.some(r => r.isIssue);
+
+        const applyFilters = () => {
+            const activeClassFilters = new Set();
+            this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
+                activeClassFilters.add(btn.dataset.labelClass);
+            });
+
+            const issueFilterActive = this.elements.labelFilters.querySelector('.btn-warning.active');
+
+            rects.forEach((rect, index) => {
+                let isVisible = true;
+                if (issueFilterActive) {
+                    isVisible = rect.isIssue;
+                } else if (activeClassFilters.size > 0) {
+                    isVisible = activeClassFilters.has(rect.labelClass);
+                }
+                
+                rect.set('visible', isVisible);
+                const listItem = document.getElementById(`label-item-${index}`);
+                if (listItem) {
+                    listItem.style.display = isVisible ? '' : 'none';
+                }
+            });
+            this.canvasController.renderAll();
+        };
+
+        if (hasIssues) {
+            const issueBtn = document.createElement('button');
+            issueBtn.className = 'btn btn-sm btn-warning me-1 mb-1';
+            issueBtn.textContent = 'Issue Labels';
+            issueBtn.addEventListener('click', () => {
+                const isActivating = !issueBtn.classList.contains('active');
+                // Deactivate all other filters when activating issue filter
+                if (isActivating) {
+                    this.elements.labelFilters.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
+                }
+                issueBtn.classList.toggle('active', isActivating);
+                applyFilters();
+            });
+            this.elements.labelFilters.appendChild(issueBtn);
+        }
 
         if (uniqueClasses.length > 1) {
             const allBtn = document.createElement('button');
             allBtn.className = 'btn btn-sm btn-primary me-1 mb-1';
             allBtn.textContent = 'All';
             allBtn.addEventListener('click', () => {
-                const allActive = document.querySelectorAll('#label-filters .btn.active').length === uniqueClasses.length;
-                document.querySelectorAll('#label-filters .btn[data-label-class]').forEach(btn => {
-                    btn.classList.toggle('active', !allActive);
-                    const isActive = btn.classList.contains('active');
-                    const rectsToToggle = this.canvasController.getObjects('rect').filter(r => r.labelClass === btn.dataset.labelClass);
-                    rectsToToggle.forEach(r => r.set('visible', isActive));
-                });
-                this.canvasController.renderAll();
+                const allActive = !this.elements.labelFilters.querySelector('.btn[data-label-class]:not(.active)');
+                this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').forEach(btn => btn.classList.toggle('active', !allActive));
+                if (this.elements.labelFilters.querySelector('.btn-warning')) {
+                    this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
+                }
+                applyFilters();
             });
             this.elements.labelFilters.appendChild(allBtn);
         }
@@ -172,10 +245,10 @@ class UIManager {
 
             btn.addEventListener('click', () => {
                 btn.classList.toggle('active');
-                const isActive = btn.classList.contains('active');
-                const rectsToToggle = this.canvasController.getObjects('rect').filter(r => r.labelClass === labelClass);
-                rectsToToggle.forEach(r => r.set('visible', isActive));
-                this.canvasController.renderAll();
+                if (this.elements.labelFilters.querySelector('.btn-warning')) {
+                    this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
+                }
+                applyFilters();
             });
             this.elements.labelFilters.appendChild(btn);
         });
@@ -514,7 +587,8 @@ class CanvasController {
             const labelClass = rect.labelClass || '0';
             if (rect.originalYolo) {
                 const { x_center, y_center, width, height } = rect.originalYolo;
-                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}\n`;
+                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}
+`;
             } else {
                 rect.setCoords();
                 const center = rect.getCenterPoint();
@@ -524,10 +598,31 @@ class CanvasController {
                 const y_center = center.y / imgHeight;
                 const normWidth = width / imgWidth;
                 const normHeight = height / imgHeight;
-                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
+                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
+`;
             }
         });
         return yoloString;
+    }
+
+    highlightIssueBoxes() {
+        const rects = this.getObjects('rect');
+        rects.forEach(rect => {
+            if (rect.isIssue) {
+                rect.set({
+                    stroke: '#FFA500', // Bright Orange
+                    strokeWidth: 3
+                });
+            } else {
+                // Revert to normal style based on class
+                const color = getColorForClass(rect.labelClass);
+                rect.set({
+                    stroke: color,
+                    strokeWidth: 2
+                });
+            }
+        });
+        this.renderAll();
     }
 
     // Drawing
