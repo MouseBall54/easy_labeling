@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectImageFolderBtn = document.getElementById('selectImageFolderBtn');
     const selectLabelFolderBtn = document.getElementById('selectLabelFolderBtn');
     const imageList = document.getElementById('image-list');
+    const imageSearchInput = document.getElementById('imageSearchInput');
     const saveLabelsBtn = document.getElementById('saveLabelsBtn');
     const autoSaveToggle = document.getElementById('autoSaveToggle');
     const drawModeBtn = document.getElementById('drawMode');
@@ -61,8 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentMode = 'draw';
     let isAutoSaveEnabled = false;
     let saveTimeout = null;
+    let currentLoadToken = 0; // Token to handle race conditions
 
-    // --- Folder Selection ---
+    // --- Folder Selection & File Search ---
     selectImageFolderBtn.addEventListener('click', async () => {
         try {
             imageFolderHandle = await window.showDirectoryPicker();
@@ -90,41 +92,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 imageFiles.push(entry);
             }
         }
-        imageList.innerHTML = '';
-        imageFiles.forEach(file => {
-            const a = document.createElement('a');
-            a.href = '#';
-            a.className = 'list-group-item list-group-item-action';
-            a.textContent = file.name;
-            a.addEventListener('click', (e) => {
-                e.preventDefault();
-                loadImageAndLabels(file);
-            });
-            imageList.appendChild(a);
-        });
+        renderImageList();
     }
+
+    function renderImageList() {
+        const searchTerm = imageSearchInput.value.toLowerCase();
+        imageList.innerHTML = '';
+        imageFiles
+            .filter(file => file.name.toLowerCase().includes(searchTerm))
+            .forEach(file => {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'list-group-item list-group-item-action';
+                a.textContent = file.name;
+                if (currentImageFile && file.name === currentImageFile.name) {
+                    a.classList.add('active');
+                }
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadImageAndLabels(file);
+                });
+                imageList.appendChild(a);
+            });
+    }
+
+    imageSearchInput.addEventListener('input', renderImageList);
+
 
     // --- Image and Label Loading ---
     async function loadImageAndLabels(imageFile) {
+        const loadToken = ++currentLoadToken;
+
         currentImageFile = imageFile;
         const file = await imageFile.getFile();
 
-        canvas.clear();
-        labelList.innerHTML = '';
-        labelFilters.innerHTML = '';
-
         const setBackgroundImage = (img) => {
+            if (loadToken !== currentLoadToken) return; // A new image was requested, abort.
             currentImage = img;
+            canvas.clear(); // Clear canvas only when we are sure to render the new image
+            labelList.innerHTML = '';
+            labelFilters.innerHTML = '';
             canvas.setWidth(canvasContainer.offsetWidth);
             canvas.setHeight(canvasContainer.offsetHeight);
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
             resetZoom();
-            loadLabels(imageFile.name);
+            loadLabels(imageFile.name, loadToken);
         };
 
         if (/\.(tif|tiff)$/i.test(file.name)) {
             const reader = new FileReader();
             reader.onload = (e) => {
+                if (loadToken !== currentLoadToken) return;
                 const tiff = new Tiff({ buffer: e.target.result });
                 const tiffCanvas = tiff.toCanvas();
                 fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
@@ -143,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function loadLabels(imageName) {
+    async function loadLabels(imageName, loadToken) {
         if (!labelFolderHandle) return;
         
         const labelFileName = imageName.replace(/\.[^/.]+$/, "") + ".txt";
@@ -152,7 +170,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const file = await labelFileHandle.getFile();
             const yoloData = await file.text();
             
-            if (!yoloData) return;
+            if (loadToken !== currentLoadToken) return; // A new image was requested, abort.
+
+            if (!yoloData) {
+                updateLabelList(); // Ensure label list is cleared if no labels found
+                return;
+            }
             const lines = yoloData.split('\n').filter(line => line.trim() !== '');
             const imgWidth = currentImage.width;
             const imgHeight = currentImage.height;
@@ -178,6 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             if (err.name === 'NotFoundError') {
                 console.log(`No label file found for ${imageName}.`);
+                if (loadToken === currentLoadToken) updateLabelList(); // Still update list
             } else {
                 console.error('Error loading labels:', err);
             }
