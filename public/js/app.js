@@ -670,7 +670,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function changeSelectedClasses() {
         const activeSelection = canvas.getActiveObject();
         if (!activeSelection || activeSelection.type !== 'activeSelection') {
-            showToast('Please select multiple objects.');
+            // Handle single object selection case if needed, or just show a message for multiple.
+            const activeObject = canvas.getActiveObject();
+            if (activeObject) {
+                 const newLabel = prompt(`Enter new class for the selected object:`, activeObject.labelClass || '0');
+                 if (newLabel !== null && newLabel.trim() !== '') {
+                    const finalLabel = newLabel.trim();
+                    const color = getColorForClass(finalLabel);
+                    activeObject.set('labelClass', finalLabel);
+                    activeObject.set({ fill: `${color}33`, stroke: color });
+                    canvas.renderAll();
+                    updateLabelList();
+                    triggerAutoSave();
+                 }
+            } else {
+                showToast('Please select one or more objects.');
+            }
             return;
         }
 
@@ -679,22 +694,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const finalLabel = newLabel.trim();
             const color = getColorForClass(finalLabel);
             
-            // Ungroup, modify, then regroup to ensure coordinates are preserved.
-            activeSelection.toActiveSelection();
-            const objects = activeSelection.getObjects();
-            canvas.discardActiveObject();
-
-            objects.forEach(obj => {
+            // Iterate over objects in the selection and change only their class and color.
+            // This avoids ungrouping and preserves all transform data.
+            activeSelection.forEachObject(obj => {
                 if (obj.type === 'rect') {
                     obj.set('labelClass', finalLabel);
                     obj.set({ fill: `${color}33`, stroke: color });
                 }
             });
-
-            const newSelection = new fabric.ActiveSelection(objects, {
-                canvas: canvas,
-            });
-            canvas.setActiveObject(newSelection);
+            
             canvas.renderAll();
             updateLabelList();
             triggerAutoSave();
