@@ -226,10 +226,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         rects.forEach(rect => {
             const labelClass = rect.labelClass || '0';
-            const x_center = (rect.left + rect.width / 2) / imgWidth;
-            const y_center = (rect.top + rect.height / 2) / imgHeight;
-            const width = rect.width / imgWidth;
-            const height = rect.height / imgHeight;
+            
+            // Use getBoundingRect() to get the absolute position and dimensions,
+            // which correctly accounts for scaling. This fixes issues with saving scaled objects.
+            const bound = rect.getBoundingRect();
+
+            const x_center = (bound.left + bound.width / 2) / imgWidth;
+            const y_center = (bound.top + bound.height / 2) / imgHeight;
+            const width = bound.width / imgWidth;
+            const height = bound.height / imgHeight;
             yoloString += `${labelClass} ${x_center.toFixed(6)} ${y_center.toFixed(6)} ${width.toFixed(6)} ${height.toFixed(6)}\n`;
         });
 
@@ -344,36 +349,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Show Class on Selection ---
-    let activeLabelText = null;
+    let activeLabelTexts = [];
     canvas.on('selection:created', updateSelectionLabel);
     canvas.on('selection:updated', updateSelectionLabel);
     canvas.on('selection:cleared', clearSelectionLabel);
 
     function updateSelectionLabel(e) {
         clearSelectionLabel();
-        const activeObject = e.selected[0];
-        if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-            const zoom = canvas.getZoom();
-            const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                left: activeObject.left,
-                top: activeObject.top - 20 / zoom, // Position above the box
-                fontSize: 16 / zoom,
-                fill: 'black',
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                padding: 2 / zoom,
-                selectable: false,
-                evented: false,
-            });
-            activeLabelText = text;
-            canvas.add(activeLabelText);
-        }
+        const selectedObjects = e.selected;
+        if (!selectedObjects || selectedObjects.length === 0) return;
+
+        const zoom = canvas.getZoom();
+
+        selectedObjects.forEach(activeObject => {
+            if (activeObject.type === 'rect' && activeObject.labelClass) {
+                // Use aCoords which provides absolute coordinates of the object's corners,
+                // which works correctly even for grouped and transformed objects.
+                const topLeft = activeObject.aCoords.tl;
+
+                const text = new fabric.Text('Class: ' + activeObject.labelClass, {
+                    left: topLeft.x,
+                    top: topLeft.y - (20 / zoom), // Position above the box
+                    fontSize: 16 / zoom,
+                    fill: 'black',
+                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                    padding: 2 / zoom,
+                    selectable: false,
+                    evented: false,
+                });
+                activeLabelTexts.push(text);
+                canvas.add(text);
+            }
+        });
+        canvas.renderAll();
     }
 
     function clearSelectionLabel() {
-        if (activeLabelText) {
-            canvas.remove(activeLabelText);
-            activeLabelText = null;
-        }
+        activeLabelTexts.forEach(text => canvas.remove(text));
+        activeLabelTexts = [];
+        canvas.renderAll();
     }
 
     // --- Info Display & Canvas Events ---
