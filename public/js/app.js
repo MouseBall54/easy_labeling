@@ -366,15 +366,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         selectedObjects.forEach(activeObject => {
             if (activeObject.type === 'rect' && activeObject.labelClass) {
-                // When an object is part of a group (activeSelection), its coordinates
-                // are relative to the group. To get the absolute position on the canvas,
-                // we must call setCoords() to update the aCoords property.
-                activeObject.setCoords();
-                const topLeft = activeObject.aCoords.tl;
+                // To get the absolute position of an object within a group (activeSelection),
+                // we need to calculate its transformation matrix relative to the canvas.
+                // This is done by combining the group's transformation with the object's own transformation.
+                const transform = activeObject.group ?
+                    fabric.util.multiplyTransformMatrices(activeObject.group.calcTransformMatrix(), activeObject.calcTransformMatrix()) :
+                    activeObject.calcTransformMatrix();
+
+                // The object's origin is its center. To find the top-left corner,
+                // we transform a point at (-width/2, -height/2) from the object's local coordinates
+                // to the canvas's absolute coordinates.
+                const localPoint = new fabric.Point(-activeObject.width / 2, -activeObject.height / 2);
+                const absolutePoint = fabric.util.transformPoint(localPoint, transform);
 
                 const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                    left: topLeft.x,
-                    top: topLeft.y - (20 / zoom), // Position above the box
+                    left: absolutePoint.x,
+                    top: absolutePoint.y - (20 / zoom), // Position above the box
                     fontSize: 16 / zoom,
                     fill: 'black',
                     backgroundColor: 'rgba(255, 255, 255, 0.7)',
@@ -386,14 +393,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.add(text);
             }
         });
-        // Use requestRenderAll for better performance, as this event can fire rapidly.
         canvas.requestRenderAll();
     }
 
     function clearSelectionLabel() {
         activeLabelTexts.forEach(text => canvas.remove(text));
         activeLabelTexts = [];
-        canvas.renderAll(); // Render immediately after clearing
+        // Use requestRenderAll here as well to avoid unnecessary renders if another update follows quickly.
+        canvas.requestRenderAll();
     }
 
     // --- Info Display & Canvas Events ---
