@@ -28,6 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvasContainer = document.querySelector('.canvas-container');
     const zoomLevelDisplay = document.getElementById('zoom-level');
     const mouseCoordsDisplay = document.getElementById('mouse-coords');
+    const coordXInput = document.getElementById('coordX');
+    const coordYInput = document.getElementById('coordY');
+    const goToCoordsBtn = document.getElementById('goToCoordsBtn');
+
 
     // --- Toast Notification ---
     function showToast(message, duration = 3000) {
@@ -563,6 +567,59 @@ document.addEventListener('DOMContentLoaded', () => {
             triggerAutoSave();
         }
     }
+
+    // --- Go to Coordinates and Highlight ---
+    function goToCoords() {
+        if (!currentImage) {
+            showToast('Please load an image first.');
+            return;
+        }
+        const x = parseInt(coordXInput.value, 10);
+        const y = parseInt(coordYInput.value, 10);
+
+        if (isNaN(x) || isNaN(y)) {
+            showToast('Please enter valid X and Y coordinates.');
+            return;
+        }
+
+        // Zoom in to a fixed level (e.g., 2x) and center on the point
+        const zoomLevel = 2;
+        canvas.zoomToPoint(new fabric.Point(x, y), zoomLevel);
+        
+        // Highlight effect
+        const highlightCircle = new fabric.Circle({
+            left: x,
+            top: y,
+            radius: 0,
+            fill: 'transparent',
+            stroke: 'yellow',
+            strokeWidth: 3,
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+        });
+        canvas.add(highlightCircle);
+
+        highlightCircle.animate('radius', 50, {
+            onChange: canvas.renderAll.bind(canvas),
+            duration: 500,
+            easing: fabric.util.ease.easeOutQuad,
+            onComplete: () => {
+                highlightCircle.animate('opacity', 0, {
+                    onChange: canvas.renderAll.bind(canvas),
+                    duration: 300,
+                    onComplete: () => canvas.remove(highlightCircle),
+                });
+            }
+        });
+        canvas.fire('zoom:updated');
+    }
+
+    goToCoordsBtn.addEventListener('click', goToCoords);
+    coordXInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') goToCoords(); });
+    coordYInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') goToCoords(); });
+
 
     canvas.on('mouse:wheel', opt => {
         const delta = opt.e.deltaY;
