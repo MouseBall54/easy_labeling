@@ -22,8 +22,24 @@ The application is primarily a client-side tool that runs in modern web browsers
 
 ## 3. Key Architectural Patterns & Conventions
 
-*   **Client-Side Heavy**: Almost all logic (file reading, canvas drawing, label saving) is handled in the browser. The server is just a static file provider.
+*   **UI Layout**:
+    *   The application uses a **three-panel layout** managed by Flexbox.
+    *   **Left Panel (`#left-panel`)**: Contains file/folder selection, image list, and primary controls (save, zoom, mode).
+    *   **Center Panel (`#canvas-container`)**: The main canvas area for image display and annotation.
+    *   **Right Panel (`#right-panel`)**: Displays label filters and the list of labels for the current image.
+    *   Both left and right panels are resizable using custom splitter elements (`#left-splitter`, `#right-splitter`).
+
+*   **Client-Side Heavy**: Almost all logic (file reading, canvas drawing, label saving) is handled in the browser.
+
 *   **State Management**: Application state (e.g., selected folders, current image, labels) is managed using variables within the main `DOMContentLoaded` event listener scope in `app.js`.
+
 *   **Event-Driven**: The application relies heavily on DOM events and Fabric.js canvas events (e.g., `mouse:down`, `object:modified`, `selection:created`) to trigger actions.
-*   **YOLO Format**: Labels are saved in the YOLO format: `<class_id> <x_center> <y_center> <width> <height>`, with values normalized to the image dimensions.
+
+*   **Key UI Features**:
+    *   **Synced Selections**: Selecting a bounding box on the canvas automatically highlights and scrolls to the corresponding item in the right-hand label list, and vice-versa.
+    *   **Natural Sort**: The image file list is sorted using natural sort order (`localeCompare`), so `image2.jpg` comes before `image10.jpg`.
+    *   **Navbar Info Display**: The top navigation bar shows the currently loaded image name and provides controls for coordinate-based navigation and zoom level display.
+
+*   **YOLO Format**: Labels are saved in the YOLO format: `<class_id> <x_center> <y_center> <width> <height>`, with values normalized to the image dimensions and stored with high precision (10 decimal places).
+
 *   **Auto-Save**: Changes to labels (creation, modification, deletion) trigger an automatic save to the corresponding `.txt` file if the feature is enabled.
