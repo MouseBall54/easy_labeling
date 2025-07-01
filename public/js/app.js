@@ -82,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
         imageFiles = [];
         imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
         for await (const entry of imageFolderHandle.values()) {
-            if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif)$/i.test(entry.name)) {
+            if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
                 imageFiles.push(entry);
             }
         }
@@ -104,34 +104,43 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadImageAndLabels(imageFile) {
         currentImageFile = imageFile;
         const file = await imageFile.getFile();
-        const url = URL.createObjectURL(file);
 
-        // Clear canvas and label list before loading new image
         canvas.clear();
         labelList.innerHTML = '';
         labelFilters.innerHTML = '';
 
-        fabric.Image.fromURL(url, (img) => {
+        const setBackgroundImage = (img) => {
             currentImage = img;
-            
-            // Set canvas dimensions to match container, not image
             canvas.setWidth(canvasContainer.offsetWidth);
             canvas.setHeight(canvasContainer.offsetHeight);
-
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
-            resetZoom(); // This will fit the image to the new canvas size
+            resetZoom();
             loadLabels(imageFile.name);
-            URL.revokeObjectURL(url);
-        });
+        };
 
-        // Highlight selected image
+        if (/\.(tif|tiff)$/i.test(file.name)) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const tiff = new Tiff({ buffer: e.target.result });
+                const tiffCanvas = tiff.toCanvas();
+                fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            const url = URL.createObjectURL(file);
+            fabric.Image.fromURL(url, (img) => {
+                setBackgroundImage(img);
+                URL.revokeObjectURL(url);
+            });
+        }
+
         document.querySelectorAll('#image-list .list-group-item').forEach(item => {
             item.classList.toggle('active', item.textContent === imageFile.name);
         });
     }
 
     async function loadLabels(imageName) {
-        if (!labelFolderHandle) return; // Don't load labels if folder isn't selected
+        if (!labelFolderHandle) return;
         
         const labelFileName = imageName.replace(/\.[^/.]+$/, "") + ".txt";
         try {
@@ -225,7 +234,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function triggerAutoSave() {
         if (!isAutoSaveEnabled) return;
-        // Debounce save function to avoid too frequent saves
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => saveLabels(true), 1000);
     }
@@ -295,7 +303,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const imageX = Math.round(pointer.x);
         const imageY = Math.round(pointer.y);
 
-        // Check if pointer is within image bounds
         if (imageX >= 0 && imageX <= currentImage.width && imageY >= 0 && imageY <= currentImage.height) {
             mouseCoordsDisplay.textContent = `X: ${imageX}, Y: ${imageY}`;
             mouseCoordsDisplay.style.display = 'block';
@@ -313,7 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
         labelList.innerHTML = '';
         const rects = canvas.getObjects('rect');
         
-        // Update Filters
         updateLabelFilters(rects);
 
         rects.forEach((rect, index) => {
@@ -323,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
             li.dataset.index = index;
 
             const color = getColorForClass(rect.labelClass);
-            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};">&nbsp;</span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
@@ -332,7 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.setActiveObject(rects[index]).renderAll();
             });
 
-            // Drag and Drop listeners
             li.addEventListener('dragstart', handleDragStart);
             li.addEventListener('dragover', handleDragOver);
             li.addEventListener('drop', handleDrop);
@@ -347,6 +352,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateLabelFilters(rects) {
         labelFilters.innerHTML = '';
         const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+
+        if (uniqueClasses.length > 1) {
+            const allBtn = document.createElement('button');
+            allBtn.className = 'btn btn-sm btn-primary me-1 mb-1';
+            allBtn.textContent = 'All';
+            allBtn.addEventListener('click', () => {
+                const allActive = document.querySelectorAll('#label-filters .btn.active').length === uniqueClasses.length;
+                document.querySelectorAll('#label-filters .btn[data-label-class]').forEach(btn => {
+                    btn.classList.toggle('active', !allActive);
+                    const isActive = btn.classList.contains('active');
+                    const rectsToToggle = canvas.getObjects('rect').filter(r => r.labelClass === btn.dataset.labelClass);
+                    rectsToToggle.forEach(r => r.set('visible', isActive));
+                });
+                canvas.renderAll();
+            });
+            labelFilters.appendChild(allBtn);
+        }
 
         uniqueClasses.forEach(labelClass => {
             const btn = document.createElement('button');
@@ -403,17 +425,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleDragOver(e) {
-        if (e.preventDefault) {
-            e.preventDefault();
-        }
+        if (e.preventDefault) e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         return false;
     }
 
     function handleDrop(e) {
-        if (e.stopPropagation) {
-            e.stopPropagation();
-        }
+        if (e.stopPropagation) e.stopPropagation();
         if (dragSrcEl !== this) {
             const srcIndex = parseInt(dragSrcEl.dataset.index, 10);
             const destIndex = parseInt(this.dataset.index, 10);
@@ -422,7 +440,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const movedRect = rects.splice(srcIndex, 1)[0];
             rects.splice(destIndex, 0, movedRect);
 
-            // Reorder objects on canvas for correct z-indexing and saving
             rects.forEach(rect => canvas.remove(rect));
             rects.forEach(rect => canvas.add(rect));
             
@@ -436,7 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
         this.style.opacity = '1';
     }
 
-    // --- Mode, Edit, Zoom, Pan Logic (unchanged) ---
+    // --- Mode, Edit, Zoom, Pan Logic ---
     function setMode(mode) {
         currentMode = mode;
         canvas.selection = mode === 'edit';
@@ -449,27 +466,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let _clipboard = null;
     window.addEventListener('keydown', (e) => {
-        // Allow shortcuts only when not typing in an input field
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-            return;
-        }
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
         if (currentMode === 'edit' && (e.ctrlKey || e.metaKey)) {
             if (e.key === 'c') copy();
             if (e.key === 'v') paste();
+            if (e.key === 'b') changeSelectedClasses();
         }
         
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (currentMode === 'edit') deleteSelected();
         }
 
-        // Image navigation shortcuts
-        if (e.key.toLowerCase() === 'd') { // Next image
-            navigateImage(1);
-        }
-        if (e.key.toLowerCase() === 'a') { // Previous image
-            navigateImage(-1);
-        }
+        if (e.key.toLowerCase() === 'd') navigateImage(1);
+        if (e.key.toLowerCase() === 'a') navigateImage(-1);
     });
 
     function navigateImage(direction) {
@@ -481,26 +491,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         let nextIndex = currentIndex + direction;
-        if (nextIndex >= imageFiles.length) {
-            nextIndex = 0; // Wrap around to the start
-        } else if (nextIndex < 0) {
-            nextIndex = imageFiles.length - 1; // Wrap around to the end
-        }
+        if (nextIndex >= imageFiles.length) nextIndex = 0;
+        else if (nextIndex < 0) nextIndex = imageFiles.length - 1;
         
         loadImageAndLabels(imageFiles[nextIndex]);
     }
+
     function copy() {
         const activeObject = canvas.getActiveObject();
         if (!activeObject) return;
-        // Include 'labelClass' in the cloned properties
-        activeObject.clone(cloned => {
-            _clipboard = cloned;
-        }, ['labelClass']);
+        activeObject.clone(cloned => { _clipboard = cloned; }, ['labelClass']);
     }
 
     function paste() {
         if (!_clipboard) return;
-
         _clipboard.clone(cloned => {
             canvas.discardActiveObject();
             const newObjects = [];
@@ -508,11 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cloned.type === 'activeSelection') {
                 cloned.forEachObject(obj => {
                     const newObj = fabric.util.object.clone(obj);
-                    newObj.set({
-                        left: newObj.left + 10,
-                        top: newObj.top + 10,
-                        evented: true,
-                    });
+                    newObj.set({ left: newObj.left + 10, top: newObj.top + 10, evented: true });
                     const color = getColorForClass(newObj.labelClass);
                     newObj.set({ fill: `${color}33`, stroke: color });
                     canvas.add(newObj);
@@ -520,11 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } else {
                 const newObj = fabric.util.object.clone(cloned);
-                 newObj.set({
-                    left: newObj.left + 10,
-                    top: newObj.top + 10,
-                    evented: true,
-                });
+                newObj.set({ left: newObj.left + 10, top: newObj.top + 10, evented: true });
                 const color = getColorForClass(newObj.labelClass);
                 newObj.set({ fill: `${color}33`, stroke: color });
                 canvas.add(newObj);
@@ -533,7 +529,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const sel = new fabric.ActiveSelection(newObjects, { canvas: canvas });
             canvas.setActiveObject(sel).requestRenderAll();
-            
             updateLabelList();
             triggerAutoSave();
         }, ['labelClass']);
@@ -544,6 +539,29 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.discardActiveObject().renderAll();
         updateLabelList();
         triggerAutoSave();
+    }
+
+    function changeSelectedClasses() {
+        const activeObjects = canvas.getActiveObjects();
+        if (activeObjects.length === 0) {
+            showToast('No objects selected.');
+            return;
+        }
+
+        const newLabel = prompt(`Enter new class for ${activeObjects.length} selected objects:`);
+        if (newLabel !== null && newLabel.trim() !== '') {
+            const finalLabel = newLabel.trim();
+            const color = getColorForClass(finalLabel);
+            activeObjects.forEach(obj => {
+                if (obj.type === 'rect') {
+                    obj.set('labelClass', finalLabel);
+                    obj.set({ fill: `${color}33`, stroke: color });
+                }
+            });
+            canvas.renderAll();
+            updateLabelList();
+            triggerAutoSave();
+        }
     }
 
     canvas.on('mouse:wheel', opt => {
