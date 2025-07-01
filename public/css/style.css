@@ -132,11 +132,37 @@ canvas {
     display: none; /* Hide by default */
 }
 
+/* --- Drag and Drop Overlay --- */
+.canvas-container .drag-over-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 123, 255, 0.5);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: bold;
+    border: 3px dashed #fff;
+    pointer-events: none; /* Allows drop event to fire on the container */
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.canvas-container.drag-over .drag-over-overlay {
+    opacity: 1;
+}
+
 /* --- Style for buttons inside active list group items --- */
 .list-group-item.active .btn {
     color: #fff; /* Make icon/text white */
     border-color: #fff; /* Make border white */
 }
+
 
 /* Hover effect for buttons inside active list group items */
 .list-group-item.active .btn:hover {

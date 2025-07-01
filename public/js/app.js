@@ -355,6 +355,13 @@ class UIManager {
     handleDragEnd(e) {
         e.target.style.opacity = '1';
     }
+
+    createDragDropOverlay() {
+        const overlay = document.createElement('div');
+        overlay.className = 'drag-over-overlay';
+        overlay.textContent = 'Drop Image File Here';
+        this.elements.canvasContainer.appendChild(overlay);
+    }
 }
 
 
@@ -399,16 +406,21 @@ class FileSystem {
         this.uiManager.renderImageList();
     }
 
-    async loadImageAndLabels(imageFile) {
+    async loadImageAndLabels(imageFileOrHandle) {
         // Cancel any pending auto-save before loading a new image
         clearTimeout(this.state.saveTimeout);
 
         this.state.currentLoadToken++;
         const loadToken = this.state.currentLoadToken;
 
-        this.state.currentImageFile = imageFile;
-        this.uiManager.updateImageInfo(imageFile.name);
-        const file = await imageFile.getFile();
+        // A dropped file is a 'File' object, while a selected file is a 'FileSystemFileHandle'.
+        const isDroppedFile = imageFileOrHandle instanceof File;
+        
+        this.state.currentImageFile = imageFileOrHandle;
+        this.uiManager.updateImageInfo(imageFileOrHandle.name);
+        
+        // The getFile() method exists on FileSystemFileHandle but not on File.
+        const file = isDroppedFile ? imageFileOrHandle : await imageFileOrHandle.getFile();
 
         const setBackgroundImage = (img) => {
             if (loadToken !== this.state.currentLoadToken) return;
@@ -418,7 +430,10 @@ class FileSystem {
             this.uiManager.elements.labelFilters.innerHTML = '';
             this.canvasController.setBackgroundImage(img);
             this.canvasController.resetZoom();
-            this.loadLabels(imageFile.name, loadToken);
+            // Only try to load labels if it's not a dropped file (i.e., from a selected folder).
+            if (!isDroppedFile) {
+                this.loadLabels(imageFileOrHandle.name, loadToken);
+            }
         };
 
         if (/\.(tif|tiff)$/i.test(file.name)) {
@@ -437,7 +452,13 @@ class FileSystem {
                 URL.revokeObjectURL(url);
             });
         }
-        this.uiManager.setActiveImageListItem(imageFile);
+        
+        if (!isDroppedFile) {
+            this.uiManager.setActiveImageListItem(imageFileOrHandle);
+        } else {
+            // If it's a dropped file, deactivate all items in the list as it's not part of the list.
+            this.uiManager.elements.imageList.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('active'));
+        }
     }
 
     async loadLabels(imageName, loadToken) {
@@ -1031,6 +1052,67 @@ class EventManager {
 
 
 // =================================================================================
+// Drag and Drop Manager
+// =================================================================================
+
+class DragDropManager {
+    constructor(uiManager, fileSystem) {
+        this.ui = uiManager;
+        this.fileSystem = fileSystem;
+        this.dragCounter = 0;
+        this.bindDragDropListeners();
+    }
+
+    bindDragDropListeners() {
+        const canvasContainer = this.ui.elements.canvasContainer;
+        canvasContainer.addEventListener('dragenter', this.handleDragEnter.bind(this), false);
+        canvasContainer.addEventListener('dragleave', this.handleDragLeave.bind(this), false);
+        canvasContainer.addEventListener('dragover', this.handleDragOver.bind(this), false);
+        canvasContainer.addEventListener('drop', this.handleDrop.bind(this), false);
+    }
+
+    handleDragEnter(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.dragCounter++;
+        this.ui.elements.canvasContainer.classList.add('drag-over');
+    }
+
+    handleDragLeave(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.dragCounter--;
+        if (this.dragCounter === 0) {
+            this.ui.elements.canvasContainer.classList.remove('drag-over');
+        }
+    }
+
+    handleDragOver(e) {
+        // This is crucial to allow the drop event.
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    handleDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.dragCounter = 0;
+        this.ui.elements.canvasContainer.classList.remove('drag-over');
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            const file = files[0];
+            if (/\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(file.name)) {
+                this.fileSystem.loadImageAndLabels(file);
+            } else {
+                showToast('Please drop a valid image file.', 3000);
+            }
+        }
+    }
+}
+
+
+// =================================================================================
 // Main App Initialization
 // =================================================================================
 
@@ -1051,11 +1133,13 @@ class App {
         this.uiManager.fileSystem = this.fileSystem;
 
         this.eventManager = new EventManager(this.state, this.uiManager, this.fileSystem, this.canvasController);
+        this.dragDropManager = new DragDropManager(this.uiManager, this.fileSystem);
         
         this.init();
     }
 
     init() {
+        this.uiManager.createDragDropOverlay();
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
     }
