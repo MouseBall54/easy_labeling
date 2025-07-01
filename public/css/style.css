@@ -113,13 +113,6 @@ canvas {
 }
 
 
-/* Style for the new coordinate input */
-#coords-input-container {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
 #coords-input-container input {
     width: 70px;
     font-family: monospace;
@@ -131,27 +124,11 @@ canvas {
 }
 
 #info-display {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background-color: rgba(0, 0, 0, 0.6);
-    color: white;
-    padding: 5px 10px;
-    border-radius: 5px;
     font-family: monospace;
     font-size: 0.9rem;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 15px;
 }
 
 #mouse-coords {
     display: none; /* Hide by default */
-    pointer-events: none; /* Keep this non-interactive */
-}
-
-#zoom-level {
-     pointer-events: none; /* Keep this non-interactive */
 }
 
