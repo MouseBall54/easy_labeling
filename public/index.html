@@ -20,79 +20,79 @@
         </div>
     </nav>
 
-    <div class="main-container container-fluid">
-        <div class="row">
-            <!-- Control Panel -->
-            <div class="col-lg-2 col-md-3 bg-light vh-100 p-3 control-panel">
-                <h5><i class="bi bi-folder2-open"></i> Folders</h5>
-                <hr>
-                <div class="d-grid gap-2">
-                    <button id="selectImageFolderBtn" class="btn btn-primary"><i class="bi bi-images"></i> Select Image Folder</button>
-                    <button id="selectLabelFolderBtn" class="btn btn-info text-white"><i class="bi bi-tags-fill"></i> Select Label Folder</button>
-                </div>
-                <hr>
-                <h5><i class="bi bi-list-ul"></i> Image Files</h5>
-                <div class="input-group mb-2">
-                    <span class="input-group-text"><i class="bi bi-search"></i></span>
-                    <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
-                </div>
-                <div id="image-list" class="list-group mb-3">
-                    <!-- Image list will be populated here -->
-                </div>
-                <hr>
-                <h5><i class="bi bi-tools"></i> Controls</h5>
-                <hr>
-                <div class="form-check form-switch mb-2">
-                    <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
-                    <label class="form-check-label" for="autoSaveToggle">Auto Save</label>
-                </div>
-                <div class="d-grid gap-2">
-                    <button id="saveLabelsBtn" class="btn btn-success"><i class="bi bi-save"></i> Save Labels</button>
-                </div>
-                <hr>
-                <h5><i class="bi bi-zoom-in"></i> Zoom</h5>
-                <div class="btn-group w-100 mb-2">
-                    <button class="btn btn-secondary" id="zoomInBtn"><i class="bi bi-zoom-in"></i></button>
-                    <button class="btn btn-secondary" id="zoomOutBtn"><i class="bi bi-zoom-out"></i></button>
-                    <button class="btn btn-secondary" id="resetZoomBtn"><i class="bi bi-aspect-ratio"></i></button>
-                </div>
-                <hr>
-                <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
-                <div class="btn-group w-100" role="group" aria-label="Mode switch">
-                    <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off" checked>
-                    <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode"><i class="bi bi-pencil-square"></i></label>
+    <div class="main-container">
+        <!-- Control Panel -->
+        <div id="control-panel" class="control-panel">
+            <h5><i class="bi bi-folder2-open"></i> Folders</h5>
+            <hr>
+            <div class="d-grid gap-2">
+                <button id="selectImageFolderBtn" class="btn btn-primary"><i class="bi bi-images"></i> Select Image Folder</button>
+                <button id="selectLabelFolderBtn" class="btn btn-info text-white"><i class="bi bi-tags-fill"></i> Select Label Folder</button>
+            </div>
+            <hr>
+            <h5><i class="bi bi-list-ul"></i> Image Files</h5>
+            <div class="input-group mb-2">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
+            </div>
+            <div id="image-list" class="list-group mb-3">
+                <!-- Image list will be populated here -->
+            </div>
+            <hr>
+            <h5><i class="bi bi-tools"></i> Controls</h5>
+            <hr>
+            <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
+                <label class="form-check-label" for="autoSaveToggle">Auto Save</label>
+            </div>
+            <div class="d-grid gap-2">
+                <button id="saveLabelsBtn" class="btn btn-success"><i class="bi bi-save"></i> Save Labels</button>
+            </div>
+            <hr>
+            <h5><i class="bi bi-zoom-in"></i> Zoom</h5>
+            <div class="btn-group w-100 mb-2">
+                <button class="btn btn-secondary" id="zoomInBtn"><i class="bi bi-zoom-in"></i></button>
+                <button class="btn btn-secondary" id="zoomOutBtn"><i class="bi bi-zoom-out"></i></button>
+                <button class="btn btn-secondary" id="resetZoomBtn"><i class="bi bi-aspect-ratio"></i></button>
+            </div>
+            <hr>
+            <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
+            <div class="btn-group w-100" role="group" aria-label="Mode switch">
+                <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode"><i class="bi bi-pencil-square"></i></label>
 
-                    <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off">
-                    <label class="btn btn-outline-primary" for="editMode" title="Edit Mode"><i class="bi bi-cursor"></i></label>
-                </div>
-                 <hr>
-                <div id="label-filter-container">
-                    <h5><i class="bi bi-funnel"></i> Filters</h5>
-                    <div id="label-filters" class="mb-2">
-                        <!-- Filter buttons will be added here -->
-                    </div>
-                </div>
-                <div id="label-list-container">
-                    <h5><i class="bi bi-tags"></i> Labels</h5>
-                    <ul id="label-list" class="list-group">
-                        <!-- Labels will be added here -->
-                    </ul>
+                <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off">
+                <label class="btn btn-outline-primary" for="editMode" title="Edit Mode"><i class="bi bi-cursor"></i></label>
+            </div>
+             <hr>
+            <div id="label-filter-container">
+                <h5><i class="bi bi-funnel"></i> Filters</h5>
+                <div id="label-filters" class="mb-2">
+                    <!-- Filter buttons will be added here -->
                 </div>
             </div>
-
-            <!-- Canvas Area -->
-            <div class="col-lg-10 col-md-9 canvas-container">
-                <div id="info-display">
-                    <div id="coords-input-container">
-                        <input type="number" id="coordX" class="form-control form-control-sm" placeholder="X">
-                        <input type="number" id="coordY" class="form-control form-control-sm" placeholder="Y">
-                        <button id="goToCoordsBtn" class="btn btn-primary"><i class="bi bi-geo-alt-fill"></i></button>
-                    </div>
-                    <div id="zoom-level">Zoom: 100%</div>
-                    <div id="mouse-coords">X: 0, Y: 0</div>
-                </div>
-                <canvas id="canvas"></canvas>
+            <div id="label-list-container">
+                <h5><i class="bi bi-tags"></i> Labels</h5>
+                <ul id="label-list" class="list-group">
+                    <!-- Labels will be added here -->
+                </ul>
             </div>
+        </div>
+
+        <div id="panel-splitter"></div>
+
+        <!-- Canvas Area -->
+        <div id="canvas-container" class="canvas-container">
+            <div id="info-display">
+                <div id="coords-input-container">
+                    <input type="number" id="coordX" class="form-control form-control-sm" placeholder="X">
+                    <input type="number" id="coordY" class="form-control form-control-sm" placeholder="Y">
+                    <button id="goToCoordsBtn" class="btn btn-primary"><i class="bi bi-geo-alt-fill"></i></button>
+                </div>
+                <div id="zoom-level">Zoom: 100%</div>
+                <div id="mouse-coords">X: 0, Y: 0</div>
+            </div>
+            <canvas id="canvas"></canvas>
         </div>
     </div>
 

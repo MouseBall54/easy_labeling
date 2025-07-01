@@ -316,6 +316,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Auto-save Triggers ---
     canvas.on('object:modified', triggerAutoSave);
+    canvas.on('object:scaled', triggerAutoSave);
+
+    // --- Panel Splitter Logic ---
+    const splitter = document.getElementById('panel-splitter');
+    const controlPanel = document.getElementById('control-panel');
+
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+
+    function onMouseMove(e) {
+        const newWidth = e.clientX;
+        if (newWidth > 200 && newWidth < 600) { // Min and Max width
+            controlPanel.style.width = newWidth + 'px';
+            canvas.setWidth(canvasContainer.offsetWidth);
+            canvas.setHeight(canvasContainer.offsetHeight);
+            resetZoom();
+        }
+    }
+
+    function onMouseUp() {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    }
 
     // --- Show Class on Selection ---
     let activeLabelText = null;
@@ -694,8 +720,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     canvas.on('mouse:down', opt => {
         const evt = opt.e;
-        // Pan with Alt key or if in edit mode and clicking on empty space
-        if (evt.altKey || (currentMode === 'edit' && !opt.target)) {
+        // Pan with Alt or Ctrl key
+        if (evt.altKey || evt.ctrlKey) {
             canvas.isDragging = true;
             canvas.selection = false;
             canvas.lastPosX = evt.clientX;

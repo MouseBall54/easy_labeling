@@ -1,26 +1,46 @@
 body {
     overflow: hidden; /* Hide scrollbars */
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.navbar {
+    flex-shrink: 0;
 }
 
 .main-container {
-    padding-left: 0;
-    padding-right: 0;
+    display: flex;
+    flex-grow: 1;
+    overflow: hidden;
 }
 
 .control-panel {
-    height: calc(100vh - 56px); /* Full height minus navbar */
+    flex-shrink: 0;
+    width: 300px; /* Initial width */
+    min-width: 200px;
+    max-width: 600px;
     overflow-y: auto;
-    border-right: 1px solid #dee2e6;
+    padding: 1rem;
+    background-color: #f8f9fa;
+}
+
+#panel-splitter {
+    flex-shrink: 0;
+    width: 5px;
+    background-color: #dee2e6;
+    cursor: col-resize;
 }
 
 .canvas-container {
-    height: calc(100vh - 56px);
+    flex-grow: 1;
     padding: 0;
-    background-color: #f8f9fa;
+    background-color: #e9ecef;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: auto; /* Add scrollbars if canvas is larger than container */
+    overflow: hidden; /* Let the inner canvas wrapper handle scroll */
+    position: relative; /* For positioning info-display */
 }
 
 canvas {
@@ -110,7 +130,6 @@ canvas {
     display: flex;
     align-items: center;
     gap: 15px;
-    /* pointer-events: none; Re-enable pointer events for the new input */
 }
 
 #mouse-coords {
