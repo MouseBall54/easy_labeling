@@ -99,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const searchTerm = imageSearchInput.value.toLowerCase();
         imageList.innerHTML = '';
         imageFiles
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
             .filter(file => file.name.toLowerCase().includes(searchTerm))
             .forEach(file => {
                 const a = document.createElement('a');
@@ -363,25 +364,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!selectedObjects || selectedObjects.length === 0) return;
 
         const zoom = canvas.getZoom();
+        
+        // Force recalculation of canvas offsets and object coordinates
+        canvas.calcOffset();
+        selectedObjects.forEach(obj => obj.setCoords());
 
         selectedObjects.forEach(activeObject => {
             if (activeObject.type === 'rect' && activeObject.labelClass) {
-                // To get the absolute position of an object within a group (activeSelection),
-                // we need to calculate its transformation matrix relative to the canvas.
-                // This is done by combining the group's transformation with the object's own transformation.
-                const transform = activeObject.group ?
-                    fabric.util.multiplyTransformMatrices(activeObject.group.calcTransformMatrix(), activeObject.calcTransformMatrix()) :
-                    activeObject.calcTransformMatrix();
-
-                // The object's origin is its center. To find the top-left corner,
-                // we transform a point at (-width/2, -height/2) from the object's local coordinates
-                // to the canvas's absolute coordinates.
-                const localPoint = new fabric.Point(-activeObject.width / 2, -activeObject.height / 2);
-                const absolutePoint = fabric.util.transformPoint(localPoint, transform);
+                // Use getBoundingRect(true) to get the absolute coordinates of the object,
+                // which works correctly even for grouped and transformed objects.
+                const bound = activeObject.getBoundingRect(true);
 
                 const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                    left: absolutePoint.x,
-                    top: absolutePoint.y - (20 / zoom), // Position above the box
+                    left: bound.left,
+                    top: bound.top - (20 / zoom), // Position above the box
                     fontSize: 16 / zoom,
                     fill: 'black',
                     backgroundColor: 'rgba(255, 255, 255, 0.7)',
@@ -443,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
             li.dataset.index = index;
 
             const color = getColorForClass(rect.labelClass);
-            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Label ${index + 1} (Class: ${rect.labelClass})</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Class: ${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
