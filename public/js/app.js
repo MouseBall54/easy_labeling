@@ -366,13 +366,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         selectedObjects.forEach(activeObject => {
             if (activeObject.type === 'rect' && activeObject.labelClass) {
-                // Use getBoundingRect(true) to get the absolute coordinates of the object,
-                // which works correctly even for grouped and transformed objects.
-                const bound = activeObject.getBoundingRect(true);
+                // When an object is part of a group (activeSelection), its coordinates
+                // are relative to the group. To get the absolute position on the canvas,
+                // we must call setCoords() to update the aCoords property.
+                activeObject.setCoords();
+                const topLeft = activeObject.aCoords.tl;
 
                 const text = new fabric.Text('Class: ' + activeObject.labelClass, {
-                    left: bound.left,
-                    top: bound.top - (20 / zoom), // Position above the box
+                    left: topLeft.x,
+                    top: topLeft.y - (20 / zoom), // Position above the box
                     fontSize: 16 / zoom,
                     fill: 'black',
                     backgroundColor: 'rgba(255, 255, 255, 0.7)',
@@ -384,13 +386,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.add(text);
             }
         });
-        canvas.renderAll();
+        // Use requestRenderAll for better performance, as this event can fire rapidly.
+        canvas.requestRenderAll();
     }
 
     function clearSelectionLabel() {
         activeLabelTexts.forEach(text => canvas.remove(text));
         activeLabelTexts = [];
-        canvas.renderAll();
+        canvas.renderAll(); // Render immediately after clearing
     }
 
     // --- Info Display & Canvas Events ---
