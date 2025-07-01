@@ -62,7 +62,6 @@ class UIManager {
 
     getDOMElements() {
         return {
-            openImageFileBtn: document.getElementById('openImageFileBtn'),
             selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
             selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
             imageList: document.getElementById('image-list'),
@@ -388,19 +387,7 @@ class FileSystem {
         }
     }
 
-    async openImageFile() {
-        try {
-            const [fileHandle] = await window.showOpenFilePicker({
-                types: [{
-                    description: 'Images',
-                    accept: { 'image/*': ['.png', '.gif', '.jpeg', '.jpg', '.tif', '.tiff'] }
-                }],
-            });
-            this.loadImageAndLabels(fileHandle, true);
-        } catch (err) {
-            console.error('Error opening single file:', err);
-        }
-    }
+    
 
     async listImageFiles() {
         if (!this.state.imageFolderHandle) return;
@@ -414,7 +401,7 @@ class FileSystem {
         this.uiManager.renderImageList();
     }
 
-    async loadImageAndLabels(imageFileHandle, isSingleFile = false) {
+    async loadImageAndLabels(imageFileHandle) {
         // Cancel any pending auto-save before loading a new image
         clearTimeout(this.state.saveTimeout);
 
@@ -435,9 +422,7 @@ class FileSystem {
             this.canvasController.setBackgroundImage(img);
             this.canvasController.resetZoom();
             // Only try to load labels if it's part of a folder selection
-            if (!isSingleFile) {
-                this.loadLabels(imageFileHandle.name, loadToken);
-            }
+            this.loadLabels(imageFileHandle.name, loadToken);
         };
 
         if (/\.(tif|tiff)$/i.test(file.name)) {
@@ -457,12 +442,7 @@ class FileSystem {
             });
         }
         
-        if (!isSingleFile) {
-            this.uiManager.setActiveImageListItem(imageFileHandle);
-        } else {
-            // If it's a single file, deactivate all items in the list
-            this.uiManager.elements.imageList.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('active'));
-        }
+        this.uiManager.setActiveImageListItem(imageFileHandle);
     }
 
     async loadLabels(imageName, loadToken) {
@@ -838,7 +818,6 @@ class EventManager {
 
     bindEventListeners() {
         // UI Buttons
-        this.ui.elements.openImageFileBtn.addEventListener('click', () => this.fileSystem.openImageFile());
         this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
