@@ -582,9 +582,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Zoom in to a fixed level (e.g., 2x) and center on the point
-        const zoomLevel = 2;
-        canvas.zoomToPoint(new fabric.Point(x, y), zoomLevel);
+        // Pan the canvas to center the specified point without changing the zoom
+        const zoom = canvas.getZoom();
+        const newX = -x * zoom + canvas.getWidth() / 2;
+        const newY = -y * zoom + canvas.getHeight() / 2;
+        
+        canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
         
         // Highlight effect
         const highlightCircle = new fabric.Circle({
@@ -601,7 +604,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         canvas.add(highlightCircle);
 
-        highlightCircle.animate('radius', 50, {
+        highlightCircle.animate('radius', 50 / zoom, { // Make radius consistent regardless of zoom
             onChange: canvas.renderAll.bind(canvas),
             duration: 500,
             easing: fabric.util.ease.easeOutQuad,
