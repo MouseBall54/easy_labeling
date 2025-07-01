@@ -334,29 +334,46 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.on('object:scaled', triggerAutoSave);
 
     // --- Panel Splitter Logic ---
-    const splitter = document.getElementById('panel-splitter');
-    const controlPanel = document.getElementById('control-panel');
+    const leftSplitter = document.getElementById('left-splitter');
+    const rightSplitter = document.getElementById('right-splitter');
+    const leftPanel = document.getElementById('left-panel');
+    const rightPanel = document.getElementById('right-panel');
 
-    splitter.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-    });
+    function setupSplitter(splitter, panel, direction) {
+        splitter.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
 
-    function onMouseMove(e) {
-        const newWidth = e.clientX;
-        if (newWidth > 200 && newWidth < 600) { // Min and Max width
-            controlPanel.style.width = newWidth + 'px';
-            canvas.setWidth(canvasContainer.offsetWidth);
-            canvas.setHeight(canvasContainer.offsetHeight);
-            resetZoom();
-        }
+            function onMouseMove(e) {
+                const containerRect = splitter.parentElement.getBoundingClientRect();
+                let newWidth;
+
+                if (direction === 'left') {
+                    newWidth = e.clientX - containerRect.left;
+                } else { // right
+                    newWidth = containerRect.right - e.clientX;
+                }
+
+                if (newWidth > 200 && newWidth < 600) { // Min and Max width constraints
+                    panel.style.width = newWidth + 'px';
+                    // The canvas will resize automatically due to flex-grow
+                    canvas.setWidth(canvasContainer.offsetWidth);
+                    canvas.setHeight(canvasContainer.offsetHeight);
+                    resetZoom();
+                }
+            }
+
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+        });
     }
+    
+    setupSplitter(leftSplitter, leftPanel, 'left');
+    setupSplitter(rightSplitter, rightPanel, 'right');
 
-    function onMouseUp() {
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-    }
 
     // --- Show Class on Selection ---
     let activeLabelText = null;
@@ -374,6 +391,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
             const zoom = canvas.getZoom();
+            
+            // For single objects, left/top are reliable.
             const text = new fabric.Text('Class: ' + activeObject.labelClass, {
                 left: activeObject.left,
                 top: activeObject.top - 20 / zoom, // Position above the box

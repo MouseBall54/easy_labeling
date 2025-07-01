@@ -22,8 +22,8 @@
     </nav>
 
     <div class="main-container">
-        <!-- Control Panel -->
-        <div id="control-panel" class="control-panel">
+        <!-- Left Control Panel -->
+        <div id="left-panel" class="control-panel">
             <h5><i class="bi bi-folder2-open"></i> Folders</h5>
             <hr>
             <div class="d-grid gap-2">
@@ -65,22 +65,9 @@
                 <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off">
                 <label class="btn btn-outline-primary" for="editMode" title="Edit Mode"><i class="bi bi-cursor"></i></label>
             </div>
-             <hr>
-            <div id="label-filter-container">
-                <h5><i class="bi bi-funnel"></i> Filters</h5>
-                <div id="label-filters" class="mb-2">
-                    <!-- Filter buttons will be added here -->
-                </div>
-            </div>
-            <div id="label-list-container">
-                <h5><i class="bi bi-tags"></i> Labels</h5>
-                <ul id="label-list" class="list-group">
-                    <!-- Labels will be added here -->
-                </ul>
-            </div>
         </div>
 
-        <div id="panel-splitter"></div>
+        <div id="left-splitter" class="panel-splitter"></div>
 
         <!-- Canvas Area -->
         <div id="canvas-container" class="canvas-container">
@@ -94,6 +81,25 @@
                 <div id="mouse-coords">X: 0, Y: 0</div>
             </div>
             <canvas id="canvas"></canvas>
+        </div>
+
+        <div id="right-splitter" class="panel-splitter"></div>
+
+        <!-- Right Label Panel -->
+        <div id="right-panel" class="control-panel">
+            <div id="label-filter-container">
+                <h5><i class="bi bi-funnel"></i> Filters</h5>
+                <div id="label-filters" class="mb-2">
+                    <!-- Filter buttons will be added here -->
+                </div>
+            </div>
+            <hr>
+            <div id="label-list-container">
+                <h5><i class="bi bi-tags"></i> Labels</h5>
+                <ul id="label-list" class="list-group">
+                    <!-- Labels will be added here -->
+                </ul>
+            </div>
         </div>
     </div>
 
