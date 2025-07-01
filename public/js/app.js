@@ -690,22 +690,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function changeSelectedClasses() {
         const activeSelection = canvas.getActiveObject();
-        if (!activeSelection || activeSelection.type !== 'activeSelection') {
-            // Handle single object selection case if needed, or just show a message for multiple.
-            const activeObject = canvas.getActiveObject();
-            if (activeObject) {
-                 const newLabel = prompt(`Enter new class for the selected object:`, activeObject.labelClass || '0');
-                 if (newLabel !== null && newLabel.trim() !== '') {
-                    const finalLabel = newLabel.trim();
-                    const color = getColorForClass(finalLabel);
-                    activeObject.set('labelClass', finalLabel);
-                    activeObject.set({ fill: `${color}33`, stroke: color });
-                    canvas.renderAll();
-                    updateLabelList();
-                    triggerAutoSave();
-                 }
-            } else {
-                showToast('Please select one or more objects.');
+        if (!activeSelection) {
+            showToast('Please select one or more objects.');
+            return;
+        }
+
+        // Handle single object selection separately for simplicity
+        if (activeSelection.type !== 'activeSelection') {
+            const newLabel = prompt(`Enter new class for the selected object:`, activeSelection.labelClass || '0');
+            if (newLabel !== null && newLabel.trim() !== '') {
+                const finalLabel = newLabel.trim();
+                const color = getColorForClass(finalLabel);
+                activeSelection.set('labelClass', finalLabel);
+                activeSelection.set({ fill: `${color}33`, stroke: color });
+                canvas.renderAll();
+                updateLabelList();
+                triggerAutoSave();
             }
             return;
         }
@@ -715,15 +715,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const finalLabel = newLabel.trim();
             const color = getColorForClass(finalLabel);
             
-            // Iterate over objects in the selection and change only their class and color.
-            // This avoids ungrouping and preserves all transform data.
-            activeSelection.forEachObject(obj => {
+            const objects = activeSelection.getObjects();
+            canvas.discardActiveObject(); // Ungroup
+
+            objects.forEach(obj => {
                 if (obj.type === 'rect') {
                     obj.set('labelClass', finalLabel);
                     obj.set({ fill: `${color}33`, stroke: color });
                 }
             });
             
+            // Re-select the modified objects
+            const newSelection = new fabric.ActiveSelection(objects, {
+                canvas: canvas,
+            });
+            canvas.setActiveObject(newSelection);
             canvas.renderAll();
             updateLabelList();
             triggerAutoSave();
