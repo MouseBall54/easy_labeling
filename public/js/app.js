@@ -245,7 +245,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const normWidth = width / imgWidth;
             const normHeight = height / imgHeight;
             
-            yoloString += `${labelClass} ${x_center.toFixed(6)} ${y_center.toFixed(6)} ${normWidth.toFixed(6)} ${normHeight.toFixed(6)}\n`;
+            yoloString += `${labelClass} ${x_center.toFixed(10)} ${y_center.toFixed(10)} ${normWidth.toFixed(10)} ${normHeight.toFixed(10)}
+`;
         });
 
         const labelFileName = currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
@@ -383,6 +384,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateSelectionLabel(e) {
         clearSelectionLabel();
+        
+        // Clear active state from all label list items first
+        document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
+
         // Only show label for single selections
         if (e.selected.length !== 1) {
             return;
@@ -405,6 +410,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             activeLabelText = text;
             canvas.add(activeLabelText);
+
+            // Find the corresponding list item and make it active
+            const rects = canvas.getObjects('rect');
+            const objectIndex = rects.indexOf(activeObject);
+            if (objectIndex > -1) {
+                const listItem = document.getElementById(`label-item-${objectIndex}`);
+                if (listItem) {
+                    listItem.classList.add('active');
+                    listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
         }
     }
 
@@ -413,6 +429,8 @@ document.addEventListener('DOMContentLoaded', () => {
             canvas.remove(activeLabelText);
             activeLabelText = null;
         }
+        // Also clear active state from the list when selection is cleared
+        document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
     }
 
     // --- Info Display & Canvas Events ---
@@ -450,6 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         rects.forEach((rect, index) => {
             const li = document.createElement('li');
+            li.id = `label-item-${index}`; // Assign a unique ID
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
             li.draggable = true;
             li.dataset.index = index;
@@ -459,8 +478,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
-                document.querySelectorAll('#label-list li').forEach(item => item.classList.remove('active'));
-                li.classList.add('active');
                 canvas.setActiveObject(rects[index]).renderAll();
             });
 
