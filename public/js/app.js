@@ -43,6 +43,7 @@ class AppState {
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
+        this.currentProjectName = null;
     }
 }
 
@@ -62,6 +63,12 @@ class UIManager {
 
     getDOMElements() {
         return {
+            // Mode-specific containers
+            localFolderSelector: document.getElementById('folder-selection-local'),
+            serverProjectSelector: document.getElementById('folder-selection-server'),
+            projectSelector: document.getElementById('projectSelector'),
+            
+            // Common elements
             selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
             selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
             imageList: document.getElementById('image-list'),
@@ -89,11 +96,24 @@ class UIManager {
         };
     }
 
-    createDragDropOverlay() {
-        const overlay = document.createElement('div');
-        overlay.className = 'drag-over-overlay';
-        overlay.textContent = 'Drop image file here';
-        this.elements.canvasContainer.appendChild(overlay);
+    setMode(mode) {
+        if (mode === 'server') {
+            this.elements.localFolderSelector.style.display = 'none';
+            this.elements.serverProjectSelector.style.display = 'block';
+        } else {
+            this.elements.localFolderSelector.style.display = 'block';
+            this.elements.serverProjectSelector.style.display = 'none';
+        }
+    }
+
+    renderProjectSelector(projects) {
+        this.elements.projectSelector.innerHTML = '<option selected disabled>Choose a project...</option>';
+        projects.forEach(proj => {
+            const option = document.createElement('option');
+            option.value = proj;
+            option.textContent = proj;
+            this.elements.projectSelector.appendChild(option);
+        });
     }
 
     renderImageList() {
@@ -122,7 +142,6 @@ class UIManager {
         this.elements.labelList.innerHTML = '';
         const rects = this.canvasController.getObjects('rect');
 
-        // Calculate average area and identify issue boxes
         if (rects.length > 0) {
             const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
             const averageArea = totalArea / rects.length;
@@ -163,7 +182,6 @@ class UIManager {
 
         this.addEditDeleteListeners(rects);
         
-        // After list is built, re-apply the current filter state without triggering new clicks
         const activeClassFilters = new Set();
         this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
             activeClassFilters.add(btn.dataset.labelClass);
@@ -219,7 +237,6 @@ class UIManager {
             issueBtn.textContent = 'Issue Labels';
             issueBtn.addEventListener('click', () => {
                 const isActivating = !issueBtn.classList.contains('active');
-                // Deactivate all other filters when activating issue filter
                 if (isActivating) {
                     this.elements.labelFilters.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
                 }
@@ -335,7 +352,6 @@ class UIManager {
         });
     }
 
-    // Drag and Drop for label list
     handleDragStart(e) {
         e.target.style.opacity = '0.4';
         this.dragSrcEl = e.target;
@@ -362,6 +378,13 @@ class UIManager {
     handleDragEnd(e) {
         e.target.style.opacity = '1';
     }
+    
+    createDragDropOverlay() {
+        const overlay = document.createElement('div');
+        overlay.className = 'drag-over-overlay';
+        overlay.textContent = 'Drop image file here';
+        this.elements.canvasContainer.appendChild(overlay);
+    }
 }
 
 
@@ -374,18 +397,120 @@ class FileSystem {
         this.state = state;
         this.uiManager = uiManager;
         this.canvasController = canvasController;
+        const urlParams = new URLSearchParams(window.location.search);
+        this.mode = urlParams.get('mode') === 'server' ? 'server' : 'local';
     }
 
-    async selectImageFolder() {
+    initializeApp() {
+        this.uiManager.setMode(this.mode);
+        if (this.mode === 'server') {
+            this.fetchProjects();
+        }
+    }
+
+    // --- Server Mode Methods ---
+    async fetchProjects() {
+        try {
+            const response = await fetch('/api/projects');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const projects = await response.json();
+            this.uiManager.renderProjectSelector(projects);
+        } catch (err) {
+            console.error('Error fetching projects:', err);
+            showToast('Could not fetch projects from server.', 5000);
+        }
+    }
+
+    async listImageFilesServer(projectName) {
+        this.state.currentProjectName = projectName;
+        try {
+            const response = await fetch(`/api/projects/${projectName}/images`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            this.state.imageFiles = await response.json();
+            this.uiManager.renderImageList();
+        } catch (err) {
+            console.error('Error fetching image list:', err);
+            showToast(`Could not fetch images for ${projectName}.`, 5000);
+        }
+    }
+
+    async loadImageAndLabelsServer(imageFile) {
+        clearTimeout(this.state.saveTimeout);
+        this.state.currentLoadToken++;
+        const loadToken = this.state.currentLoadToken;
+        const projectName = this.state.currentProjectName;
+
+        this.state.currentImageFile = imageFile;
+        this.uiManager.updateImageInfo(imageFile.name);
+
+        const imageUrl = `/api/projects/${projectName}/images/${imageFile.name}`;
+
+        const setBackgroundImage = async (img) => {
+            if (loadToken !== this.state.currentLoadToken) return;
+            this.state.currentImage = img;
+            this.canvasController.clear();
+            this.uiManager.elements.labelList.innerHTML = '';
+            this.uiManager.elements.labelFilters.innerHTML = '';
+            this.canvasController.setBackgroundImage(img);
+            this.canvasController.resetZoom();
+
+            try {
+                const response = await fetch(`/api/projects/${projectName}/labels/${imageFile.name}`);
+                const yoloData = await response.text();
+                if (yoloData) {
+                    this.canvasController.addLabelsFromYolo(yoloData);
+                }
+                this.uiManager.updateLabelList();
+            } catch (err) {
+                console.error('Error fetching labels from server:', err);
+            }
+        };
+
+        fabric.Image.fromURL(imageUrl, setBackgroundImage, { crossOrigin: 'anonymous' });
+        this.uiManager.setActiveImageListItem(imageFile);
+    }
+
+    async saveLabelsServer(isAuto = false) {
+        if (!this.state.currentImageFile || !this.state.currentProjectName) return;
+
+        if (this.canvasController.canvas.getActiveObject()) {
+            this.canvasController.canvas.discardActiveObject();
+            this.canvasController.renderAll();
+        }
+        
+        const yoloString = this.canvasController.getLabelsAsYolo();
+        
+        try {
+            await fetch(`/api/projects/${this.state.currentProjectName}/labels/${this.state.currentImageFile.name}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: yoloString.trim()
+            });
+            if (!isAuto) showToast('Labels saved to server.');
+        } catch (err) {
+            console.error('Error saving labels to server:', err);
+            if (!isAuto) showToast('Failed to save labels to server.');
+        }
+    }
+
+    // --- Local Mode Methods ---
+    async selectImageFolderLocal() {
         try {
             this.state.imageFolderHandle = await window.showDirectoryPicker();
-            await this.listImageFiles();
+            this.state.imageFiles = [];
+            this.uiManager.elements.imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
+            for await (const entry of this.state.imageFolderHandle.values()) {
+                if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
+                    this.state.imageFiles.push(entry);
+                }
+            }
+            this.uiManager.renderImageList();
         } catch (err) {
             console.error('Error selecting image folder:', err);
         }
     }
 
-    async selectLabelFolder() {
+    async selectLabelFolderLocal() {
         try {
             this.state.labelFolderHandle = await window.showDirectoryPicker();
             showToast(`Label folder selected: ${this.state.labelFolderHandle.name}`);
@@ -394,32 +519,15 @@ class FileSystem {
         }
     }
 
-    async listImageFiles() {
-        if (!this.state.imageFolderHandle) return;
-        this.state.imageFiles = [];
-        this.uiManager.elements.imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
-        for await (const entry of this.state.imageFolderHandle.values()) {
-            if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
-                this.state.imageFiles.push(entry);
-            }
-        }
-        this.uiManager.renderImageList();
-    }
-
-    async loadImageAndLabels(imageFileOrHandle) {
-        // Cancel any pending auto-save before loading a new image
+    async loadImageAndLabelsLocal(imageFileOrHandle) {
         clearTimeout(this.state.saveTimeout);
-
         this.state.currentLoadToken++;
         const loadToken = this.state.currentLoadToken;
-
-        // A dropped file won't have a label folder context
         const isDroppedFile = imageFileOrHandle instanceof File;
         
         this.state.currentImageFile = imageFileOrHandle;
         this.uiManager.updateImageInfo(imageFileOrHandle.name);
         
-        // The getFile() method exists on FileSystemFileHandle but not on File
         const file = isDroppedFile ? imageFileOrHandle : await imageFileOrHandle.getFile();
 
         const setBackgroundImage = (img) => {
@@ -430,9 +538,8 @@ class FileSystem {
             this.uiManager.elements.labelFilters.innerHTML = '';
             this.canvasController.setBackgroundImage(img);
             this.canvasController.resetZoom();
-            // Only try to load labels if it's not a dropped file
             if (!isDroppedFile) {
-                this.loadLabels(imageFileOrHandle.name, loadToken);
+                this.loadLabelsLocal(imageFileOrHandle.name, loadToken);
             }
         };
 
@@ -456,12 +563,11 @@ class FileSystem {
         if (!isDroppedFile) {
             this.uiManager.setActiveImageListItem(imageFileOrHandle);
         } else {
-            // If it's a dropped file, deactivate all items in the list
             this.uiManager.elements.imageList.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('active'));
         }
     }
 
-    async loadLabels(imageName, loadToken) {
+    async loadLabelsLocal(imageName, loadToken) {
         if (!this.state.labelFolderHandle) return;
         
         const labelFileName = imageName.replace(/\.[^/.]+$/, "") + ".txt";
@@ -478,7 +584,6 @@ class FileSystem {
             this.uiManager.updateLabelList();
         } catch (err) {
             if (err.name === 'NotFoundError') {
-                console.log(`No label file found for ${imageName}.`);
                 if (loadToken === this.state.currentLoadToken) this.uiManager.updateLabelList();
             } else {
                 console.error('Error loading labels:', err);
@@ -486,9 +591,9 @@ class FileSystem {
         }
     }
 
-    async saveLabels(isAuto = false) {
-        if (!this.state.currentImageFile) {
-            if (!isAuto) showToast('Please select an image first.');
+    async saveLabelsLocal(isAuto = false) {
+        if (!this.state.currentImageFile || this.state.currentImageFile instanceof File) {
+            if (!isAuto) showToast('Cannot save labels for a dropped file. Please use folder mode.', 4000);
             return;
         }
         if (!this.state.labelFolderHandle) {
@@ -496,7 +601,6 @@ class FileSystem {
             return;
         }
 
-        // If there's an active selection, discard it to commit transformations
         if (this.canvasController.canvas.getActiveObject()) {
             this.canvasController.canvas.discardActiveObject();
             this.canvasController.renderAll();
@@ -519,6 +623,21 @@ class FileSystem {
                 showToast('Failed to save labels. Check console for details.');
             }
         }
+    }
+
+    // --- Unified Methods ---
+    loadImageAndLabels(fileOrHandle) {
+        if (this.mode === 'server') {
+            return this.loadImageAndLabelsServer(fileOrHandle);
+        }
+        return this.loadImageAndLabelsLocal(fileOrHandle);
+    }
+
+    saveLabels(isAuto = false) {
+        if (this.mode === 'server') {
+            return this.saveLabelsServer(isAuto);
+        }
+        return this.saveLabelsLocal(isAuto);
     }
 
     triggerAutoSave() {
@@ -611,8 +730,7 @@ class CanvasController {
             const labelClass = rect.labelClass || '0';
             if (rect.originalYolo) {
                 const { x_center, y_center, width, height } = rect.originalYolo;
-                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}
-`;
+                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}\n`;
             } else {
                 rect.setCoords();
                 const center = rect.getCenterPoint();
@@ -622,8 +740,7 @@ class CanvasController {
                 const y_center = center.y / imgHeight;
                 const normWidth = width / imgWidth;
                 const normHeight = height / imgHeight;
-                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
-`;
+                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
             }
         });
         return yoloString;
@@ -633,23 +750,15 @@ class CanvasController {
         const rects = this.getObjects('rect');
         rects.forEach(rect => {
             if (rect.isIssue) {
-                rect.set({
-                    stroke: '#FFA500', // Bright Orange
-                    strokeWidth: 3
-                });
+                rect.set({ stroke: '#FFA500', strokeWidth: 3 });
             } else {
-                // Revert to normal style based on class
                 const color = getColorForClass(rect.labelClass);
-                rect.set({
-                    stroke: color,
-                    strokeWidth: 2
-                });
+                rect.set({ stroke: color, strokeWidth: 2 });
             }
         });
         this.renderAll();
     }
 
-    // Drawing
     startDrawing(pointer) {
         if (this.state.currentMode !== 'draw' || !this.state.currentImage) return;
         this.isDrawing = true;
@@ -690,7 +799,6 @@ class CanvasController {
         this.currentRect = null;
     }
 
-    // Object Manipulation
     removeObject(obj) {
         this.canvas.remove(obj);
     }
@@ -710,14 +818,13 @@ class CanvasController {
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
-            rect.originalYolo = null; // Mark as modified
+            rect.originalYolo = null;
             this.uiManager.updateLabelList();
             this.renderAll();
             this.fileSystem.triggerAutoSave();
         }
     }
 
-    // Zoom and Pan
     zoom(factor) {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
@@ -782,7 +889,6 @@ class CanvasController {
         });
     }
 
-    // Selection Info
     updateSelectionLabel(e) {
         this.clearSelectionLabel();
         this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
@@ -833,9 +939,20 @@ class EventManager {
     }
 
     bindEventListeners() {
-        // UI Buttons
-        this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
-        this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
+        // Mode-specific listeners
+        if (this.fileSystem.mode === 'local') {
+            this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolderLocal());
+            this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolderLocal());
+        } else { // server mode
+            this.ui.elements.projectSelector.addEventListener('change', (e) => {
+                const projectName = e.target.value;
+                if (projectName && projectName !== 'Choose a project...') {
+                    this.fileSystem.listImageFilesServer(projectName);
+                }
+            });
+        }
+
+        // Common listeners
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
         this.ui.elements.autoSaveToggle.addEventListener('change', (e) => {
@@ -979,7 +1096,7 @@ class EventManager {
                 newObj.set({ left: newObj.left + 10, top: newObj.top + 10, evented: true });
                 const color = getColorForClass(newObj.labelClass);
                 newObj.set({ fill: `${color}33`, stroke: color });
-                newObj.originalYolo = null; // Pasted objects are new
+                newObj.originalYolo = null;
                 this.canvas.canvas.add(newObj);
                 return newObj;
             };
@@ -1020,7 +1137,7 @@ class EventManager {
         const applyChanges = (obj) => {
             obj.set('labelClass', finalLabel);
             obj.set({ fill: `${color}33`, stroke: color });
-            obj.originalYolo = null; // Mark as modified
+            obj.originalYolo = null;
         };
 
         if (activeSelection.type === 'activeSelection') {
@@ -1050,57 +1167,6 @@ class EventManager {
     }
 }
 
-
-// =================================================================================
-// Drag and Drop Manager
-// =================================================================================
-
-class DragDropManager {
-    constructor(uiManager, fileSystem) {
-        this.ui = uiManager;
-        this.fileSystem = fileSystem;
-        this.dragCounter = 0;
-    }
-
-    handleDragOver(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Using a counter to handle nested drag events
-        if (this.dragCounter === 0) {
-            this.ui.elements.canvasContainer.classList.add('drag-over');
-        }
-        this.dragCounter++;
-    }
-
-    handleDragLeave(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.dragCounter--;
-        if (this.dragCounter === 0) {
-            this.ui.elements.canvasContainer.classList.remove('drag-over');
-        }
-    }
-
-    handleDrop(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.dragCounter = 0;
-        this.ui.elements.canvasContainer.classList.remove('drag-over');
-
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            const file = files[0];
-            if (/\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(file.name)) {
-                // This is a File object, not a FileHandle. We need to adapt.
-                this.fileSystem.loadImageAndLabels(file);
-            } else {
-                showToast('Please drop a valid image file.', 3000);
-            }
-        }
-    }
-}
-
-
 // =================================================================================
 // Drag and Drop Manager
 // =================================================================================
@@ -1117,7 +1183,7 @@ class DragDropManager {
         const canvasContainer = this.ui.elements.canvasContainer;
         canvasContainer.addEventListener('dragenter', this.handleDragEnter.bind(this));
         canvasContainer.addEventListener('dragleave', this.handleDragLeave.bind(this));
-        canvasContainer.addEventListener('dragover', (e) => { e.preventDefault(); }); // Necessary
+        canvasContainer.addEventListener('dragover', (e) => { e.preventDefault(); });
         canvasContainer.addEventListener('drop', this.handleDrop.bind(this));
     }
 
@@ -1162,10 +1228,14 @@ class DragDropManager {
 
 class App {
     constructor() {
-        if (!('showDirectoryPicker' in window)) {
-            showToast('Your browser is not supported. Please use Chrome or Edge.', 10000);
+        // Check for File System Access API support for local mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const isServerMode = urlParams.get('mode') === 'server';
+        if (!isServerMode && !('showDirectoryPicker' in window)) {
+            showToast('Your browser is not supported for local mode. Please use Chrome or Edge, or switch to server mode.', 10000);
             return;
         }
+
         this.state = new AppState();
         this.canvasController = new CanvasController(this.state, null, null);
         this.uiManager = new UIManager(this.state, this.canvasController, null);
@@ -1186,8 +1256,8 @@ class App {
         this.uiManager.createDragDropOverlay();
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
+        this.fileSystem.initializeApp();
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => new App());
-

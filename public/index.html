@@ -37,69 +37,42 @@
         <div id="left-panel" class="control-panel">
             <h5><i class="bi bi-folder2-open"></i> Folders</h5>
             <hr>
-            <div class="d-grid gap-2">
-                <button id="selectImageFolderBtn" class="btn btn-primary"><i class="bi bi-images"></i> Select Image Folder</button>
-                <button id="selectLabelFolderBtn" class="btn btn-info text-white"><i class="bi bi-tags-fill"></i> Select Label Folder</button>
-            </div>
-            <hr>
-            <h5><i class="bi bi-list-ul"></i> Image Files</h5>
-            <div class="input-group mb-2">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
-            </div>
-            <div id="image-list" class="list-group mb-3">
-                <!-- Image list will be populated here -->
-            </div>
-            <hr>
-            <h5><i class="bi bi-tools"></i> Controls</h5>
-            <hr>
-            <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
-                <label class="form-check-label" for="autoSaveToggle">Auto Save</label>
-            </div>
-            <div class="d-grid gap-2">
-                <button id="saveLabelsBtn" class="btn btn-success"><i class="bi bi-save"></i> Save Labels</button>
-            </div>
-            <hr>
-            <h5><i class="bi bi-zoom-in"></i> Zoom</h5>
-            <div class="btn-group w-100 mb-2">
-                <button class="btn btn-secondary" id="zoomInBtn"><i class="bi bi-zoom-in"></i></button>
-                <button class="btn btn-secondary" id="zoomOutBtn"><i class="bi bi-zoom-out"></i></button>
-                <button class="btn btn-secondary" id="resetZoomBtn"><i class="bi bi-aspect-ratio"></i></button>
-            </div>
-            <hr>
-            <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
-            <div class="btn-group w-100" role="group" aria-label="Mode switch">
-                <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off" checked>
-                <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode"><i class="bi bi-pencil-square"></i></label>
-
-                <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off">
-                <label class="btn btn-outline-primary" for="editMode" title="Edit Mode"><i class="bi bi-cursor"></i></label>
-            </div>
-        </div>
-
-        <div id="left-splitter" class="panel-splitter"></div>
-
-        <!-- Canvas Area -->
-        <div id="canvas-container" class="canvas-container">
-            <canvas id="canvas"></canvas>
-        </div>
-
-        <div id="right-splitter" class="panel-splitter"></div>
-
-        <!-- Right Label Panel -->
-        <div id="right-panel" class="control-panel">
-            <div id="label-filter-container">
-                <h5><i class="bi bi-funnel"></i> Filters</h5>
-                <div id="label-filters" class="mb-2">
-                    <!-- Filter buttons will be added here -->
+            <div class="d-grid gap-2 mb-3">
+                <div id="folder-selection-local">
+                    <button id="selectImageFolderBtn" class="btn btn-primary w-100 mb-2">Select Image Folder</button>
+                    <button id="selectLabelFolderBtn" class="btn btn-secondary w-100">Select Label Folder</button>
+                </div>
+                <div id="folder-selection-server" style="display: none;">
+                    <label for="projectSelector" class="form-label">Project:</label>
+                    <select class="form-select" id="projectSelector">
+                        <option selected>Choose a project...</option>
+                    </select>
                 </div>
             </div>
             <hr>
+            <div class="input-group mb-3">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" id="imageSearchInput" placeholder="Search images...">
+            </div>
+            <div id="image-list" class="list-group">
+                <!-- Image files will be listed here -->
+            </div>
+        </div>
+        <div id="left-splitter" class="panel-splitter"></div>
+        <div class="canvas-container flex-grow-1">
+            <canvas id="canvas"></canvas>
+        </div>
+        <div id="right-splitter" class="panel-splitter"></div>
+        <div id="right-panel" class="control-panel">
+            <h5 class="mb-3">Labels</h5>
+            <div id="label-filter-container" class="mb-2">
+                <div id="label-filters" class="d-flex flex-wrap">
+                    <!-- Label filter buttons will be generated here -->
+                </div>
+            </div>
             <div id="label-list-container">
-                <h5><i class="bi bi-tags"></i> Labels</h5>
                 <ul id="label-list" class="list-group">
-                    <!-- Labels will be added here -->
+                    <!-- Labels for the current image will be listed here -->
                 </ul>
             </div>
         </div>
@@ -107,13 +80,9 @@
 
     <div id="toast-container"></div>
 
-    <!-- Fabric.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-    <!-- Tiff.js CDN for .tif support -->
     <script src="https://cdn.jsdelivr.net/npm/tiff.js/tiff.min.js"></script>
-    <!-- Bootstrap JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Custom JS -->
-    <script src="js/app.js"></script>
+    <script src="./js/app.js"></script>
 </body>
 </html>
