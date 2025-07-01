@@ -399,6 +399,12 @@ class FileSystem {
             return;
         }
 
+        // If there's an active selection, discard it to commit transformations
+        if (this.canvasController.canvas.getActiveObject()) {
+            this.canvasController.canvas.discardActiveObject();
+            this.canvasController.renderAll();
+        }
+
         const yoloString = this.canvasController.getLabelsAsYolo();
         const labelFileName = this.state.currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
 
