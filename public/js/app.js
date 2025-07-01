@@ -317,6 +317,39 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Auto-save Triggers ---
     canvas.on('object:modified', triggerAutoSave);
 
+    // --- Show Class on Selection ---
+    let activeLabelText = null;
+    canvas.on('selection:created', updateSelectionLabel);
+    canvas.on('selection:updated', updateSelectionLabel);
+    canvas.on('selection:cleared', clearSelectionLabel);
+
+    function updateSelectionLabel(e) {
+        clearSelectionLabel();
+        const activeObject = e.selected[0];
+        if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
+            const zoom = canvas.getZoom();
+            const text = new fabric.Text('Class: ' + activeObject.labelClass, {
+                left: activeObject.left,
+                top: activeObject.top - 20 / zoom, // Position above the box
+                fontSize: 16 / zoom,
+                fill: 'black',
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                padding: 2 / zoom,
+                selectable: false,
+                evented: false,
+            });
+            activeLabelText = text;
+            canvas.add(activeLabelText);
+        }
+    }
+
+    function clearSelectionLabel() {
+        if (activeLabelText) {
+            canvas.remove(activeLabelText);
+            activeLabelText = null;
+        }
+    }
+
     // --- Info Display & Canvas Events ---
     function updateZoomDisplay() {
         const zoom = canvas.getZoom() * 100;
