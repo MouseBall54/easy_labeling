@@ -1031,7 +1031,7 @@ class EventManager {
 class App {
     constructor() {
         if (!('showDirectoryPicker' in window)) {
-            showToast('Your browser is not supported. Please use Chrome or Edge.', 10000);
+            showToast('File System Access API is only supported over localhost or HTTPS. Please use a secure connection (https).', 10000);
             return;
         }
         this.state = new AppState();
