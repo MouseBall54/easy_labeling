@@ -17,6 +17,11 @@
             <span id="current-image-name" class="navbar-text mx-auto"></span>
             
             <div id="info-display" class="d-flex align-items-center text-white me-3">
+                <div class="btn-group me-3" role="group">
+                    <button class="btn btn-primary btn-sm" id="zoomInBtn" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
+                    <button class="btn btn-primary btn-sm" id="zoomOutBtn" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
+                    <button class="btn btn-primary btn-sm" id="resetZoomBtn" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
+                </div>
                 <div id="coords-input-container" class="d-flex align-items-center me-3">
                     <input type="number" id="coordX" class="form-control form-control-sm" placeholder="X">
                     <input type="number" id="coordY" class="form-control form-control-sm" placeholder="Y">
@@ -71,13 +76,6 @@
                 <button id="saveLabelsBtn" class="btn btn-success"><i class="bi bi-save"></i> Save Labels</button>
             </div>
             <hr>
-            <h5><i class="bi bi-zoom-in"></i> Zoom</h5>
-            <div class="btn-group w-100 mb-2">
-                <button class="btn btn-secondary" id="zoomInBtn"><i class="bi bi-zoom-in"></i></button>
-                <button class="btn btn-secondary" id="zoomOutBtn"><i class="bi bi-zoom-out"></i></button>
-                <button class="btn btn-secondary" id="resetZoomBtn"><i class="bi bi-aspect-ratio"></i></button>
-            </div>
-            <hr>
             <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
             <div class="btn-group w-100" role="group" aria-label="Mode switch">
                 <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off" checked>
@@ -107,10 +105,7 @@
             </div>
             <hr>
             <div id="label-list-container">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5><i class="bi bi-tags"></i> Labels</h5>
-                    <span id="label-counts" class="badge bg-secondary">Total: 0</span>
-                </div>
+                <h5><i class="bi bi-tags"></i> Labels</h5>
                 <ul id="label-list" class="list-group">
                     <!-- Labels will be added here -->
                 </ul>

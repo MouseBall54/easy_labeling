@@ -75,7 +75,6 @@ class UIManager {
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
             labelFilters: document.getElementById('label-filters'),
-            labelCounts: document.getElementById('label-counts'),
             zoomInBtn: document.getElementById('zoomInBtn'),
             zoomOutBtn: document.getElementById('zoomOutBtn'),
             resetZoomBtn: document.getElementById('resetZoomBtn'),
@@ -133,15 +132,6 @@ class UIManager {
         this.elements.labelList.innerHTML = '';
         const rects = this.canvasController.getObjects('rect');
 
-        // Update label counts
-        const classCounts = rects.reduce((acc, rect) => {
-            acc[rect.labelClass] = (acc[rect.labelClass] || 0) + 1;
-            return acc;
-        }, {});
-        const totalCount = rects.length;
-        const countText = Object.entries(classCounts).map(([k, v]) => `C${k}: ${v}`).join(', ');
-        this.elements.labelCounts.textContent = `Total: ${totalCount}${countText ? ` (${countText})` : ''}`;
-
         // Calculate average area and identify issue boxes
         if (rects.length > 0) {
             const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
@@ -166,7 +156,7 @@ class UIManager {
             const color = getColorForClass(rect.labelClass);
             const issueIcon = rect.isIssue ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>' : '';
             
-            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>Class: ${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
@@ -205,8 +195,14 @@ class UIManager {
     
     updateLabelFilters(rects) {
         this.elements.labelFilters.innerHTML = '';
+
+        const classCounts = rects.reduce((acc, rect) => {
+            acc[rect.labelClass] = (acc[rect.labelClass] || 0) + 1;
+            return acc;
+        }, {});
+        const totalCount = rects.length;
+        const issueCount = rects.filter(r => r.isIssue).length;
         const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
-        const hasIssues = rects.some(r => r.isIssue);
 
         const applyFilters = () => {
             const activeClassFilters = new Set();
@@ -233,23 +229,12 @@ class UIManager {
             this.canvasController.renderAll();
         };
 
-        if (hasIssues) {
-            const issueBtn = document.createElement('button');
-            issueBtn.className = 'btn btn-sm btn-warning me-1 mb-1';
-            issueBtn.textContent = 'Issue Labels';
-            issueBtn.addEventListener('click', () => {
-                const isActivating = !issueBtn.classList.contains('active');
-                // Deactivate all other filters when activating issue filter
-                if (isActivating) {
-                    this.elements.labelFilters.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
-                }
-                issueBtn.classList.toggle('active', isActivating);
-                applyFilters();
-            });
-            this.elements.labelFilters.appendChild(issueBtn);
-        }
+        const totalEl = document.createElement('span');
+        totalEl.className = 'badge bg-dark me-2 mb-1 align-items-center d-inline-flex';
+        totalEl.textContent = `Total: ${totalCount}`;
+        this.elements.labelFilters.appendChild(totalEl);
 
-        if (uniqueClasses.length > 1) {
+        if (uniqueClasses.length > 0) {
             const allBtn = document.createElement('button');
             allBtn.className = 'btn btn-sm btn-primary me-1 mb-1';
             allBtn.textContent = 'All';
@@ -264,10 +249,26 @@ class UIManager {
             this.elements.labelFilters.appendChild(allBtn);
         }
 
+        if (issueCount > 0) {
+            const issueBtn = document.createElement('button');
+            issueBtn.className = 'btn btn-sm btn-warning me-1 mb-1';
+            issueBtn.textContent = `Issue (${issueCount})`;
+            issueBtn.addEventListener('click', () => {
+                const isActivating = !issueBtn.classList.contains('active');
+                if (isActivating) {
+                    this.elements.labelFilters.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
+                }
+                issueBtn.classList.toggle('active', isActivating);
+                applyFilters();
+            });
+            this.elements.labelFilters.appendChild(issueBtn);
+        }
+
         uniqueClasses.forEach(labelClass => {
             const btn = document.createElement('button');
+            const count = classCounts[labelClass] || 0;
             btn.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 active';
-            btn.textContent = `Class ${labelClass}`;
+            btn.textContent = `${labelClass} (${count})`;
             btn.dataset.labelClass = labelClass;
 
             btn.addEventListener('click', () => {
@@ -346,7 +347,6 @@ class UIManager {
 
     setActiveImageListItem(imageFile) {
         this.elements.imageList.querySelectorAll('.list-group-item').forEach(item => {
-            // Find the span inside the link to get the pure filename
             const span = item.querySelector('span');
             if (!span) return;
 
@@ -358,7 +358,6 @@ class UIManager {
         });
     }
 
-    // Drag and Drop for label list
     handleDragStart(e) {
         e.target.style.opacity = '0.4';
         this.dragSrcEl = e.target;
@@ -410,7 +409,6 @@ class FileSystem {
     async selectLabelFolder() {
         try {
             this.state.labelFolderHandle = await window.showDirectoryPicker();
-            // After selecting a label folder, re-check the status of the loaded images
             if (this.state.imageFiles.length > 0) {
                 await this.listImageFiles();
             }
@@ -429,7 +427,7 @@ class FileSystem {
             const content = await file.text();
             return content.trim().length > 0;
         } catch (err) {
-            return false; // Not found or other error
+            return false;
         }
     }
 
@@ -446,7 +444,6 @@ class FileSystem {
             }
         }
 
-        // Check label status in parallel for performance
         await Promise.all(fileHandles.map(async (fileHandle) => {
             const hasLabel = await this.checkLabelStatus(fileHandle);
             this.state.imageLabelStatus.set(fileHandle.name, hasLabel);
@@ -461,7 +458,6 @@ class FileSystem {
             await this.saveLabels(true);
         }
 
-        // Cancel any pending auto-save before loading a new image
         clearTimeout(this.state.saveTimeout);
 
         this.state.currentLoadToken++;
@@ -504,7 +500,6 @@ class FileSystem {
     }
 
     async loadLabels(imageName, loadToken) {
-        // Start with a clean slate for label counts
         this.uiManager.updateLabelList();
 
         if (!this.state.labelFolderHandle) return;
@@ -555,7 +550,6 @@ class FileSystem {
             await writable.write(yoloString.trim());
             await writable.close();
 
-            // Update status and re-render list
             const hasLabels = yoloString.trim().length > 0;
             if (this.state.imageLabelStatus.get(this.state.currentImageFile.name) !== hasLabels) {
                 this.state.imageLabelStatus.set(this.state.currentImageFile.name, hasLabels);
