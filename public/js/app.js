@@ -454,8 +454,16 @@ class FileSystem {
             this.state.imageLabelStatus.set(fileHandle.name, hasLabel);
         }));
 
+        // Sort the files to ensure we load the correct "first" one.
+        fileHandles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
         this.state.imageFiles = fileHandles;
         this.uiManager.renderImageList();
+
+        // Automatically load the first image if it exists.
+        if (this.state.imageFiles.length > 0) {
+            await this.loadImageAndLabels(this.state.imageFiles[0]);
+        }
     }
 
     async loadImageAndLabels(imageFileHandle) {
