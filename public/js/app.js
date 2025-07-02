@@ -44,6 +44,7 @@ class AppState {
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
+        this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
     }
 }
 
@@ -967,6 +968,8 @@ class EventManager {
         
         if (this.state.currentImage) {
             const pointer = this.canvas.canvas.getPointer(opt.e);
+            this.state.lastMousePosition = { x: pointer.x, y: pointer.y }; // Track mouse position
+
             if (pointer.x >= 0 && pointer.x <= this.state.currentImage.width && pointer.y >= 0 && pointer.y <= this.state.currentImage.height) {
                 this.ui.updateMouseCoords(pointer.x, pointer.y);
             } else {
@@ -1000,7 +1003,7 @@ class EventManager {
     handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyM') {
+        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyQ') {
             e.preventDefault();
             const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
             this.canvas.setMode(newMode);
@@ -1030,13 +1033,20 @@ class EventManager {
 
     paste() {
         if (!this.state._clipboard) return;
+
         this.state._clipboard.clone(cloned => {
             this.canvas.canvas.discardActiveObject();
             const newObjects = [];
+            const targetPosition = this.state.lastMousePosition;
 
-            const pasteObject = (obj) => {
+            // Function to create and position a single pasted object
+            const pasteObject = (obj, offset) => {
                 const newObj = fabric.util.object.clone(obj);
-                newObj.set({ left: newObj.left + 10, top: newObj.top + 10, evented: true });
+                newObj.set({
+                    left: newObj.left + offset.x,
+                    top: newObj.top + offset.y,
+                    evented: true
+                });
                 const color = getColorForClass(newObj.labelClass);
                 newObj.set({ fill: `${color}33`, stroke: color });
                 newObj.originalYolo = null; // Pasted objects are new
@@ -1045,9 +1055,21 @@ class EventManager {
             };
 
             if (cloned.type === 'activeSelection') {
-                cloned.forEachObject(obj => newObjects.push(pasteObject(obj)));
+                // For a group, calculate the offset from the group's center to the mouse
+                const groupCenter = cloned.getCenterPoint();
+                const offset = {
+                    x: targetPosition.x - groupCenter.x,
+                    y: targetPosition.y - groupCenter.y
+                };
+                cloned.forEachObject(obj => newObjects.push(pasteObject(obj, offset)));
             } else {
-                newObjects.push(pasteObject(cloned));
+                // For a single object, calculate offset from its center to the mouse
+                const objectCenter = cloned.getCenterPoint();
+                const offset = {
+                    x: targetPosition.x - objectCenter.x,
+                    y: targetPosition.y - objectCenter.y
+                };
+                newObjects.push(pasteObject(cloned, offset));
             }
 
             const sel = new fabric.ActiveSelection(newObjects, { canvas: this.canvas.canvas });
