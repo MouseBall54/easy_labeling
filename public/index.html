@@ -17,6 +17,11 @@
             <span id="current-image-name" class="navbar-text mx-auto"></span>
             
             <div id="info-display" class="d-flex align-items-center text-white me-3">
+                <div class="btn-group me-3" role="group">
+                    <button class="btn btn-primary btn-sm" id="zoomInBtn" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
+                    <button class="btn btn-primary btn-sm" id="zoomOutBtn" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
+                    <button class="btn btn-primary btn-sm" id="resetZoomBtn" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
+                </div>
                 <div id="coords-input-container" class="d-flex align-items-center me-3">
                     <input type="number" id="coordX" class="form-control form-control-sm" placeholder="X">
                     <input type="number" id="coordY" class="form-control form-control-sm" placeholder="Y">
@@ -35,8 +40,6 @@
     <div class="main-container">
         <!-- Left Control Panel -->
         <div id="left-panel" class="control-panel">
-            <h5><i class="bi bi-folder2-open"></i> Folders</h5>
-            <hr>
             <div class="d-grid gap-2 mb-3">
                 <button id="selectImageFolderBtn" class="btn btn-primary w-100 mb-2">Select Image Folder</button>
                 <button id="selectLabelFolderBtn" class="btn btn-secondary w-100">Select Label Folder</button>
@@ -47,11 +50,19 @@
                 <span class="input-group-text"><i class="bi bi-search"></i></span>
                 <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
             </div>
+            <div id="image-filter-container" class="d-flex justify-content-start gap-3 mb-2">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="showLabeled" checked>
+                    <label class="form-check-label" for="showLabeled"><i class="bi bi-check-circle-fill text-success"></i> Labeled</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="showUnlabeled" checked>
+                    <label class="form-check-label" for="showUnlabeled"><i class="bi bi-x-circle-fill text-muted"></i> Unlabeled</label>
+                </div>
+            </div>
             <div id="image-list" class="list-group mb-3">
                 <!-- Image list will be populated here -->
             </div>
-            <hr>
-            <h5><i class="bi bi-tools"></i> Controls</h5>
             <hr>
             <div class="form-check form-switch mb-2">
                 <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
@@ -61,19 +72,12 @@
                 <button id="saveLabelsBtn" class="btn btn-success"><i class="bi bi-save"></i> Save Labels</button>
             </div>
             <hr>
-            <h5><i class="bi bi-zoom-in"></i> Zoom</h5>
-            <div class="btn-group w-100 mb-2">
-                <button class="btn btn-secondary" id="zoomInBtn"><i class="bi bi-zoom-in"></i></button>
-                <button class="btn btn-secondary" id="zoomOutBtn"><i class="bi bi-zoom-out"></i></button>
-                <button class="btn btn-secondary" id="resetZoomBtn"><i class="bi bi-aspect-ratio"></i></button>
-            </div>
-            <hr>
             <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
             <div class="btn-group w-100" role="group" aria-label="Mode switch">
-                <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off" checked>
+                <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
                 <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode"><i class="bi bi-pencil-square"></i></label>
 
-                <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off">
+                <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
                 <label class="btn btn-outline-primary" for="editMode" title="Edit Mode"><i class="bi bi-cursor"></i></label>
             </div>
         </div>
