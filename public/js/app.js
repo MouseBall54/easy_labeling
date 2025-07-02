@@ -1030,7 +1030,8 @@ class EventManager {
         if (!activeObject) return;
         activeObject.clone(cloned => { this.state._clipboard = cloned; }, ['labelClass', 'originalYolo']);
     }
-    paste() {
+
+        paste() {
         if (!this.state._clipboard) return;
 
         this.state._clipboard.clone(cloned => {
@@ -1055,10 +1056,20 @@ class EventManager {
                 const offsetY = targetY - (bounds.top  + bounds.height / 2);
 
                 tempGroup.getObjects().forEach(obj => {
+                    // 1) 위치 이동
                     obj.left += offsetX;
                     obj.top  += offsetY;
+
+                    // 2) 기존 YOLO 정보 제거
+                    obj.originalYolo = null;
+
+                    // 3) 색상 및 불투명도 재설정
+                    const color = getColorForClass(obj.labelClass);
+                    obj.set({ fill: `${color}33`, stroke: color });
+
+                    // 4) 바운딩 박스 재계산
                     obj.setCoords();
-                    // ...색상 재설정 등...
+
                     this.canvas.canvas.add(obj);
                     newObjects.push(obj);
                 });
@@ -1068,9 +1079,17 @@ class EventManager {
                 const center = clonedObj.getCenterPoint();
                 clonedObj.left += (targetX - center.x);
                 clonedObj.top  += (targetY - center.y);
-                clonedObj.setCoords();
+
+                // 원본 YOLO 제거
+                clonedObj.originalYolo = null;
+
+                // 색상 재설정
                 const color = getColorForClass(clonedObj.labelClass);
                 clonedObj.set({ fill: `${color}33`, stroke: color });
+
+                // 바운딩 갱신
+                clonedObj.setCoords();
+
                 this.canvas.canvas.add(clonedObj);
                 newObjects.push(clonedObj);
             }
@@ -1084,6 +1103,7 @@ class EventManager {
             this.ui.updateLabelList();
         }, ['labelClass', 'originalYolo']);
     }
+
 
     deleteSelected() {
         this.canvas.canvas.getActiveObjects().forEach(obj => this.canvas.removeObject(obj));
