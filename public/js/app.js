@@ -39,7 +39,7 @@ class AppState {
         this.imageLabelStatus = new Map(); // <fileName, boolean>
         this.currentImageFile = null;
         this.currentImage = null;
-        this.currentMode = 'draw'; // 'draw' or 'edit'
+        this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
@@ -132,7 +132,6 @@ class UIManager {
         this.elements.labelList.innerHTML = '';
         const rects = this.canvasController.getObjects('rect');
 
-        // Calculate average area and identify issue boxes
         if (rects.length > 0) {
             const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
             const averageArea = totalArea / rects.length;
@@ -173,7 +172,6 @@ class UIManager {
 
         this.addEditDeleteListeners(rects);
         
-        // After list is built, re-apply the current filter state without triggering new clicks
         const activeClassFilters = new Set();
         this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
             activeClassFilters.add(btn.dataset.labelClass);
@@ -185,6 +183,8 @@ class UIManager {
                 isVisible = rect.isIssue;
             } else if (activeClassFilters.size > 0) {
                 isVisible = activeClassFilters.has(rect.labelClass);
+            } else if (!issueFilterActive && activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+                isVisible = false;
             }
             const listItem = document.getElementById(`label-item-${index}`);
             if (listItem) {
@@ -218,6 +218,8 @@ class UIManager {
                     isVisible = rect.isIssue;
                 } else if (activeClassFilters.size > 0) {
                     isVisible = activeClassFilters.has(rect.labelClass);
+                } else if (!issueFilterActive && activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+                    isVisible = false;
                 }
                 
                 rect.set('visible', isVisible);
@@ -234,13 +236,16 @@ class UIManager {
         totalEl.textContent = `Total: ${totalCount}`;
         this.elements.labelFilters.appendChild(totalEl);
 
-        if (uniqueClasses.length > 0) {
+        if (uniqueClasses.length > 1) {
             const allBtn = document.createElement('button');
             allBtn.className = 'btn btn-sm btn-primary me-1 mb-1';
             allBtn.textContent = 'All';
             allBtn.addEventListener('click', () => {
-                const allActive = !this.elements.labelFilters.querySelector('.btn[data-label-class]:not(.active)');
-                this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').forEach(btn => btn.classList.toggle('active', !allActive));
+                const classButtons = this.elements.labelFilters.querySelectorAll('.btn[data-label-class]');
+                const allActive = Array.from(classButtons).every(b => b.classList.contains('active'));
+                
+                classButtons.forEach(btn => btn.classList.toggle('active', !allActive));
+                
                 if (this.elements.labelFilters.querySelector('.btn-warning')) {
                     this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
                 }
@@ -610,6 +615,8 @@ class CanvasController {
 
     setMode(mode) {
         this.state.currentMode = mode;
+        this.uiManager.elements.drawModeBtn.checked = mode === 'draw';
+        this.uiManager.elements.editModeBtn.checked = mode === 'edit';
         this.canvas.selection = mode === 'edit';
         this.canvas.defaultCursor = mode === 'draw' ? 'crosshair' : 'default';
         this.getObjects('rect').forEach(obj => obj.set('selectable', mode === 'edit'));
@@ -984,6 +991,13 @@ class EventManager {
 
     handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyM') {
+            e.preventDefault();
+            const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
+            this.canvas.setMode(newMode);
+            return;
+        }
 
         if (this.state.currentMode === 'edit') {
             if (e.ctrlKey || e.metaKey) {
