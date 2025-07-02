@@ -41,6 +41,7 @@ class AppState {
         this.currentImage = null;
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
+        this.isIssueFilterVisible = true;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
@@ -72,6 +73,7 @@ class UIManager {
             showUnlabeledCheckbox: document.getElementById('showUnlabeled'),
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
+            showIssueFilterToggle: document.getElementById('showIssueFilterToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
@@ -255,7 +257,7 @@ class UIManager {
             this.elements.labelFilters.appendChild(allBtn);
         }
 
-        if (issueCount > 0) {
+        if (issueCount > 0 && this.state.isIssueFilterVisible) {
             const issueBtn = document.createElement('button');
             issueBtn.className = 'btn btn-sm btn-warning me-1 mb-1';
             issueBtn.textContent = `Issue (${issueCount})`;
@@ -896,6 +898,10 @@ class EventManager {
         this.ui.elements.autoSaveToggle.addEventListener('change', (e) => {
             this.state.isAutoSaveEnabled = e.target.checked;
             showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
+        });
+        this.ui.elements.showIssueFilterToggle.addEventListener('change', (e) => {
+            this.state.isIssueFilterVisible = e.target.checked;
+            this.ui.updateLabelList();
         });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
