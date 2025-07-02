@@ -36,6 +36,7 @@ class AppState {
         this.imageFolderHandle = null;
         this.labelFolderHandle = null;
         this.imageFiles = [];
+        this.imageLabelStatus = new Map(); // <fileName, boolean>
         this.currentImageFile = null;
         this.currentImage = null;
         this.currentMode = 'draw'; // 'draw' or 'edit'
@@ -66,12 +67,15 @@ class UIManager {
             selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
             imageList: document.getElementById('image-list'),
             imageSearchInput: document.getElementById('imageSearchInput'),
+            showLabeledCheckbox: document.getElementById('showLabeled'),
+            showUnlabeledCheckbox: document.getElementById('showUnlabeled'),
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
             labelFilters: document.getElementById('label-filters'),
+            labelCounts: document.getElementById('label-counts'),
             zoomInBtn: document.getElementById('zoomInBtn'),
             zoomOutBtn: document.getElementById('zoomOutBtn'),
             resetZoomBtn: document.getElementById('resetZoomBtn'),
@@ -91,15 +95,29 @@ class UIManager {
 
     renderImageList() {
         const searchTerm = this.elements.imageSearchInput.value.toLowerCase();
+        const showLabeled = this.elements.showLabeledCheckbox.checked;
+        const showUnlabeled = this.elements.showUnlabeledCheckbox.checked;
+
         this.elements.imageList.innerHTML = '';
         this.state.imageFiles
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
-            .filter(file => file.name.toLowerCase().includes(searchTerm))
+            .filter(file => {
+                const isLabeled = this.state.imageLabelStatus.get(file.name) || false;
+                if (!showLabeled && isLabeled) return false;
+                if (!showUnlabeled && !isLabeled) return false;
+                return file.name.toLowerCase().includes(searchTerm);
+            })
             .forEach(file => {
+                const isLabeled = this.state.imageLabelStatus.get(file.name) || false;
+                const icon = isLabeled
+                    ? '<i class="bi bi-check-circle-fill text-success me-2"></i>'
+                    : '<i class="bi bi-x-circle-fill text-muted me-2"></i>';
+
                 const a = document.createElement('a');
                 a.href = '#';
-                a.className = 'list-group-item list-group-item-action';
-                a.textContent = file.name;
+                a.className = 'list-group-item list-group-item-action d-flex align-items-center';
+                a.innerHTML = `${icon}<span>${file.name}</span>`;
+
                 if (this.state.currentImageFile && file.name === this.state.currentImageFile.name) {
                     a.classList.add('active');
                 }
@@ -114,6 +132,15 @@ class UIManager {
     updateLabelList() {
         this.elements.labelList.innerHTML = '';
         const rects = this.canvasController.getObjects('rect');
+
+        // Update label counts
+        const classCounts = rects.reduce((acc, rect) => {
+            acc[rect.labelClass] = (acc[rect.labelClass] || 0) + 1;
+            return acc;
+        }, {});
+        const totalCount = rects.length;
+        const countText = Object.entries(classCounts).map(([k, v]) => `C${k}: ${v}`).join(', ');
+        this.elements.labelCounts.textContent = `Total: ${totalCount}${countText ? ` (${countText})` : ''}`;
 
         // Calculate average area and identify issue boxes
         if (rects.length > 0) {
@@ -319,7 +346,11 @@ class UIManager {
 
     setActiveImageListItem(imageFile) {
         this.elements.imageList.querySelectorAll('.list-group-item').forEach(item => {
-            const isActive = item.textContent === imageFile.name;
+            // Find the span inside the link to get the pure filename
+            const span = item.querySelector('span');
+            if (!span) return;
+
+            const isActive = span.textContent === imageFile.name;
             item.classList.toggle('active', isActive);
             if (isActive) {
                 item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -379,23 +410,49 @@ class FileSystem {
     async selectLabelFolder() {
         try {
             this.state.labelFolderHandle = await window.showDirectoryPicker();
+            // After selecting a label folder, re-check the status of the loaded images
+            if (this.state.imageFiles.length > 0) {
+                await this.listImageFiles();
+            }
             showToast(`Label folder selected: ${this.state.labelFolderHandle.name}`);
         } catch (err) {
             console.error('Error selecting label folder:', err);
         }
     }
 
-    
+    async checkLabelStatus(imageFileHandle) {
+        if (!this.state.labelFolderHandle) return false;
+        const labelFileName = imageFileHandle.name.replace(/\.[^/.]+$/, ".txt");
+        try {
+            const labelFileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName);
+            const file = await labelFileHandle.getFile();
+            const content = await file.text();
+            return content.trim().length > 0;
+        } catch (err) {
+            return false; // Not found or other error
+        }
+    }
 
     async listImageFiles() {
         if (!this.state.imageFolderHandle) return;
         this.state.imageFiles = [];
+        this.state.imageLabelStatus.clear();
         this.uiManager.elements.imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
+        
+        const fileHandles = [];
         for await (const entry of this.state.imageFolderHandle.values()) {
             if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
-                this.state.imageFiles.push(entry);
+                fileHandles.push(entry);
             }
         }
+
+        // Check label status in parallel for performance
+        await Promise.all(fileHandles.map(async (fileHandle) => {
+            const hasLabel = await this.checkLabelStatus(fileHandle);
+            this.state.imageLabelStatus.set(fileHandle.name, hasLabel);
+        }));
+
+        this.state.imageFiles = fileHandles;
         this.uiManager.renderImageList();
     }
 
@@ -423,7 +480,6 @@ class FileSystem {
             this.uiManager.elements.labelFilters.innerHTML = '';
             this.canvasController.setBackgroundImage(img);
             this.canvasController.resetZoom();
-            // Only try to load labels if it's part of a folder selection
             this.loadLabels(imageFileHandle.name, loadToken);
         };
 
@@ -448,9 +504,12 @@ class FileSystem {
     }
 
     async loadLabels(imageName, loadToken) {
+        // Start with a clean slate for label counts
+        this.uiManager.updateLabelList();
+
         if (!this.state.labelFolderHandle) return;
         
-        const labelFileName = imageName.replace(/\.[^/.]+$/, "") + ".txt";
+        const labelFileName = imageName.replace(/\.[^/.]+$/, ".txt");
         try {
             const labelFileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName);
             const file = await labelFileHandle.getFile();
@@ -458,7 +517,7 @@ class FileSystem {
             
             if (loadToken !== this.state.currentLoadToken) return;
 
-            if (yoloData) {
+            if (yoloData.trim()) {
                 this.canvasController.addLabelsFromYolo(yoloData);
             }
             this.uiManager.updateLabelList();
@@ -482,20 +541,27 @@ class FileSystem {
             return;
         }
 
-        // If there's an active selection, discard it to commit transformations
         if (this.canvasController.canvas.getActiveObject()) {
             this.canvasController.canvas.discardActiveObject();
             this.canvasController.renderAll();
         }
 
         const yoloString = this.canvasController.getLabelsAsYolo();
-        const labelFileName = this.state.currentImageFile.name.replace(/\.[^/.]+$/, "") + ".txt";
+        const labelFileName = this.state.currentImageFile.name.replace(/\.[^/.]+$/, ".txt");
 
         try {
             const fileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName, { create: true });
             const writable = await fileHandle.createWritable();
             await writable.write(yoloString.trim());
             await writable.close();
+
+            // Update status and re-render list
+            const hasLabels = yoloString.trim().length > 0;
+            if (this.state.imageLabelStatus.get(this.state.currentImageFile.name) !== hasLabels) {
+                this.state.imageLabelStatus.set(this.state.currentImageFile.name, hasLabels);
+                this.uiManager.renderImageList();
+            }
+
             if (!isAuto) {
                 showToast(`Labels saved to ${labelFileName}`);
             }
@@ -592,8 +658,7 @@ class CanvasController {
             const labelClass = rect.labelClass || '0';
             if (rect.originalYolo) {
                 const { x_center, y_center, width, height } = rect.originalYolo;
-                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}
-`;
+                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}\n`;
             } else {
                 rect.setCoords();
                 const center = rect.getCenterPoint();
@@ -603,8 +668,7 @@ class CanvasController {
                 const y_center = center.y / imgHeight;
                 const normWidth = width / imgWidth;
                 const normHeight = height / imgHeight;
-                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}
-`;
+                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
             }
         });
         return yoloString;
@@ -817,6 +881,8 @@ class EventManager {
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
+        this.ui.elements.showLabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
+        this.ui.elements.showUnlabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
         this.ui.elements.autoSaveToggle.addEventListener('change', (e) => {
             this.state.isAutoSaveEnabled = e.target.checked;
             showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
@@ -851,9 +917,11 @@ class EventManager {
 
         this.canvas.canvas.on('object:modified', (e) => {
             markAsModified(e);
+            this.ui.updateLabelList();
         });
         this.canvas.canvas.on('object:scaled', (e) => {
             markAsModified(e);
+            this.ui.updateLabelList();
         });
 
         this.canvas.canvas.on('selection:created', (e) => this.canvas.updateSelectionLabel(e));
