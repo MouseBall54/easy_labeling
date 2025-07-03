@@ -26,10 +26,29 @@ function getColorForClass(labelClass) {
     return isNaN(classNumber) || classNumber < 0 ? '#000000' : colorPalette[classNumber % colorPalette.length];
 }
 
+function validateLabelClass(input) {
+    if (input === null) return null; // User cancelled prompt
+
+    const trimmedInput = input.trim();
+    if (trimmedInput === '') {
+        showToast('Label class cannot be empty.', 3000);
+        return null;
+    }
+
+    const num = Number(trimmedInput);
+
+    if (isNaN(num) || !Number.isInteger(num) || num < 0 || num > 10000) {
+        showToast('Invalid Label: Please enter an integer between 0 and 10000.', 4000);
+        return null;
+    }
+
+    return String(num);
+}
+
 
 // =================================================================================
 // Application State
-// =================================================================================
+// ==================================================================================
 
 class AppState {
     constructor() {
@@ -42,10 +61,13 @@ class AppState {
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
         this.isIssueFilterVisible = true;
+        this.showLabelsOnCanvas = true;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
         this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
+        this.classNames = new Map(); // To store class names from .yaml file
+        this.labelSortOrder = 'asc'; // 'asc' or 'desc'
     }
 }
 
@@ -63,6 +85,13 @@ class UIManager {
         this.setupSplitters();
     }
 
+    getDisplayNameForClass(labelClass) {
+        if (this.state.classNames.has(labelClass)) {
+            return `${labelClass}: ${this.state.classNames.get(labelClass)}`;
+        }
+        return labelClass; // Fallback to just the ID
+    }
+
     getDOMElements() {
         return {
             selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
@@ -74,6 +103,7 @@ class UIManager {
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
             showIssueFilterToggle: document.getElementById('showIssueFilterToggle'),
+            showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
@@ -92,7 +122,25 @@ class UIManager {
             rightPanel: document.getElementById('right-panel'),
             leftSplitter: document.getElementById('left-splitter'),
             rightSplitter: document.getElementById('right-splitter'),
+            darkModeToggle: document.getElementById('darkModeToggle'),
+            downloadClassesBtn: document.getElementById('downloadClassesBtn'),
+            loadClassesBtn: document.getElementById('loadClassesBtn'),
+            sortLabelsAscBtn: document.getElementById('sortLabelsAscBtn'),
+            sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
         };
+    }
+
+    updateLabelFolderButton(selected, folderName = '') {
+        const btn = this.elements.selectLabelFolderBtn;
+        if (selected) {
+            btn.classList.remove('btn-secondary', 'btn-danger');
+            btn.classList.add('btn-success');
+            btn.innerHTML = `<i class="bi bi-folder-check"></i> ${folderName}`;
+        } else {
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-danger');
+            btn.innerHTML = `<i class="bi bi-folder-x"></i> Select Label Folder`;
+        }
     }
 
     renderImageList() {
@@ -133,7 +181,19 @@ class UIManager {
 
     updateLabelList() {
         this.elements.labelList.innerHTML = '';
-        const rects = this.canvasController.getObjects('rect');
+        let rects = this.canvasController.getObjects('rect');
+
+        // Sort rects based on the current sort order
+        rects.sort((a, b) => {
+            const idA = parseInt(a.labelClass, 10);
+            const idB = parseInt(b.labelClass, 10);
+            return this.state.labelSortOrder === 'asc' ? idA - idB : idB - idA;
+        });
+
+        // Re-order objects on the canvas for correct z-index
+        rects.forEach(rect => this.canvasController.canvas.remove(rect));
+        rects.forEach(rect => this.canvasController.canvas.add(rect));
+        this.canvasController.renderAll();
 
         if (rects.length > 0) {
             const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
@@ -155,17 +215,36 @@ class UIManager {
             li.draggable = true;
             li.dataset.index = index;
 
+            // Get currently active objects from canvas for highlighting
+            const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
+            // Apply active class if this rect is currently selected on canvas
+            const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
+            if (isActive) {
+                li.classList.add('active');
+            }
+
             const color = getColorForClass(rect.labelClass);
-            const issueIcon = rect.isIssue ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>' : '';
+            // Only show issue icon if filter is visible AND rect has issue
+            const issueIcon = (this.state.isIssueFilterVisible && rect.isIssue)
+                ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>'
+                : '';
+            const displayName = this.getDisplayNameForClass(rect.labelClass);
             
-            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
                 this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
             });
 
-            li.addEventListener('dragstart', this.handleDragStart.bind(this));
+            li.addEventListener('dragstart', (e) => {
+                // Only allow drag-to-reorder when grabbing the handle
+                if (e.target.classList.contains('bi-grip-vertical')) {
+                    this.handleDragStart(e);
+                } else {
+                    e.preventDefault();
+                }
+            });
             li.addEventListener('dragover', this.handleDragOver.bind(this));
             li.addEventListener('drop', this.handleDrop.bind(this));
             li.addEventListener('dragend', this.handleDragEnd.bind(this));
@@ -226,6 +305,9 @@ class UIManager {
                 }
                 
                 rect.set('visible', isVisible);
+                if (rect._labelText) {
+                    rect._labelText.set('visible', isVisible);
+                }
                 const listItem = document.getElementById(`label-item-${index}`);
                 if (listItem) {
                     listItem.style.display = isVisible ? '' : 'none';
@@ -275,8 +357,9 @@ class UIManager {
         uniqueClasses.forEach(labelClass => {
             const btn = document.createElement('button');
             const count = classCounts[labelClass] || 0;
+            const displayName = this.getDisplayNameForClass(labelClass);
             btn.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 active';
-            btn.textContent = `${labelClass} (${count})`;
+            btn.textContent = `${displayName} (${count})`;
             btn.dataset.labelClass = labelClass;
 
             btn.addEventListener('click', () => {
@@ -349,8 +432,12 @@ class UIManager {
         this.elements.mouseCoordsDisplay.style.display = 'none';
     }
     
-    updateImageInfo(fileName) {
-        this.elements.currentImageNameSpan.textContent = fileName;
+    updateImageInfo(fileName, currentIndex = null, totalImages = null) {
+        let infoText = fileName;
+        if (currentIndex !== null && totalImages !== null) {
+            infoText = `${currentIndex + 1}/${totalImages} - ${fileName}`;
+        }
+        this.elements.currentImageNameSpan.textContent = infoText;
     }
 
     setActiveImageListItem(imageFile) {
@@ -405,6 +492,74 @@ class FileSystem {
         this.canvasController = canvasController;
     }
 
+    async loadClassNames() {
+        try {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [
+                    {
+                        description: 'YAML Class File',
+                        accept: { 'application/x-yaml': ['.yaml', '.yml'] },
+                    },
+                ],
+            });
+            const file = await fileHandle.getFile();
+            const content = await file.text();
+            
+            this.state.classNames.clear();
+            const lines = content.split('\n');
+            let loadedCount = 0;
+            
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('#') || trimmedLine === '') return;
+
+                const parts = trimmedLine.split(':');
+                if (parts.length >= 2) {
+                    const id = parts[0].trim();
+                    const name = parts.slice(1).join(':').trim();
+                    if (!isNaN(parseInt(id, 10)) && name) {
+                        this.state.classNames.set(id, name);
+                        loadedCount++;
+                    }
+                }
+            });
+
+            showToast(`${loadedCount} classes loaded from ${file.name}`);
+            this.uiManager.updateLabelList(); // Refresh UI to show names
+            this.canvasController.updateAllLabelTexts();
+            this.uiManager.updateLabelFilters(this.canvasController.getObjects('rect'));
+
+        } catch (err) {
+            console.error('Error loading class names file:', err);
+            if (err.name !== 'AbortError') {
+                showToast('Failed to load class names file.', 4000);
+            }
+        }
+    }
+
+    downloadClassTemplate() {
+        const templateContent = [
+            '# This is a YAML file for class definitions.',
+            '# Each line should be in the format: id: name',
+            '# The ID must be an integer.',
+            '',
+            '0: person',
+            '1: car',
+            '2: bicycle',
+            '3: dog',
+            '10: traffic light',
+        ].join('\n');
+        const blob = new Blob([templateContent], { type: 'application/x-yaml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'custom-classes.yaml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
     async selectImageFolder() {
         try {
             this.state.imageFolderHandle = await window.showDirectoryPicker();
@@ -417,6 +572,7 @@ class FileSystem {
     async selectLabelFolder() {
         try {
             this.state.labelFolderHandle = await window.showDirectoryPicker();
+            this.uiManager.updateLabelFolderButton(true, this.state.labelFolderHandle.name);
             if (this.state.imageFiles.length > 0) {
                 await this.listImageFiles();
             }
@@ -480,7 +636,9 @@ class FileSystem {
         const loadToken = this.state.currentLoadToken;
 
         this.state.currentImageFile = imageFileHandle;
-        this.uiManager.updateImageInfo(imageFileHandle.name);
+        const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
+        const totalImages = this.state.imageFiles.length;
+        this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
         
         const file = await imageFileHandle.getFile();
 
@@ -652,11 +810,13 @@ class CanvasController {
             const rect = new fabric.Rect({
                 left: rectLeft, top: rectTop, width: rectWidth, height: rectHeight,
                 fill: `${color}33`, stroke: color, strokeWidth: 2,
+                strokeUniform: true,
                 selectable: this.state.currentMode === 'edit',
                 labelClass: String(labelClass),
                 originalYolo: { x_center, y_center, width, height }
             });
             this.canvas.add(rect);
+            this.drawLabelText(rect);
         });
     }
 
@@ -689,7 +849,7 @@ class CanvasController {
     highlightIssueBoxes() {
         const rects = this.getObjects('rect');
         rects.forEach(rect => {
-            if (rect.isIssue) {
+            if (this.state.isIssueFilterVisible && rect.isIssue) {
                 rect.set({
                     stroke: '#FFA500', // Bright Orange
                     strokeWidth: 3
@@ -702,6 +862,7 @@ class CanvasController {
                     strokeWidth: 2
                 });
             }
+            this.updateLabelText(rect);
         });
         this.renderAll();
     }
@@ -713,7 +874,7 @@ class CanvasController {
         this.startPoint = pointer;
         this.currentRect = new fabric.Rect({
             left: this.startPoint.x, top: this.startPoint.y, width: 0, height: 0,
-            fill: 'rgba(255, 0, 0, 0.2)', stroke: 'red', strokeWidth: 2, selectable: false,
+            fill: 'rgba(255, 0, 0, 0.2)', stroke: 'red', strokeWidth: 2, strokeUniform: true, selectable: false,
         });
         this.canvas.add(this.currentRect);
     }
@@ -733,14 +894,42 @@ class CanvasController {
     finishDrawing() {
         if (!this.isDrawing) return;
         this.isDrawing = false;
+
+        if (!this.state.labelFolderHandle) {
+            showToast('Please select a label folder before creating labels.', 4000);
+            this.canvas.remove(this.currentRect);
+            this.currentRect = null;
+            return;
+        }
+
         if (this.currentRect.width < 5 && this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
         } else {
-            const newLabel = prompt('Enter label class for the new box:', '0');
-            const finalLabel = (newLabel !== null && newLabel.trim() !== '') ? newLabel.trim() : '0';
+            const userInput = prompt('Enter label class for the new box:', '0');
+            const finalLabel = validateLabelClass(userInput);
+
+            if (finalLabel === null) {
+                this.canvas.remove(this.currentRect);
+                this.currentRect = null;
+                return;
+            }
+
             this.currentRect.set('labelClass', finalLabel);
+            
+            // 2) 색상 적용
             const color = getColorForClass(finalLabel);
             this.currentRect.set({ fill: `${color}33`, stroke: color });
+            
+            // 3) 선택 가능하도록 설정 (edit 모드일 때)
+            const isEditMode = (this.state.currentMode === 'edit');
+            this.currentRect.set('selectable', isEditMode);
+            
+            // 4) 좌표 업데이트 및 렌더링
+            this.currentRect.setCoords();
+            this.drawLabelText(this.currentRect);
+            this.canvas.requestRenderAll();
+            
+            // 5) UI 리스트 업데이트
             this.uiManager.updateLabelList();
         }
         this.currentRect = null;
@@ -748,7 +937,15 @@ class CanvasController {
 
     // Object Manipulation
     removeObject(obj) {
+        if (obj._labelText) {
+            this.canvas.remove(obj._labelText);
+        }
         this.canvas.remove(obj);
+    }
+
+    sortObjectsByLabel(order = 'asc') {
+        this.state.labelSortOrder = order;
+        this.uiManager.updateLabelList();
     }
 
     reorderObject(srcIndex, destIndex) {
@@ -759,24 +956,44 @@ class CanvasController {
         rects.forEach(rect => this.canvas.add(rect));
     }
 
+    // CanvasController 클래스 내부에 위치
+// CanvasController 클래스 내부
     editLabel(rect) {
-        const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
-        if (newLabel !== null && newLabel.trim() !== '') {
-            const finalLabel = newLabel.trim();
+        const userInput = prompt('Enter new label class:', rect.labelClass || '0');
+        const finalLabel = validateLabelClass(userInput);
+
+        if (finalLabel !== null) {
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
-            rect.originalYolo = null; // Mark as modified
+            rect.originalYolo = null;
+            this.updateLabelText(rect);
             this.uiManager.updateLabelList();
-            this.renderAll();
         }
+
+        // 1) 활성 객체 선택 해제
+        this.canvas.discardActiveObject();
+
+        // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
+        this.canvas._currentTransform = null;
+
+        // 3) 드래그/드로잉 플래그도 초기화
+        this.isDrawing = false;
+        this.canvas.isDragging = false;
+        this.canvas.selection = true;
+        this.canvas.defaultCursor = 'default';
+
+        // 4) 캔버스 강제 리렌더링
+        this.canvas.renderAll();
     }
+
 
     // Zoom and Pan
     zoom(factor) {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
         this.uiManager.updateZoomDisplay();
+        this.updateAllLabelTexts();
     }
 
     resetZoom() {
@@ -791,6 +1008,7 @@ class CanvasController {
         this.canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
         this.renderAll();
         this.uiManager.updateZoomDisplay();
+        this.updateAllLabelTexts();
     }
     
     resizeCanvas() {
@@ -813,6 +1031,7 @@ class CanvasController {
         this.canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
         this.renderAll();
         this.highlightPoint(x, y);
+        this.updateAllLabelTexts();
     }
 
     highlightPoint(x, y) {
@@ -839,38 +1058,98 @@ class CanvasController {
 
     // Selection Info
     updateSelectionLabel(e) {
-        this.clearSelectionLabel();
-        this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
+        // Clear all active classes from list items first
+        this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
 
-        if (e.selected.length !== 1) return;
-        const activeObject = e.selected[0];
-        
-        if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-            const zoom = this.canvas.getZoom();
-            this.activeLabelText = new fabric.Text('Class: ' + activeObject.labelClass, {
-                left: activeObject.left, top: activeObject.top - 20 / zoom,
-                fontSize: 16 / zoom, fill: 'black', backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                padding: 2 / zoom, selectable: false, evented: false,
-            });
-            this.canvas.add(this.activeLabelText);
-
-            const objectIndex = this.getObjects('rect').indexOf(activeObject);
-            if (objectIndex > -1) {
-                const listItem = document.getElementById(`label-item-${objectIndex}`);
-                if (listItem) {
-                    listItem.classList.add('active');
-                    listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (e.selected && e.selected.length > 0) {
+            const rects = this.getObjects('rect');
+            e.selected.forEach(activeObject => {
+                if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
+                    const objectIndex = rects.indexOf(activeObject);
+                    if (objectIndex > -1) {
+                        const listItem = document.getElementById(`label-item-${objectIndex}`);
+                        if (listItem) {
+                            listItem.classList.add('active');
+                            // Scroll to the first selected item
+                            if (e.selected.indexOf(activeObject) === 0) {
+                                listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }
+                        }
+                    }
                 }
-            }
+            });
         }
     }
 
     clearSelectionLabel() {
+        // Clear all active classes from list items
+        this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
+
         if (this.activeLabelText) {
             this.canvas.remove(this.activeLabelText);
             this.activeLabelText = null;
         }
-        this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
+    }
+
+    // Permanent Label Text
+    drawLabelText(rect) {
+        if (!this.state.showLabelsOnCanvas) return;
+        const zoom = this.canvas.getZoom();
+        const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
+        const text = new fabric.Text(displayName, {
+            left: rect.left,
+            top: rect.top - 20 / zoom,
+            fontSize: 16 / zoom,
+            fill: rect.stroke,
+            backgroundColor: rect.fill,
+            padding: 2 / zoom,
+            selectable: false,
+            evented: false,
+            _isLabelText: true, // Custom property
+            _rect: rect, // Link to the rectangle
+        });
+        rect._labelText = text;
+        this.canvas.add(text);
+    }
+
+    updateLabelText(rect) {
+        if (rect._labelText) {
+            const zoom = this.canvas.getZoom();
+            const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
+            rect._labelText.set({
+                text: displayName,
+                left: rect.left,
+                top: rect.top - 20 / zoom,
+                fontSize: 16 / zoom,
+                padding: 2 / zoom,
+                fill: rect.stroke,
+                backgroundColor: rect.fill,
+            });
+        }
+    }
+
+    updateAllLabelTexts() {
+        this.getObjects('rect').forEach(rect => {
+            if (rect._labelText) {
+                this.updateLabelText(rect);
+            }
+        });
+    }
+
+    toggleAllLabelTexts(visible) {
+        if (visible) {
+            this.getObjects('rect').forEach(rect => this.drawLabelText(rect));
+        } else {
+            this.canvas.getObjects('text').forEach(text => {
+                if (text._isLabelText) {
+                    this.canvas.remove(text);
+                }
+            });
+            this.getObjects('rect').forEach(rect => {
+                rect._labelText = null;
+            });
+        }
+        this.renderAll();
     }
 }
 
@@ -885,6 +1164,10 @@ class EventManager {
         this.ui = ui;
         this.fileSystem = fileSystem;
         this.canvas = canvasController;
+        this.lastClickTime = 0;
+        this.lastClickedObject = null;
+        this.isDraggingForSelection = false;
+        this.selectionStartIndex = -1;
     }
 
     bindEventListeners() {
@@ -892,6 +1175,14 @@ class EventManager {
         this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
+        this.ui.elements.loadClassesBtn.addEventListener('click', () => this.fileSystem.loadClassNames());
+        this.ui.elements.downloadClassesBtn.addEventListener('click', () => this.fileSystem.downloadClassTemplate());
+        this.ui.elements.sortLabelsAscBtn.addEventListener('click', () => {
+            this.canvas.sortObjectsByLabel('asc');
+        });
+        this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
+            this.canvas.sortObjectsByLabel('desc');
+        });
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
         this.ui.elements.showLabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
         this.ui.elements.showUnlabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
@@ -902,6 +1193,11 @@ class EventManager {
         this.ui.elements.showIssueFilterToggle.addEventListener('change', (e) => {
             this.state.isIssueFilterVisible = e.target.checked;
             this.ui.updateLabelList();
+            this.canvas.highlightIssueBoxes();
+        });
+        this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
+            this.state.showLabelsOnCanvas = e.target.checked;
+            this.canvas.toggleAllLabelTexts(this.state.showLabelsOnCanvas);
         });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
@@ -914,6 +1210,8 @@ class EventManager {
             this.canvas.goToCoords(x, y);
         });
 
+        this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
+
         // Canvas Events
         this.canvas.canvas.on('mouse:down', this.handleMouseDown.bind(this));
         this.canvas.canvas.on('mouse:move', this.handleMouseMove.bind(this));
@@ -925,9 +1223,13 @@ class EventManager {
             if (!e.target) return;
             const target = e.target;
             if (target.type === 'activeSelection') {
-                target.getObjects().forEach(obj => obj.originalYolo = null);
+                target.getObjects().forEach(obj => {
+                    obj.originalYolo = null;
+                    this.canvas.updateLabelText(obj);
+                });
             } else {
                 target.originalYolo = null;
+                this.canvas.updateLabelText(target);
             }
         };
 
@@ -944,12 +1246,32 @@ class EventManager {
         this.canvas.canvas.on('selection:updated', (e) => this.canvas.updateSelectionLabel(e));
         this.canvas.canvas.on('selection:cleared', () => this.canvas.clearSelectionLabel());
 
+        // Label list multi-select drag
+        this.ui.elements.labelList.addEventListener('mousedown', this.handleLabelListMouseDown.bind(this));
+
         // Keyboard Events
         window.addEventListener('keydown', this.handleKeyDown.bind(this));
     }
 
     handleMouseDown(opt) {
         const evt = opt.e;
+        const target = opt.target;
+        const currentTime = new Date().getTime();
+        const clickInterval = currentTime - this.lastClickTime;
+        const isDoubleClick = clickInterval < 300 && target === this.lastClickedObject;
+
+        if (isDoubleClick && target && target.type === 'rect' && this.state.currentMode === 'edit') {
+            this.canvas.editLabel(target);
+            this.lastClickTime = 0; // Reset to prevent triple-click issues
+            this.lastClickedObject = null;
+            evt.preventDefault(); // Prevent default Fabric.js drag behavior
+            evt.stopPropagation(); // Stop event propagation
+            return;
+        }
+
+        this.lastClickTime = currentTime;
+        this.lastClickedObject = target;
+
         if (evt.altKey || evt.ctrlKey) {
             this.canvas.canvas.isDragging = true;
             this.canvas.canvas.selection = false;
@@ -1009,6 +1331,12 @@ class EventManager {
     handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
+        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+            e.preventDefault();
+            this.fileSystem.saveLabels(false);
+            return;
+        }
+
         if ((e.ctrlKey || e.metaKey) && e.code === 'KeyQ') {
             e.preventDefault();
             const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
@@ -1029,6 +1357,76 @@ class EventManager {
 
         if (e.key.toLowerCase() === 'd') this.navigateImage(1);
         if (e.key.toLowerCase() === 'a') this.navigateImage(-1);
+    }
+
+    handleLabelListMouseDown(e) {
+        // Don't interfere with re-ordering, buttons or scrollbar
+        if (e.target.classList.contains('bi-grip-vertical') || e.target.closest('button') || e.offsetX >= e.target.clientWidth) {
+            return;
+        }
+
+        e.preventDefault();
+        this.isDraggingForSelection = true;
+        
+        const listItem = e.target.closest('li');
+        if (!listItem) return;
+
+        this.selectionStartIndex = Array.from(listItem.parentElement.children).indexOf(listItem);
+        
+        // Clear previous selections
+        this.canvas.canvas.discardActiveObject();
+        this.ui.elements.labelList.querySelectorAll('li.active').forEach(li => li.classList.remove('active'));
+
+        // Select starting item
+        listItem.classList.add('active');
+
+        const onMouseMove = (moveEvent) => {
+            if (!this.isDraggingForSelection) return;
+
+            const currentItem = moveEvent.target.closest('li');
+            if (!currentItem) return;
+
+            const currentIndex = Array.from(currentItem.parentElement.children).indexOf(currentItem);
+            const min = Math.min(this.selectionStartIndex, currentIndex);
+            const max = Math.max(this.selectionStartIndex, currentIndex);
+
+            this.ui.elements.labelList.querySelectorAll('li').forEach((li, index) => {
+                li.classList.toggle('active', index >= min && index <= max);
+            });
+        };
+
+        const onMouseUp = () => {
+            this.isDraggingForSelection = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+
+            const selectedRects = [];
+            const rects = this.canvas.getObjects('rect');
+            this.ui.elements.labelList.querySelectorAll('li.active').forEach(li => {
+                const index = parseInt(li.dataset.index, 10);
+                if (!isNaN(index) && rects[index]) {
+                    selectedRects.push(rects[index]);
+                }
+            });
+
+            if (selectedRects.length > 1) {
+                const sel = new fabric.ActiveSelection(selectedRects, { canvas: this.canvas.canvas });
+                this.canvas.canvas.setActiveObject(sel);
+                this.canvas.renderAll();
+            } else if (selectedRects.length === 1) {
+                this.canvas.canvas.setActiveObject(selectedRects[0]);
+                this.canvas.renderAll();
+            }
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    }
+
+    toggleDarkMode(e) {
+        const isEnabled = e.target.checked;
+        document.body.classList.toggle('dark-mode', isEnabled);
+        localStorage.setItem('darkMode', isEnabled ? 'enabled' : 'disabled');
     }
 
     copy() {
@@ -1124,10 +1522,11 @@ class EventManager {
             return;
         }
 
-        const newLabel = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
-        if (newLabel === null || newLabel.trim() === '') return;
+        const userInput = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
+        const finalLabel = validateLabelClass(userInput);
 
-        const finalLabel = newLabel.trim();
+        if (finalLabel === null) return;
+
         const color = getColorForClass(finalLabel);
 
         const applyChanges = (obj) => {
@@ -1143,7 +1542,7 @@ class EventManager {
         }
         
         this.canvas.renderAll();
-        this.ui.updateLabelList();
+        this.uiManager.updateLabelList();
     }
 
     navigateImage(direction) {
@@ -1191,6 +1590,14 @@ class App {
     init() {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
+        this.uiManager.updateLabelFolderButton(false);
+
+        // Apply dark mode on load
+        const storedTheme = localStorage.getItem('darkMode');
+        if (storedTheme === 'enabled') {
+            this.uiManager.elements.darkModeToggle.checked = true;
+            document.body.classList.add('dark-mode');
+        }
     }
 }
 
