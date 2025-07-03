@@ -652,6 +652,7 @@ class CanvasController {
             const rect = new fabric.Rect({
                 left: rectLeft, top: rectTop, width: rectWidth, height: rectHeight,
                 fill: `${color}33`, stroke: color, strokeWidth: 2,
+                strokeUniform: true,
                 selectable: this.state.currentMode === 'edit',
                 labelClass: String(labelClass),
                 originalYolo: { x_center, y_center, width, height }
@@ -713,7 +714,7 @@ class CanvasController {
         this.startPoint = pointer;
         this.currentRect = new fabric.Rect({
             left: this.startPoint.x, top: this.startPoint.y, width: 0, height: 0,
-            fill: 'rgba(255, 0, 0, 0.2)', stroke: 'red', strokeWidth: 2, selectable: false,
+            fill: 'rgba(255, 0, 0, 0.2)', stroke: 'red', strokeWidth: 2, strokeUniform: true, selectable: false,
         });
         this.canvas.add(this.currentRect);
     }
