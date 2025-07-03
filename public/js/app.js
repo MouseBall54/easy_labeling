@@ -67,6 +67,7 @@ class AppState {
         this._clipboard = null;
         this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
         this.classNames = new Map(); // To store class names from .yaml file
+        this.labelSortOrder = 'asc'; // 'asc' or 'desc'
     }
 }
 
@@ -124,6 +125,8 @@ class UIManager {
             darkModeToggle: document.getElementById('darkModeToggle'),
             downloadClassesBtn: document.getElementById('downloadClassesBtn'),
             loadClassesBtn: document.getElementById('loadClassesBtn'),
+            sortLabelsAscBtn: document.getElementById('sortLabelsAscBtn'),
+            sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
         };
     }
 
@@ -178,7 +181,19 @@ class UIManager {
 
     updateLabelList() {
         this.elements.labelList.innerHTML = '';
-        const rects = this.canvasController.getObjects('rect');
+        let rects = this.canvasController.getObjects('rect');
+
+        // Sort rects based on the current sort order
+        rects.sort((a, b) => {
+            const idA = parseInt(a.labelClass, 10);
+            const idB = parseInt(b.labelClass, 10);
+            return this.state.labelSortOrder === 'asc' ? idA - idB : idB - idA;
+        });
+
+        // Re-order objects on the canvas for correct z-index
+        rects.forEach(rect => this.canvasController.canvas.remove(rect));
+        rects.forEach(rect => this.canvasController.canvas.add(rect));
+        this.canvasController.renderAll();
 
         if (rects.length > 0) {
             const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
@@ -200,8 +215,19 @@ class UIManager {
             li.draggable = true;
             li.dataset.index = index;
 
+            // Get currently active objects from canvas for highlighting
+            const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
+            // Apply active class if this rect is currently selected on canvas
+            const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
+            if (isActive) {
+                li.classList.add('active');
+            }
+
             const color = getColorForClass(rect.labelClass);
-            const issueIcon = rect.isIssue ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>' : '';
+            // Only show issue icon if filter is visible AND rect has issue
+            const issueIcon = (this.state.isIssueFilterVisible && rect.isIssue)
+                ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>'
+                : '';
             const displayName = this.getDisplayNameForClass(rect.labelClass);
             
             li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
@@ -211,7 +237,14 @@ class UIManager {
                 this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
             });
 
-            li.addEventListener('dragstart', this.handleDragStart.bind(this));
+            li.addEventListener('dragstart', (e) => {
+                // Only allow drag-to-reorder when grabbing the handle
+                if (e.target.classList.contains('bi-grip-vertical')) {
+                    this.handleDragStart(e);
+                } else {
+                    e.preventDefault();
+                }
+            });
             li.addEventListener('dragover', this.handleDragOver.bind(this));
             li.addEventListener('drop', this.handleDrop.bind(this));
             li.addEventListener('dragend', this.handleDragEnd.bind(this));
@@ -910,6 +943,11 @@ class CanvasController {
         this.canvas.remove(obj);
     }
 
+    sortObjectsByLabel(order = 'asc') {
+        this.state.labelSortOrder = order;
+        this.uiManager.updateLabelList();
+    }
+
     reorderObject(srcIndex, destIndex) {
         const rects = this.getObjects('rect');
         const movedRect = rects.splice(srcIndex, 1)[0];
@@ -1020,30 +1058,37 @@ class CanvasController {
 
     // Selection Info
     updateSelectionLabel(e) {
-        this.clearSelectionLabel();
-        this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
+        // Clear all active classes from list items first
+        this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
 
-        if (e.selected.length !== 1) return;
-        const activeObject = e.selected[0];
-        
-        if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-            const objectIndex = this.getObjects('rect').indexOf(activeObject);
-            if (objectIndex > -1) {
-                const listItem = document.getElementById(`label-item-${objectIndex}`);
-                if (listItem) {
-                    listItem.classList.add('active');
-                    listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (e.selected && e.selected.length > 0) {
+            const rects = this.getObjects('rect');
+            e.selected.forEach(activeObject => {
+                if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
+                    const objectIndex = rects.indexOf(activeObject);
+                    if (objectIndex > -1) {
+                        const listItem = document.getElementById(`label-item-${objectIndex}`);
+                        if (listItem) {
+                            listItem.classList.add('active');
+                            // Scroll to the first selected item
+                            if (e.selected.indexOf(activeObject) === 0) {
+                                listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }
+                        }
+                    }
                 }
-            }
+            });
         }
     }
 
     clearSelectionLabel() {
+        // Clear all active classes from list items
+        this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
+
         if (this.activeLabelText) {
             this.canvas.remove(this.activeLabelText);
             this.activeLabelText = null;
         }
-        this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
     }
 
     // Permanent Label Text
@@ -1121,6 +1166,8 @@ class EventManager {
         this.canvas = canvasController;
         this.lastClickTime = 0;
         this.lastClickedObject = null;
+        this.isDraggingForSelection = false;
+        this.selectionStartIndex = -1;
     }
 
     bindEventListeners() {
@@ -1130,6 +1177,12 @@ class EventManager {
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
         this.ui.elements.loadClassesBtn.addEventListener('click', () => this.fileSystem.loadClassNames());
         this.ui.elements.downloadClassesBtn.addEventListener('click', () => this.fileSystem.downloadClassTemplate());
+        this.ui.elements.sortLabelsAscBtn.addEventListener('click', () => {
+            this.canvas.sortObjectsByLabel('asc');
+        });
+        this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
+            this.canvas.sortObjectsByLabel('desc');
+        });
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
         this.ui.elements.showLabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
         this.ui.elements.showUnlabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
@@ -1192,6 +1245,9 @@ class EventManager {
         this.canvas.canvas.on('selection:created', (e) => this.canvas.updateSelectionLabel(e));
         this.canvas.canvas.on('selection:updated', (e) => this.canvas.updateSelectionLabel(e));
         this.canvas.canvas.on('selection:cleared', () => this.canvas.clearSelectionLabel());
+
+        // Label list multi-select drag
+        this.ui.elements.labelList.addEventListener('mousedown', this.handleLabelListMouseDown.bind(this));
 
         // Keyboard Events
         window.addEventListener('keydown', this.handleKeyDown.bind(this));
@@ -1301,6 +1357,70 @@ class EventManager {
 
         if (e.key.toLowerCase() === 'd') this.navigateImage(1);
         if (e.key.toLowerCase() === 'a') this.navigateImage(-1);
+    }
+
+    handleLabelListMouseDown(e) {
+        // Don't interfere with re-ordering, buttons or scrollbar
+        if (e.target.classList.contains('bi-grip-vertical') || e.target.closest('button') || e.offsetX >= e.target.clientWidth) {
+            return;
+        }
+
+        e.preventDefault();
+        this.isDraggingForSelection = true;
+        
+        const listItem = e.target.closest('li');
+        if (!listItem) return;
+
+        this.selectionStartIndex = Array.from(listItem.parentElement.children).indexOf(listItem);
+        
+        // Clear previous selections
+        this.canvas.canvas.discardActiveObject();
+        this.ui.elements.labelList.querySelectorAll('li.active').forEach(li => li.classList.remove('active'));
+
+        // Select starting item
+        listItem.classList.add('active');
+
+        const onMouseMove = (moveEvent) => {
+            if (!this.isDraggingForSelection) return;
+
+            const currentItem = moveEvent.target.closest('li');
+            if (!currentItem) return;
+
+            const currentIndex = Array.from(currentItem.parentElement.children).indexOf(currentItem);
+            const min = Math.min(this.selectionStartIndex, currentIndex);
+            const max = Math.max(this.selectionStartIndex, currentIndex);
+
+            this.ui.elements.labelList.querySelectorAll('li').forEach((li, index) => {
+                li.classList.toggle('active', index >= min && index <= max);
+            });
+        };
+
+        const onMouseUp = () => {
+            this.isDraggingForSelection = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+
+            const selectedRects = [];
+            const rects = this.canvas.getObjects('rect');
+            this.ui.elements.labelList.querySelectorAll('li.active').forEach(li => {
+                const index = parseInt(li.dataset.index, 10);
+                if (!isNaN(index) && rects[index]) {
+                    selectedRects.push(rects[index]);
+                }
+            });
+
+            if (selectedRects.length > 1) {
+                const sel = new fabric.ActiveSelection(selectedRects, { canvas: this.canvas.canvas });
+                this.canvas.canvas.setActiveObject(sel);
+                this.canvas.renderAll();
+            } else if (selectedRects.length === 1) {
+                this.canvas.canvas.setActiveObject(selectedRects[0]);
+                this.canvas.renderAll();
+            }
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     }
 
     toggleDarkMode(e) {
