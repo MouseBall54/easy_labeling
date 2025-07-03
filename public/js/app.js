@@ -97,6 +97,19 @@ class UIManager {
         };
     }
 
+    updateLabelFolderButton(selected, folderName = '') {
+        const btn = this.elements.selectLabelFolderBtn;
+        if (selected) {
+            btn.classList.remove('btn-secondary', 'btn-danger');
+            btn.classList.add('btn-success');
+            btn.innerHTML = `<i class="bi bi-folder-check"></i> ${folderName}`;
+        } else {
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-danger');
+            btn.innerHTML = `<i class="bi bi-folder-x"></i> Select Label Folder`;
+        }
+    }
+
     renderImageList() {
         const searchTerm = this.elements.imageSearchInput.value.toLowerCase();
         const showLabeled = this.elements.showLabeledCheckbox.checked;
@@ -422,6 +435,7 @@ class FileSystem {
     async selectLabelFolder() {
         try {
             this.state.labelFolderHandle = await window.showDirectoryPicker();
+            this.uiManager.updateLabelFolderButton(true, this.state.labelFolderHandle.name);
             if (this.state.imageFiles.length > 0) {
                 await this.listImageFiles();
             }
@@ -741,6 +755,14 @@ class CanvasController {
     finishDrawing() {
         if (!this.isDrawing) return;
         this.isDrawing = false;
+
+        if (!this.state.labelFolderHandle) {
+            showToast('Please select a label folder before creating labels.', 4000);
+            this.canvas.remove(this.currentRect);
+            this.currentRect = null;
+            return;
+        }
+
         if (this.currentRect.width < 5 && this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
         } else {
@@ -1281,6 +1303,7 @@ class App {
     init() {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
+        this.uiManager.updateLabelFolderButton(false);
     }
 }
 
