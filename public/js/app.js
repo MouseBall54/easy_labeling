@@ -228,6 +228,9 @@ class UIManager {
                 }
                 
                 rect.set('visible', isVisible);
+                if (rect._labelText) {
+                    rect._labelText.set('visible', isVisible);
+                }
                 const listItem = document.getElementById(`label-item-${index}`);
                 if (listItem) {
                     listItem.style.display = isVisible ? '' : 'none';
