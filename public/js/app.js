@@ -42,6 +42,7 @@ class AppState {
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
         this.isIssueFilterVisible = true;
+        this.showLabelsOnCanvas = true;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
@@ -74,6 +75,7 @@ class UIManager {
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
             showIssueFilterToggle: document.getElementById('showIssueFilterToggle'),
+            showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
@@ -658,6 +660,7 @@ class CanvasController {
                 originalYolo: { x_center, y_center, width, height }
             });
             this.canvas.add(rect);
+            this.drawLabelText(rect);
         });
     }
 
@@ -703,6 +706,7 @@ class CanvasController {
                     strokeWidth: 2
                 });
             }
+            this.updateLabelText(rect);
         });
         this.renderAll();
     }
@@ -752,6 +756,7 @@ class CanvasController {
             
             // 4) 좌표 업데이트 및 렌더링
             this.currentRect.setCoords();
+            this.drawLabelText(this.currentRect);
             this.canvas.requestRenderAll();
             
             // 5) UI 리스트 업데이트
@@ -762,6 +767,9 @@ class CanvasController {
 
     // Object Manipulation
     removeObject(obj) {
+        if (obj._labelText) {
+            this.canvas.remove(obj._labelText);
+        }
         this.canvas.remove(obj);
     }
 
@@ -773,6 +781,7 @@ class CanvasController {
         rects.forEach(rect => this.canvas.add(rect));
     }
 
+    // CanvasController 클래스 내부에 위치
     editLabel(rect) {
         const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
         if (newLabel !== null && newLabel.trim() !== '') {
@@ -780,10 +789,11 @@ class CanvasController {
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
-            rect.originalYolo = null; // Mark as modified
-            this.uiManager.updateLabelList();
-            this.renderAll();
+            rect.originalYolo = null;              // YOLO 정보 초기화
+            this.updateLabelText(rect);             // 캔버스 위 텍스트 업데이트
+            this.uiManager.updateLabelList();      // 리스트 갱신
         }
+        this.renderAll();                          // 항상 캔버스 리렌더링
     }
 
     // Zoom and Pan
@@ -791,6 +801,7 @@ class CanvasController {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
         this.uiManager.updateZoomDisplay();
+        this.updateAllLabelTexts();
     }
 
     resetZoom() {
@@ -805,6 +816,7 @@ class CanvasController {
         this.canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
         this.renderAll();
         this.uiManager.updateZoomDisplay();
+        this.updateAllLabelTexts();
     }
     
     resizeCanvas() {
@@ -827,6 +839,7 @@ class CanvasController {
         this.canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
         this.renderAll();
         this.highlightPoint(x, y);
+        this.updateAllLabelTexts();
     }
 
     highlightPoint(x, y) {
@@ -860,14 +873,6 @@ class CanvasController {
         const activeObject = e.selected[0];
         
         if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-            const zoom = this.canvas.getZoom();
-            this.activeLabelText = new fabric.Text('Class: ' + activeObject.labelClass, {
-                left: activeObject.left, top: activeObject.top - 20 / zoom,
-                fontSize: 16 / zoom, fill: 'black', backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                padding: 2 / zoom, selectable: false, evented: false,
-            });
-            this.canvas.add(this.activeLabelText);
-
             const objectIndex = this.getObjects('rect').indexOf(activeObject);
             if (objectIndex > -1) {
                 const listItem = document.getElementById(`label-item-${objectIndex}`);
@@ -885,6 +890,65 @@ class CanvasController {
             this.activeLabelText = null;
         }
         this.uiManager.elements.labelList.querySelectorAll('li').forEach(item => item.classList.remove('active'));
+    }
+
+    // Permanent Label Text
+    drawLabelText(rect) {
+        if (!this.state.showLabelsOnCanvas) return;
+        const zoom = this.canvas.getZoom();
+        const text = new fabric.Text(rect.labelClass, {
+            left: rect.left,
+            top: rect.top - 20 / zoom,
+            fontSize: 16 / zoom,
+            fill: rect.stroke,
+            backgroundColor: rect.fill,
+            padding: 2 / zoom,
+            selectable: false,
+            evented: false,
+            _isLabelText: true, // Custom property
+            _rect: rect, // Link to the rectangle
+        });
+        rect._labelText = text;
+        this.canvas.add(text);
+    }
+
+    updateLabelText(rect) {
+        if (rect._labelText) {
+            const zoom = this.canvas.getZoom();
+            rect._labelText.set({
+                text: rect.labelClass,
+                left: rect.left,
+                top: rect.top - 20 / zoom,
+                fontSize: 16 / zoom,
+                padding: 2 / zoom,
+                fill: rect.stroke,
+                backgroundColor: rect.fill,
+            });
+        }
+    }
+
+    updateAllLabelTexts() {
+        this.getObjects('rect').forEach(rect => {
+            if (rect._labelText) {
+                this.updateLabelText(rect);
+            }
+        });
+    }
+
+    toggleAllLabelTexts(visible) {
+        if (visible) {
+            this.getObjects('rect').forEach(rect => this.drawLabelText(rect));
+        } else {
+            this.canvas.getObjects('text').forEach(text => {
+                if (text._isLabelText) {
+                    this.canvas.remove(text);
+                }
+            });
+            this.getObjects('rect').forEach(rect => {
+                rect._labelText = null;
+            });
+        }
+        this.renderAll();
     }
 }
 
@@ -918,6 +982,10 @@ class EventManager {
             this.ui.updateLabelList();
             this.canvas.highlightIssueBoxes();
         });
+        this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
+            this.state.showLabelsOnCanvas = e.target.checked;
+            this.canvas.toggleAllLabelTexts(this.state.showLabelsOnCanvas);
+        });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
         this.ui.elements.zoomInBtn.addEventListener('click', () => this.canvas.zoom(1.2));
@@ -940,9 +1008,13 @@ class EventManager {
             if (!e.target) return;
             const target = e.target;
             if (target.type === 'activeSelection') {
-                target.getObjects().forEach(obj => obj.originalYolo = null);
+                target.getObjects().forEach(obj => {
+                    obj.originalYolo = null;
+                    this.canvas.updateLabelText(obj);
+                });
             } else {
                 target.originalYolo = null;
+                this.canvas.updateLabelText(target);
             }
         };
 
