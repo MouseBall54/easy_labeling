@@ -1121,6 +1121,12 @@ class EventManager {
     handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
+        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+            e.preventDefault();
+            this.fileSystem.saveLabels(false);
+            return;
+        }
+
         if ((e.ctrlKey || e.metaKey) && e.code === 'KeyQ') {
             e.preventDefault();
             const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
