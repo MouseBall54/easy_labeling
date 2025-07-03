@@ -50,15 +50,12 @@
                 <span class="input-group-text"><i class="bi bi-search"></i></span>
                 <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
             </div>
-            <div id="image-filter-container" class="d-flex justify-content-start gap-3 mb-2">
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showLabeled" checked>
-                    <label class="form-check-label" for="showLabeled"><i class="bi bi-check-circle-fill text-success"></i> Labeled</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showUnlabeled" checked>
-                    <label class="form-check-label" for="showUnlabeled"><i class="bi bi-x-circle-fill text-muted"></i> Unlabeled</label>
-                </div>
+            <div id="image-filter-container" class="btn-group w-100 mb-2" role="group">
+                <input type="checkbox" class="btn-check" id="showLabeled" checked>
+                <label class="btn btn-outline-primary" for="showLabeled"><i class="bi bi-check-circle"></i> Labeled</label>
+
+                <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
+                <label class="btn btn-outline-primary" for="showUnlabeled"><i class="bi bi-x-circle"></i> Unlabeled</label>
             </div>
             <div id="image-list" class="list-group mb-3">
                 <!-- Image list will be populated here -->
