@@ -94,6 +94,7 @@ class UIManager {
             rightPanel: document.getElementById('right-panel'),
             leftSplitter: document.getElementById('left-splitter'),
             rightSplitter: document.getElementById('right-splitter'),
+            darkModeToggle: document.getElementById('darkModeToggle'),
         };
     }
 
@@ -1046,6 +1047,8 @@ class EventManager {
             this.canvas.goToCoords(x, y);
         });
 
+        this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
+
         // Canvas Events
         this.canvas.canvas.on('mouse:down', this.handleMouseDown.bind(this));
         this.canvas.canvas.on('mouse:move', this.handleMouseMove.bind(this));
@@ -1188,6 +1191,12 @@ class EventManager {
 
         if (e.key.toLowerCase() === 'd') this.navigateImage(1);
         if (e.key.toLowerCase() === 'a') this.navigateImage(-1);
+    }
+
+    toggleDarkMode(e) {
+        const isEnabled = e.target.checked;
+        document.body.classList.toggle('dark-mode', isEnabled);
+        localStorage.setItem('darkMode', isEnabled ? 'enabled' : 'disabled');
     }
 
     copy() {
@@ -1351,6 +1360,13 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
+
+        // Apply dark mode on load
+        const storedTheme = localStorage.getItem('darkMode');
+        if (storedTheme === 'enabled') {
+            this.uiManager.elements.darkModeToggle.checked = true;
+            document.body.classList.add('dark-mode');
+        }
     }
 }
 
