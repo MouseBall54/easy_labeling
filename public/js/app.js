@@ -66,6 +66,7 @@ class AppState {
         this.currentLoadToken = 0;
         this._clipboard = null;
         this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
+        this.classNames = new Map(); // To store class names from .yaml file
     }
 }
 
@@ -81,6 +82,13 @@ class UIManager {
         this.fileSystem = fileSystem;
         this.elements = this.getDOMElements();
         this.setupSplitters();
+    }
+
+    getDisplayNameForClass(labelClass) {
+        if (this.state.classNames.has(labelClass)) {
+            return `${labelClass}: ${this.state.classNames.get(labelClass)}`;
+        }
+        return labelClass; // Fallback to just the ID
     }
 
     getDOMElements() {
@@ -114,6 +122,8 @@ class UIManager {
             leftSplitter: document.getElementById('left-splitter'),
             rightSplitter: document.getElementById('right-splitter'),
             darkModeToggle: document.getElementById('darkModeToggle'),
+            downloadClassesBtn: document.getElementById('downloadClassesBtn'),
+            loadClassesBtn: document.getElementById('loadClassesBtn'),
         };
     }
 
@@ -192,8 +202,9 @@ class UIManager {
 
             const color = getColorForClass(rect.labelClass);
             const issueIcon = rect.isIssue ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>' : '';
+            const displayName = this.getDisplayNameForClass(rect.labelClass);
             
-            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${rect.labelClass}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
@@ -313,8 +324,9 @@ class UIManager {
         uniqueClasses.forEach(labelClass => {
             const btn = document.createElement('button');
             const count = classCounts[labelClass] || 0;
+            const displayName = this.getDisplayNameForClass(labelClass);
             btn.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 active';
-            btn.textContent = `${labelClass} (${count})`;
+            btn.textContent = `${displayName} (${count})`;
             btn.dataset.labelClass = labelClass;
 
             btn.addEventListener('click', () => {
@@ -445,6 +457,74 @@ class FileSystem {
         this.state = state;
         this.uiManager = uiManager;
         this.canvasController = canvasController;
+    }
+
+    async loadClassNames() {
+        try {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [
+                    {
+                        description: 'YAML Class File',
+                        accept: { 'application/x-yaml': ['.yaml', '.yml'] },
+                    },
+                ],
+            });
+            const file = await fileHandle.getFile();
+            const content = await file.text();
+            
+            this.state.classNames.clear();
+            const lines = content.split('\n');
+            let loadedCount = 0;
+            
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('#') || trimmedLine === '') return;
+
+                const parts = trimmedLine.split(':');
+                if (parts.length >= 2) {
+                    const id = parts[0].trim();
+                    const name = parts.slice(1).join(':').trim();
+                    if (!isNaN(parseInt(id, 10)) && name) {
+                        this.state.classNames.set(id, name);
+                        loadedCount++;
+                    }
+                }
+            });
+
+            showToast(`${loadedCount} classes loaded from ${file.name}`);
+            this.uiManager.updateLabelList(); // Refresh UI to show names
+            this.canvasController.updateAllLabelTexts();
+            this.uiManager.updateLabelFilters(this.canvasController.getObjects('rect'));
+
+        } catch (err) {
+            console.error('Error loading class names file:', err);
+            if (err.name !== 'AbortError') {
+                showToast('Failed to load class names file.', 4000);
+            }
+        }
+    }
+
+    downloadClassTemplate() {
+        const templateContent = [
+            '# This is a YAML file for class definitions.',
+            '# Each line should be in the format: id: name',
+            '# The ID must be an integer.',
+            '',
+            '0: person',
+            '1: car',
+            '2: bicycle',
+            '3: dog',
+            '10: traffic light',
+        ].join('\n');
+        const blob = new Blob([templateContent], { type: 'application/x-yaml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'custom-classes.yaml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     async selectImageFolder() {
@@ -970,7 +1050,8 @@ class CanvasController {
     drawLabelText(rect) {
         if (!this.state.showLabelsOnCanvas) return;
         const zoom = this.canvas.getZoom();
-        const text = new fabric.Text(rect.labelClass, {
+        const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
+        const text = new fabric.Text(displayName, {
             left: rect.left,
             top: rect.top - 20 / zoom,
             fontSize: 16 / zoom,
@@ -989,8 +1070,9 @@ class CanvasController {
     updateLabelText(rect) {
         if (rect._labelText) {
             const zoom = this.canvas.getZoom();
+            const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
             rect._labelText.set({
-                text: rect.labelClass,
+                text: displayName,
                 left: rect.left,
                 top: rect.top - 20 / zoom,
                 fontSize: 16 / zoom,
@@ -1046,6 +1128,8 @@ class EventManager {
         this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
+        this.ui.elements.loadClassesBtn.addEventListener('click', () => this.fileSystem.loadClassNames());
+        this.ui.elements.downloadClassesBtn.addEventListener('click', () => this.fileSystem.downloadClassTemplate());
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
         this.ui.elements.showLabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
         this.ui.elements.showUnlabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
