@@ -690,7 +690,7 @@ class CanvasController {
     highlightIssueBoxes() {
         const rects = this.getObjects('rect');
         rects.forEach(rect => {
-            if (rect.isIssue) {
+            if (this.state.isIssueFilterVisible && rect.isIssue) {
                 rect.set({
                     stroke: '#FFA500', // Bright Orange
                     strokeWidth: 3
@@ -916,6 +916,7 @@ class EventManager {
         this.ui.elements.showIssueFilterToggle.addEventListener('change', (e) => {
             this.state.isIssueFilterVisible = e.target.checked;
             this.ui.updateLabelList();
+            this.canvas.highlightIssueBoxes();
         });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
