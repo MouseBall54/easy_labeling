@@ -367,8 +367,12 @@ class UIManager {
         this.elements.mouseCoordsDisplay.style.display = 'none';
     }
     
-    updateImageInfo(fileName) {
-        this.elements.currentImageNameSpan.textContent = fileName;
+    updateImageInfo(fileName, currentIndex = null, totalImages = null) {
+        let infoText = fileName;
+        if (currentIndex !== null && totalImages !== null) {
+            infoText = `${currentIndex + 1}/${totalImages} - ${fileName}`;
+        }
+        this.elements.currentImageNameSpan.textContent = infoText;
     }
 
     setActiveImageListItem(imageFile) {
@@ -499,7 +503,9 @@ class FileSystem {
         const loadToken = this.state.currentLoadToken;
 
         this.state.currentImageFile = imageFileHandle;
-        this.uiManager.updateImageInfo(imageFileHandle.name);
+        const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
+        const totalImages = this.state.imageFiles.length;
+        this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
         
         const file = await imageFileHandle.getFile();
 
