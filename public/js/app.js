@@ -736,11 +736,24 @@ class CanvasController {
         if (this.currentRect.width < 5 && this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
         } else {
+            // 1) 사용자에게 클래스 입력받기
             const newLabel = prompt('Enter label class for the new box:', '0');
             const finalLabel = (newLabel !== null && newLabel.trim() !== '') ? newLabel.trim() : '0';
             this.currentRect.set('labelClass', finalLabel);
+            
+            // 2) 색상 적용
             const color = getColorForClass(finalLabel);
             this.currentRect.set({ fill: `${color}33`, stroke: color });
+            
+            // 3) 선택 가능하도록 설정 (edit 모드일 때)
+            const isEditMode = (this.state.currentMode === 'edit');
+            this.currentRect.set('selectable', isEditMode);
+            
+            // 4) 좌표 업데이트 및 렌더링
+            this.currentRect.setCoords();
+            this.canvas.requestRenderAll();
+            
+            // 5) UI 리스트 업데이트
             this.uiManager.updateLabelList();
         }
         this.currentRect = null;
