@@ -813,6 +813,7 @@ class CanvasController {
     }
 
     // CanvasController 클래스 내부에 위치
+// CanvasController 클래스 내부
     editLabel(rect) {
         const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
         if (newLabel !== null && newLabel.trim() !== '') {
@@ -820,12 +821,27 @@ class CanvasController {
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
-            rect.originalYolo = null;              // YOLO 정보 초기화
-            this.updateLabelText(rect);             // 캔버스 위 텍스트 업데이트
-            this.uiManager.updateLabelList();      // 리스트 갱신
+            rect.originalYolo = null;
+            this.updateLabelText(rect);
+            this.uiManager.updateLabelList();
         }
-        this.renderAll();                          // 항상 캔버스 리렌더링
+
+        // 1) 활성 객체 선택 해제
+        this.canvas.discardActiveObject();
+
+        // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
+        this.canvas._currentTransform = null;
+
+        // 3) 드래그/드로잉 플래그도 초기화
+        this.isDrawing = false;
+        this.canvas.isDragging = false;
+        this.canvas.selection = true;
+        this.canvas.defaultCursor = 'default';
+
+        // 4) 캔버스 강제 리렌더링
+        this.canvas.renderAll();
     }
+
 
     // Zoom and Pan
     zoom(factor) {
@@ -994,6 +1010,8 @@ class EventManager {
         this.ui = ui;
         this.fileSystem = fileSystem;
         this.canvas = canvasController;
+        this.lastClickTime = 0;
+        this.lastClickedObject = null;
     }
 
     bindEventListeners() {
@@ -1068,6 +1086,23 @@ class EventManager {
 
     handleMouseDown(opt) {
         const evt = opt.e;
+        const target = opt.target;
+        const currentTime = new Date().getTime();
+        const clickInterval = currentTime - this.lastClickTime;
+        const isDoubleClick = clickInterval < 300 && target === this.lastClickedObject;
+
+        if (isDoubleClick && target && target.type === 'rect' && this.state.currentMode === 'edit') {
+            this.canvas.editLabel(target);
+            this.lastClickTime = 0; // Reset to prevent triple-click issues
+            this.lastClickedObject = null;
+            evt.preventDefault(); // Prevent default Fabric.js drag behavior
+            evt.stopPropagation(); // Stop event propagation
+            return;
+        }
+
+        this.lastClickTime = currentTime;
+        this.lastClickedObject = target;
+
         if (evt.altKey || evt.ctrlKey) {
             this.canvas.canvas.isDragging = true;
             this.canvas.canvas.selection = false;
