@@ -26,10 +26,29 @@ function getColorForClass(labelClass) {
     return isNaN(classNumber) || classNumber < 0 ? '#000000' : colorPalette[classNumber % colorPalette.length];
 }
 
+function validateLabelClass(input) {
+    if (input === null) return null; // User cancelled prompt
+
+    const trimmedInput = input.trim();
+    if (trimmedInput === '') {
+        showToast('Label class cannot be empty.', 3000);
+        return null;
+    }
+
+    const num = Number(trimmedInput);
+
+    if (isNaN(num) || !Number.isInteger(num) || num < 0 || num > 10000) {
+        showToast('Invalid Label: Please enter an integer between 0 and 10000.', 4000);
+        return null;
+    }
+
+    return String(num);
+}
+
 
 // =================================================================================
 // Application State
-// =================================================================================
+// ==================================================================================
 
 class AppState {
     constructor() {
@@ -773,9 +792,15 @@ class CanvasController {
         if (this.currentRect.width < 5 && this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
         } else {
-            // 1) 사용자에게 클래스 입력받기
-            const newLabel = prompt('Enter label class for the new box:', '0');
-            const finalLabel = (newLabel !== null && newLabel.trim() !== '') ? newLabel.trim() : '0';
+            const userInput = prompt('Enter label class for the new box:', '0');
+            const finalLabel = validateLabelClass(userInput);
+
+            if (finalLabel === null) {
+                this.canvas.remove(this.currentRect);
+                this.currentRect = null;
+                return;
+            }
+
             this.currentRect.set('labelClass', finalLabel);
             
             // 2) 색상 적용
@@ -816,9 +841,10 @@ class CanvasController {
     // CanvasController 클래스 내부에 위치
 // CanvasController 클래스 내부
     editLabel(rect) {
-        const newLabel = prompt('Enter new label class:', rect.labelClass || '0');
-        if (newLabel !== null && newLabel.trim() !== '') {
-            const finalLabel = newLabel.trim();
+        const userInput = prompt('Enter new label class:', rect.labelClass || '0');
+        const finalLabel = validateLabelClass(userInput);
+
+        if (finalLabel !== null) {
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
@@ -1292,10 +1318,11 @@ class EventManager {
             return;
         }
 
-        const newLabel = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
-        if (newLabel === null || newLabel.trim() === '') return;
+        const userInput = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
+        const finalLabel = validateLabelClass(userInput);
 
-        const finalLabel = newLabel.trim();
+        if (finalLabel === null) return;
+
         const color = getColorForClass(finalLabel);
 
         const applyChanges = (obj) => {
@@ -1311,7 +1338,7 @@ class EventManager {
         }
         
         this.canvas.renderAll();
-        this.ui.updateLabelList();
+        this.uiManager.updateLabelList();
     }
 
     navigateImage(direction) {
