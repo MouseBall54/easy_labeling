@@ -1564,6 +1564,7 @@ class EventManager {
             obj.set('labelClass', finalLabel);
             obj.set({ fill: `${color}33`, stroke: color });
             obj.originalYolo = null; // Mark as modified
+            this.canvas.updateLabelText(obj);
         };
 
         if (activeSelection.type === 'activeSelection') {
@@ -1572,8 +1573,8 @@ class EventManager {
             applyChanges(activeSelection);
         }
         
+        this.ui.updateLabelList();
         this.canvas.renderAll();
-        this.uiManager.updateLabelList();
     }
 
     navigateImage(direction) {
