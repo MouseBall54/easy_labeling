@@ -54,13 +54,15 @@ class AppState {
     constructor() {
         this.imageFolderHandle = null;
         this.labelFolderHandle = null;
+        this.classInfoFolderHandle = null;
         this.imageFiles = [];
+        this.classFiles = [];
+        this.selectedClassFile = null;
         this.imageLabelStatus = new Map(); // <fileName, boolean>
         this.currentImageFile = null;
         this.currentImage = null;
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
-        this.isIssueFilterVisible = true;
         this.showLabelsOnCanvas = true;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
@@ -96,13 +98,14 @@ class UIManager {
         return {
             selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
             selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
+            loadClassInfoFolderBtn: document.getElementById('loadClassInfoFolderBtn'),
+            classFileSelect: document.getElementById('class-file-select'),
             imageList: document.getElementById('image-list'),
             imageSearchInput: document.getElementById('imageSearchInput'),
             showLabeledCheckbox: document.getElementById('showLabeled'),
             showUnlabeledCheckbox: document.getElementById('showUnlabeled'),
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
-            showIssueFilterToggle: document.getElementById('showIssueFilterToggle'),
             showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
@@ -124,9 +127,11 @@ class UIManager {
             rightSplitter: document.getElementById('right-splitter'),
             darkModeToggle: document.getElementById('darkModeToggle'),
             downloadClassesBtn: document.getElementById('downloadClassesBtn'),
-            loadClassesBtn: document.getElementById('loadClassesBtn'),
             sortLabelsAscBtn: document.getElementById('sortLabelsAscBtn'),
             sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
+            viewClassFileBtn: document.getElementById('viewClassFileBtn'),
+            classFileViewerModal: new bootstrap.Modal(document.getElementById('classFileViewerModal')),
+            classFileContent: document.getElementById('classFileContent'),
         };
     }
 
@@ -195,18 +200,8 @@ class UIManager {
         rects.forEach(rect => this.canvasController.canvas.add(rect));
         this.canvasController.renderAll();
 
-        if (rects.length > 0) {
-            const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
-            const averageArea = totalArea / rects.length;
-            const threshold = averageArea * 0.5;
-            rects.forEach(rect => {
-                const area = rect.getScaledWidth() * rect.getScaledHeight();
-                rect.isIssue = area < threshold;
-            });
-        }
-        
         this.updateLabelFilters(rects);
-        this.canvasController.highlightIssueBoxes();
+        this.canvasController.highlightSelection();
 
         rects.forEach((rect, index) => {
             const li = document.createElement('li');
@@ -224,13 +219,9 @@ class UIManager {
             }
 
             const color = getColorForClass(rect.labelClass);
-            // Only show issue icon if filter is visible AND rect has issue
-            const issueIcon = (this.state.isIssueFilterVisible && rect.isIssue)
-                ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>'
-                : '';
             const displayName = this.getDisplayNameForClass(rect.labelClass);
             
-            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
@@ -258,14 +249,13 @@ class UIManager {
         this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
             activeClassFilters.add(btn.dataset.labelClass);
         });
-        const issueFilterActive = this.elements.labelFilters.querySelector('.btn-warning.active');
+
         rects.forEach((rect, index) => {
             let isVisible = true;
-            if (issueFilterActive) {
-                isVisible = rect.isIssue;
-            } else if (activeClassFilters.size > 0) {
+            if (activeClassFilters.size > 0) {
                 isVisible = activeClassFilters.has(rect.labelClass);
-            } else if (!issueFilterActive && activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+            } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+                // If there are filters but none are active, hide all
                 isVisible = false;
             }
             const listItem = document.getElementById(`label-item-${index}`);
@@ -283,7 +273,6 @@ class UIManager {
             return acc;
         }, {});
         const totalCount = rects.length;
-        const issueCount = rects.filter(r => r.isIssue).length;
         const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
 
         const applyFilters = () => {
@@ -292,15 +281,11 @@ class UIManager {
                 activeClassFilters.add(btn.dataset.labelClass);
             });
 
-            const issueFilterActive = this.elements.labelFilters.querySelector('.btn-warning.active');
-
             rects.forEach((rect, index) => {
                 let isVisible = true;
-                if (issueFilterActive) {
-                    isVisible = rect.isIssue;
-                } else if (activeClassFilters.size > 0) {
+                 if (activeClassFilters.size > 0) {
                     isVisible = activeClassFilters.has(rect.labelClass);
-                } else if (!issueFilterActive && activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+                } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
                     isVisible = false;
                 }
                 
@@ -331,27 +316,9 @@ class UIManager {
                 
                 classButtons.forEach(btn => btn.classList.toggle('active', !allActive));
                 
-                if (this.elements.labelFilters.querySelector('.btn-warning')) {
-                    this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
-                }
                 applyFilters();
             });
             this.elements.labelFilters.appendChild(allBtn);
-        }
-
-        if (issueCount > 0 && this.state.isIssueFilterVisible) {
-            const issueBtn = document.createElement('button');
-            issueBtn.className = 'btn btn-sm btn-warning me-1 mb-1';
-            issueBtn.textContent = `Issue (${issueCount})`;
-            issueBtn.addEventListener('click', () => {
-                const isActivating = !issueBtn.classList.contains('active');
-                if (isActivating) {
-                    this.elements.labelFilters.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
-                }
-                issueBtn.classList.toggle('active', isActivating);
-                applyFilters();
-            });
-            this.elements.labelFilters.appendChild(issueBtn);
         }
 
         uniqueClasses.forEach(labelClass => {
@@ -364,9 +331,6 @@ class UIManager {
 
             btn.addEventListener('click', () => {
                 btn.classList.toggle('active');
-                if (this.elements.labelFilters.querySelector('.btn-warning')) {
-                    this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
-                }
                 applyFilters();
             });
             this.elements.labelFilters.appendChild(btn);
@@ -478,6 +442,23 @@ class UIManager {
     handleDragEnd(e) {
         e.target.style.opacity = '1';
     }
+
+    renderClassFileList() {
+        const select = this.elements.classFileSelect;
+        select.innerHTML = '<option value="" selected>All Classes</option>'; // Default option
+
+        this.state.classFiles
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+            .forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.name;
+                option.textContent = file.name;
+                if (this.state.selectedClassFile && this.state.selectedClassFile.name === file.name) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+    }
 }
 
 
@@ -492,16 +473,49 @@ class FileSystem {
         this.canvasController = canvasController;
     }
 
-    async loadClassNames() {
+    async selectClassInfoFolder() {
         try {
-            const [fileHandle] = await window.showOpenFilePicker({
-                types: [
-                    {
-                        description: 'YAML Class File',
-                        accept: { 'application/x-yaml': ['.yaml', '.yml'] },
-                    },
-                ],
-            });
+            this.state.classInfoFolderHandle = await window.showDirectoryPicker();
+            showToast(`Class Info Folder selected: ${this.state.classInfoFolderHandle.name}`);
+            await this.listClassFiles();
+        } catch (err) {
+            console.error('Error selecting class info folder:', err);
+            if (err.name !== 'AbortError') {
+                showToast('Failed to select class info folder.', 4000);
+            }
+        }
+    }
+
+    async listClassFiles() {
+        if (!this.state.classInfoFolderHandle) return;
+        this.state.classFiles = [];
+        for await (const entry of this.state.classInfoFolderHandle.values()) {
+            if (entry.kind === 'file' && /\.(yaml|yml)$/i.test(entry.name)) {
+                this.state.classFiles.push(entry);
+            }
+        }
+        this.uiManager.renderClassFileList();
+        // If a file is selected, load it. Otherwise, clear the classes.
+        if (this.state.selectedClassFile) {
+            const stillExists = this.state.classFiles.some(f => f.name === this.state.selectedClassFile.name);
+            if (stillExists) {
+                await this.loadClassNamesFromFile(this.state.selectedClassFile);
+            } else {
+                this.state.selectedClassFile = null;
+                this.state.classNames.clear();
+                this.uiManager.updateLabelList();
+                this.canvasController.updateAllLabelTexts();
+            }
+        } else {
+            // If no file was previously selected, clear current class names
+            this.state.classNames.clear();
+            this.uiManager.updateLabelList();
+            this.canvasController.updateAllLabelTexts();
+        }
+    }
+
+    async loadClassNamesFromFile(fileHandle) {
+        try {
             const file = await fileHandle.getFile();
             const content = await file.text();
             
@@ -524,18 +538,37 @@ class FileSystem {
                 }
             });
 
+            this.state.selectedClassFile = fileHandle;
             showToast(`${loadedCount} classes loaded from ${file.name}`);
-            this.uiManager.updateLabelList(); // Refresh UI to show names
+            this.uiManager.updateLabelList();
             this.canvasController.updateAllLabelTexts();
             this.uiManager.updateLabelFilters(this.canvasController.getObjects('rect'));
 
         } catch (err) {
             console.error('Error loading class names file:', err);
-            if (err.name !== 'AbortError') {
-                showToast('Failed to load class names file.', 4000);
-            }
+            showToast(`Failed to load ${fileHandle.name}.`, 4000);
+            this.state.classNames.clear(); // Clear on failure
+            this.uiManager.updateLabelList();
+            this.canvasController.updateAllLabelTexts();
         }
     }
+
+    async showClassFileContent() {
+        if (!this.state.selectedClassFile) {
+            showToast('Please select a class file first.', 3000);
+            return;
+        }
+        try {
+            const file = await this.state.selectedClassFile.getFile();
+            const content = await file.text();
+            this.uiManager.elements.classFileContent.textContent = content;
+            this.uiManager.elements.classFileViewerModal.show();
+        } catch (err) {
+            console.error('Error reading class file:', err);
+            showToast(`Could not read file: ${this.state.selectedClassFile.name}`, 4000);
+        }
+    }
+
 
     downloadClassTemplate() {
         const templateContent = [
@@ -762,6 +795,10 @@ class CanvasController {
         this.startPoint = null;
         this.currentRect = null;
         this.activeLabelText = null;
+
+        // 그룹 선택 시 개별 객체의 테두리를 유지하고, 그룹 자체의 외곽선은 숨김
+        fabric.ActiveSelection.prototype.hasBorders = false;
+        fabric.ActiveSelection.prototype.cornerColor = 'transparent';
     }
 
     getObjects(type) {
@@ -828,40 +865,43 @@ class CanvasController {
 
         rects.forEach(rect => {
             const labelClass = rect.labelClass || '0';
-            if (rect.originalYolo) {
-                const { x_center, y_center, width, height } = rect.originalYolo;
-                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}\n`;
-            } else {
-                rect.setCoords();
-                const center = rect.getCenterPoint();
-                const width = rect.getScaledWidth();
-                const height = rect.getScaledHeight();
-                const x_center = center.x / imgWidth;
-                const y_center = center.y / imgHeight;
-                const normWidth = width / imgWidth;
-                const normHeight = height / imgHeight;
-                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
-            }
+            rect.setCoords();
+            const center = rect.getCenterPoint();
+            const width = rect.getScaledWidth();
+            const height = rect.getScaledHeight();
+            const x_center = center.x / imgWidth;
+            const y_center = center.y / imgHeight;
+            const normWidth = width / imgWidth;
+            const normHeight = height / imgHeight;
+            yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
         });
         return yoloString;
     }
 
-    highlightIssueBoxes() {
+    highlightSelection() {
         const rects = this.getObjects('rect');
+        const activeObjects = this.canvas.getActiveObjects();
+
         rects.forEach(rect => {
-            if (this.state.isIssueFilterVisible && rect.isIssue) {
+            const isSelected = activeObjects.includes(rect);
+            const color = getColorForClass(rect.labelClass);
+            rect.set({
+                stroke: color,
+                strokeWidth: 2
+            });
+
+            if (isSelected) {
                 rect.set({
-                    stroke: '#FFA500', // Bright Orange
-                    strokeWidth: 3
+                    shadow: new fabric.Shadow({
+                        color: 'rgba(255, 0, 0, 0.9)',
+                        blur: 8,
+                        affectStroke: true
+                    })
                 });
             } else {
-                // Revert to normal style based on class
-                const color = getColorForClass(rect.labelClass);
-                rect.set({
-                    stroke: color,
-                    strokeWidth: 2
-                });
+                rect.set({ shadow: null });
             }
+
             this.updateLabelText(rect);
         });
         this.renderAll();
@@ -1151,6 +1191,15 @@ class CanvasController {
         }
         this.renderAll();
     }
+
+    selectAllLabels() {
+        const rects = this.getObjects('rect');
+        if (rects.length > 0) {
+            const sel = new fabric.ActiveSelection(rects, { canvas: this.canvas });
+            this.canvas.setActiveObject(sel);
+            this.canvas.requestRenderAll();
+        }
+    }
 }
 
 
@@ -1174,8 +1223,8 @@ class EventManager {
         // UI Buttons
         this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
+        this.ui.elements.loadClassInfoFolderBtn.addEventListener('click', () => this.fileSystem.selectClassInfoFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
-        this.ui.elements.loadClassesBtn.addEventListener('click', () => this.fileSystem.loadClassNames());
         this.ui.elements.downloadClassesBtn.addEventListener('click', () => this.fileSystem.downloadClassTemplate());
         this.ui.elements.sortLabelsAscBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('asc');
@@ -1183,17 +1232,30 @@ class EventManager {
         this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('desc');
         });
+        this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
+
+        this.ui.elements.classFileSelect.addEventListener('change', (e) => {
+            const selectedFileName = e.target.value;
+            if (selectedFileName) {
+                const fileHandle = this.state.classFiles.find(f => f.name === selectedFileName);
+                if (fileHandle) {
+                    this.fileSystem.loadClassNamesFromFile(fileHandle);
+                }
+            } else {
+                // "All Classes" is selected
+                this.state.selectedClassFile = null;
+                this.state.classNames.clear();
+                this.ui.updateLabelList();
+                this.canvas.updateAllLabelTexts();
+                showToast('Cleared class names. Showing all classes.');
+            }
+        });
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
         this.ui.elements.showLabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
         this.ui.elements.showUnlabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
         this.ui.elements.autoSaveToggle.addEventListener('change', (e) => {
             this.state.isAutoSaveEnabled = e.target.checked;
             showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
-        });
-        this.ui.elements.showIssueFilterToggle.addEventListener('change', (e) => {
-            this.state.isIssueFilterVisible = e.target.checked;
-            this.ui.updateLabelList();
-            this.canvas.highlightIssueBoxes();
         });
         this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
             this.state.showLabelsOnCanvas = e.target.checked;
@@ -1242,9 +1304,18 @@ class EventManager {
             this.ui.updateLabelList();
         });
 
-        this.canvas.canvas.on('selection:created', (e) => this.canvas.updateSelectionLabel(e));
-        this.canvas.canvas.on('selection:updated', (e) => this.canvas.updateSelectionLabel(e));
-        this.canvas.canvas.on('selection:cleared', () => this.canvas.clearSelectionLabel());
+        this.canvas.canvas.on('selection:created', (e) => {
+            this.canvas.updateSelectionLabel(e);
+            this.canvas.highlightSelection();
+        });
+        this.canvas.canvas.on('selection:updated', (e) => {
+            this.canvas.updateSelectionLabel(e);
+            this.canvas.highlightSelection();
+        });
+        this.canvas.canvas.on('selection:cleared', () => {
+            this.canvas.clearSelectionLabel();
+            this.canvas.highlightSelection();
+        });
 
         // Label list multi-select drag
         this.ui.elements.labelList.addEventListener('mousedown', this.handleLabelListMouseDown.bind(this));
@@ -1331,6 +1402,12 @@ class EventManager {
     handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
+        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
+            e.preventDefault();
+            this.canvas.selectAllLabels();
+            return;
+        }
+
         if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
             e.preventDefault();
             this.fileSystem.saveLabels(false);
@@ -1383,10 +1460,26 @@ class EventManager {
         const onMouseMove = (moveEvent) => {
             if (!this.isDraggingForSelection) return;
 
-            const currentItem = moveEvent.target.closest('li');
-            if (!currentItem) return;
+            const labelList = this.ui.elements.labelList;
+            const rect = labelList.getBoundingClientRect();
+            const mouseY = moveEvent.clientY;
+            const scrollThreshold = 50; // pixels from edge
+            const scrollSpeed = 20; // pixels per frame
+
+            // Auto-scroll logic
+            if (mouseY < rect.top + scrollThreshold) {
+                labelList.scrollTop -= scrollSpeed;
+            } else if (mouseY > rect.bottom - scrollThreshold) {
+                labelList.scrollTop += scrollSpeed;
+            }
+
+            // Use elementFromPoint to get the item under the cursor, even during scroll
+            const currentItem = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY).closest('li');
+            if (!currentItem || !currentItem.parentElement.isSameNode(labelList)) return;
 
             const currentIndex = Array.from(currentItem.parentElement.children).indexOf(currentItem);
+            if (currentIndex === -1) return;
+
             const min = Math.min(this.selectionStartIndex, currentIndex);
             const max = Math.max(this.selectionStartIndex, currentIndex);
 
@@ -1533,6 +1626,7 @@ class EventManager {
             obj.set('labelClass', finalLabel);
             obj.set({ fill: `${color}33`, stroke: color });
             obj.originalYolo = null; // Mark as modified
+            this.canvas.updateLabelText(obj);
         };
 
         if (activeSelection.type === 'activeSelection') {
@@ -1541,8 +1635,8 @@ class EventManager {
             applyChanges(activeSelection);
         }
         
+        this.ui.updateLabelList();
         this.canvas.renderAll();
-        this.uiManager.updateLabelList();
     }
 
     navigateImage(direction) {

@@ -104,10 +104,6 @@
                     <input class="form-check-input" type="checkbox" role="switch" id="showLabelsOnCanvasToggle" checked>
                     <label class="form-check-label" for="showLabelsOnCanvasToggle">Show Class Labels</label>
                 </div>
-                <div class="form-check form-switch mb-2">
-                    <input class="form-check-input" type="checkbox" role="switch" id="showIssueFilterToggle" checked>
-                    <label class="form-check-label" for="showIssueFilterToggle">Show Issue Filter</label>
-                </div>
             </div>
             <hr>
             <div id="label-list-container">
@@ -116,8 +112,17 @@
                     <div class="btn-group btn-group-sm" role="group">
                         <button id="sortLabelsAscBtn" class="btn btn-outline-secondary" title="Sort Ascending"><i class="bi bi-sort-numeric-down"></i></button>
                         <button id="sortLabelsDescBtn" class="btn btn-outline-secondary" title="Sort Descending"><i class="bi bi-sort-numeric-up-alt"></i></button>
-                        <button id="loadClassesBtn" class="btn btn-primary"><i class="bi bi-file-earmark-text"></i> Load .yaml</button>
                     </div>
+                </div>
+                <div class="d-grid gap-2 mb-2">
+                    <button id="loadClassInfoFolderBtn" class="btn btn-outline-primary"><i class="bi bi-folder-symlink"></i> Load Class Info Folder</button>
+                </div>
+                <div class="input-group mb-2">
+                    <label class="input-group-text" for="class-file-select">Class File</label>
+                    <select class="form-select" id="class-file-select">
+                        <option selected>Choose...</option>
+                    </select>
+                    <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn"><i class="bi bi-eye"></i></button>
                 </div>
                 <ul id="label-list" class="list-group">
                     <!-- Labels will be added here -->
@@ -127,6 +132,21 @@
     </div>
 
     <div id="toast-container"></div>
+
+    <!-- Class File Viewer Modal -->
+    <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="classFileViewerModalLabel">Class File Content</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <pre><code id="classFileContent"></code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Fabric.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
