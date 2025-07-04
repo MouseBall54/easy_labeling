@@ -1414,10 +1414,26 @@ class EventManager {
         const onMouseMove = (moveEvent) => {
             if (!this.isDraggingForSelection) return;
 
-            const currentItem = moveEvent.target.closest('li');
-            if (!currentItem) return;
+            const labelList = this.ui.elements.labelList;
+            const rect = labelList.getBoundingClientRect();
+            const mouseY = moveEvent.clientY;
+            const scrollThreshold = 50; // pixels from edge
+            const scrollSpeed = 20; // pixels per frame
+
+            // Auto-scroll logic
+            if (mouseY < rect.top + scrollThreshold) {
+                labelList.scrollTop -= scrollSpeed;
+            } else if (mouseY > rect.bottom - scrollThreshold) {
+                labelList.scrollTop += scrollSpeed;
+            }
+
+            // Use elementFromPoint to get the item under the cursor, even during scroll
+            const currentItem = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY).closest('li');
+            if (!currentItem || !currentItem.parentElement.isSameNode(labelList)) return;
 
             const currentIndex = Array.from(currentItem.parentElement.children).indexOf(currentItem);
+            if (currentIndex === -1) return;
+
             const min = Math.min(this.selectionStartIndex, currentIndex);
             const max = Math.max(this.selectionStartIndex, currentIndex);
 
