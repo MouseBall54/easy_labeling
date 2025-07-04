@@ -762,6 +762,10 @@ class CanvasController {
         this.startPoint = null;
         this.currentRect = null;
         this.activeLabelText = null;
+
+        // 그룹 선택 시 개별 객체의 테두리를 유지하고, 그룹 자체의 외곽선은 숨김
+        fabric.ActiveSelection.prototype.hasBorders = false;
+        fabric.ActiveSelection.prototype.cornerColor = 'transparent';
     }
 
     getObjects(type) {
@@ -848,18 +852,22 @@ class CanvasController {
 
     highlightIssueBoxes() {
         const rects = this.getObjects('rect');
+        const activeObjects = this.canvas.getActiveObjects();
+
         rects.forEach(rect => {
+            const isSelected = activeObjects.includes(rect);
+
             if (this.state.isIssueFilterVisible && rect.isIssue) {
                 rect.set({
                     stroke: '#FFA500', // Bright Orange
-                    strokeWidth: 3
+                    strokeWidth: isSelected ? 4 : 3
                 });
             } else {
                 // Revert to normal style based on class
                 const color = getColorForClass(rect.labelClass);
                 rect.set({
                     stroke: color,
-                    strokeWidth: 2
+                    strokeWidth: isSelected ? 4 : 2
                 });
             }
             this.updateLabelText(rect);
@@ -1242,9 +1250,18 @@ class EventManager {
             this.ui.updateLabelList();
         });
 
-        this.canvas.canvas.on('selection:created', (e) => this.canvas.updateSelectionLabel(e));
-        this.canvas.canvas.on('selection:updated', (e) => this.canvas.updateSelectionLabel(e));
-        this.canvas.canvas.on('selection:cleared', () => this.canvas.clearSelectionLabel());
+        this.canvas.canvas.on('selection:created', (e) => {
+            this.canvas.updateSelectionLabel(e);
+            this.canvas.highlightIssueBoxes();
+        });
+        this.canvas.canvas.on('selection:updated', (e) => {
+            this.canvas.updateSelectionLabel(e);
+            this.canvas.highlightIssueBoxes();
+        });
+        this.canvas.canvas.on('selection:cleared', () => {
+            this.canvas.clearSelectionLabel();
+            this.canvas.highlightIssueBoxes();
+        });
 
         // Label list multi-select drag
         this.ui.elements.labelList.addEventListener('mousedown', this.handleLabelListMouseDown.bind(this));
