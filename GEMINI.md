@@ -57,6 +57,15 @@ The application is primarily a client-side tool that runs in modern web browsers
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
 
 ### 2025년 7월 4일
+*   **작업**: "이슈 레이블" 강조 및 필터 기능 제거
+*   **세부 정보**:
+    *   `public/index.html`에서 "Show Issue Filter" 토글을 제거했습니다.
+    *   `public/js/app.js`에서 관련 로직을 모두 제거했습니다:
+        *   `AppState`에서 `isIssueFilterVisible` 속성을 제거했습니다.
+        *   `UIManager.getDOMElements`에서 토글을 제거했습니다.
+        *   `UIManager.updateLabelList` 및 `UIManager.updateLabelFilters`에서 이슈 관련 로직을 제거했습니다.
+        *   `CanvasController`에서 `highlightIssueBoxes` 메서드를 제거하고 `highlightSelection`으로 대체하여 선택된 객체만 강조하도록 했습니다.
+        *   `EventManager`에서 관련 이벤트 리스너를 제거했습니다.
 *   **작업**: "클래스 정보 폴더 로드" 및 "클래스 파일 뷰어" 기능 개선
 *   **세부 정보**:
     *   "Load Class Info Folder" 버튼을 왼쪽 패널에서 오른쪽 "Labels" 패널 상단으로 이동시켰습니다.

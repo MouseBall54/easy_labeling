@@ -63,7 +63,6 @@ class AppState {
         this.currentImage = null;
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
-        this.isIssueFilterVisible = true;
         this.showLabelsOnCanvas = true;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
@@ -107,7 +106,6 @@ class UIManager {
             showUnlabeledCheckbox: document.getElementById('showUnlabeled'),
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
-            showIssueFilterToggle: document.getElementById('showIssueFilterToggle'),
             showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
@@ -202,18 +200,8 @@ class UIManager {
         rects.forEach(rect => this.canvasController.canvas.add(rect));
         this.canvasController.renderAll();
 
-        if (rects.length > 0) {
-            const totalArea = rects.reduce((sum, rect) => sum + (rect.getScaledWidth() * rect.getScaledHeight()), 0);
-            const averageArea = totalArea / rects.length;
-            const threshold = averageArea * 0.5;
-            rects.forEach(rect => {
-                const area = rect.getScaledWidth() * rect.getScaledHeight();
-                rect.isIssue = area < threshold;
-            });
-        }
-        
         this.updateLabelFilters(rects);
-        this.canvasController.highlightIssueBoxes();
+        this.canvasController.highlightSelection();
 
         rects.forEach((rect, index) => {
             const li = document.createElement('li');
@@ -231,13 +219,9 @@ class UIManager {
             }
 
             const color = getColorForClass(rect.labelClass);
-            // Only show issue icon if filter is visible AND rect has issue
-            const issueIcon = (this.state.isIssueFilterVisible && rect.isIssue)
-                ? '<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>'
-                : '';
             const displayName = this.getDisplayNameForClass(rect.labelClass);
             
-            li.innerHTML = `<span>${issueIcon}<i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
@@ -265,14 +249,13 @@ class UIManager {
         this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
             activeClassFilters.add(btn.dataset.labelClass);
         });
-        const issueFilterActive = this.elements.labelFilters.querySelector('.btn-warning.active');
+
         rects.forEach((rect, index) => {
             let isVisible = true;
-            if (issueFilterActive) {
-                isVisible = rect.isIssue;
-            } else if (activeClassFilters.size > 0) {
+            if (activeClassFilters.size > 0) {
                 isVisible = activeClassFilters.has(rect.labelClass);
-            } else if (!issueFilterActive && activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+            } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+                // If there are filters but none are active, hide all
                 isVisible = false;
             }
             const listItem = document.getElementById(`label-item-${index}`);
@@ -290,7 +273,6 @@ class UIManager {
             return acc;
         }, {});
         const totalCount = rects.length;
-        const issueCount = rects.filter(r => r.isIssue).length;
         const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
 
         const applyFilters = () => {
@@ -299,15 +281,11 @@ class UIManager {
                 activeClassFilters.add(btn.dataset.labelClass);
             });
 
-            const issueFilterActive = this.elements.labelFilters.querySelector('.btn-warning.active');
-
             rects.forEach((rect, index) => {
                 let isVisible = true;
-                if (issueFilterActive) {
-                    isVisible = rect.isIssue;
-                } else if (activeClassFilters.size > 0) {
+                 if (activeClassFilters.size > 0) {
                     isVisible = activeClassFilters.has(rect.labelClass);
-                } else if (!issueFilterActive && activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
+                } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
                     isVisible = false;
                 }
                 
@@ -338,27 +316,9 @@ class UIManager {
                 
                 classButtons.forEach(btn => btn.classList.toggle('active', !allActive));
                 
-                if (this.elements.labelFilters.querySelector('.btn-warning')) {
-                    this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
-                }
                 applyFilters();
             });
             this.elements.labelFilters.appendChild(allBtn);
-        }
-
-        if (issueCount > 0 && this.state.isIssueFilterVisible) {
-            const issueBtn = document.createElement('button');
-            issueBtn.className = 'btn btn-sm btn-warning me-1 mb-1';
-            issueBtn.textContent = `Issue (${issueCount})`;
-            issueBtn.addEventListener('click', () => {
-                const isActivating = !issueBtn.classList.contains('active');
-                if (isActivating) {
-                    this.elements.labelFilters.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
-                }
-                issueBtn.classList.toggle('active', isActivating);
-                applyFilters();
-            });
-            this.elements.labelFilters.appendChild(issueBtn);
         }
 
         uniqueClasses.forEach(labelClass => {
@@ -371,9 +331,6 @@ class UIManager {
 
             btn.addEventListener('click', () => {
                 btn.classList.toggle('active');
-                if (this.elements.labelFilters.querySelector('.btn-warning')) {
-                    this.elements.labelFilters.querySelector('.btn-warning').classList.remove('active');
-                }
                 applyFilters();
             });
             this.elements.labelFilters.appendChild(btn);
@@ -908,46 +865,31 @@ class CanvasController {
 
         rects.forEach(rect => {
             const labelClass = rect.labelClass || '0';
-            if (rect.originalYolo) {
-                const { x_center, y_center, width, height } = rect.originalYolo;
-                yoloString += `${labelClass} ${x_center} ${y_center} ${width} ${height}\n`;
-            } else {
-                rect.setCoords();
-                const center = rect.getCenterPoint();
-                const width = rect.getScaledWidth();
-                const height = rect.getScaledHeight();
-                const x_center = center.x / imgWidth;
-                const y_center = center.y / imgHeight;
-                const normWidth = width / imgWidth;
-                const normHeight = height / imgHeight;
-                yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
-            }
+            rect.setCoords();
+            const center = rect.getCenterPoint();
+            const width = rect.getScaledWidth();
+            const height = rect.getScaledHeight();
+            const x_center = center.x / imgWidth;
+            const y_center = center.y / imgHeight;
+            const normWidth = width / imgWidth;
+            const normHeight = height / imgHeight;
+            yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
         });
         return yoloString;
     }
 
-    highlightIssueBoxes() {
+    highlightSelection() {
         const rects = this.getObjects('rect');
         const activeObjects = this.canvas.getActiveObjects();
 
         rects.forEach(rect => {
             const isSelected = activeObjects.includes(rect);
+            const color = getColorForClass(rect.labelClass);
+            rect.set({
+                stroke: color,
+                strokeWidth: 2
+            });
 
-            // 1. Set base style (issue or normal)
-            if (this.state.isIssueFilterVisible && rect.isIssue) {
-                rect.set({
-                    stroke: '#FFA500', // Bright Orange
-                    strokeWidth: 3
-                });
-            } else {
-                const color = getColorForClass(rect.labelClass);
-                rect.set({
-                    stroke: color,
-                    strokeWidth: 2
-                });
-            }
-
-            // 2. Apply selection highlight on top
             if (isSelected) {
                 rect.set({
                     shadow: new fabric.Shadow({
@@ -1306,11 +1248,6 @@ class EventManager {
             this.state.isAutoSaveEnabled = e.target.checked;
             showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
         });
-        this.ui.elements.showIssueFilterToggle.addEventListener('change', (e) => {
-            this.state.isIssueFilterVisible = e.target.checked;
-            this.ui.updateLabelList();
-            this.canvas.highlightIssueBoxes();
-        });
         this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
             this.state.showLabelsOnCanvas = e.target.checked;
             this.canvas.toggleAllLabelTexts(this.state.showLabelsOnCanvas);
@@ -1360,15 +1297,15 @@ class EventManager {
 
         this.canvas.canvas.on('selection:created', (e) => {
             this.canvas.updateSelectionLabel(e);
-            this.canvas.highlightIssueBoxes();
+            this.canvas.highlightSelection();
         });
         this.canvas.canvas.on('selection:updated', (e) => {
             this.canvas.updateSelectionLabel(e);
-            this.canvas.highlightIssueBoxes();
+            this.canvas.highlightSelection();
         });
         this.canvas.canvas.on('selection:cleared', () => {
             this.canvas.clearSelectionLabel();
-            this.canvas.highlightIssueBoxes();
+            this.canvas.highlightSelection();
         });
 
         // Label list multi-select drag
