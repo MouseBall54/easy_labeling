@@ -857,19 +857,33 @@ class CanvasController {
         rects.forEach(rect => {
             const isSelected = activeObjects.includes(rect);
 
+            // 1. Set base style (issue or normal)
             if (this.state.isIssueFilterVisible && rect.isIssue) {
                 rect.set({
                     stroke: '#FFA500', // Bright Orange
-                    strokeWidth: isSelected ? 4 : 3
+                    strokeWidth: 3
                 });
             } else {
-                // Revert to normal style based on class
                 const color = getColorForClass(rect.labelClass);
                 rect.set({
                     stroke: color,
-                    strokeWidth: isSelected ? 4 : 2
+                    strokeWidth: 2
                 });
             }
+
+            // 2. Apply selection highlight on top
+            if (isSelected) {
+                rect.set({
+                    shadow: new fabric.Shadow({
+                        color: 'rgba(255, 0, 0, 0.9)',
+                        blur: 8,
+                        affectStroke: true
+                    })
+                });
+            } else {
+                rect.set({ shadow: null });
+            }
+
             this.updateLabelText(rect);
         });
         this.renderAll();
