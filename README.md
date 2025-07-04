@@ -15,9 +15,10 @@ The application is primarily a client-side tool that runs in modern web browsers
     -   "Go to Coordinates" feature to navigate to specific points in an image.
 -   **Efficient Workflow**:
     -   Auto-save functionality.
-    -   Keyboard shortcuts for navigation (`A`/`D`), copy/paste (`Ctrl+C`/`Ctrl+V`), and class changes (`Ctrl+B`).
+    -   Keyboard shortcuts for navigation (`A`/`D`), copy/paste (`Ctrl+C`/`Ctrl+V`), select all (`Ctrl+A`), and class changes (`Ctrl+B`).
     -   Synced selection between the canvas and the label list.
     -   Class-based filtering of labels.
+-   **Enhanced Paste Functionality**: Pasted objects are now clamped within image boundaries and positioned relative to the mouse cursor.
 
 ## Prerequisites
 

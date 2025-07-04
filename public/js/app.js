@@ -1191,6 +1191,15 @@ class CanvasController {
         }
         this.renderAll();
     }
+
+    selectAllLabels() {
+        const rects = this.getObjects('rect');
+        if (rects.length > 0) {
+            const sel = new fabric.ActiveSelection(rects, { canvas: this.canvas });
+            this.canvas.setActiveObject(sel);
+            this.canvas.requestRenderAll();
+        }
+    }
 }
 
 
@@ -1392,6 +1401,12 @@ class EventManager {
 
     handleKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
+            e.preventDefault();
+            this.canvas.selectAllLabels();
+            return;
+        }
 
         if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
             e.preventDefault();
