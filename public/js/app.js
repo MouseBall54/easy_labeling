@@ -131,6 +131,9 @@ class UIManager {
             downloadClassesBtn: document.getElementById('downloadClassesBtn'),
             sortLabelsAscBtn: document.getElementById('sortLabelsAscBtn'),
             sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
+            viewClassFileBtn: document.getElementById('viewClassFileBtn'),
+            classFileViewerModal: new bootstrap.Modal(document.getElementById('classFileViewerModal')),
+            classFileContent: document.getElementById('classFileContent'),
         };
     }
 
@@ -590,6 +593,22 @@ class FileSystem {
             this.state.classNames.clear(); // Clear on failure
             this.uiManager.updateLabelList();
             this.canvasController.updateAllLabelTexts();
+        }
+    }
+
+    async showClassFileContent() {
+        if (!this.state.selectedClassFile) {
+            showToast('Please select a class file first.', 3000);
+            return;
+        }
+        try {
+            const file = await this.state.selectedClassFile.getFile();
+            const content = await file.text();
+            this.uiManager.elements.classFileContent.textContent = content;
+            this.uiManager.elements.classFileViewerModal.show();
+        } catch (err) {
+            console.error('Error reading class file:', err);
+            showToast(`Could not read file: ${this.state.selectedClassFile.name}`, 4000);
         }
     }
 
@@ -1262,6 +1281,7 @@ class EventManager {
         this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('desc');
         });
+        this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
 
         this.ui.elements.classFileSelect.addEventListener('change', (e) => {
             const selectedFileName = e.target.value;
