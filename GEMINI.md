@@ -56,6 +56,19 @@ The application is primarily a client-side tool that runs in modern web browsers
 ### Gemini 어시스턴트의 역할
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
 
+### 2025년 7월 4일
+*   **작업**: "클래스 정보 폴더 로드" 기능 구현
+*   **세부 정보**:
+    *   `public/index.html`의 왼쪽 패널에 "Load Class Info Folder" 버튼을 추가했습니다.
+    *   `public/index.html`의 오른쪽 패널에서 기존 "Load .yaml" 버튼을 제거했습니다.
+    *   `public/index.html`에 클래스 파일을 선택할 수 있는 드롭다운 메뉴를 추가했습니다.
+    *   새로운 기능을 처리하도록 `public/js/app.js`를 수정했습니다:
+        *   클래스 정보 폴더 핸들 및 파일 목록을 관리하도록 `AppState`를 업데이트했습니다.
+        *   새 UI 요소를 가져오고 클래스 파일 드롭다운을 렌더링하도록 `UIManager`를 업데이트했습니다.
+        *   `FileSystem`의 `loadClassNames`를 `selectClassInfoFolder`, `listClassFiles`, `loadClassNamesFromFile`로 교체하여 디렉터리 선택 및 파일 처리를 처리하도록 했습니다.
+        *   새 버튼과 드롭다운에 이벤트를 바인딩하도록 `EventManager`를 업데이트했습니다.
+    *   이제 사용자는 `.yaml` 클래스 정의 파일이 포함된 폴더를 선택할 수 있으며, 이 파일들은 드롭다운에 나열됩니다. 드롭다운에서 파일을 선택하면 클래스 이름이 로드되어 레이블에 적용됩니다.
+
 ### 2025년 7월 2일
 *   **작업**: 붙여넣기 기능 수정
 *   **세부 정보**:

@@ -72,6 +72,7 @@
             <div class="d-grid gap-2">
                 <button id="saveLabelsBtn" class="btn btn-success" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
                 <button id="downloadClassesBtn" class="btn btn-secondary mt-2"><i class="bi bi-download"></i> Download Class Template</button>
+                <button id="loadClassInfoFolderBtn" class="btn btn-info mt-2"><i class="bi bi-folder-symlink"></i> Load Class Info Folder</button>
             </div>
             <hr>
             <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
@@ -116,8 +117,13 @@
                     <div class="btn-group btn-group-sm" role="group">
                         <button id="sortLabelsAscBtn" class="btn btn-outline-secondary" title="Sort Ascending"><i class="bi bi-sort-numeric-down"></i></button>
                         <button id="sortLabelsDescBtn" class="btn btn-outline-secondary" title="Sort Descending"><i class="bi bi-sort-numeric-up-alt"></i></button>
-                        <button id="loadClassesBtn" class="btn btn-primary"><i class="bi bi-file-earmark-text"></i> Load .yaml</button>
                     </div>
+                </div>
+                <div class="input-group mb-2">
+                    <label class="input-group-text" for="class-file-select">Class File</label>
+                    <select class="form-select" id="class-file-select">
+                        <option selected>Choose...</option>
+                    </select>
                 </div>
                 <ul id="label-list" class="list-group">
                     <!-- Labels will be added here -->

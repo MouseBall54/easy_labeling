@@ -54,7 +54,10 @@ class AppState {
     constructor() {
         this.imageFolderHandle = null;
         this.labelFolderHandle = null;
+        this.classInfoFolderHandle = null;
         this.imageFiles = [];
+        this.classFiles = [];
+        this.selectedClassFile = null;
         this.imageLabelStatus = new Map(); // <fileName, boolean>
         this.currentImageFile = null;
         this.currentImage = null;
@@ -96,6 +99,8 @@ class UIManager {
         return {
             selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
             selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
+            loadClassInfoFolderBtn: document.getElementById('loadClassInfoFolderBtn'),
+            classFileSelect: document.getElementById('class-file-select'),
             imageList: document.getElementById('image-list'),
             imageSearchInput: document.getElementById('imageSearchInput'),
             showLabeledCheckbox: document.getElementById('showLabeled'),
@@ -124,7 +129,6 @@ class UIManager {
             rightSplitter: document.getElementById('right-splitter'),
             darkModeToggle: document.getElementById('darkModeToggle'),
             downloadClassesBtn: document.getElementById('downloadClassesBtn'),
-            loadClassesBtn: document.getElementById('loadClassesBtn'),
             sortLabelsAscBtn: document.getElementById('sortLabelsAscBtn'),
             sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
         };
@@ -478,6 +482,23 @@ class UIManager {
     handleDragEnd(e) {
         e.target.style.opacity = '1';
     }
+
+    renderClassFileList() {
+        const select = this.elements.classFileSelect;
+        select.innerHTML = '<option value="" selected>All Classes</option>'; // Default option
+
+        this.state.classFiles
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+            .forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.name;
+                option.textContent = file.name;
+                if (this.state.selectedClassFile && this.state.selectedClassFile.name === file.name) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+    }
 }
 
 
@@ -492,16 +513,49 @@ class FileSystem {
         this.canvasController = canvasController;
     }
 
-    async loadClassNames() {
+    async selectClassInfoFolder() {
         try {
-            const [fileHandle] = await window.showOpenFilePicker({
-                types: [
-                    {
-                        description: 'YAML Class File',
-                        accept: { 'application/x-yaml': ['.yaml', '.yml'] },
-                    },
-                ],
-            });
+            this.state.classInfoFolderHandle = await window.showDirectoryPicker();
+            showToast(`Class Info Folder selected: ${this.state.classInfoFolderHandle.name}`);
+            await this.listClassFiles();
+        } catch (err) {
+            console.error('Error selecting class info folder:', err);
+            if (err.name !== 'AbortError') {
+                showToast('Failed to select class info folder.', 4000);
+            }
+        }
+    }
+
+    async listClassFiles() {
+        if (!this.state.classInfoFolderHandle) return;
+        this.state.classFiles = [];
+        for await (const entry of this.state.classInfoFolderHandle.values()) {
+            if (entry.kind === 'file' && /\.(yaml|yml)$/i.test(entry.name)) {
+                this.state.classFiles.push(entry);
+            }
+        }
+        this.uiManager.renderClassFileList();
+        // If a file is selected, load it. Otherwise, clear the classes.
+        if (this.state.selectedClassFile) {
+            const stillExists = this.state.classFiles.some(f => f.name === this.state.selectedClassFile.name);
+            if (stillExists) {
+                await this.loadClassNamesFromFile(this.state.selectedClassFile);
+            } else {
+                this.state.selectedClassFile = null;
+                this.state.classNames.clear();
+                this.uiManager.updateLabelList();
+                this.canvasController.updateAllLabelTexts();
+            }
+        } else {
+            // If no file was previously selected, clear current class names
+            this.state.classNames.clear();
+            this.uiManager.updateLabelList();
+            this.canvasController.updateAllLabelTexts();
+        }
+    }
+
+    async loadClassNamesFromFile(fileHandle) {
+        try {
             const file = await fileHandle.getFile();
             const content = await file.text();
             
@@ -524,18 +578,21 @@ class FileSystem {
                 }
             });
 
+            this.state.selectedClassFile = fileHandle;
             showToast(`${loadedCount} classes loaded from ${file.name}`);
-            this.uiManager.updateLabelList(); // Refresh UI to show names
+            this.uiManager.updateLabelList();
             this.canvasController.updateAllLabelTexts();
             this.uiManager.updateLabelFilters(this.canvasController.getObjects('rect'));
 
         } catch (err) {
             console.error('Error loading class names file:', err);
-            if (err.name !== 'AbortError') {
-                showToast('Failed to load class names file.', 4000);
-            }
+            showToast(`Failed to load ${fileHandle.name}.`, 4000);
+            this.state.classNames.clear(); // Clear on failure
+            this.uiManager.updateLabelList();
+            this.canvasController.updateAllLabelTexts();
         }
     }
+
 
     downloadClassTemplate() {
         const templateContent = [
@@ -1196,14 +1253,31 @@ class EventManager {
         // UI Buttons
         this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
+        this.ui.elements.loadClassInfoFolderBtn.addEventListener('click', () => this.fileSystem.selectClassInfoFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
-        this.ui.elements.loadClassesBtn.addEventListener('click', () => this.fileSystem.loadClassNames());
         this.ui.elements.downloadClassesBtn.addEventListener('click', () => this.fileSystem.downloadClassTemplate());
         this.ui.elements.sortLabelsAscBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('asc');
         });
         this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('desc');
+        });
+
+        this.ui.elements.classFileSelect.addEventListener('change', (e) => {
+            const selectedFileName = e.target.value;
+            if (selectedFileName) {
+                const fileHandle = this.state.classFiles.find(f => f.name === selectedFileName);
+                if (fileHandle) {
+                    this.fileSystem.loadClassNamesFromFile(fileHandle);
+                }
+            } else {
+                // "All Classes" is selected
+                this.state.selectedClassFile = null;
+                this.state.classNames.clear();
+                this.ui.updateLabelList();
+                this.canvas.updateAllLabelTexts();
+                showToast('Cleared class names. Showing all classes.');
+            }
         });
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
         this.ui.elements.showLabeledCheckbox.addEventListener('change', () => this.ui.renderImageList());
