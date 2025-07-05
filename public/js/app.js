@@ -1543,77 +1543,62 @@ class EventManager {
     }
 
         paste() {
-        if (!this.state._clipboard) return;
+            if (!this.state._clipboard) return;
 
-        this.state._clipboard.clone(cloned => {
-            this.canvas.canvas.discardActiveObject();
-            const newObjects = [];
-            const { x, y } = this.state.lastMousePosition;
-            const img = this.state.currentImage;
-            if (!img) return;
+            this.state._clipboard.clone(cloned => {
+                this.canvas.canvas.discardActiveObject();
+                const newObjects = [];
+                const { x, y } = this.state.lastMousePosition;
+                const img = this.state.currentImage;
+                if (!img) return;
 
-            // 1) 이미지 내부로 클램핑(clamp) 처리
-            const targetX = Math.min(Math.max(x, 0), img.width);
-            const targetY = Math.min(Math.max(y, 0), img.height);
+                const targetX = Math.min(Math.max(x, 0), img.width);
+                const targetY = Math.min(Math.max(y, 0), img.height);
 
-            if (cloned.type === 'activeSelection') {
-                // 기존 임시 그룹 & offset 로직에 targetX, targetY 사용
-                const tempGroup = new fabric.ActiveSelection(
-                    cloned.getObjects().map(obj => fabric.util.object.clone(obj)),
-                    { canvas: this.canvas.canvas }
-                );
-                const bounds = tempGroup.getBoundingRect(true);
-                const offsetX = targetX - (bounds.left + bounds.width  / 2);
-                const offsetY = targetY - (bounds.top  + bounds.height / 2);
+                if (cloned.type === 'activeSelection') {
+                    const tempGroup = new fabric.ActiveSelection(
+                        cloned.getObjects().map(obj => fabric.util.object.clone(obj)),
+                        { canvas: this.canvas.canvas }
+                    );
+                    const bounds = tempGroup.getBoundingRect(true);
+                    const offsetX = targetX - (bounds.left + bounds.width  / 2);
+                    const offsetY = targetY - (bounds.top  + bounds.height / 2);
 
-                tempGroup.getObjects().forEach(obj => {
-                    // 1) 위치 이동
-                    obj.left += offsetX;
-                    obj.top  += offsetY;
+                    tempGroup.getObjects().forEach(obj => {
+                        obj.left += offsetX;
+                        obj.top  += offsetY;
+                        obj.originalYolo = null;
+                        const color = getColorForClass(obj.labelClass);
+                        obj.set({ fill: `${color}33`, stroke: color });
+                        obj.setCoords();
 
-                    // 2) 기존 YOLO 정보 제거
-                    obj.originalYolo = null;
+                        this.canvas.canvas.add(obj);
+                        this.canvas.drawLabelText(obj); // <<< 이 줄을 추가합니다.
+                        newObjects.push(obj);
+                    });
+                } else {
+                    const clonedObj = fabric.util.object.clone(cloned);
+                    const center = clonedObj.getCenterPoint();
+                    clonedObj.left += (targetX - center.x);
+                    clonedObj.top  += (targetY - center.y);
+                    clonedObj.originalYolo = null;
+                    const color = getColorForClass(clonedObj.labelClass);
+                    clonedObj.set({ fill: `${color}33`, stroke: color });
+                    clonedObj.setCoords();
 
-                    // 3) 색상 및 불투명도 재설정
-                    const color = getColorForClass(obj.labelClass);
-                    obj.set({ fill: `${color}33`, stroke: color });
+                    this.canvas.canvas.add(clonedObj);
+                    this.canvas.drawLabelText(clonedObj); // <<< 이 줄을 추가합니다.
+                    newObjects.push(clonedObj);
+                }
 
-                    // 4) 바운딩 박스 재계산
-                    obj.setCoords();
-
-                    this.canvas.canvas.add(obj);
-                    newObjects.push(obj);
+                const selection = new fabric.ActiveSelection(newObjects, {
+                    canvas: this.canvas.canvas
                 });
-            } else {
-                // 단일 객체도 동일하게 클램핑된 targetX/Y 사용
-                const clonedObj = fabric.util.object.clone(cloned);
-                const center = clonedObj.getCenterPoint();
-                clonedObj.left += (targetX - center.x);
-                clonedObj.top  += (targetY - center.y);
-
-                // 원본 YOLO 제거
-                clonedObj.originalYolo = null;
-
-                // 색상 재설정
-                const color = getColorForClass(clonedObj.labelClass);
-                clonedObj.set({ fill: `${color}33`, stroke: color });
-
-                // 바운딩 갱신
-                clonedObj.setCoords();
-
-                this.canvas.canvas.add(clonedObj);
-                newObjects.push(clonedObj);
-            }
-
-            // 5. 붙여넣은 객체들로 활성 선택 영역 구성
-            const selection = new fabric.ActiveSelection(newObjects, {
-                canvas: this.canvas.canvas
-            });
-            this.canvas.canvas.setActiveObject(selection);
-            this.canvas.canvas.requestRenderAll();
-            this.ui.updateLabelList();
-        }, ['labelClass', 'originalYolo']);
-    }
+                this.canvas.canvas.setActiveObject(selection);
+                this.canvas.canvas.requestRenderAll();
+                this.ui.updateLabelList();
+            }, ['labelClass', 'originalYolo']);
+        }
 
 
     deleteSelected() {
