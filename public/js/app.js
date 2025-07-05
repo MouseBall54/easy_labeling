@@ -1156,10 +1156,24 @@ class CanvasController {
         if (rect._labelText) {
             const zoom = this.canvas.getZoom();
             const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
+            
+            let newLeft, newTop;
+
+            if (rect.group) {
+                // 그룹에 속한 경우, 캔버스 절대 좌표를 계산합니다.
+                const bounds = rect.getBoundingRect();
+                newLeft = (rect.group.left  +rect.group.width/2) + bounds.left ;
+                newTop = (rect.group.top + rect.group.height/2)+ bounds.top ;
+            } else {
+                // 단독 객체인 경우, 기존 좌표를 사용합니다.
+                newLeft = rect.left;
+                newTop = rect.top;
+            }
+
             rect._labelText.set({
                 text: displayName,
-                left: rect.left,
-                top: rect.top - 20 / zoom,
+                left: newLeft,
+                top: newTop - 20 / zoom,
                 fontSize: 16 / zoom,
                 padding: 2 / zoom,
                 fill: rect.stroke,
