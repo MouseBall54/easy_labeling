@@ -1506,6 +1506,10 @@ class EventManager {
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 this.deleteSelected();
             }
+            if (e.key === 'Escape') {
+                this.canvas.canvas.discardActiveObject();
+                this.canvas.renderAll();
+            }
         }
 
         if (e.key.toLowerCase() === 'd') this.navigateImage(1);
