@@ -63,6 +63,9 @@ class AppState {
         this.currentImage = null;
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
+        this.isFastSwitchMode = false;
+        this.imageCache = new Map();
+        this.labelCache = new Map();
         this.showLabelsOnCanvas = true;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
@@ -106,6 +109,7 @@ class UIManager {
             showUnlabeledCheckbox: document.getElementById('showUnlabeled'),
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
+            fastSwitchModeToggle: document.getElementById('fastSwitchModeToggle'),
             showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
@@ -465,6 +469,77 @@ class FileSystem {
         this.canvasController = canvasController;
     }
 
+    async toggleFastSwitchMode(enabled) {
+        this.state.isFastSwitchMode = enabled;
+        if (enabled) {
+            if (!this.state.imageFolderHandle) {
+                showToast('Please select an image folder first.', 4000);
+                this.uiManager.elements.fastSwitchModeToggle.checked = false;
+                this.state.isFastSwitchMode = false;
+                return;
+            }
+            await this.cacheAllData();
+        } else {
+            this.clearCache();
+        }
+    }
+
+    async cacheAllData() {
+        showToast('Caching all data for fast switching... This may take a moment.', 3000);
+        let loadedImages = 0;
+        let totalSize = 0;
+
+        const imagePromises = this.state.imageFiles.map(async (fileHandle) => {
+            try {
+                const file = await fileHandle.getFile();
+                const url = URL.createObjectURL(file);
+                const img = await new Promise((resolve, reject) => {
+                    fabric.Image.fromURL(url, (img) => {
+                        URL.revokeObjectURL(url);
+                        if (img) {
+                            resolve(img);
+                        } else {
+                            reject(new Error('Failed to load image'));
+                        }
+                    });
+                });
+                this.state.imageCache.set(fileHandle.name, img);
+                totalSize += file.size;
+
+                if (this.state.labelFolderHandle) {
+                    const labelFileName = fileHandle.name.replace(/\.[^/.]+$/, ".txt");
+                    try {
+                        const labelFileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName);
+                        const labelFile = await labelFileHandle.getFile();
+                        const yoloData = await labelFile.text();
+                        this.state.labelCache.set(fileHandle.name, yoloData);
+                        totalSize += labelFile.size;
+                    } catch (err) {
+                        this.state.labelCache.set(fileHandle.name, '');
+                    }
+                }
+                loadedImages++;
+            } catch (err) {
+                console.error(`Failed to cache ${fileHandle.name}:`, err);
+            }
+        });
+
+        await Promise.all(imagePromises);
+
+        const totalSizeMB = (totalSize / 1024 / 1024).toFixed(2);
+        showToast(`Caching complete! ${loadedImages} images loaded (${totalSizeMB} MB).`, 5000);
+    }
+
+    clearCache() {
+        this.state.imageCache.clear();
+        this.state.labelCache.clear();
+        // Force garbage collection if possible (browser-dependent)
+        if (window.gc) {
+            window.gc();
+        }
+        showToast('Fast-Switch Mode disabled. Cache cleared.', 3000);
+    }
+
     async selectClassInfoFolder() {
         try {
             this.state.classInfoFolderHandle = await window.showDirectoryPicker();
@@ -660,10 +735,8 @@ class FileSystem {
         const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
         const totalImages = this.state.imageFiles.length;
         this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
-        
-        const file = await imageFileHandle.getFile();
 
-        const setBackgroundImage = (img) => {
+        const setCanvasContent = (img, yoloData) => {
             if (loadToken !== this.state.currentLoadToken) return;
             this.state.currentImage = img;
             this.canvasController.clear();
@@ -671,33 +744,47 @@ class FileSystem {
             this.uiManager.elements.labelFilters.innerHTML = '';
             this.canvasController.setBackgroundImage(img);
             this.canvasController.resetZoom();
-            this.loadLabels(imageFileHandle.name, loadToken);
+            if (yoloData && yoloData.trim()) {
+                this.canvasController.addLabelsFromYolo(yoloData);
+            }
+            this.uiManager.updateLabelList();
         };
 
-        if (/\.(tif|tiff)$/i.test(file.name)) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                if (loadToken !== this.state.currentLoadToken) return;
-                const tiff = new Tiff({ buffer: e.target.result });
-                const tiffCanvas = tiff.toCanvas();
-                fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
-            };
-            reader.readAsArrayBuffer(file);
+        if (this.state.isFastSwitchMode && this.state.imageCache.has(imageFileHandle.name)) {
+            const img = this.state.imageCache.get(imageFileHandle.name);
+            const yoloData = this.state.labelCache.get(imageFileHandle.name) || '';
+            setCanvasContent(img, yoloData);
         } else {
-            const url = URL.createObjectURL(file);
-            fabric.Image.fromURL(url, (img) => {
-                setBackgroundImage(img);
-                URL.revokeObjectURL(url);
-            });
+            const file = await imageFileHandle.getFile();
+            const yoloData = await this.loadLabels(imageFileHandle.name, loadToken);
+
+            const setBackgroundImage = (img) => {
+                setCanvasContent(img, yoloData);
+            };
+
+            if (/\.(tif|tiff)$/i.test(file.name)) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    if (loadToken !== this.state.currentLoadToken) return;
+                    const tiff = new Tiff({ buffer: e.target.result });
+                    const tiffCanvas = tiff.toCanvas();
+                    fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                const url = URL.createObjectURL(file);
+                fabric.Image.fromURL(url, (img) => {
+                    setBackgroundImage(img);
+                    URL.revokeObjectURL(url);
+                });
+            }
         }
         
         this.uiManager.setActiveImageListItem(imageFileHandle);
     }
 
     async loadLabels(imageName, loadToken) {
-        this.uiManager.updateLabelList();
-
-        if (!this.state.labelFolderHandle) return;
+        if (!this.state.labelFolderHandle) return '';
         
         const labelFileName = imageName.replace(/\.[^/.]+$/, ".txt");
         try {
@@ -705,19 +792,16 @@ class FileSystem {
             const file = await labelFileHandle.getFile();
             const yoloData = await file.text();
             
-            if (loadToken !== this.state.currentLoadToken) return;
+            if (loadToken !== this.state.currentLoadToken) return '';
 
-            if (yoloData.trim()) {
-                this.canvasController.addLabelsFromYolo(yoloData);
-            }
-            this.uiManager.updateLabelList();
+            return yoloData;
         } catch (err) {
             if (err.name === 'NotFoundError') {
                 console.log(`No label file found for ${imageName}.`);
-                if (loadToken === this.state.currentLoadToken) this.uiManager.updateLabelList();
             } else {
                 console.error('Error loading labels:', err);
             }
+            return '';
         }
     }
 
@@ -1206,6 +1290,9 @@ class EventManager {
             this.state.isAutoSaveEnabled = e.target.checked;
             showToast(`Auto Save ${this.state.isAutoSaveEnabled ? 'Enabled' : 'Disabled'}`);
         });
+        this.ui.elements.fastSwitchModeToggle.addEventListener('change', (e) => {
+            this.fileSystem.toggleFastSwitchMode(e.target.checked);
+        });
         this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
             this.state.showLabelsOnCanvas = e.target.checked;
             this.canvas.toggleAllLabelTexts(this.state.showLabelsOnCanvas);
@@ -1612,6 +1699,12 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
+
+        // Initialize tooltips
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
