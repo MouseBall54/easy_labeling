@@ -227,24 +227,14 @@ class UIManager {
             const color = getColorForClass(rect.labelClass);
             const displayName = this.getDisplayNameForClass(rect.labelClass);
             
-            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
                 this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
             });
 
-            li.addEventListener('dragstart', (e) => {
-                // Only allow drag-to-reorder when grabbing the handle
-                if (e.target.classList.contains('bi-grip-vertical')) {
-                    this.handleDragStart(e);
-                } else {
-                    e.preventDefault();
-                }
-            });
-            li.addEventListener('dragover', this.handleDragOver.bind(this));
-            li.addEventListener('drop', this.handleDrop.bind(this));
-            li.addEventListener('dragend', this.handleDragEnd.bind(this));
+            
 
             this.elements.labelList.appendChild(li);
         });
@@ -444,31 +434,7 @@ class UIManager {
         });
     }
 
-    handleDragStart(e) {
-        e.target.style.opacity = '0.4';
-        this.dragSrcEl = e.target;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/html', e.target.innerHTML);
-    }
-
-    handleDragOver(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-    }
-
-    handleDrop(e) {
-        e.stopPropagation();
-        if (this.dragSrcEl !== e.target) {
-            const srcIndex = parseInt(this.dragSrcEl.dataset.index, 10);
-            const destIndex = parseInt(e.target.closest('li').dataset.index, 10);
-            this.canvasController.reorderObject(srcIndex, destIndex);
-            this.updateLabelList();
-        }
-    }
-
-    handleDragEnd(e) {
-        e.target.style.opacity = '1';
-    }
+    
 
     renderClassFileList() {
         const select = this.elements.classFileSelect;
