@@ -1124,24 +1124,35 @@ class CanvasController {
     }
 
     // Selection Info
-    updateSelectionLabel(e) {
+    updateSelectionLabel() {
         // Clear all active classes from list items first
         this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
 
-        if (e.selected && e.selected.length > 0) {
-            const rects = this.getObjects('rect');
-            e.selected.forEach(activeObject => {
-                if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-                    const objectIndex = rects.indexOf(activeObject);
-                    if (objectIndex > -1) {
-                        const listItem = document.getElementById(`label-item-${objectIndex}`);
-                        if (listItem) {
-                            listItem.classList.add('active');
-                        }
-                    }
-                }
-            });
+        const activeCanvasObjects = this.canvas.getActiveObjects();
+        if (activeCanvasObjects.length === 0) return;
+
+        const allRectsOnCanvas = this.getObjects('rect');
+        let selectedRects = [];
+
+        // Fabric.js returns an array of objects. If multiple objects are selected
+        // (either by dragging or shift-clicking), it's usually a single 'activeSelection' object
+        // in the array, which in turn contains the actual objects.
+        if (activeCanvasObjects.length > 0 && activeCanvasObjects[0].type === 'activeSelection') {
+            selectedRects = activeCanvasObjects[0].getObjects('rect');
+        } else {
+            // Otherwise, it's an array of individual objects (e.g., a single selection).
+            selectedRects = activeCanvasObjects.filter(obj => obj.type === 'rect');
         }
+
+        selectedRects.forEach(selectedRect => {
+            const objectIndex = allRectsOnCanvas.indexOf(selectedRect);
+            if (objectIndex > -1) {
+                const listItem = document.getElementById(`label-item-${objectIndex}`);
+                if (listItem) {
+                    listItem.classList.add('active');
+                }
+            }
+        });
     }
 
     clearSelectionLabel() {
