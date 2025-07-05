@@ -64,6 +64,7 @@ class AppState {
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
         this.showLabelsOnCanvas = true;
+        this.labelFontSize = 14;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
@@ -107,6 +108,8 @@ class UIManager {
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
             showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
+            labelFontSizeSlider: document.getElementById('label-font-size'),
+            labelFontSizeValue: document.getElementById('label-font-size-value'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
@@ -1139,7 +1142,7 @@ class CanvasController {
         const text = new fabric.Text(displayName, {
             left: rect.left,
             top: rect.top - 20 / zoom,
-            fontSize: 16 / zoom,
+            fontSize: this.state.labelFontSize / zoom,
             fill: rect.stroke,
             backgroundColor: rect.fill,
             padding: 2 / zoom,
@@ -1174,7 +1177,7 @@ class CanvasController {
                 text: displayName,
                 left: newLeft,
                 top: newTop - 20 / zoom,
-                fontSize: 16 / zoom,
+                fontSize: this.state.labelFontSize / zoom,
                 padding: 2 / zoom,
                 fill: rect.stroke,
                 backgroundColor: rect.fill,
@@ -1274,6 +1277,13 @@ class EventManager {
         this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
             this.state.showLabelsOnCanvas = e.target.checked;
             this.canvas.toggleAllLabelTexts(this.state.showLabelsOnCanvas);
+        });
+        this.ui.elements.labelFontSizeSlider.addEventListener('input', (e) => {
+            const newSize = e.target.value;
+            this.state.labelFontSize = parseInt(newSize, 10);
+            this.ui.elements.labelFontSizeValue.textContent = newSize;
+            this.canvas.updateAllLabelTexts();
+            this.canvas.renderAll();
         });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
