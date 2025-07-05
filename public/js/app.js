@@ -347,6 +347,14 @@ class UIManager {
         const dropdown = this.elements.selectByClassDropdown;
         dropdown.innerHTML = '<option selected value="">Select a class to select boxes...</option>';
         const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+
+        if (uniqueClasses.length > 0) {
+            const allOption = document.createElement('option');
+            allOption.value = '__ALL__';
+            allOption.textContent = 'All Classes';
+            dropdown.appendChild(allOption);
+        }
+
         uniqueClasses.forEach(labelClass => {
             const displayName = this.getDisplayNameForClass(labelClass);
             const option = document.createElement('option');
@@ -1274,7 +1282,11 @@ class EventManager {
         this.ui.elements.selectByClassBtn.addEventListener('click', () => {
             const selectedClass = this.ui.elements.selectByClassDropdown.value;
             if (selectedClass) {
-                this.canvas.selectLabelsByClass(selectedClass);
+                if (selectedClass === '__ALL__') {
+                    this.canvas.selectAllLabels();
+                } else {
+                    this.canvas.selectLabelsByClass(selectedClass);
+                }
             }
         });
         this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
