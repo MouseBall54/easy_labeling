@@ -114,6 +114,8 @@ class UIManager {
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
             labelFilters: document.getElementById('label-filters'),
+            selectByClassDropdown: document.getElementById('select-by-class-dropdown'),
+            selectByClassBtn: document.getElementById('select-by-class-btn'),
             zoomInBtn: document.getElementById('zoomInBtn'),
             zoomOutBtn: document.getElementById('zoomOutBtn'),
             resetZoomBtn: document.getElementById('resetZoomBtn'),
@@ -204,6 +206,7 @@ class UIManager {
         this.canvasController.renderAll();
 
         this.updateLabelFilters(rects);
+        this.updateSelectByClassDropdown(rects);
         this.canvasController.highlightSelection();
 
         rects.forEach((rect, index) => {
@@ -337,6 +340,19 @@ class UIManager {
                 applyFilters();
             });
             this.elements.labelFilters.appendChild(btn);
+        });
+    }
+
+    updateSelectByClassDropdown(rects) {
+        const dropdown = this.elements.selectByClassDropdown;
+        dropdown.innerHTML = '<option selected value="">Select a class to select boxes...</option>';
+        const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+        uniqueClasses.forEach(labelClass => {
+            const displayName = this.getDisplayNameForClass(labelClass);
+            const option = document.createElement('option');
+            option.value = labelClass;
+            option.textContent = displayName;
+            dropdown.appendChild(option);
         });
     }
 
@@ -1113,10 +1129,6 @@ class CanvasController {
                         const listItem = document.getElementById(`label-item-${objectIndex}`);
                         if (listItem) {
                             listItem.classList.add('active');
-                            // Scroll to the first selected item
-                            if (e.selected.indexOf(activeObject) === 0) {
-                                listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                            }
                         }
                     }
                 }
@@ -1217,6 +1229,16 @@ class CanvasController {
             this.canvas.requestRenderAll();
         }
     }
+
+    selectLabelsByClass(labelClass) {
+        this.canvas.discardActiveObject();
+        const rectsToSelect = this.getObjects('rect').filter(rect => rect.labelClass === labelClass);
+        if (rectsToSelect.length > 0) {
+            const sel = new fabric.ActiveSelection(rectsToSelect, { canvas: this.canvas });
+            this.canvas.setActiveObject(sel);
+        }
+        this.canvas.requestRenderAll();
+    }
 }
 
 
@@ -1248,6 +1270,12 @@ class EventManager {
         });
         this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('desc');
+        });
+        this.ui.elements.selectByClassBtn.addEventListener('click', () => {
+            const selectedClass = this.ui.elements.selectByClassDropdown.value;
+            if (selectedClass) {
+                this.canvas.selectLabelsByClass(selectedClass);
+            }
         });
         this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
 
