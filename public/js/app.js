@@ -1486,6 +1486,41 @@ class EventManager {
         }
 
         if (this.state.currentMode === 'edit') {
+            const activeObject = this.canvas.canvas.getActiveObject();
+            if (activeObject && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                const step = e.shiftKey ? 10 : 1; // Move 10px with Shift, 1px otherwise
+
+                switch (e.key) {
+                    case 'ArrowUp':
+                        activeObject.top -= step;
+                        break;
+                    case 'ArrowDown':
+                        activeObject.top += step;
+                        break;
+                    case 'ArrowLeft':
+                        activeObject.left -= step;
+                        break;
+                    case 'ArrowRight':
+                        activeObject.left += step;
+                        break;
+                }
+                activeObject.setCoords();
+
+                // Manually mark as modified and update label text
+                if (activeObject.type === 'activeSelection') {
+                    activeObject.getObjects().forEach(obj => {
+                        obj.originalYolo = null;
+                        this.canvas.updateLabelText(obj);
+                    });
+                } else {
+                    activeObject.originalYolo = null;
+                    this.canvas.updateLabelText(activeObject);
+                }
+                
+                this.canvas.renderAll();
+            }
+
             if (e.ctrlKey || e.metaKey) {
                 if (e.key === 'c') this.copy();
                 if (e.key === 'v') this.paste();
