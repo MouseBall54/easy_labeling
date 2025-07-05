@@ -186,50 +186,46 @@ class UIManager {
 
     updateLabelList() {
         this.elements.labelList.innerHTML = '';
-        let rects = this.canvasController.getObjects('rect');
+        let groups = this.canvasController.getLabelGroups();
 
-        // Sort rects based on the current sort order
-        rects.sort((a, b) => {
+        // Sort groups based on the current sort order
+        groups.sort((a, b) => {
             const idA = parseInt(a.labelClass, 10);
             const idB = parseInt(b.labelClass, 10);
             return this.state.labelSortOrder === 'asc' ? idA - idB : idB - idA;
         });
 
         // Re-order objects on the canvas for correct z-index
-        rects.forEach(rect => this.canvasController.canvas.remove(rect));
-        rects.forEach(rect => this.canvasController.canvas.add(rect));
+        groups.forEach(group => this.canvasController.canvas.bringToFront(group));
         this.canvasController.renderAll();
 
-        this.updateLabelFilters(rects);
+        this.updateLabelFilters(groups);
         this.canvasController.highlightSelection();
 
-        rects.forEach((rect, index) => {
+        groups.forEach((group, index) => {
             const li = document.createElement('li');
             li.id = `label-item-${index}`;
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
             li.draggable = true;
             li.dataset.index = index;
 
-            // Get currently active objects from canvas for highlighting
             const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
-            // Apply active class if this rect is currently selected on canvas
-            const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
+            const isActive = activeCanvasObjects.includes(group) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(group));
             if (isActive) {
                 li.classList.add('active');
             }
 
-            const color = getColorForClass(rect.labelClass);
-            const displayName = this.getDisplayNameForClass(rect.labelClass);
+            const color = getColorForClass(group.labelClass);
+            const displayName = this.getDisplayNameForClass(group.labelClass);
             
             li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
-                this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
+                this.canvasController.canvas.setActiveObject(groups[index]).renderAll();
             });
 
             li.addEventListener('dragstart', (e) => {
-                // Only allow drag-to-reorder when grabbing the handle
                 if (e.target.classList.contains('bi-grip-vertical')) {
                     this.handleDragStart(e);
                 } else {
@@ -243,19 +239,18 @@ class UIManager {
             this.elements.labelList.appendChild(li);
         });
 
-        this.addEditDeleteListeners(rects);
+        this.addEditDeleteListeners(groups);
         
         const activeClassFilters = new Set();
         this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
             activeClassFilters.add(btn.dataset.labelClass);
         });
 
-        rects.forEach((rect, index) => {
+        groups.forEach((group, index) => {
             let isVisible = true;
             if (activeClassFilters.size > 0) {
-                isVisible = activeClassFilters.has(rect.labelClass);
+                isVisible = activeClassFilters.has(group.labelClass);
             } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
-                // If there are filters but none are active, hide all
                 isVisible = false;
             }
             const listItem = document.getElementById(`label-item-${index}`);
@@ -265,15 +260,15 @@ class UIManager {
         });
     }
     
-    updateLabelFilters(rects) {
+    updateLabelFilters(groups) {
         this.elements.labelFilters.innerHTML = '';
 
-        const classCounts = rects.reduce((acc, rect) => {
-            acc[rect.labelClass] = (acc[rect.labelClass] || 0) + 1;
+        const classCounts = groups.reduce((acc, group) => {
+            acc[group.labelClass] = (acc[group.labelClass] || 0) + 1;
             return acc;
         }, {});
-        const totalCount = rects.length;
-        const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+        const totalCount = groups.length;
+        const uniqueClasses = [...new Set(groups.map(g => g.labelClass))].sort((a, b) => a - b);
 
         const applyFilters = () => {
             const activeClassFilters = new Set();
@@ -281,18 +276,15 @@ class UIManager {
                 activeClassFilters.add(btn.dataset.labelClass);
             });
 
-            rects.forEach((rect, index) => {
+            groups.forEach((group, index) => {
                 let isVisible = true;
                  if (activeClassFilters.size > 0) {
-                    isVisible = activeClassFilters.has(rect.labelClass);
+                    isVisible = activeClassFilters.has(group.labelClass);
                 } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
                     isVisible = false;
                 }
                 
-                rect.set('visible', isVisible);
-                if (rect._labelText) {
-                    rect._labelText.set('visible', isVisible);
-                }
+                group.set('visible', isVisible);
                 const listItem = document.getElementById(`label-item-${index}`);
                 if (listItem) {
                     listItem.style.display = isVisible ? '' : 'none';
@@ -337,18 +329,18 @@ class UIManager {
         });
     }
 
-    addEditDeleteListeners(rects) {
+    addEditDeleteListeners(groups) {
         this.elements.labelList.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const index = parseInt(btn.dataset.index, 10);
-                this.canvasController.editLabel(rects[index]);
+                this.canvasController.editLabel(groups[index]);
             });
         });
 
         this.elements.labelList.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const index = parseInt(btn.dataset.index, 10);
-                this.canvasController.removeObject(rects[index]);
+                this.canvasController.removeObject(groups[index]);
                 this.updateLabelList();
             });
         });
@@ -504,13 +496,11 @@ class FileSystem {
                 this.state.selectedClassFile = null;
                 this.state.classNames.clear();
                 this.uiManager.updateLabelList();
-                this.canvasController.updateAllLabelTexts();
             }
         } else {
             // If no file was previously selected, clear current class names
             this.state.classNames.clear();
             this.uiManager.updateLabelList();
-            this.canvasController.updateAllLabelTexts();
         }
     }
 
@@ -541,15 +531,13 @@ class FileSystem {
             this.state.selectedClassFile = fileHandle;
             showToast(`${loadedCount} classes loaded from ${file.name}`);
             this.uiManager.updateLabelList();
-            this.canvasController.updateAllLabelTexts();
-            this.uiManager.updateLabelFilters(this.canvasController.getObjects('rect'));
+            this.uiManager.updateLabelFilters(this.canvasController.getLabelGroups());
 
         } catch (err) {
             console.error('Error loading class names file:', err);
             showToast(`Failed to load ${fileHandle.name}.`, 4000);
             this.state.classNames.clear(); // Clear on failure
             this.uiManager.updateLabelList();
-            this.canvasController.updateAllLabelTexts();
         }
     }
 
@@ -790,19 +778,18 @@ class CanvasController {
             width: 800,
             height: 600,
             backgroundColor: '#eee',
+            preserveObjectStacking: true,
         });
         this.isDrawing = false;
         this.startPoint = null;
         this.currentRect = null;
-        this.activeLabelText = null;
 
-        // 그룹 선택 시 개별 객체의 테두리를 유지하고, 그룹 자체의 외곽선은 숨김
         fabric.ActiveSelection.prototype.hasBorders = false;
         fabric.ActiveSelection.prototype.cornerColor = 'transparent';
     }
 
-    getObjects(type) {
-        return this.canvas.getObjects(type);
+    getLabelGroups() {
+        return this.canvas.getObjects().filter(obj => obj.labelClass !== undefined);
     }
 
     renderAll() {
@@ -825,8 +812,53 @@ class CanvasController {
         this.uiManager.elements.editModeBtn.checked = mode === 'edit';
         this.canvas.selection = mode === 'edit';
         this.canvas.defaultCursor = mode === 'draw' ? 'crosshair' : 'default';
-        this.getObjects('rect').forEach(obj => obj.set('selectable', mode === 'edit'));
+        this.getLabelGroups().forEach(obj => obj.set('selectable', mode === 'edit'));
         this.renderAll();
+    }
+
+    _createLabelGroup(options) {
+        const { left, top, width, height, labelClass, selectable } = options;
+        const color = getColorForClass(labelClass);
+        const displayName = this.uiManager.getDisplayNameForClass(labelClass);
+
+        const rect = new fabric.Rect({
+            width: width,
+            height: height,
+            fill: `${color}33`,
+            stroke: color,
+            strokeWidth: 2,
+            strokeUniform: true,
+        });
+
+        const text = new fabric.Text(displayName, {
+            left: 0,
+            top: -5,
+            originY: 'bottom',
+            fontSize: 20, // Font size increased
+            fill: color,
+            // backgroundColor: 'rgba(255, 255, 255, 0.8)', // Background removed
+            padding: 2,
+            visible: this.state.showLabelsOnCanvas,
+            _isLabelText: true,
+        });
+
+        const group = new fabric.Group([rect, text], {
+            left: left,
+            top: top,
+            selectable: selectable,
+            labelClass: String(labelClass),
+            originX: 'left',
+            originY: 'top',
+            _rect: rect,
+            _text: text,
+        });
+        
+        text.set({
+            selectable: false,
+            evented: false,
+        });
+
+        return group;
     }
 
     addLabelsFromYolo(yoloData) {
@@ -842,49 +874,54 @@ class CanvasController {
             const rectHeight = parseFloat(height) * imgHeight;
             const rectLeft = (parseFloat(x_center) * imgWidth) - (rectWidth / 2);
             const rectTop = (parseFloat(y_center) * imgHeight) - (rectHeight / 2);
-            const color = getColorForClass(labelClass);
 
-            const rect = new fabric.Rect({
-                left: rectLeft, top: rectTop, width: rectWidth, height: rectHeight,
-                fill: `${color}33`, stroke: color, strokeWidth: 2,
-                strokeUniform: true,
-                selectable: this.state.currentMode === 'edit',
+            const group = this._createLabelGroup({
+                left: rectLeft,
+                top: rectTop,
+                width: rectWidth,
+                height: rectHeight,
                 labelClass: String(labelClass),
-                originalYolo: { x_center, y_center, width, height }
+                selectable: this.state.currentMode === 'edit',
             });
-            this.canvas.add(rect);
-            this.drawLabelText(rect);
+            
+            this.canvas.add(group);
         });
     }
 
     getLabelsAsYolo() {
-        const rects = this.getObjects('rect');
+        const groups = this.getLabelGroups();
         const imgWidth = this.state.currentImage.width;
         const imgHeight = this.state.currentImage.height;
         let yoloString = '';
 
-        rects.forEach(rect => {
-            const labelClass = rect.labelClass || '0';
-            rect.setCoords();
-            const center = rect.getCenterPoint();
-            const width = rect.getScaledWidth();
-            const height = rect.getScaledHeight();
-            const x_center = center.x / imgWidth;
-            const y_center = center.y / imgHeight;
-            const normWidth = width / imgWidth;
-            const normHeight = height / imgHeight;
-            yoloString += `${labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
+        groups.forEach(group => {
+            const rect = group._rect;
+            if (!rect) return;
+            
+            group.setCoords();
+            const groupCenter = group.getCenterPoint();
+            const rectScaledWidth = rect.width * (group.scaleX || 1);
+            const rectScaledHeight = rect.height * (group.scaleY || 1);
+
+            const x_center = groupCenter.x / imgWidth;
+            const y_center = groupCenter.y / imgHeight;
+            const normWidth = rectScaledWidth / imgWidth;
+            const normHeight = rectScaledHeight / imgHeight;
+
+            yoloString += `${group.labelClass} ${x_center.toFixed(15)} ${y_center.toFixed(15)} ${normWidth.toFixed(15)} ${normHeight.toFixed(15)}\n`;
         });
         return yoloString;
     }
 
     highlightSelection() {
-        const rects = this.getObjects('rect');
         const activeObjects = this.canvas.getActiveObjects();
 
-        rects.forEach(rect => {
-            const isSelected = activeObjects.includes(rect);
-            const color = getColorForClass(rect.labelClass);
+        this.getLabelGroups().forEach(group => {
+            const isSelected = activeObjects.includes(group);
+            const rect = group._rect;
+            if (!rect) return;
+
+            const color = getColorForClass(group.labelClass);
             rect.set({
                 stroke: color,
                 strokeWidth: 2
@@ -901,13 +938,10 @@ class CanvasController {
             } else {
                 rect.set({ shadow: null });
             }
-
-            this.updateLabelText(rect);
         });
         this.renderAll();
     }
 
-    // Drawing
     startDrawing(pointer) {
         if (this.state.currentMode !== 'draw' || !this.state.currentImage) return;
         this.isDrawing = true;
@@ -942,7 +976,7 @@ class CanvasController {
             return;
         }
 
-        if (this.currentRect.width < 5 && this.currentRect.height < 5) {
+        if (this.currentRect.width < 5 || this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
         } else {
             const userInput = prompt('Enter label class for the new box:', '0');
@@ -954,32 +988,23 @@ class CanvasController {
                 return;
             }
 
-            this.currentRect.set('labelClass', finalLabel);
+            const group = this._createLabelGroup({
+                left: this.currentRect.left,
+                top: this.currentRect.top,
+                width: this.currentRect.width,
+                height: this.currentRect.height,
+                labelClass: finalLabel,
+                selectable: this.state.currentMode === 'edit',
+            });
             
-            // 2) 색상 적용
-            const color = getColorForClass(finalLabel);
-            this.currentRect.set({ fill: `${color}33`, stroke: color });
-            
-            // 3) 선택 가능하도록 설정 (edit 모드일 때)
-            const isEditMode = (this.state.currentMode === 'edit');
-            this.currentRect.set('selectable', isEditMode);
-            
-            // 4) 좌표 업데이트 및 렌더링
-            this.currentRect.setCoords();
-            this.drawLabelText(this.currentRect);
-            this.canvas.requestRenderAll();
-            
-            // 5) UI 리스트 업데이트
+            this.canvas.remove(this.currentRect);
+            this.canvas.add(group);
             this.uiManager.updateLabelList();
         }
         this.currentRect = null;
     }
 
-    // Object Manipulation
     removeObject(obj) {
-        if (obj._labelText) {
-            this.canvas.remove(obj._labelText);
-        }
         this.canvas.remove(obj);
     }
 
@@ -989,51 +1014,38 @@ class CanvasController {
     }
 
     reorderObject(srcIndex, destIndex) {
-        const rects = this.getObjects('rect');
-        const movedRect = rects.splice(srcIndex, 1)[0];
-        rects.splice(destIndex, 0, movedRect);
-        rects.forEach(rect => this.canvas.remove(rect));
-        rects.forEach(rect => this.canvas.add(rect));
+        const groups = this.getLabelGroups();
+        const movedGroup = groups.splice(srcIndex, 1)[0];
+        groups.splice(destIndex, 0, movedGroup);
+        
+        groups.forEach(group => this.canvas.bringToFront(group));
+        this.renderAll();
     }
 
-    // CanvasController 클래스 내부에 위치
-// CanvasController 클래스 내부
-    editLabel(rect) {
-        const userInput = prompt('Enter new label class:', rect.labelClass || '0');
+    editLabel(group) {
+        const userInput = prompt('Enter new label class:', group.labelClass || '0');
         const finalLabel = validateLabelClass(userInput);
 
         if (finalLabel !== null) {
-            rect.set('labelClass', finalLabel);
+            const rect = group._rect;
+            const text = group._text;
             const color = getColorForClass(finalLabel);
+            const displayName = this.uiManager.getDisplayNameForClass(finalLabel);
+
+            group.set('labelClass', finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
-            rect.originalYolo = null;
-            this.updateLabelText(rect);
+            text.set({ text: displayName, fill: color });
+            
             this.uiManager.updateLabelList();
+            this.renderAll();
         }
-
-        // 1) 활성 객체 선택 해제
-        this.canvas.discardActiveObject();
-
-        // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
-        this.canvas._currentTransform = null;
-
-        // 3) 드래그/드로잉 플래그도 초기화
-        this.isDrawing = false;
-        this.canvas.isDragging = false;
-        this.canvas.selection = true;
-        this.canvas.defaultCursor = 'default';
-
-        // 4) 캔버스 강제 리렌더링
-        this.canvas.renderAll();
+        this.canvas.discardActiveObject().renderAll();
     }
 
-
-    // Zoom and Pan
     zoom(factor) {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
 
     resetZoom() {
@@ -1048,7 +1060,6 @@ class CanvasController {
         this.canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
         this.renderAll();
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
     
     resizeCanvas() {
@@ -1071,7 +1082,6 @@ class CanvasController {
         this.canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
         this.renderAll();
         this.highlightPoint(x, y);
-        this.updateAllLabelTexts();
     }
 
     highlightPoint(x, y) {
@@ -1096,21 +1106,18 @@ class CanvasController {
         });
     }
 
-    // Selection Info
     updateSelectionLabel(e) {
-        // Clear all active classes from list items first
         this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
 
         if (e.selected && e.selected.length > 0) {
-            const rects = this.getObjects('rect');
+            const groups = this.getLabelGroups();
             e.selected.forEach(activeObject => {
-                if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-                    const objectIndex = rects.indexOf(activeObject);
+                if (activeObject.labelClass) {
+                    const objectIndex = groups.indexOf(activeObject);
                     if (objectIndex > -1) {
                         const listItem = document.getElementById(`label-item-${objectIndex}`);
                         if (listItem) {
                             listItem.classList.add('active');
-                            // Scroll to the first selected item
                             if (e.selected.indexOf(activeObject) === 0) {
                                 listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                             }
@@ -1122,80 +1129,23 @@ class CanvasController {
     }
 
     clearSelectionLabel() {
-        // Clear all active classes from list items
         this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
-
-        if (this.activeLabelText) {
-            this.canvas.remove(this.activeLabelText);
-            this.activeLabelText = null;
-        }
-    }
-
-    // Permanent Label Text
-    drawLabelText(rect) {
-        if (!this.state.showLabelsOnCanvas) return;
-        const zoom = this.canvas.getZoom();
-        const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
-        const text = new fabric.Text(displayName, {
-            left: rect.left,
-            top: rect.top - 20 / zoom,
-            fontSize: 16 / zoom,
-            fill: rect.stroke,
-            backgroundColor: rect.fill,
-            padding: 2 / zoom,
-            selectable: false,
-            evented: false,
-            _isLabelText: true, // Custom property
-            _rect: rect, // Link to the rectangle
-        });
-        rect._labelText = text;
-        this.canvas.add(text);
-    }
-
-    updateLabelText(rect) {
-        if (rect._labelText) {
-            const zoom = this.canvas.getZoom();
-            const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
-            rect._labelText.set({
-                text: displayName,
-                left: rect.left,
-                top: rect.top - 20 / zoom,
-                fontSize: 16 / zoom,
-                padding: 2 / zoom,
-                fill: rect.stroke,
-                backgroundColor: rect.fill,
-            });
-        }
-    }
-
-    updateAllLabelTexts() {
-        this.getObjects('rect').forEach(rect => {
-            if (rect._labelText) {
-                this.updateLabelText(rect);
-            }
-        });
     }
 
     toggleAllLabelTexts(visible) {
-        if (visible) {
-            this.getObjects('rect').forEach(rect => this.drawLabelText(rect));
-        } else {
-            this.canvas.getObjects('text').forEach(text => {
-                if (text._isLabelText) {
-                    this.canvas.remove(text);
-                }
-            });
-            this.getObjects('rect').forEach(rect => {
-                rect._labelText = null;
-            });
-        }
+        this.getLabelGroups().forEach(group => {
+            const text = group._text;
+            if (text) {
+                text.set('visible', visible);
+            }
+        });
         this.renderAll();
     }
 
     selectAllLabels() {
-        const rects = this.getObjects('rect');
-        if (rects.length > 0) {
-            const sel = new fabric.ActiveSelection(rects, { canvas: this.canvas });
+        const groups = this.getLabelGroups().filter(g => g.selectable && g.visible);
+        if (groups.length > 0) {
+            const sel = new fabric.ActiveSelection(groups, { canvas: this.canvas });
             this.canvas.setActiveObject(sel);
             this.canvas.requestRenderAll();
         }
@@ -1246,7 +1196,6 @@ class EventManager {
                 this.state.selectedClassFile = null;
                 this.state.classNames.clear();
                 this.ui.updateLabelList();
-                this.canvas.updateAllLabelTexts();
                 showToast('Cleared class names. Showing all classes.');
             }
         });
@@ -1281,26 +1230,7 @@ class EventManager {
         this.canvas.canvas.on('mouse:wheel', this.handleMouseWheel.bind(this));
         this.canvas.canvas.on('mouse:out', () => this.ui.hideMouseCoords());
         
-        const markAsModified = (e) => {
-            if (!e.target) return;
-            const target = e.target;
-            if (target.type === 'activeSelection') {
-                target.getObjects().forEach(obj => {
-                    obj.originalYolo = null;
-                    this.canvas.updateLabelText(obj);
-                });
-            } else {
-                target.originalYolo = null;
-                this.canvas.updateLabelText(target);
-            }
-        };
-
-        this.canvas.canvas.on('object:modified', (e) => {
-            markAsModified(e);
-            this.ui.updateLabelList();
-        });
-        this.canvas.canvas.on('object:scaled', (e) => {
-            markAsModified(e);
+        this.canvas.canvas.on('object:modified', () => {
             this.ui.updateLabelList();
         });
 
@@ -1317,10 +1247,8 @@ class EventManager {
             this.canvas.highlightSelection();
         });
 
-        // Label list multi-select drag
         this.ui.elements.labelList.addEventListener('mousedown', this.handleLabelListMouseDown.bind(this));
 
-        // Keyboard Events
         window.addEventListener('keydown', this.handleKeyDown.bind(this));
     }
 
@@ -1331,12 +1259,12 @@ class EventManager {
         const clickInterval = currentTime - this.lastClickTime;
         const isDoubleClick = clickInterval < 300 && target === this.lastClickedObject;
 
-        if (isDoubleClick && target && target.type === 'rect' && this.state.currentMode === 'edit') {
+        if (isDoubleClick && target && target.labelClass && this.state.currentMode === 'edit') {
             this.canvas.editLabel(target);
-            this.lastClickTime = 0; // Reset to prevent triple-click issues
+            this.lastClickTime = 0;
             this.lastClickedObject = null;
-            evt.preventDefault(); // Prevent default Fabric.js drag behavior
-            evt.stopPropagation(); // Stop event propagation
+            evt.preventDefault();
+            evt.stopPropagation();
             return;
         }
 
@@ -1367,7 +1295,7 @@ class EventManager {
         
         if (this.state.currentImage) {
             const pointer = this.canvas.canvas.getPointer(opt.e);
-            this.state.lastMousePosition = { x: pointer.x, y: pointer.y }; // Track mouse position
+            this.state.lastMousePosition = { x: pointer.x, y: pointer.y };
 
             if (pointer.x >= 0 && pointer.x <= this.state.currentImage.width && pointer.y >= 0 && pointer.y <= this.state.currentImage.height) {
                 this.ui.updateMouseCoords(pointer.x, pointer.y);
@@ -1437,7 +1365,6 @@ class EventManager {
     }
 
     handleLabelListMouseDown(e) {
-        // Don't interfere with re-ordering, buttons or scrollbar
         if (e.target.classList.contains('bi-grip-vertical') || e.target.closest('button') || e.offsetX >= e.target.clientWidth) {
             return;
         }
@@ -1450,11 +1377,9 @@ class EventManager {
 
         this.selectionStartIndex = Array.from(listItem.parentElement.children).indexOf(listItem);
         
-        // Clear previous selections
         this.canvas.canvas.discardActiveObject();
         this.ui.elements.labelList.querySelectorAll('li.active').forEach(li => li.classList.remove('active'));
 
-        // Select starting item
         listItem.classList.add('active');
 
         const onMouseMove = (moveEvent) => {
@@ -1463,17 +1388,15 @@ class EventManager {
             const labelList = this.ui.elements.labelList;
             const rect = labelList.getBoundingClientRect();
             const mouseY = moveEvent.clientY;
-            const scrollThreshold = 50; // pixels from edge
-            const scrollSpeed = 20; // pixels per frame
+            const scrollThreshold = 50;
+            const scrollSpeed = 20;
 
-            // Auto-scroll logic
             if (mouseY < rect.top + scrollThreshold) {
                 labelList.scrollTop -= scrollSpeed;
             } else if (mouseY > rect.bottom - scrollThreshold) {
                 labelList.scrollTop += scrollSpeed;
             }
 
-            // Use elementFromPoint to get the item under the cursor, even during scroll
             const currentItem = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY).closest('li');
             if (!currentItem || !currentItem.parentElement.isSameNode(labelList)) return;
 
@@ -1493,21 +1416,21 @@ class EventManager {
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
 
-            const selectedRects = [];
-            const rects = this.canvas.getObjects('rect');
+            const selectedGroups = [];
+            const groups = this.canvas.getLabelGroups();
             this.ui.elements.labelList.querySelectorAll('li.active').forEach(li => {
                 const index = parseInt(li.dataset.index, 10);
-                if (!isNaN(index) && rects[index]) {
-                    selectedRects.push(rects[index]);
+                if (!isNaN(index) && groups[index]) {
+                    selectedGroups.push(groups[index]);
                 }
             });
 
-            if (selectedRects.length > 1) {
-                const sel = new fabric.ActiveSelection(selectedRects, { canvas: this.canvas.canvas });
+            if (selectedGroups.length > 1) {
+                const sel = new fabric.ActiveSelection(selectedGroups, { canvas: this.canvas.canvas });
                 this.canvas.canvas.setActiveObject(sel);
                 this.canvas.renderAll();
-            } else if (selectedRects.length === 1) {
-                this.canvas.canvas.setActiveObject(selectedRects[0]);
+            } else if (selectedGroups.length === 1) {
+                this.canvas.canvas.setActiveObject(selectedGroups[0]);
                 this.canvas.renderAll();
             }
         };
@@ -1525,10 +1448,10 @@ class EventManager {
     copy() {
         const activeObject = this.canvas.canvas.getActiveObject();
         if (!activeObject) return;
-        activeObject.clone(cloned => { this.state._clipboard = cloned; }, ['labelClass', 'originalYolo']);
+        activeObject.clone(cloned => { this.state._clipboard = cloned; }, ['labelClass', '_rect', '_text']);
     }
 
-        paste() {
+    paste() {
         if (!this.state._clipboard) return;
 
         this.state._clipboard.clone(cloned => {
@@ -1538,67 +1461,68 @@ class EventManager {
             const img = this.state.currentImage;
             if (!img) return;
 
-            // 1) 이미지 내부로 클램핑(clamp) 처리
             const targetX = Math.min(Math.max(x, 0), img.width);
             const targetY = Math.min(Math.max(y, 0), img.height);
 
             if (cloned.type === 'activeSelection') {
-                // 기존 임시 그룹 & offset 로직에 targetX, targetY 사용
                 const tempGroup = new fabric.ActiveSelection(
-                    cloned.getObjects().map(obj => fabric.util.object.clone(obj)),
+                    cloned.getObjects().map(obj => {
+                        const newGroup = this.canvas._createLabelGroup({
+                            left: obj.left,
+                            top: obj.top,
+                            width: obj._rect.width * obj.scaleX,
+                            height: obj._rect.height * obj.scaleY,
+                            labelClass: obj.labelClass,
+                            selectable: true
+                        });
+                        newGroup.set({
+                            scaleX: obj.scaleX,
+                            scaleY: obj.scaleY,
+                            angle: obj.angle,
+                        });
+                        return newGroup;
+                    }),
                     { canvas: this.canvas.canvas }
                 );
+
                 const bounds = tempGroup.getBoundingRect(true);
-                const offsetX = targetX - (bounds.left + bounds.width  / 2);
-                const offsetY = targetY - (bounds.top  + bounds.height / 2);
+                const offsetX = targetX - (bounds.left + bounds.width / 2);
+                const offsetY = targetY - (bounds.top + bounds.height / 2);
 
                 tempGroup.getObjects().forEach(obj => {
-                    // 1) 위치 이동
                     obj.left += offsetX;
-                    obj.top  += offsetY;
-
-                    // 2) 기존 YOLO 정보 제거
-                    obj.originalYolo = null;
-
-                    // 3) 색상 및 불투명도 재설정
-                    const color = getColorForClass(obj.labelClass);
-                    obj.set({ fill: `${color}33`, stroke: color });
-
-                    // 4) 바운딩 박스 재계산
+                    obj.top += offsetY;
                     obj.setCoords();
-
                     this.canvas.canvas.add(obj);
                     newObjects.push(obj);
                 });
+
             } else {
-                // 단일 객체도 동일하게 클램핑된 targetX/Y 사용
-                const clonedObj = fabric.util.object.clone(cloned);
-                const center = clonedObj.getCenterPoint();
-                clonedObj.left += (targetX - center.x);
-                clonedObj.top  += (targetY - center.y);
-
-                // 원본 YOLO 제거
-                clonedObj.originalYolo = null;
-
-                // 색상 재설정
-                const color = getColorForClass(clonedObj.labelClass);
-                clonedObj.set({ fill: `${color}33`, stroke: color });
-
-                // 바운딩 갱신
-                clonedObj.setCoords();
-
-                this.canvas.canvas.add(clonedObj);
-                newObjects.push(clonedObj);
+                const newGroup = this.canvas._createLabelGroup({
+                    left: targetX - (cloned.width / 2),
+                    top: targetY - (cloned.height / 2),
+                    width: cloned._rect.width,
+                    height: cloned._rect.height,
+                    labelClass: cloned.labelClass,
+                    selectable: true
+                });
+                newGroup.set({
+                    scaleX: cloned.scaleX,
+                    scaleY: cloned.scaleY,
+                    angle: cloned.angle,
+                });
+                newGroup.setCoords();
+                this.canvas.canvas.add(newGroup);
+                newObjects.push(newGroup);
             }
 
-            // 5. 붙여넣은 객체들로 활성 선택 영역 구성
             const selection = new fabric.ActiveSelection(newObjects, {
                 canvas: this.canvas.canvas
             });
             this.canvas.canvas.setActiveObject(selection);
             this.canvas.canvas.requestRenderAll();
             this.ui.updateLabelList();
-        }, ['labelClass', 'originalYolo']);
+        }, ['labelClass', '_rect', '_text']);
     }
 
 
@@ -1620,13 +1544,16 @@ class EventManager {
 
         if (finalLabel === null) return;
 
-        const color = getColorForClass(finalLabel);
+        const applyChanges = (group) => {
+            if (!group.labelClass) return;
+            const rect = group._rect;
+            const text = group._text;
+            const color = getColorForClass(finalLabel);
+            const displayName = this.ui.getDisplayNameForClass(finalLabel);
 
-        const applyChanges = (obj) => {
-            obj.set('labelClass', finalLabel);
-            obj.set({ fill: `${color}33`, stroke: color });
-            obj.originalYolo = null; // Mark as modified
-            this.canvas.updateLabelText(obj);
+            group.set('labelClass', finalLabel);
+            rect.set({ fill: `${color}33`, stroke: color });
+            text.set({ text: displayName, fill: color });
         };
 
         if (activeSelection.type === 'activeSelection') {
