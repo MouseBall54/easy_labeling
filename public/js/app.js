@@ -64,6 +64,7 @@ class AppState {
         this.currentMode = 'edit'; // 'draw' or 'edit'
         this.isAutoSaveEnabled = false;
         this.showLabelsOnCanvas = true;
+        this.labelFontSize = 14;
         this.saveTimeout = null;
         this.currentLoadToken = 0;
         this._clipboard = null;
@@ -107,10 +108,14 @@ class UIManager {
             saveLabelsBtn: document.getElementById('saveLabelsBtn'),
             autoSaveToggle: document.getElementById('autoSaveToggle'),
             showLabelsOnCanvasToggle: document.getElementById('showLabelsOnCanvasToggle'),
+            labelFontSizeSlider: document.getElementById('label-font-size'),
+            labelFontSizeValue: document.getElementById('label-font-size-value'),
             drawModeBtn: document.getElementById('drawMode'),
             editModeBtn: document.getElementById('editMode'),
             labelList: document.getElementById('label-list'),
             labelFilters: document.getElementById('label-filters'),
+            selectByClassDropdown: document.getElementById('select-by-class-dropdown'),
+            selectByClassBtn: document.getElementById('select-by-class-btn'),
             zoomInBtn: document.getElementById('zoomInBtn'),
             zoomOutBtn: document.getElementById('zoomOutBtn'),
             resetZoomBtn: document.getElementById('resetZoomBtn'),
@@ -201,6 +206,7 @@ class UIManager {
         this.canvasController.renderAll();
 
         this.updateLabelFilters(rects);
+        this.updateSelectByClassDropdown(rects);
         this.canvasController.highlightSelection();
 
         rects.forEach((rect, index) => {
@@ -221,24 +227,14 @@ class UIManager {
             const color = getColorForClass(rect.labelClass);
             const displayName = this.getDisplayNameForClass(rect.labelClass);
             
-            li.innerHTML = `<span><i class="bi bi-grip-vertical me-2"></i><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
+            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
             
             li.addEventListener('click', (e) => {
                 if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
                 this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
             });
 
-            li.addEventListener('dragstart', (e) => {
-                // Only allow drag-to-reorder when grabbing the handle
-                if (e.target.classList.contains('bi-grip-vertical')) {
-                    this.handleDragStart(e);
-                } else {
-                    e.preventDefault();
-                }
-            });
-            li.addEventListener('dragover', this.handleDragOver.bind(this));
-            li.addEventListener('drop', this.handleDrop.bind(this));
-            li.addEventListener('dragend', this.handleDragEnd.bind(this));
+            
 
             this.elements.labelList.appendChild(li);
         });
@@ -337,6 +333,27 @@ class UIManager {
         });
     }
 
+    updateSelectByClassDropdown(rects) {
+        const dropdown = this.elements.selectByClassDropdown;
+        dropdown.innerHTML = '<option selected value="">Select a class to select boxes...</option>';
+        const uniqueClasses = [...new Set(rects.map(r => r.labelClass))].sort((a, b) => a - b);
+
+        if (uniqueClasses.length > 0) {
+            const allOption = document.createElement('option');
+            allOption.value = '__ALL__';
+            allOption.textContent = 'All Classes';
+            dropdown.appendChild(allOption);
+        }
+
+        uniqueClasses.forEach(labelClass => {
+            const displayName = this.getDisplayNameForClass(labelClass);
+            const option = document.createElement('option');
+            option.value = labelClass;
+            option.textContent = displayName;
+            dropdown.appendChild(option);
+        });
+    }
+
     addEditDeleteListeners(rects) {
         this.elements.labelList.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -417,31 +434,7 @@ class UIManager {
         });
     }
 
-    handleDragStart(e) {
-        e.target.style.opacity = '0.4';
-        this.dragSrcEl = e.target;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/html', e.target.innerHTML);
-    }
-
-    handleDragOver(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-    }
-
-    handleDrop(e) {
-        e.stopPropagation();
-        if (this.dragSrcEl !== e.target) {
-            const srcIndex = parseInt(this.dragSrcEl.dataset.index, 10);
-            const destIndex = parseInt(e.target.closest('li').dataset.index, 10);
-            this.canvasController.reorderObject(srcIndex, destIndex);
-            this.updateLabelList();
-        }
-    }
-
-    handleDragEnd(e) {
-        e.target.style.opacity = '1';
-    }
+    
 
     renderClassFileList() {
         const select = this.elements.classFileSelect;
@@ -1097,28 +1090,35 @@ class CanvasController {
     }
 
     // Selection Info
-    updateSelectionLabel(e) {
+    updateSelectionLabel() {
         // Clear all active classes from list items first
         this.uiManager.elements.labelList.querySelectorAll('li.active').forEach(item => item.classList.remove('active'));
 
-        if (e.selected && e.selected.length > 0) {
-            const rects = this.getObjects('rect');
-            e.selected.forEach(activeObject => {
-                if (activeObject && activeObject.type === 'rect' && activeObject.labelClass) {
-                    const objectIndex = rects.indexOf(activeObject);
-                    if (objectIndex > -1) {
-                        const listItem = document.getElementById(`label-item-${objectIndex}`);
-                        if (listItem) {
-                            listItem.classList.add('active');
-                            // Scroll to the first selected item
-                            if (e.selected.indexOf(activeObject) === 0) {
-                                listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                            }
-                        }
-                    }
-                }
-            });
+        const activeCanvasObjects = this.canvas.getActiveObjects();
+        if (activeCanvasObjects.length === 0) return;
+
+        const allRectsOnCanvas = this.getObjects('rect');
+        let selectedRects = [];
+
+        // Fabric.js returns an array of objects. If multiple objects are selected
+        // (either by dragging or shift-clicking), it's usually a single 'activeSelection' object
+        // in the array, which in turn contains the actual objects.
+        if (activeCanvasObjects.length > 0 && activeCanvasObjects[0].type === 'activeSelection') {
+            selectedRects = activeCanvasObjects[0].getObjects('rect');
+        } else {
+            // Otherwise, it's an array of individual objects (e.g., a single selection).
+            selectedRects = activeCanvasObjects.filter(obj => obj.type === 'rect');
         }
+
+        selectedRects.forEach(selectedRect => {
+            const objectIndex = allRectsOnCanvas.indexOf(selectedRect);
+            if (objectIndex > -1) {
+                const listItem = document.getElementById(`label-item-${objectIndex}`);
+                if (listItem) {
+                    listItem.classList.add('active');
+                }
+            }
+        });
     }
 
     clearSelectionLabel() {
@@ -1139,7 +1139,7 @@ class CanvasController {
         const text = new fabric.Text(displayName, {
             left: rect.left,
             top: rect.top - 20 / zoom,
-            fontSize: 16 / zoom,
+            fontSize: this.state.labelFontSize / zoom,
             fill: rect.stroke,
             backgroundColor: rect.fill,
             padding: 2 / zoom,
@@ -1174,7 +1174,7 @@ class CanvasController {
                 text: displayName,
                 left: newLeft,
                 top: newTop - 20 / zoom,
-                fontSize: 16 / zoom,
+                fontSize: this.state.labelFontSize / zoom,
                 padding: 2 / zoom,
                 fill: rect.stroke,
                 backgroundColor: rect.fill,
@@ -1214,6 +1214,16 @@ class CanvasController {
             this.canvas.requestRenderAll();
         }
     }
+
+    selectLabelsByClass(labelClass) {
+        this.canvas.discardActiveObject();
+        const rectsToSelect = this.getObjects('rect').filter(rect => rect.labelClass === labelClass);
+        if (rectsToSelect.length > 0) {
+            const sel = new fabric.ActiveSelection(rectsToSelect, { canvas: this.canvas });
+            this.canvas.setActiveObject(sel);
+        }
+        this.canvas.requestRenderAll();
+    }
 }
 
 
@@ -1246,6 +1256,16 @@ class EventManager {
         this.ui.elements.sortLabelsDescBtn.addEventListener('click', () => {
             this.canvas.sortObjectsByLabel('desc');
         });
+        this.ui.elements.selectByClassBtn.addEventListener('click', () => {
+            const selectedClass = this.ui.elements.selectByClassDropdown.value;
+            if (selectedClass) {
+                if (selectedClass === '__ALL__') {
+                    this.canvas.selectAllLabels();
+                } else {
+                    this.canvas.selectLabelsByClass(selectedClass);
+                }
+            }
+        });
         this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
 
         this.ui.elements.classFileSelect.addEventListener('change', (e) => {
@@ -1274,6 +1294,13 @@ class EventManager {
         this.ui.elements.showLabelsOnCanvasToggle.addEventListener('change', (e) => {
             this.state.showLabelsOnCanvas = e.target.checked;
             this.canvas.toggleAllLabelTexts(this.state.showLabelsOnCanvas);
+        });
+        this.ui.elements.labelFontSizeSlider.addEventListener('input', (e) => {
+            const newSize = e.target.value;
+            this.state.labelFontSize = parseInt(newSize, 10);
+            this.ui.elements.labelFontSizeValue.textContent = newSize;
+            this.canvas.updateAllLabelTexts();
+            this.canvas.renderAll();
         });
         this.ui.elements.drawModeBtn.addEventListener('change', () => this.canvas.setMode('draw'));
         this.ui.elements.editModeBtn.addEventListener('change', () => this.canvas.setMode('edit'));
@@ -1436,6 +1463,41 @@ class EventManager {
         }
 
         if (this.state.currentMode === 'edit') {
+            const activeObject = this.canvas.canvas.getActiveObject();
+            if (activeObject && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                const step = e.shiftKey ? 10 : 1; // Move 10px with Shift, 1px otherwise
+
+                switch (e.key) {
+                    case 'ArrowUp':
+                        activeObject.top -= step;
+                        break;
+                    case 'ArrowDown':
+                        activeObject.top += step;
+                        break;
+                    case 'ArrowLeft':
+                        activeObject.left -= step;
+                        break;
+                    case 'ArrowRight':
+                        activeObject.left += step;
+                        break;
+                }
+                activeObject.setCoords();
+
+                // Manually mark as modified and update label text
+                if (activeObject.type === 'activeSelection') {
+                    activeObject.getObjects().forEach(obj => {
+                        obj.originalYolo = null;
+                        this.canvas.updateLabelText(obj);
+                    });
+                } else {
+                    activeObject.originalYolo = null;
+                    this.canvas.updateLabelText(activeObject);
+                }
+                
+                this.canvas.renderAll();
+            }
+
             if (e.ctrlKey || e.metaKey) {
                 if (e.key === 'c') this.copy();
                 if (e.key === 'v') this.paste();
@@ -1443,6 +1505,10 @@ class EventManager {
             }
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 this.deleteSelected();
+            }
+            if (e.key === 'Escape') {
+                this.canvas.canvas.discardActiveObject();
+                this.canvas.renderAll();
             }
         }
 
