@@ -126,6 +126,8 @@ class UIManager {
             coordYInput: document.getElementById('coordY'),
             goToCoordsBtn: document.getElementById('goToCoordsBtn'),
             currentImageNameSpan: document.getElementById('current-image-name'),
+            prevImageBtn: document.getElementById('prevImageBtn'),
+            nextImageBtn: document.getElementById('nextImageBtn'),
             leftPanel: document.getElementById('left-panel'),
             rightPanel: document.getElementById('right-panel'),
             leftSplitter: document.getElementById('left-splitter'),
@@ -1312,6 +1314,9 @@ class EventManager {
             const y = parseInt(this.ui.elements.coordYInput.value, 10);
             this.canvas.goToCoords(x, y);
         });
+
+        this.ui.elements.prevImageBtn.addEventListener('click', () => this.navigateImage(-1));
+        this.ui.elements.nextImageBtn.addEventListener('click', () => this.navigateImage(1));
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
