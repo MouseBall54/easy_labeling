@@ -72,6 +72,7 @@ class AppState {
         this.classNames = new Map(); // To store class names from .yaml file
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
+        this.isPreviewBarHidden = false; // New state for preview bar visibility
     }
 }
 
@@ -145,6 +146,8 @@ class UIManager {
             previewNextBtn: document.getElementById('preview-next-btn'),
             previewListWrapper: document.getElementById('preview-list-wrapper'),
             previewList: document.getElementById('preview-list'),
+            hidePreviewBtn: document.getElementById('hide-preview-btn'), // New element
+            showPreviewBtn: document.getElementById('show-preview-btn'), // New element
         };
     }
 
@@ -452,9 +455,18 @@ class UIManager {
         this.elements.previewList.innerHTML = '';
         if (!currentImageFile) {
             this.elements.previewBar.style.display = 'none';
+            this.elements.showPreviewBtn.style.display = 'none'; // Hide show button too
             return;
         }
-        this.elements.previewBar.style.display = 'flex';
+
+        // Only show if not explicitly hidden by user
+        if (!this.state.isPreviewBarHidden) {
+            this.elements.previewBar.style.display = 'flex';
+            this.elements.showPreviewBtn.style.display = 'none';
+        } else {
+            this.elements.previewBar.style.display = 'none';
+            this.elements.showPreviewBtn.style.display = 'block';
+        }
 
         const currentIndex = this.state.imageFiles.findIndex(f => f.name === currentImageFile.name);
         const numPreviews = 7; // Max 7 previews
@@ -511,6 +523,17 @@ class UIManager {
             previewItem.addEventListener('click', () => {
                 this.fileSystem.loadImageAndLabels(fileHandle);
             });
+        }
+    }
+
+    togglePreviewBarVisibility(hide) {
+        this.state.isPreviewBarHidden = hide;
+        if (hide) {
+            this.elements.previewBar.style.display = 'none';
+            this.elements.showPreviewBtn.style.display = 'block';
+        } else {
+            this.elements.previewBar.style.display = 'flex';
+            this.elements.showPreviewBtn.style.display = 'none';
         }
     }
 
@@ -1414,6 +1437,9 @@ class EventManager {
 
         this.ui.elements.previewPrevBtn.addEventListener('click', () => this.navigateImage(-1));
         this.ui.elements.previewNextBtn.addEventListener('click', () => this.navigateImage(1));
+
+        this.ui.elements.hidePreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(true));
+        this.ui.elements.showPreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(false));
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 

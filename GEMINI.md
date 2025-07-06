@@ -118,6 +118,14 @@ This is a detailed list of features identified from the source code.
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
 
 ### 2025년 7월 6일
+*   **작업**: 이미지 미리보기 창 숨기기/보이기 기능 추가
+*   **세부 정보**:
+    *   `public/index.html`에 미리보기 창을 숨기는 버튼(`hide-preview-btn`)과 숨겨진 미리보기 창을 다시 표시하는 버튼(`show-preview-btn`)을 추가했습니다.
+    *   `public/css/style.css`에 새로 추가된 버튼들의 스타일과 미리보기 창이 숨겨졌을 때의 스타일을 정의했습니다.
+    *   `public/js/app.js`의 `AppState`에 `isPreviewBarHidden` 상태 변수를 추가하여 미리보기 창의 표시 여부를 관리하도록 했습니다.
+    *   `UIManager`의 `getDOMElements`에 새로운 버튼 엘리먼트들을 추가하고, `renderPreviewBar` 함수를 수정하여 `isPreviewBarHidden` 상태에 따라 미리보기 바의 표시 여부를 제어하도록 했습니다.
+    *   `UIManager`에 `togglePreviewBarVisibility` 함수를 추가하여 미리보기 바의 표시 상태를 전환하는 로직을 구현했습니다.
+    *   `EventManager`에 `hidePreviewBtn`과 `showPreviewBtn`에 대한 클릭 이벤트 리스너를 바인딩하여, 사용자가 버튼을 클릭할 때 미리보기 창의 표시 상태를 전환하도록 했습니다.
 *   **작업**: 그리기 모드 커서 동작 개선
 *   **세부 정보**:
     *   `public/js/app.js`를 수정하여 그리기(Draw) 모드일 때의 마우스 커서 동작을 개선했습니다.
@@ -149,6 +157,11 @@ This is a detailed list of features identified from the source code.
     *   `public/css/style.css`에서 `#preview-bar`의 배경색 `rgba` 값을 `0.5`에서 `0.2`로 변경하여 더 투명하게 만들었습니다.
     *   `public/js/app.js`의 `init` 함수를 수정하여, 애플리케이션 시작 시에는 미리보기 창을 숨기고 이미지 폴더를 로드했을 때만 나타나도록 변경했습니다.
     *   `public/js/app.js`의 `EventManager`에서 미리보기 창의 `<` 및 `>` 버튼 이벤트 리스너를 `scrollPreview`에서 `navigateImage`로 변경하여, 키보드 `A`/`D` 키와 동일하게 이전/다음 이미지로 넘어가도록 기능을 수정했습니다.
+
+### 2025년 7월 4일
+
+### Gemini 어시스턴트의 역할
+저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
 
 ### 2025년 7월 4일
 *   **작업**: "이슈 레이블" 강조 및 필터 기능 제거
