@@ -673,25 +673,24 @@ class FileSystem {
         }
     }
 
-    async checkLabelStatus(imageFileHandle) {
-        if (!this.state.labelFolderHandle) return false;
-        const labelFileName = imageFileHandle.name.replace(/\.[^/.]+$/, ".txt");
-        try {
-            const labelFileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName);
-            const file = await labelFileHandle.getFile();
-            const content = await file.text();
-            return content.trim().length > 0;
-        } catch (err) {
-            return false;
-        }
-    }
+    
 
     async listImageFiles() {
         if (!this.state.imageFolderHandle) return;
         this.state.imageFiles = [];
         this.state.imageLabelStatus.clear();
         this.uiManager.elements.imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
-        
+
+        // Performance Improvement: Pre-cache all label file names into a Set for fast lookups.
+        const labelFileNames = new Set();
+        if (this.state.labelFolderHandle) {
+            for await (const entry of this.state.labelFolderHandle.values()) {
+                if (entry.kind === 'file' && entry.name.endsWith('.txt')) {
+                    labelFileNames.add(entry.name);
+                }
+            }
+        }
+
         const fileHandles = [];
         for await (const entry of this.state.imageFolderHandle.values()) {
             if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
@@ -699,10 +698,13 @@ class FileSystem {
             }
         }
 
-        await Promise.all(fileHandles.map(async (fileHandle) => {
-            const hasLabel = await this.checkLabelStatus(fileHandle);
+        // Check label status using the in-memory Set, avoiding slow individual file access.
+        fileHandles.forEach(fileHandle => {
+            const labelFileName = fileHandle.name.replace(/\.[^/.]+$/, ".txt");
+            // We now check for the existence of the label file, not its content, for a significant speed boost.
+            const hasLabel = labelFileNames.has(labelFileName);
             this.state.imageLabelStatus.set(fileHandle.name, hasLabel);
-        }));
+        });
 
         // Sort the files to ensure we load the correct "first" one.
         fileHandles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
@@ -713,6 +715,9 @@ class FileSystem {
         // Automatically load the first image if it exists.
         if (this.state.imageFiles.length > 0) {
             await this.loadImageAndLabels(this.state.imageFiles[0]);
+        } else {
+            // If no images are found, ensure the preview bar is hidden.
+            this.uiManager.elements.previewBar.style.display = 'none';
         }
     }
 
