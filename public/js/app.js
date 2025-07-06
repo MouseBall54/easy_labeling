@@ -148,7 +148,23 @@ class UIManager {
             previewList: document.getElementById('preview-list'),
             hidePreviewBtn: document.getElementById('hide-preview-btn'), // New element
             showPreviewBtn: document.getElementById('show-preview-btn'), // New element
+            collapseLeftPanelBtn: document.getElementById('collapse-left-panel-btn'),
+            expandLeftPanelBtn: document.getElementById('expand-left-panel-btn'),
+            collapseRightPanelBtn: document.getElementById('collapse-right-panel-btn'),
+            expandRightPanelBtn: document.getElementById('expand-right-panel-btn'),
         };
+    }
+
+    togglePanel(panel, splitter, expandBtn, isCollapsing) {
+        panel.classList.toggle('collapsed', isCollapsing);
+        splitter.style.display = isCollapsing ? 'none' : '';
+        expandBtn.style.display = isCollapsing ? 'block' : 'none';
+
+        // Recalculate canvas size after transition
+        setTimeout(() => {
+            this.canvasController.resizeCanvas();
+            this.canvasController.resetZoom();
+        }, 300); // Match transition duration
     }
 
     updateLabelFolderButton(selected, folderName = '') {
@@ -407,6 +423,9 @@ class UIManager {
                 const onMouseUp = () => {
                     document.removeEventListener('mousemove', onMouseMove);
                     document.removeEventListener('mouseup', onMouseUp);
+                    // Final resize and zoom reset after dragging ends
+                    this.canvasController.resizeCanvas();
+                    this.canvasController.resetZoom();
                 };
                 document.addEventListener('mousemove', onMouseMove);
                 document.addEventListener('mouseup', onMouseUp);
@@ -1440,6 +1459,11 @@ class EventManager {
 
         this.ui.elements.hidePreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(true));
         this.ui.elements.showPreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(false));
+
+        this.ui.elements.collapseLeftPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.leftPanel, this.ui.elements.leftSplitter, this.ui.elements.expandLeftPanelBtn, true));
+        this.ui.elements.expandLeftPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.leftPanel, this.ui.elements.leftSplitter, this.ui.elements.expandLeftPanelBtn, false));
+        this.ui.elements.collapseRightPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.rightPanel, this.ui.elements.rightSplitter, this.ui.elements.expandRightPanelBtn, true));
+        this.ui.elements.expandRightPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.rightPanel, this.ui.elements.rightSplitter, this.ui.elements.expandRightPanelBtn, false));
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
