@@ -1382,8 +1382,8 @@ class EventManager {
         this.ui.elements.prevImageBtn.addEventListener('click', () => this.navigateImage(-1));
         this.ui.elements.nextImageBtn.addEventListener('click', () => this.navigateImage(1));
 
-        this.ui.elements.previewPrevBtn.addEventListener('click', () => this.scrollPreview(-1));
-        this.ui.elements.previewNextBtn.addEventListener('click', () => this.scrollPreview(1));
+        this.ui.elements.previewPrevBtn.addEventListener('click', () => this.navigateImage(-1));
+        this.ui.elements.previewNextBtn.addEventListener('click', () => this.navigateImage(1));
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
