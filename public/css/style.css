@@ -223,9 +223,7 @@ canvas {
     font-size: 0.9rem;
 }
 
-#mouse-coords {
-    display: none; /* Hide by default */
-}
+
 
 /* --- Style for buttons inside active list group items --- */
 .list-group-item.active .btn {

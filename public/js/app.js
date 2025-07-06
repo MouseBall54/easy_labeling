@@ -441,12 +441,19 @@ class UIManager {
     }
 
     updateMouseCoords(x, y) {
-        this.elements.mouseCoordsDisplay.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
-        this.elements.mouseCoordsDisplay.style.display = 'block';
+        // Only update if the input fields are not focused
+        if (document.activeElement !== this.elements.coordXInput && document.activeElement !== this.elements.coordYInput) {
+            this.elements.coordXInput.value = Math.round(x);
+            this.elements.coordYInput.value = Math.round(y);
+        }
     }
 
     hideMouseCoords() {
-        this.elements.mouseCoordsDisplay.style.display = 'none';
+        // Clear the input fields when the mouse leaves the canvas, if they are not focused
+        if (document.activeElement !== this.elements.coordXInput && document.activeElement !== this.elements.coordYInput) {
+            this.elements.coordXInput.value = '';
+            this.elements.coordYInput.value = '';
+        }
     }
     
     updateImageInfo(fileName, currentIndex = null, totalImages = null) {
