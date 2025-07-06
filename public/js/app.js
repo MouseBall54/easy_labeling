@@ -71,6 +71,8 @@ class AppState {
         this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
         this.classNames = new Map(); // To store class names from .yaml file
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
+        this.previewImageCache = new Map(); // For caching preview image ObjectURLs
+        this.isPreviewBarHidden = false; // New state for preview bar visibility
     }
 }
 
@@ -144,6 +146,8 @@ class UIManager {
             previewNextBtn: document.getElementById('preview-next-btn'),
             previewListWrapper: document.getElementById('preview-list-wrapper'),
             previewList: document.getElementById('preview-list'),
+            hidePreviewBtn: document.getElementById('hide-preview-btn'), // New element
+            showPreviewBtn: document.getElementById('show-preview-btn'), // New element
         };
     }
 
@@ -445,9 +449,18 @@ class UIManager {
         this.elements.previewList.innerHTML = '';
         if (!currentImageFile) {
             this.elements.previewBar.style.display = 'none';
+            this.elements.showPreviewBtn.style.display = 'none'; // Hide show button too
             return;
         }
-        this.elements.previewBar.style.display = 'flex';
+
+        // Only show if not explicitly hidden by user
+        if (!this.state.isPreviewBarHidden) {
+            this.elements.previewBar.style.display = 'flex';
+            this.elements.showPreviewBtn.style.display = 'none';
+        } else {
+            this.elements.previewBar.style.display = 'none';
+            this.elements.showPreviewBtn.style.display = 'block';
+        }
 
         const currentIndex = this.state.imageFiles.findIndex(f => f.name === currentImageFile.name);
         const numPreviews = 7; // Max 7 previews
@@ -456,7 +469,6 @@ class UIManager {
         let startIndex = Math.max(0, currentIndex - halfPreviews);
         let endIndex = Math.min(this.state.imageFiles.length - 1, currentIndex + halfPreviews);
 
-        // Adjust start/end index to always show 7 if possible
         if (endIndex - startIndex + 1 < numPreviews) {
             if (startIndex === 0) {
                 endIndex = Math.min(this.state.imageFiles.length - 1, numPreviews - 1);
@@ -475,21 +487,28 @@ class UIManager {
             }
             previewItem.dataset.fileName = fileHandle.name;
 
-            const file = await fileHandle.getFile();
             const img = document.createElement('img');
             img.alt = fileHandle.name;
 
-            if (/\.(tif|tiff)$/i.test(file.name)) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const tiff = new Tiff({ buffer: e.target.result });
-                    const tiffCanvas = tiff.toCanvas();
-                    img.src = tiffCanvas.toDataURL();
-                };
-                reader.readAsArrayBuffer(file);
+            // --- Performance Improvement: Use cached ObjectURL if available ---
+            if (this.state.previewImageCache.has(fileHandle.name)) {
+                img.src = this.state.previewImageCache.get(fileHandle.name);
             } else {
-                img.src = URL.createObjectURL(file);
-                img.onload = () => URL.revokeObjectURL(img.src);
+                const file = await fileHandle.getFile();
+                if (/\.(tif|tiff)$/i.test(file.name)) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const tiff = new Tiff({ buffer: e.target.result });
+                        const dataUrl = tiff.toCanvas().toDataURL();
+                        img.src = dataUrl;
+                        this.state.previewImageCache.set(fileHandle.name, dataUrl); // Cache the data URL
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    const objectURL = URL.createObjectURL(file);
+                    img.src = objectURL;
+                    this.state.previewImageCache.set(fileHandle.name, objectURL); // Cache the Object URL
+                }
             }
 
             previewItem.appendChild(img);
@@ -498,6 +517,17 @@ class UIManager {
             previewItem.addEventListener('click', () => {
                 this.fileSystem.loadImageAndLabels(fileHandle);
             });
+        }
+    }
+
+    togglePreviewBarVisibility(hide) {
+        this.state.isPreviewBarHidden = hide;
+        if (hide) {
+            this.elements.previewBar.style.display = 'none';
+            this.elements.showPreviewBtn.style.display = 'block';
+        } else {
+            this.elements.previewBar.style.display = 'flex';
+            this.elements.showPreviewBtn.style.display = 'none';
         }
     }
 
@@ -1384,6 +1414,9 @@ class EventManager {
 
         this.ui.elements.previewPrevBtn.addEventListener('click', () => this.navigateImage(-1));
         this.ui.elements.previewNextBtn.addEventListener('click', () => this.navigateImage(1));
+
+        this.ui.elements.hidePreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(true));
+        this.ui.elements.showPreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(false));
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
