@@ -63,6 +63,41 @@ body {
     flex-direction: column;
     border-left: 1px solid var(--panel-border-color);
     border-right: 1px solid var(--panel-border-color);
+    transition: width 0.3s ease, padding 0.3s ease, min-width 0.3s ease;
+}
+
+.control-panel.collapsed {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: none;
+}
+
+.control-panel .panel-header,
+.control-panel .panel-content {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.control-panel.collapsed .panel-header,
+.control-panel.collapsed .panel-content {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.control-panel .panel-content {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    min-height: 0; /* Crucial for flex-grow to work inside another flex container */
+}
+
+.panel-expand-btn {
+    position: absolute;
+    top: 10px;
+    z-index: 11; /* Above preview bar */
 }
 
 .panel-splitter {
@@ -188,9 +223,7 @@ canvas {
     font-size: 0.9rem;
 }
 
-#mouse-coords {
-    display: none; /* Hide by default */
-}
+
 
 /* --- Style for buttons inside active list group items --- */
 .list-group-item.active .btn {
