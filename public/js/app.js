@@ -126,6 +126,8 @@ class UIManager {
             coordYInput: document.getElementById('coordY'),
             goToCoordsBtn: document.getElementById('goToCoordsBtn'),
             currentImageNameSpan: document.getElementById('current-image-name'),
+            prevImageBtn: document.getElementById('prevImageBtn'),
+            nextImageBtn: document.getElementById('nextImageBtn'),
             leftPanel: document.getElementById('left-panel'),
             rightPanel: document.getElementById('right-panel'),
             leftSplitter: document.getElementById('left-splitter'),
@@ -137,6 +139,11 @@ class UIManager {
             viewClassFileBtn: document.getElementById('viewClassFileBtn'),
             classFileViewerModal: new bootstrap.Modal(document.getElementById('classFileViewerModal')),
             classFileContent: document.getElementById('classFileContent'),
+            previewBar: document.getElementById('preview-bar'),
+            previewPrevBtn: document.getElementById('preview-prev-btn'),
+            previewNextBtn: document.getElementById('preview-next-btn'),
+            previewListWrapper: document.getElementById('preview-list-wrapper'),
+            previewList: document.getElementById('preview-list'),
         };
     }
 
@@ -434,7 +441,65 @@ class UIManager {
         });
     }
 
-    
+    async renderPreviewBar(currentImageFile) {
+        this.elements.previewList.innerHTML = '';
+        if (!currentImageFile) {
+            this.elements.previewBar.style.display = 'none';
+            return;
+        }
+        this.elements.previewBar.style.display = 'flex';
+
+        const currentIndex = this.state.imageFiles.findIndex(f => f.name === currentImageFile.name);
+        const numPreviews = 7; // Max 7 previews
+        const halfPreviews = Math.floor(numPreviews / 2);
+
+        let startIndex = Math.max(0, currentIndex - halfPreviews);
+        let endIndex = Math.min(this.state.imageFiles.length - 1, currentIndex + halfPreviews);
+
+        // Adjust start/end index to always show 7 if possible
+        if (endIndex - startIndex + 1 < numPreviews) {
+            if (startIndex === 0) {
+                endIndex = Math.min(this.state.imageFiles.length - 1, numPreviews - 1);
+            } else if (endIndex === this.state.imageFiles.length - 1) {
+                startIndex = Math.max(0, this.state.imageFiles.length - numPreviews);
+            }
+        }
+
+        const filesToPreview = this.state.imageFiles.slice(startIndex, endIndex + 1);
+
+        for (const fileHandle of filesToPreview) {
+            const previewItem = document.createElement('div');
+            previewItem.className = 'preview-item';
+            if (fileHandle.name === currentImageFile.name) {
+                previewItem.classList.add('active');
+            }
+            previewItem.dataset.fileName = fileHandle.name;
+
+            const file = await fileHandle.getFile();
+            const img = document.createElement('img');
+            img.alt = fileHandle.name;
+
+            if (/\.(tif|tiff)$/i.test(file.name)) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const tiff = new Tiff({ buffer: e.target.result });
+                    const tiffCanvas = tiff.toCanvas();
+                    img.src = tiffCanvas.toDataURL();
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                img.src = URL.createObjectURL(file);
+                img.onload = () => URL.revokeObjectURL(img.src);
+            }
+
+            previewItem.appendChild(img);
+            this.elements.previewList.appendChild(previewItem);
+
+            previewItem.addEventListener('click', () => {
+                this.fileSystem.loadImageAndLabels(fileHandle);
+            });
+        }
+    }
 
     renderClassFileList() {
         const select = this.elements.classFileSelect;
@@ -697,6 +762,7 @@ class FileSystem {
         }
         
         this.uiManager.setActiveImageListItem(imageFileHandle);
+        this.uiManager.renderPreviewBar(imageFileHandle);
     }
 
     async loadLabels(imageName, loadToken) {
@@ -1313,6 +1379,12 @@ class EventManager {
             this.canvas.goToCoords(x, y);
         });
 
+        this.ui.elements.prevImageBtn.addEventListener('click', () => this.navigateImage(-1));
+        this.ui.elements.nextImageBtn.addEventListener('click', () => this.navigateImage(1));
+
+        this.ui.elements.previewPrevBtn.addEventListener('click', () => this.navigateImage(-1));
+        this.ui.elements.previewNextBtn.addEventListener('click', () => this.navigateImage(1));
+
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
         // Canvas Events
@@ -1718,6 +1790,11 @@ class EventManager {
         
         this.fileSystem.loadImageAndLabels(this.state.imageFiles[nextIndex]);
     }
+
+    scrollPreview(direction) {
+        const scrollAmount = 100; // Adjust as needed
+        this.ui.elements.previewListWrapper.scrollLeft += direction * scrollAmount;
+    }
 }
 
 
@@ -1750,6 +1827,7 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
+        this.uiManager.elements.previewBar.style.display = 'none';
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
