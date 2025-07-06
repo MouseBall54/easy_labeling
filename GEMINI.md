@@ -42,19 +42,87 @@ The application is primarily a client-side tool that runs in modern web browsers
 
 *   **Event-Driven**: The application relies heavily on DOM events and Fabric.js canvas events (e.g., `mouse:down`, `object:modified`, `selection:created`) to trigger actions.
 
-*   **Key UI Features**:
-    *   **Synced Selections**: Selecting a bounding box on the canvas automatically highlights and scrolls to the corresponding item in the right-hand label list, and vice-versa.
-    *   **Natural Sort**: The image file list is sorted using natural sort order (`localeCompare`), so `image2.jpg` comes before `image10.jpg`.
-    *   **Navbar Info Display**: The top navigation bar shows the currently loaded image name and provides controls for coordinate-based navigation and zoom level display.
-
 *   **YOLO Format**: Labels are saved in the YOLO format: `<class_id> <x_center> <y_center> <width> <height>`, with values normalized to the image dimensions and stored with high precision (15 decimal places).
 
-*   **Auto-Save**: Changes to labels (creation, modification, deletion) trigger an automatic save to the corresponding `.txt` file if the feature is enabled.
+*   **Auto-Save**: When enabled, saves the labels of the previous image automatically upon switching to a new one. This prevents data loss while avoiding interruptions during multi-selection tasks.
+
+## 5. Key Features
+
+This is a detailed list of features identified from the source code.
+
+### 5.1. File and Folder Management
+*   **Local File System Access**: Utilizes the File System Access API to directly open and manage local folders without file uploads.
+*   **Folder Selection**:
+    *   Select separate folders for images and YOLO `.txt` labels.
+    *   Select a folder containing class definition files (e.g., `.yaml`, `.yml`).
+*   **Image Support**:
+    *   Loads standard formats (JPG, PNG, GIF) and TIFF (`.tif`, `.tiff`).
+    *   The image list is sorted using natural sort order (e.g., `img2.jpg` before `img10.jpg`).
+*   **Class Definition Management**:
+    *   Load class names and IDs from `.yaml` or `.yml` files.
+    *   A dropdown allows switching between multiple class files found in the selected folder.
+    *   A built-in viewer modal displays the content of the selected class file.
+    *   A feature to download a `custom-classes.yaml` template file.
+
+### 5.2. Annotation Canvas (Main Workspace)
+*   **Dual Modes**:
+    *   **Edit Mode**: Select, move, resize, and delete bounding boxes. This is the default mode.
+    *   **Draw Mode**: Create new bounding boxes.
+    *   Switch between modes using UI buttons or the `Ctrl+Q` shortcut.
+*   **Zoom & Pan**:
+    *   Zoom with UI buttons or the mouse wheel.
+    *   Pan the canvas by holding `Alt+Drag` or `Ctrl+Drag`.
+    *   Reset zoom to fit the image to the view.
+*   **Navigation**:
+    *   "Go to Coordinates" feature to jump to a specific point on the image.
+    *   The current mouse coordinates on the image are displayed in the navbar.
+*   **Clipboard**:
+    *   Copy (`Ctrl+C`) and paste (`Ctrl+V`) single or multiple bounding boxes.
+    *   Pasted objects are positioned relative to the mouse cursor's location on the canvas.
+
+### 5.3. Bounding Box and Label Handling
+*   **Labeling**:
+    *   When creating a box, a prompt appears to enter the class ID.
+    *   Class IDs can be edited by double-clicking a box or selecting it and pressing `Ctrl+B`.
+*   **On-Canvas Labels**:
+    *   Class information (ID and name, if available) is displayed directly on the canvas above each box.
+    *   This display can be toggled on/off.
+    *   The font size for these labels is adjustable.
+*   **Advanced Selection**:
+    *   Select all boxes (`Ctrl+A`).
+    *   Select all boxes of a specific class using a dropdown menu.
+    *   Move selected boxes pixel by pixel with arrow keys (or 10px increments with `Shift`).
+*   **Deletion**: Delete selected boxes using the `Delete` or `Backspace` key.
+
+### 5.4. UI and Workflow
+*   **Resizable Three-Panel Layout**: Left (files), Center (canvas), and Right (labels/filters) panels can be resized.
+*   **Image List Filtering**:
+    *   Filter images by filename.
+    *   Filter images based on their labeled or unlabeled status.
+*   **Label List (Right Panel)**:
+    *   Displays a list of all annotations for the current image.
+    *   **Synced Selection**: Selections on the canvas and in the list are synchronized.
+    *   **Sorting**: Sort the label list by class ID (ascending/descending).
+    *   **Multi-select**: Drag-to-select a range of items in the list.
+    *   Quickly edit or delete labels with buttons on each list item.
+*   **Label Filtering (Right Panel)**:
+    *   Filter the visible boxes on the canvas and in the list by their class.
+*   **Dark Mode**: A toggle switch to enable dark mode, with the preference saved in `localStorage`.
+*   **Keyboard Shortcuts**: Extensive shortcuts for navigation (`A`/`D`), saving (`Ctrl+S`), mode switching (`Ctrl+Q`), selection, and clipboard actions.
+*   **Toast Notifications**: Provides unobtrusive feedback for actions like saving or errors.
+
 
 ## 5. 작업 기록
 
 ### Gemini 어시스턴트의 역할
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
+
+### 2025년 7월 6일
+*   **작업**: 소스 코드 분석 및 기능 명세 업데이트
+*   **세부 정보**:
+    *   `public/js/app.js`, `public/index.html`, `server.js` 파일을 분석하여 애플리케이션의 모든 현재 기능을 파악했습니다.
+    *   `GEMINI.md` 파일에 상세한 기능 목록을 담은 "Key Features" 섹션을 새로 추가하고 내용을 보강했습니다.
+    *   파악된 기능들을 바탕으로 `README.md`와 `README.ko.md` 파일의 "Features" 섹션을 업데이트하여 최신 상태를 반영했습니다.
 
 ### 2025년 7월 4일
 *   **작업**: "이슈 레이블" 강조 및 필터 기능 제거
