@@ -71,6 +71,7 @@ class AppState {
         this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
         this.classNames = new Map(); // To store class names from .yaml file
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
+        this.previewImageCache = new Map(); // For caching preview image ObjectURLs
     }
 }
 
@@ -456,7 +457,6 @@ class UIManager {
         let startIndex = Math.max(0, currentIndex - halfPreviews);
         let endIndex = Math.min(this.state.imageFiles.length - 1, currentIndex + halfPreviews);
 
-        // Adjust start/end index to always show 7 if possible
         if (endIndex - startIndex + 1 < numPreviews) {
             if (startIndex === 0) {
                 endIndex = Math.min(this.state.imageFiles.length - 1, numPreviews - 1);
@@ -475,21 +475,28 @@ class UIManager {
             }
             previewItem.dataset.fileName = fileHandle.name;
 
-            const file = await fileHandle.getFile();
             const img = document.createElement('img');
             img.alt = fileHandle.name;
 
-            if (/\.(tif|tiff)$/i.test(file.name)) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const tiff = new Tiff({ buffer: e.target.result });
-                    const tiffCanvas = tiff.toCanvas();
-                    img.src = tiffCanvas.toDataURL();
-                };
-                reader.readAsArrayBuffer(file);
+            // --- Performance Improvement: Use cached ObjectURL if available ---
+            if (this.state.previewImageCache.has(fileHandle.name)) {
+                img.src = this.state.previewImageCache.get(fileHandle.name);
             } else {
-                img.src = URL.createObjectURL(file);
-                img.onload = () => URL.revokeObjectURL(img.src);
+                const file = await fileHandle.getFile();
+                if (/\.(tif|tiff)$/i.test(file.name)) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const tiff = new Tiff({ buffer: e.target.result });
+                        const dataUrl = tiff.toCanvas().toDataURL();
+                        img.src = dataUrl;
+                        this.state.previewImageCache.set(fileHandle.name, dataUrl); // Cache the data URL
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    const objectURL = URL.createObjectURL(file);
+                    img.src = objectURL;
+                    this.state.previewImageCache.set(fileHandle.name, objectURL); // Cache the Object URL
+                }
             }
 
             previewItem.appendChild(img);
@@ -654,6 +661,9 @@ class FileSystem {
     async selectImageFolder() {
         try {
             this.state.imageFolderHandle = await window.showDirectoryPicker();
+            // Clear the preview cache when a new folder is selected
+            this.state.previewImageCache.forEach(url => URL.revokeObjectURL(url));
+            this.state.previewImageCache.clear();
             await this.listImageFiles();
         } catch (err) {
             console.error('Error selecting image folder:', err);
@@ -673,25 +683,24 @@ class FileSystem {
         }
     }
 
-    async checkLabelStatus(imageFileHandle) {
-        if (!this.state.labelFolderHandle) return false;
-        const labelFileName = imageFileHandle.name.replace(/\.[^/.]+$/, ".txt");
-        try {
-            const labelFileHandle = await this.state.labelFolderHandle.getFileHandle(labelFileName);
-            const file = await labelFileHandle.getFile();
-            const content = await file.text();
-            return content.trim().length > 0;
-        } catch (err) {
-            return false;
-        }
-    }
+    
 
     async listImageFiles() {
         if (!this.state.imageFolderHandle) return;
         this.state.imageFiles = [];
         this.state.imageLabelStatus.clear();
         this.uiManager.elements.imageList.innerHTML = '<div class="list-group-item">Loading...</div>';
-        
+
+        // Performance Improvement: Pre-cache all label file names into a Set for fast lookups.
+        const labelFileNames = new Set();
+        if (this.state.labelFolderHandle) {
+            for await (const entry of this.state.labelFolderHandle.values()) {
+                if (entry.kind === 'file' && entry.name.endsWith('.txt')) {
+                    labelFileNames.add(entry.name);
+                }
+            }
+        }
+
         const fileHandles = [];
         for await (const entry of this.state.imageFolderHandle.values()) {
             if (entry.kind === 'file' && /\.(jpg|jpeg|png|gif|tif|tiff)$/i.test(entry.name)) {
@@ -699,10 +708,13 @@ class FileSystem {
             }
         }
 
-        await Promise.all(fileHandles.map(async (fileHandle) => {
-            const hasLabel = await this.checkLabelStatus(fileHandle);
+        // Check label status using the in-memory Set, avoiding slow individual file access.
+        fileHandles.forEach(fileHandle => {
+            const labelFileName = fileHandle.name.replace(/\.[^/.]+$/, ".txt");
+            // We now check for the existence of the label file, not its content, for a significant speed boost.
+            const hasLabel = labelFileNames.has(labelFileName);
             this.state.imageLabelStatus.set(fileHandle.name, hasLabel);
-        }));
+        });
 
         // Sort the files to ensure we load the correct "first" one.
         fileHandles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
@@ -713,6 +725,9 @@ class FileSystem {
         // Automatically load the first image if it exists.
         if (this.state.imageFiles.length > 0) {
             await this.loadImageAndLabels(this.state.imageFiles[0]);
+        } else {
+            // If no images are found, ensure the preview bar is hidden.
+            this.uiManager.elements.previewBar.style.display = 'none';
         }
     }
 
