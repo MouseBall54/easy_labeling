@@ -1827,6 +1827,7 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
+        this.uiManager.elements.previewBar.style.display = 'none';
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
