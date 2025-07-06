@@ -167,6 +167,8 @@ class UIManager {
         const showUnlabeled = this.elements.showUnlabeledCheckbox.checked;
 
         this.elements.imageList.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+
         this.state.imageFiles
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
             .filter(file => {
@@ -193,12 +195,15 @@ class UIManager {
                     e.preventDefault();
                     this.fileSystem.loadImageAndLabels(file);
                 });
-                this.elements.imageList.appendChild(a);
+                fragment.appendChild(a);
             });
+        
+        this.elements.imageList.appendChild(fragment);
     }
 
     updateLabelList() {
         this.elements.labelList.innerHTML = '';
+        const fragment = document.createDocumentFragment();
         let rects = this.canvasController.getObjects('rect');
 
         // Sort rects based on the current sort order
@@ -244,9 +249,10 @@ class UIManager {
 
             
 
-            this.elements.labelList.appendChild(li);
+            fragment.appendChild(li);
         });
 
+        this.elements.labelList.appendChild(fragment);
         this.addEditDeleteListeners(rects);
         
         const activeClassFilters = new Set();
@@ -899,7 +905,12 @@ class CanvasController {
         this.uiManager.elements.editModeBtn.checked = mode === 'edit';
         this.canvas.selection = mode === 'edit';
         this.canvas.defaultCursor = mode === 'draw' ? 'crosshair' : 'default';
-        this.getObjects('rect').forEach(obj => obj.set('selectable', mode === 'edit'));
+        this.getObjects('rect').forEach(obj => {
+            obj.set({
+                selectable: mode === 'edit',
+                hoverCursor: mode === 'draw' ? 'crosshair' : 'move'
+            });
+        });
         this.renderAll();
     }
 
@@ -923,6 +934,7 @@ class CanvasController {
                 fill: `${color}33`, stroke: color, strokeWidth: 2,
                 strokeUniform: true,
                 selectable: this.state.currentMode === 'edit',
+                hoverCursor: this.state.currentMode === 'draw' ? 'crosshair' : 'move',
                 labelClass: String(labelClass),
                 originalYolo: { x_center, y_center, width, height }
             });
@@ -1036,7 +1048,10 @@ class CanvasController {
             
             // 3) 선택 가능하도록 설정 (edit 모드일 때)
             const isEditMode = (this.state.currentMode === 'edit');
-            this.currentRect.set('selectable', isEditMode);
+            this.currentRect.set({
+                'selectable': isEditMode,
+                'hoverCursor': isEditMode ? 'move' : 'crosshair'
+            });
             
             // 4) 좌표 업데이트 및 렌더링
             this.currentRect.setCoords();
