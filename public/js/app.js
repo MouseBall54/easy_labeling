@@ -878,21 +878,21 @@ class CanvasController {
         rects.forEach(rect => {
             const isSelected = activeObjects.includes(rect);
             const color = getColorForClass(rect.labelClass);
-            rect.set({
-                stroke: color,
-                strokeWidth: 2
-            });
 
             if (isSelected) {
                 rect.set({
-                    shadow: new fabric.Shadow({
-                        color: 'rgba(255, 0, 0, 0.9)',
-                        blur: 8,
-                        affectStroke: true
-                    })
+                    stroke: '#ff0000', // Red color for selection
+                    strokeWidth: 2, // Thicker stroke
+                    strokeDashArray: [10, 5], // Dashed line (10px line, 5px gap)
+                    shadow: null // Remove shadow
                 });
             } else {
-                rect.set({ shadow: null });
+                rect.set({
+                    stroke: color, // Original class color
+                    strokeWidth: 2, // Original stroke width
+                    strokeDashArray: [], // Solid line
+                    shadow: null // Ensure no shadow
+                });
             }
 
             this.updateLabelText(rect);
