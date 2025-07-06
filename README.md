@@ -10,16 +10,18 @@ The application is primarily a client-side tool that runs in modern web browsers
 -   **Comprehensive Annotation Tools**:
     -   Draw, edit, move, resize, and delete bounding boxes.
     -   Dual modes for drawing and editing (`Ctrl+Q` to switch).
-    -   Fine-grained control with zoom, pan, and "Go to Coordinates" functionality.
+    -   Fine-grained control with zoom, pan, and the ability to go to specific coordinates.
     -   On-canvas class labels that can be toggled and resized.
 -   **Efficient Workflow & UI**:
-    -   Resizable three-panel layout (Files, Canvas, Labels).
-    -   Synced selection between the canvas and the label list.
+    -   **Collapsible & Resizable Panels**: Collapse the side panels to maximize your workspace and focus on the image.
+    -   **Image Preview Bar**: A scrollable thumbnail bar at the bottom for quick navigation between nearby images.
+    -   **Synced Selection**: Selections on the canvas and in the label list are always in sync.
+    -   **Live Mouse Coordinates**: The current coordinates of your mouse on the image are displayed in the coordinate input fields, allowing for precise adjustments.
     -   Filter images by labeled/unlabeled status and filter annotations by class.
     -   Extensive keyboard shortcuts for navigation (`A`/`D`), clipboard (`Ctrl+C`/`V`), selection (`Ctrl+A`), and more.
 -   **Advanced Label Management**:
     -   Load class names from `.yaml` files to see friendly names instead of just IDs.
-    -   Switch between different class definition files on the fly.
+    -   Switch between different class definition files on the fly and view their content in a built-in modal.
     -   Select all boxes of a specific class or change the class for multiple boxes at once.
 -   **Flexible Configuration**:
     -   Supports standard image formats (JPG, PNG) plus TIFF (`.tif`, `.tiff`).

@@ -75,7 +75,7 @@ This is a detailed list of features identified from the source code.
     *   Reset zoom to fit the image to the view.
 *   **Navigation**:
     *   "Go to Coordinates" feature to jump to a specific point on the image.
-    *   The current mouse coordinates on the image are displayed in the navbar.
+    *   The current mouse coordinates on the image are displayed in the X, Y input fields in the navbar, and can be directly edited by the user.
 *   **Clipboard**:
     *   Copy (`Ctrl+C`) and paste (`Ctrl+V`) single or multiple bounding boxes.
     *   Pasted objects are positioned relative to the mouse cursor's location on the canvas.
@@ -95,10 +95,14 @@ This is a detailed list of features identified from the source code.
 *   **Deletion**: Delete selected boxes using the `Delete` or `Backspace` key.
 
 ### 5.4. UI and Workflow
-*   **Resizable Three-Panel Layout**: Left (files), Center (canvas), and Right (labels/filters) panels can be resized.
+*   **Collapsible & Resizable Panels**: The left (files/controls) and right (labels/filters) panels can be resized by dragging the splitters, and collapsed completely to maximize the canvas area.
 *   **Image List Filtering**:
     *   Filter images by filename.
     *   Filter images based on their labeled or unlabeled status.
+*   **Image Preview Bar**:
+    *   A scrollable preview bar at the bottom of the canvas shows thumbnails of nearby images.
+    *   Clicking a thumbnail quickly loads the image.
+    *   The preview bar can be hidden and shown by the user.
 *   **Label List (Right Panel)**:
     *   Displays a list of all annotations for the current image.
     *   **Synced Selection**: Selections on the canvas and in the list are synchronized.
@@ -112,10 +116,25 @@ This is a detailed list of features identified from the source code.
 *   **Toast Notifications**: Provides unobtrusive feedback for actions like saving or errors.
 
 
-## 5. 작업 기록
+## 6. 작업 기록
 
 ### Gemini 어시스턴트의 역할
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
+
+### 2025년 7월 7일
+*   **작업**: 좌우 제어판 접기/펼치기 기능 추가
+*   **세부 정보**:
+    *   `public/index.html`의 좌우 패널에 접기/펼치기 버튼을 추가하고, 패널 콘텐츠를 `panel-content` div로 감쌌습니다.
+    *   `public/css/style.css`에 패널이 접혔을 때의 스타일(`width`, `min-width`, `padding`을 0으로)과 부드러운 전환 효과를 추가했습니다. 또한, 접혔을 때 내부 콘텐츠가 공간을 차지하지 않도록 `visibility: hidden` 속성을 적용했습니다.
+    *   `public/js/app.js`의 `UIManager`에 패널의 표시 상태를 관리하는 `togglePanel` 함수를 추가하고, 관련 DOM 요소들을 등록했습니다.
+    *   `EventManager`에 새로 추가된 버튼들의 클릭 이벤트 리스너를 바인딩하여, 사용자가 패널을 접고 펼 수 있도록 구현했습니다.
+    *   패널 크기가 조절되거나 상태가 변경될 때 캔버스 크기가 동적으로 조절되고 줌이 리셋되도록 관련 로직을 수정했습니다.
+*   **작업**: 마우스 좌표 표시 위치 및 방식 개선
+*   **세부 정보**:
+    *   기존에 네비게이션 바 우측 상단에 별도의 텍스트로 표시되던 마우스 좌표를 제거했습니다.
+    *   `public/js/app.js`의 `UIManager.updateMouseCoords` 함수를 수정하여, 마우스의 현재 X, Y 좌표가 상단의 좌표 이동 입력창(`coordX`, `coordY`)에 직접 표시되도록 변경했습니다.
+    *   사용자가 직접 좌표를 입력하기 위해 입력창에 포커스(클릭)한 경우에는 마우스 움직임으로 인해 값이 덮어씌워지지 않도록, 포커스가 없을 때만 좌표가 업데이트되는 로직을 추가했습니다.
+    *   관련 HTML 및 CSS 코드를 정리하여 불필요한 요소를 제거했습니다.
 
 ### 2025년 7월 6일
 *   **작업**: 이미지 미리보기 창 숨기기/보이기 기능 추가
