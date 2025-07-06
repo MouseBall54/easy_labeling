@@ -71,6 +71,7 @@ class AppState {
         this.lastMousePosition = { x: 0, y: 0 }; // To store canvas mouse coords
         this.classNames = new Map(); // To store class names from .yaml file
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
+        this.previewImageCache = new Map(); // For caching preview image ObjectURLs
     }
 }
 
@@ -456,7 +457,6 @@ class UIManager {
         let startIndex = Math.max(0, currentIndex - halfPreviews);
         let endIndex = Math.min(this.state.imageFiles.length - 1, currentIndex + halfPreviews);
 
-        // Adjust start/end index to always show 7 if possible
         if (endIndex - startIndex + 1 < numPreviews) {
             if (startIndex === 0) {
                 endIndex = Math.min(this.state.imageFiles.length - 1, numPreviews - 1);
@@ -475,21 +475,28 @@ class UIManager {
             }
             previewItem.dataset.fileName = fileHandle.name;
 
-            const file = await fileHandle.getFile();
             const img = document.createElement('img');
             img.alt = fileHandle.name;
 
-            if (/\.(tif|tiff)$/i.test(file.name)) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const tiff = new Tiff({ buffer: e.target.result });
-                    const tiffCanvas = tiff.toCanvas();
-                    img.src = tiffCanvas.toDataURL();
-                };
-                reader.readAsArrayBuffer(file);
+            // --- Performance Improvement: Use cached ObjectURL if available ---
+            if (this.state.previewImageCache.has(fileHandle.name)) {
+                img.src = this.state.previewImageCache.get(fileHandle.name);
             } else {
-                img.src = URL.createObjectURL(file);
-                img.onload = () => URL.revokeObjectURL(img.src);
+                const file = await fileHandle.getFile();
+                if (/\.(tif|tiff)$/i.test(file.name)) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const tiff = new Tiff({ buffer: e.target.result });
+                        const dataUrl = tiff.toCanvas().toDataURL();
+                        img.src = dataUrl;
+                        this.state.previewImageCache.set(fileHandle.name, dataUrl); // Cache the data URL
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    const objectURL = URL.createObjectURL(file);
+                    img.src = objectURL;
+                    this.state.previewImageCache.set(fileHandle.name, objectURL); // Cache the Object URL
+                }
             }
 
             previewItem.appendChild(img);
@@ -654,6 +661,9 @@ class FileSystem {
     async selectImageFolder() {
         try {
             this.state.imageFolderHandle = await window.showDirectoryPicker();
+            // Clear the preview cache when a new folder is selected
+            this.state.previewImageCache.forEach(url => URL.revokeObjectURL(url));
+            this.state.previewImageCache.clear();
             await this.listImageFiles();
         } catch (err) {
             console.error('Error selecting image folder:', err);
