@@ -510,6 +510,47 @@ class UIManager {
         });
     }
 
+    async createThumbnail(file, maxWidth = 100, maxHeight = 100) {
+        let imageURL;
+        let isObjectUrl = false;
+    
+        if (/\.(tif|tiff)$/i.test(file.name)) {
+            const arrayBuffer = await file.arrayBuffer();
+            const tiff = new Tiff({ buffer: arrayBuffer });
+            imageURL = tiff.toCanvas().toDataURL();
+        } else {
+            imageURL = URL.createObjectURL(file);
+            isObjectUrl = true;
+        }
+    
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const ratio = Math.min(maxWidth / img.width, maxHeight / img.height);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * ratio;
+                canvas.height = img.height * ratio;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                if (isObjectUrl) {
+                    URL.revokeObjectURL(imageURL); // Clean up object URL
+                }
+                
+                resolve(canvas.toDataURL('image/jpeg', 0.8)); // Use JPEG for smaller size
+            };
+            img.onerror = (err) => {
+                if (isObjectUrl) {
+                    URL.revokeObjectURL(imageURL);
+                }
+                console.error("Failed to load image for thumbnailing:", file.name, err);
+                // Return a placeholder for broken images
+                resolve('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8bGluZSB4MT0iMCIgeTE9IjAiIHgyPSIxMDAiIHkyPSIxMDAiIHN0cm9rZT0iI2NjYyIvPgogIDxsaW5lIHgxPSIxMDAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEwMCIgc3Ryb2tlPSIjY2NjIi8+Cjwvc3ZnPg==');
+            };
+            img.src = imageURL;
+        });
+    }
+
     async renderPreviewBar(currentImageFile) {
         // If the preview bar is hidden, don't bother rendering the images to save resources.
         if (this.state.isPreviewBarHidden) {
@@ -558,28 +599,33 @@ class UIManager {
             const img = document.createElement('img');
             img.alt = fileHandle.name;
 
+            previewItem.appendChild(img);
+            this.elements.previewList.appendChild(previewItem);
+
+            // Set src after appending to DOM to allow browser to render the item structure first
             if (this.state.previewImageCache.has(fileHandle.name)) {
                 img.src = this.state.previewImageCache.get(fileHandle.name);
             } else {
-                const file = await fileHandle.getFile();
-                if (/\.(tif|tiff)$/i.test(file.name)) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const tiff = new Tiff({ buffer: e.target.result });
-                        const dataUrl = tiff.toCanvas().toDataURL();
-                        img.src = dataUrl;
-                        this.state.previewImageCache.set(fileHandle.name, dataUrl);
-                    };
-                    reader.readAsArrayBuffer(file);
-                } else {
-                    const objectURL = URL.createObjectURL(file);
-                    img.src = objectURL;
-                    this.state.previewImageCache.set(fileHandle.name, objectURL);
-                }
+                // Show a placeholder while loading
+                img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjAuNTsxOzAuNSIgZHVyPSIxcyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KPC9zdmc+';
+                
+                // Use requestIdleCallback to avoid blocking the main thread during intensive operations
+                requestIdleCallback(async () => {
+                    try {
+                        const file = await fileHandle.getFile();
+                        const thumbnailUrl = await this.createThumbnail(file);
+                        if (this.elements.previewList.contains(previewItem)) { // Check if item is still in DOM
+                           img.src = thumbnailUrl;
+                        }
+                        this.state.previewImageCache.set(fileHandle.name, thumbnailUrl);
+                    } catch (error) {
+                        console.error('Could not generate thumbnail for', fileHandle.name, error);
+                        if (this.elements.previewList.contains(previewItem)) {
+                           img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8bGluZSB4MT0iMCIgeTE9IjAiIHgyPSIxMDAiIHkyPSIxMDAiIHN0cm9rZT0iI2NjYyIvPgogIDxsaW5lIHgxPSIxMDAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEwMCIgc3Ryb2tlPSIjY2NjIi8+Cjwvc3ZnPg==';
+                        }
+                    }
+                });
             }
-
-            previewItem.appendChild(img);
-            this.elements.previewList.appendChild(previewItem);
 
             previewItem.addEventListener('click', () => {
                 this.fileSystem.loadImageAndLabels(fileHandle);
@@ -757,7 +803,11 @@ class FileSystem {
         try {
             this.state.imageFolderHandle = await window.showDirectoryPicker();
             // Clear the preview cache when a new folder is selected
-            this.state.previewImageCache.forEach(url => URL.revokeObjectURL(url));
+            this.state.previewImageCache.forEach(url => {
+                if (url.startsWith('blob:')) {
+                    URL.revokeObjectURL(url);
+                }
+            });
             this.state.previewImageCache.clear();
             await this.listImageFiles();
         } catch (err) {
