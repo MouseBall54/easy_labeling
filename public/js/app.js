@@ -511,6 +511,11 @@ class UIManager {
     }
 
     async renderPreviewBar(currentImageFile) {
+        // If the preview bar is hidden, don't bother rendering the images to save resources.
+        if (this.state.isPreviewBarHidden) {
+            return;
+        }
+
         const bottomPanel = this.elements.bottomPanel;
         if (!currentImageFile) {
             bottomPanel.style.display = 'none';
@@ -585,6 +590,12 @@ class UIManager {
     togglePreviewBarVisibility(hide) {
         this.state.isPreviewBarHidden = hide;
         this.elements.bottomPanel.classList.toggle('collapsed', hide);
+        
+        // If we are showing the bar again, re-render the previews.
+        if (!hide) {
+            this.renderPreviewBar(this.state.currentImageFile);
+        }
+
         // Recalculate canvas size after transition
         setTimeout(() => {
             this.canvasController.resizeCanvas();
@@ -1944,8 +1955,7 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
-        // this.uiManager.elements.previewOverlay.style.display = 'none'; // Hide on start, show when images are loaded
-        this.uiManager.togglePreviewBarVisibility(false); // Start expanded
+        this.uiManager.togglePreviewBarVisibility(true); // Start hidden
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
