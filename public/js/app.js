@@ -1850,6 +1850,23 @@ class EventManager {
         const isEnabled = e.target.checked;
         document.body.classList.toggle('dark-mode', isEnabled);
         localStorage.setItem('darkMode', isEnabled ? 'enabled' : 'disabled');
+
+        // Manually update button classes that don't automatically adapt
+        const buttonsToUpdate = [
+            ...document.querySelectorAll('label[for="showLabeled"], label[for="showUnlabeled"], label[for="drawMode"], label[for="editMode"]')
+        ];
+
+        if (isEnabled) {
+            buttonsToUpdate.forEach(btn => {
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-outline-secondary');
+            });
+        } else {
+            buttonsToUpdate.forEach(btn => {
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-outline-primary');
+            });
+        }
     }
 
     copy() {
