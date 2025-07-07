@@ -49,6 +49,7 @@ body {
     display: flex;
     flex-grow: 1;
     overflow: hidden;
+    /* height: 100%; */ /* This was causing the layout issue */
 }
 
 .control-panel {
@@ -250,21 +251,49 @@ canvas {
 }
 
 /* Preview Bar Styles */
-#preview-bar {
+#preview-overlay {
     position: absolute;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 90%;
-    max-width: 800px;
-    height: 100px;
-    background-color: rgba(0, 0, 0, 0.2);
-    border-radius: 10px;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: var(--panel-bg-color);
+    border-top: 1px solid var(--panel-border-color);
+    z-index: 10;
+    transition: transform 0.3s ease-in-out;
+    transform: translateY(0);
+}
+
+#preview-overlay.collapsed {
+    transform: translateY(calc(100% - 35px)); /* Hide most of it, leave the header visible */
+}
+
+#preview-bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--panel-border-color);
+}
+
+#preview-bar-header span {
+    font-weight: 500;
+}
+
+#toggle-preview-btn i {
+    transition: transform 0.3s ease;
+}
+
+#preview-overlay.collapsed #toggle-preview-btn i {
+    transform: rotate(-180deg);
+}
+
+#preview-bar {
     display: flex;
     align-items: center;
     padding: 10px;
     box-sizing: border-box;
-    z-index: 10;
+    height: 120px; /* Set a fixed height for the content area */
 }
 
 #preview-list-wrapper {
@@ -277,12 +306,11 @@ canvas {
     display: flex;
     height: 100%;
     gap: 10px;
-    transition: transform 0.3s ease-in-out;
 }
 
 .preview-item {
-    width: 80px;
-    height: 80px;
+    height: 100%;
+    width: 90px; /* Fixed width for calculation */
     flex-shrink: 0;
     border: 2px solid transparent;
     border-radius: 5px;
@@ -295,12 +323,12 @@ canvas {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: brightness(0.6) contrast(1.2); /* Default for inactive */
+    filter: brightness(0.6) contrast(1.2);
     transition: filter 0.3s ease-in-out;
 }
 
 .preview-item.active img {
-    filter: brightness(1) contrast(1); /* Active state */
+    filter: brightness(1) contrast(1);
 }
 
 .preview-item.active {
@@ -311,22 +339,6 @@ canvas {
 #preview-prev-btn, #preview-next-btn {
     flex-shrink: 0;
     margin: 0 5px;
-}
-
-#hide-preview-btn {
-    position: absolute;
-    top: -15px;
-    right: 10px;
-    border-radius: 50%;
-    padding: 2px 6px;
-    line-height: 1;
-}
-
-#show-preview-btn {
-    position: absolute;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 9; /* Below preview-bar but above canvas */
-    display: none; /* Hidden by default */
+    height: 100%;
+    align-self: center;
 }

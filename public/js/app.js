@@ -72,7 +72,7 @@ class AppState {
         this.classNames = new Map(); // To store class names from .yaml file
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
-        this.isPreviewBarHidden = false; // New state for preview bar visibility
+        this.isPreviewBarHidden = false; // Start with the preview bar visible
     }
 }
 
@@ -146,8 +146,9 @@ class UIManager {
             previewNextBtn: document.getElementById('preview-next-btn'),
             previewListWrapper: document.getElementById('preview-list-wrapper'),
             previewList: document.getElementById('preview-list'),
-            hidePreviewBtn: document.getElementById('hide-preview-btn'), // New element
-            showPreviewBtn: document.getElementById('show-preview-btn'), // New element
+            previewOverlay: document.getElementById('preview-overlay'),
+            previewBarHeader: document.getElementById('preview-bar-header'),
+            togglePreviewBtn: document.getElementById('toggle-preview-btn'),
             collapseLeftPanelBtn: document.getElementById('collapse-left-panel-btn'),
             expandLeftPanelBtn: document.getElementById('expand-left-panel-btn'),
             collapseRightPanelBtn: document.getElementById('collapse-right-panel-btn'),
@@ -478,25 +479,23 @@ class UIManager {
     }
 
     async renderPreviewBar(currentImageFile) {
-        this.elements.previewList.innerHTML = '';
+        const previewOverlay = this.elements.previewOverlay;
         if (!currentImageFile) {
-            this.elements.previewBar.style.display = 'none';
-            this.elements.showPreviewBtn.style.display = 'none'; // Hide show button too
+            previewOverlay.style.display = 'none';
             return;
         }
 
-        // Only show if not explicitly hidden by user
-        if (!this.state.isPreviewBarHidden) {
-            this.elements.previewBar.style.display = 'flex';
-            this.elements.showPreviewBtn.style.display = 'none';
-        } else {
-            this.elements.previewBar.style.display = 'none';
-            this.elements.showPreviewBtn.style.display = 'block';
-        }
+        previewOverlay.style.display = 'block';
+        this.elements.previewList.innerHTML = '';
+
+        // Calculate dynamic number of previews
+        const containerWidth = this.elements.previewListWrapper.offsetWidth;
+        const itemWidth = 100; // Includes item width + gap
+        const minPreviews = 10;
+        const numPreviews = Math.max(minPreviews, Math.floor(containerWidth / itemWidth));
+        const halfPreviews = Math.floor(numPreviews / 2);
 
         const currentIndex = this.state.imageFiles.findIndex(f => f.name === currentImageFile.name);
-        const numPreviews = 7; // Max 7 previews
-        const halfPreviews = Math.floor(numPreviews / 2);
 
         let startIndex = Math.max(0, currentIndex - halfPreviews);
         let endIndex = Math.min(this.state.imageFiles.length - 1, currentIndex + halfPreviews);
@@ -522,7 +521,6 @@ class UIManager {
             const img = document.createElement('img');
             img.alt = fileHandle.name;
 
-            // --- Performance Improvement: Use cached ObjectURL if available ---
             if (this.state.previewImageCache.has(fileHandle.name)) {
                 img.src = this.state.previewImageCache.get(fileHandle.name);
             } else {
@@ -533,13 +531,13 @@ class UIManager {
                         const tiff = new Tiff({ buffer: e.target.result });
                         const dataUrl = tiff.toCanvas().toDataURL();
                         img.src = dataUrl;
-                        this.state.previewImageCache.set(fileHandle.name, dataUrl); // Cache the data URL
+                        this.state.previewImageCache.set(fileHandle.name, dataUrl);
                     };
                     reader.readAsArrayBuffer(file);
                 } else {
                     const objectURL = URL.createObjectURL(file);
                     img.src = objectURL;
-                    this.state.previewImageCache.set(fileHandle.name, objectURL); // Cache the Object URL
+                    this.state.previewImageCache.set(fileHandle.name, objectURL);
                 }
             }
 
@@ -554,13 +552,7 @@ class UIManager {
 
     togglePreviewBarVisibility(hide) {
         this.state.isPreviewBarHidden = hide;
-        if (hide) {
-            this.elements.previewBar.style.display = 'none';
-            this.elements.showPreviewBtn.style.display = 'block';
-        } else {
-            this.elements.previewBar.style.display = 'flex';
-            this.elements.showPreviewBtn.style.display = 'none';
-        }
+        this.elements.previewOverlay.classList.toggle('collapsed', hide);
     }
 
     renderClassFileList() {
@@ -1464,8 +1456,9 @@ class EventManager {
         this.ui.elements.previewPrevBtn.addEventListener('click', () => this.navigateImage(-1));
         this.ui.elements.previewNextBtn.addEventListener('click', () => this.navigateImage(1));
 
-        this.ui.elements.hidePreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(true));
-        this.ui.elements.showPreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(false));
+        this.ui.elements.previewBarHeader.addEventListener('click', () => {
+            this.ui.togglePreviewBarVisibility(!this.state.isPreviewBarHidden);
+        });
 
         this.ui.elements.collapseLeftPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.leftPanel, this.ui.elements.leftSplitter, this.ui.elements.expandLeftPanelBtn, true));
         this.ui.elements.expandLeftPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.leftPanel, this.ui.elements.leftSplitter, this.ui.elements.expandLeftPanelBtn, false));
@@ -1914,7 +1907,8 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
-        this.uiManager.elements.previewBar.style.display = 'none';
+        this.uiManager.elements.previewOverlay.style.display = 'none'; // Hide on start, show when images are loaded
+        this.uiManager.togglePreviewBarVisibility(false); // Start expanded
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
