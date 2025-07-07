@@ -100,20 +100,6 @@
         <!-- Canvas Area -->
         <div id="canvas-container" class="canvas-container">
             <canvas id="canvas"></canvas>
-            <!-- Image Preview Bar -->
-            <div id="preview-bar">
-                <button id="preview-prev-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-left"></i></button>
-                <div id="preview-list-wrapper">
-                    <div id="preview-list">
-                        <!-- Preview images will be populated here -->
-                    </div>
-                </div>
-                <button id="preview-next-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-right"></i></button>
-                <button id="hide-preview-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-down"></i></button>
-            </div>
-            <!-- Button to show the preview bar when it's hidden -->
-            <button id="show-preview-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-up"></i> Show Previews</button>
-        
             <button id="expand-left-panel-btn" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right"></i></button>
             <button id="expand-right-panel-btn" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left"></i></button>
         </div>
@@ -170,6 +156,29 @@
                     <!-- Labels will be added here -->
                 </ul>
             </div>
+        </div>
+    </div> <!-- This closes right-panel -->
+
+    </div> <!-- This closes main-container -->
+
+    <!-- Bottom Preview Panel -->
+    <div id="bottom-panel">
+        <div id="bottom-splitter"></div>
+        <div id="preview-bar-container">
+            <div id="preview-bar-header">
+                <span><i class="bi bi-images"></i> Image Previews</span>
+                <button id="toggle-preview-btn" class="btn btn-sm btn-outline-secondary" title="Toggle Preview Panel">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+            </div>
+            <div id="preview-bar">
+                <button id="preview-prev-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-left"></i></button>
+                <div id="preview-list-wrapper">
+                    <div id="preview-list"></div>
+                </div>
+                <button id="preview-next-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-right"></i></button>
+            </div>
+        </div>
     </div>
 
     <div id="toast-container"></div>

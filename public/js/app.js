@@ -72,7 +72,7 @@ class AppState {
         this.classNames = new Map(); // To store class names from .yaml file
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
-        this.isPreviewBarHidden = false; // New state for preview bar visibility
+        this.isPreviewBarHidden = false; // Start with the preview bar visible
     }
 }
 
@@ -146,8 +146,10 @@ class UIManager {
             previewNextBtn: document.getElementById('preview-next-btn'),
             previewListWrapper: document.getElementById('preview-list-wrapper'),
             previewList: document.getElementById('preview-list'),
-            hidePreviewBtn: document.getElementById('hide-preview-btn'), // New element
-            showPreviewBtn: document.getElementById('show-preview-btn'), // New element
+            bottomPanel: document.getElementById('bottom-panel'),
+            bottomSplitter: document.getElementById('bottom-splitter'),
+            previewBarHeader: document.getElementById('preview-bar-header'),
+            togglePreviewBtn: document.getElementById('toggle-preview-btn'),
             collapseLeftPanelBtn: document.getElementById('collapse-left-panel-btn'),
             expandLeftPanelBtn: document.getElementById('expand-left-panel-btn'),
             collapseRightPanelBtn: document.getElementById('collapse-right-panel-btn'),
@@ -433,6 +435,37 @@ class UIManager {
         };
         setup(this.elements.leftSplitter, this.elements.leftPanel, 'left');
         setup(this.elements.rightSplitter, this.elements.rightPanel, 'right');
+        this.setupBottomSplitter();
+    }
+
+    setupBottomSplitter() {
+        const splitter = this.elements.bottomSplitter;
+        const panel = this.elements.bottomPanel;
+
+        splitter.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const startY = e.clientY;
+            const startHeight = panel.offsetHeight;
+
+            const onMouseMove = (moveEvent) => {
+                const newHeight = startHeight - (moveEvent.clientY - startY);
+                if (newHeight > 50 && newHeight < 400) { // Min/max height
+                    panel.style.height = newHeight + 'px';
+                    this.canvasController.resizeCanvas();
+                    this.canvasController.resetZoom();
+                }
+            };
+
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                this.canvasController.resizeCanvas(); // Final resize after drag ends
+                this.canvasController.resetZoom();
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     }
 
     updateZoomDisplay() {
@@ -477,26 +510,70 @@ class UIManager {
         });
     }
 
+    async createThumbnail(file, maxWidth = 100, maxHeight = 100) {
+        let imageURL;
+        let isObjectUrl = false;
+    
+        if (/\.(tif|tiff)$/i.test(file.name)) {
+            const arrayBuffer = await file.arrayBuffer();
+            const tiff = new Tiff({ buffer: arrayBuffer });
+            imageURL = tiff.toCanvas().toDataURL();
+        } else {
+            imageURL = URL.createObjectURL(file);
+            isObjectUrl = true;
+        }
+    
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const ratio = Math.min(maxWidth / img.width, maxHeight / img.height);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * ratio;
+                canvas.height = img.height * ratio;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                if (isObjectUrl) {
+                    URL.revokeObjectURL(imageURL); // Clean up object URL
+                }
+                
+                resolve(canvas.toDataURL('image/jpeg', 0.8)); // Use JPEG for smaller size
+            };
+            img.onerror = (err) => {
+                if (isObjectUrl) {
+                    URL.revokeObjectURL(imageURL);
+                }
+                console.error("Failed to load image for thumbnailing:", file.name, err);
+                // Return a placeholder for broken images
+                resolve('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8bGluZSB4MT0iMCIgeTE9IjAiIHgyPSIxMDAiIHkyPSIxMDAiIHN0cm9rZT0iI2NjYyIvPgogIDxsaW5lIHgxPSIxMDAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEwMCIgc3Ryb2tlPSIjY2NjIi8+Cjwvc3ZnPg==');
+            };
+            img.src = imageURL;
+        });
+    }
+
     async renderPreviewBar(currentImageFile) {
-        this.elements.previewList.innerHTML = '';
-        if (!currentImageFile) {
-            this.elements.previewBar.style.display = 'none';
-            this.elements.showPreviewBtn.style.display = 'none'; // Hide show button too
+        // If the preview bar is hidden, don't bother rendering the images to save resources.
+        if (this.state.isPreviewBarHidden) {
             return;
         }
 
-        // Only show if not explicitly hidden by user
-        if (!this.state.isPreviewBarHidden) {
-            this.elements.previewBar.style.display = 'flex';
-            this.elements.showPreviewBtn.style.display = 'none';
-        } else {
-            this.elements.previewBar.style.display = 'none';
-            this.elements.showPreviewBtn.style.display = 'block';
+        const bottomPanel = this.elements.bottomPanel;
+        if (!currentImageFile) {
+            bottomPanel.style.display = 'none';
+            return;
         }
 
-        const currentIndex = this.state.imageFiles.findIndex(f => f.name === currentImageFile.name);
-        const numPreviews = 7; // Max 7 previews
+        bottomPanel.style.display = 'flex';
+        this.elements.previewList.innerHTML = '';
+
+        // Calculate dynamic number of previews
+        const containerWidth = this.elements.previewListWrapper.offsetWidth;
+        const itemWidth = 90 + 10; // preview-item width + gap
+        const minPreviews = 10;
+        const numPreviews = Math.max(minPreviews, Math.floor(containerWidth / itemWidth));
         const halfPreviews = Math.floor(numPreviews / 2);
+
+        const currentIndex = this.state.imageFiles.findIndex(f => f.name === currentImageFile.name);
 
         let startIndex = Math.max(0, currentIndex - halfPreviews);
         let endIndex = Math.min(this.state.imageFiles.length - 1, currentIndex + halfPreviews);
@@ -522,29 +599,33 @@ class UIManager {
             const img = document.createElement('img');
             img.alt = fileHandle.name;
 
-            // --- Performance Improvement: Use cached ObjectURL if available ---
+            previewItem.appendChild(img);
+            this.elements.previewList.appendChild(previewItem);
+
+            // Set src after appending to DOM to allow browser to render the item structure first
             if (this.state.previewImageCache.has(fileHandle.name)) {
                 img.src = this.state.previewImageCache.get(fileHandle.name);
             } else {
-                const file = await fileHandle.getFile();
-                if (/\.(tif|tiff)$/i.test(file.name)) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const tiff = new Tiff({ buffer: e.target.result });
-                        const dataUrl = tiff.toCanvas().toDataURL();
-                        img.src = dataUrl;
-                        this.state.previewImageCache.set(fileHandle.name, dataUrl); // Cache the data URL
-                    };
-                    reader.readAsArrayBuffer(file);
-                } else {
-                    const objectURL = URL.createObjectURL(file);
-                    img.src = objectURL;
-                    this.state.previewImageCache.set(fileHandle.name, objectURL); // Cache the Object URL
-                }
+                // Show a placeholder while loading
+                img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjAuNTsxOzAuNSIgZHVyPSIxcyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KPC9zdmc+';
+                
+                // Use requestIdleCallback to avoid blocking the main thread during intensive operations
+                requestIdleCallback(async () => {
+                    try {
+                        const file = await fileHandle.getFile();
+                        const thumbnailUrl = await this.createThumbnail(file);
+                        if (this.elements.previewList.contains(previewItem)) { // Check if item is still in DOM
+                           img.src = thumbnailUrl;
+                        }
+                        this.state.previewImageCache.set(fileHandle.name, thumbnailUrl);
+                    } catch (error) {
+                        console.error('Could not generate thumbnail for', fileHandle.name, error);
+                        if (this.elements.previewList.contains(previewItem)) {
+                           img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8bGluZSB4MT0iMCIgeTE9IjAiIHgyPSIxMDAiIHkyPSIxMDAiIHN0cm9rZT0iI2NjYyIvPgogIDxsaW5lIHgxPSIxMDAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEwMCIgc3Ryb2tlPSIjY2NjIi8+Cjwvc3ZnPg==';
+                        }
+                    }
+                });
             }
-
-            previewItem.appendChild(img);
-            this.elements.previewList.appendChild(previewItem);
 
             previewItem.addEventListener('click', () => {
                 this.fileSystem.loadImageAndLabels(fileHandle);
@@ -554,13 +635,18 @@ class UIManager {
 
     togglePreviewBarVisibility(hide) {
         this.state.isPreviewBarHidden = hide;
-        if (hide) {
-            this.elements.previewBar.style.display = 'none';
-            this.elements.showPreviewBtn.style.display = 'block';
-        } else {
-            this.elements.previewBar.style.display = 'flex';
-            this.elements.showPreviewBtn.style.display = 'none';
+        this.elements.bottomPanel.classList.toggle('collapsed', hide);
+        
+        // If we are showing the bar again, re-render the previews.
+        if (!hide) {
+            this.renderPreviewBar(this.state.currentImageFile);
         }
+
+        // Recalculate canvas size after transition
+        setTimeout(() => {
+            this.canvasController.resizeCanvas();
+            this.canvasController.resetZoom();
+        }, 300); // Match transition duration
     }
 
     renderClassFileList() {
@@ -717,7 +803,11 @@ class FileSystem {
         try {
             this.state.imageFolderHandle = await window.showDirectoryPicker();
             // Clear the preview cache when a new folder is selected
-            this.state.previewImageCache.forEach(url => URL.revokeObjectURL(url));
+            this.state.previewImageCache.forEach(url => {
+                if (url.startsWith('blob:')) {
+                    URL.revokeObjectURL(url);
+                }
+            });
             this.state.previewImageCache.clear();
             await this.listImageFiles();
         } catch (err) {
@@ -1464,8 +1554,9 @@ class EventManager {
         this.ui.elements.previewPrevBtn.addEventListener('click', () => this.navigateImage(-1));
         this.ui.elements.previewNextBtn.addEventListener('click', () => this.navigateImage(1));
 
-        this.ui.elements.hidePreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(true));
-        this.ui.elements.showPreviewBtn.addEventListener('click', () => this.ui.togglePreviewBarVisibility(false));
+        this.ui.elements.previewBarHeader.addEventListener('click', () => {
+            this.ui.togglePreviewBarVisibility(!this.state.isPreviewBarHidden);
+        });
 
         this.ui.elements.collapseLeftPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.leftPanel, this.ui.elements.leftSplitter, this.ui.elements.expandLeftPanelBtn, true));
         this.ui.elements.expandLeftPanelBtn.addEventListener('click', () => this.ui.togglePanel(this.ui.elements.leftPanel, this.ui.elements.leftSplitter, this.ui.elements.expandLeftPanelBtn, false));
@@ -1914,7 +2005,7 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
-        this.uiManager.elements.previewBar.style.display = 'none';
+        this.uiManager.togglePreviewBarVisibility(true); // Start hidden
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
