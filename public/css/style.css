@@ -16,20 +16,102 @@
 }
 
 body.dark-mode {
-    --bg-color: #212529;
-    --text-color: #f8f9fa;
-    --panel-bg-color: #343a40;
-    --panel-border-color: #495057;
-    --canvas-bg-color: #495057;
-    --canvas-border-color: #6c757d;
-    --list-group-item-bg: #343a40;
-    --list-group-item-border: #495057;
-    --list-group-item-active-bg: #0d6efd;
-    --list-group-item-active-border: #0d6efd;
-    --list-group-item-active-text: #fff;
-    --input-bg: #495057;
-    --input-border: #6c757d;
-    --input-text: #f8f9fa;
+    --bg-color: #1a1d21;
+    --text-color: #e0e0e0;
+    --panel-bg-color: #2c2f33;
+    --panel-border-color: #40444b;
+    --canvas-bg-color: #23272a;
+    --canvas-border-color: #54585d;
+    --list-group-item-bg: #2c2f33;
+    --list-group-item-border: #40444b;
+    --list-group-item-active-bg: #004a77;
+    --list-group-item-active-border: #007bff;
+    --list-group-item-active-text: #ffffff;
+    --input-bg: #3a3f44;
+    --input-border: #54585d;
+    --input-text: #e0e0e0;
+}
+
+/* --- Button Overrides for Dark Mode --- */
+body.dark-mode .btn-primary {
+    background-color: #007bff;
+    border-color: #007bff;
+    color: #ffffff;
+}
+body.dark-mode .btn-primary:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+body.dark-mode .btn-secondary {
+    background-color: #5a6268;
+    border-color: #5a6268;
+    color: #ffffff;
+}
+body.dark-mode .btn-secondary:hover {
+    background-color: #4a4f54;
+    border-color: #4a4f54;
+}
+
+body.dark-mode .btn-outline-primary {
+    color: #007bff;
+    border-color: #007bff;
+}
+body.dark-mode .btn-outline-primary:hover {
+    background-color: #007bff;
+    color: #ffffff;
+}
+
+body.dark-mode .btn-outline-secondary {
+    color: #adb5bd;
+    border-color: #adb5bd;
+}
+body.dark-mode .btn-outline-secondary:hover {
+    background-color: #adb5bd;
+    color: #212529;
+}
+body.dark-mode .btn-outline-secondary.active {
+    background-color: #adb5bd;
+    color: #212529;
+}
+
+body.dark-mode .btn-outline-danger {
+    color: #dc3545;
+    border-color: #dc3545;
+}
+body.dark-mode .btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: #ffffff;
+}
+
+body.dark-mode .btn-success {
+    background-color: #28a745;
+    border-color: #28a745;
+    color: #ffffff;
+}
+body.dark-mode .btn-success:hover {
+    background-color: #1e7e34;
+    border-color: #1e7e34;
+}
+
+body.dark-mode .btn-danger {
+    background-color: #dc3545;
+    border-color: #dc3545;
+    color: #ffffff;
+}
+body.dark-mode .btn-danger:hover {
+    background-color: #b02a37;
+    border-color: #b02a37;
+}
+
+body.dark-mode .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.25rem rgba(0, 123, 255, 0.25);
+}
+
+body.dark-mode .preview-item.active {
+    border-color: var(--list-group-item-active-border);
+    box-shadow: 0 0 8px rgba(0, 123, 255, 0.6);
 }
 
 body {
