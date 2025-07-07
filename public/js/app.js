@@ -146,7 +146,8 @@ class UIManager {
             previewNextBtn: document.getElementById('preview-next-btn'),
             previewListWrapper: document.getElementById('preview-list-wrapper'),
             previewList: document.getElementById('preview-list'),
-            previewOverlay: document.getElementById('preview-overlay'),
+            bottomPanel: document.getElementById('bottom-panel'),
+            bottomSplitter: document.getElementById('bottom-splitter'),
             previewBarHeader: document.getElementById('preview-bar-header'),
             togglePreviewBtn: document.getElementById('toggle-preview-btn'),
             collapseLeftPanelBtn: document.getElementById('collapse-left-panel-btn'),
@@ -434,6 +435,37 @@ class UIManager {
         };
         setup(this.elements.leftSplitter, this.elements.leftPanel, 'left');
         setup(this.elements.rightSplitter, this.elements.rightPanel, 'right');
+        this.setupBottomSplitter();
+    }
+
+    setupBottomSplitter() {
+        const splitter = this.elements.bottomSplitter;
+        const panel = this.elements.bottomPanel;
+
+        splitter.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const startY = e.clientY;
+            const startHeight = panel.offsetHeight;
+
+            const onMouseMove = (moveEvent) => {
+                const newHeight = startHeight - (moveEvent.clientY - startY);
+                if (newHeight > 50 && newHeight < 400) { // Min/max height
+                    panel.style.height = newHeight + 'px';
+                    this.canvasController.resizeCanvas();
+                    this.canvasController.resetZoom();
+                }
+            };
+
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                this.canvasController.resizeCanvas(); // Final resize after drag ends
+                this.canvasController.resetZoom();
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     }
 
     updateZoomDisplay() {
@@ -479,18 +511,18 @@ class UIManager {
     }
 
     async renderPreviewBar(currentImageFile) {
-        const previewOverlay = this.elements.previewOverlay;
+        const bottomPanel = this.elements.bottomPanel;
         if (!currentImageFile) {
-            previewOverlay.style.display = 'none';
+            bottomPanel.style.display = 'none';
             return;
         }
 
-        previewOverlay.style.display = 'block';
+        bottomPanel.style.display = 'flex';
         this.elements.previewList.innerHTML = '';
 
         // Calculate dynamic number of previews
         const containerWidth = this.elements.previewListWrapper.offsetWidth;
-        const itemWidth = 100; // Includes item width + gap
+        const itemWidth = 90 + 10; // preview-item width + gap
         const minPreviews = 10;
         const numPreviews = Math.max(minPreviews, Math.floor(containerWidth / itemWidth));
         const halfPreviews = Math.floor(numPreviews / 2);
@@ -552,7 +584,12 @@ class UIManager {
 
     togglePreviewBarVisibility(hide) {
         this.state.isPreviewBarHidden = hide;
-        this.elements.previewOverlay.classList.toggle('collapsed', hide);
+        this.elements.bottomPanel.classList.toggle('collapsed', hide);
+        // Recalculate canvas size after transition
+        setTimeout(() => {
+            this.canvasController.resizeCanvas();
+            this.canvasController.resetZoom();
+        }, 300); // Match transition duration
     }
 
     renderClassFileList() {
@@ -1907,7 +1944,7 @@ class App {
         this.eventManager.bindEventListeners();
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
-        this.uiManager.elements.previewOverlay.style.display = 'none'; // Hide on start, show when images are loaded
+        // this.uiManager.elements.previewOverlay.style.display = 'none'; // Hide on start, show when images are loaded
         this.uiManager.togglePreviewBarVisibility(false); // Start expanded
 
         // Apply dark mode on load

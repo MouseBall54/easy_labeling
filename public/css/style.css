@@ -49,7 +49,14 @@ body {
     display: flex;
     flex-grow: 1;
     overflow: hidden;
-    /* height: 100%; */ /* This was causing the layout issue */
+}
+
+/* This is the new wrapper for the main content and the preview panel */
+.content-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    overflow: hidden;
 }
 
 .control-panel {
@@ -251,29 +258,42 @@ canvas {
 }
 
 /* Preview Bar Styles */
-#preview-overlay {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
+#bottom-panel {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    height: 150px; /* Initial height */
     background-color: var(--panel-bg-color);
     border-top: 1px solid var(--panel-border-color);
-    z-index: 10;
-    transition: transform 0.3s ease-in-out;
-    transform: translateY(0);
+    transition: height 0.3s ease;
 }
 
-#preview-overlay.collapsed {
-    transform: translateY(calc(100% - 35px)); /* Hide most of it, leave the header visible */
+#bottom-panel.collapsed {
+    height: 35px; /* Height of the header */
+}
+
+#bottom-splitter {
+    height: 5px;
+    background-color: var(--panel-border-color);
+    cursor: row-resize;
+}
+
+#preview-bar-container {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 #preview-bar-header {
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 5px 15px;
-    cursor: pointer;
     border-bottom: 1px solid var(--panel-border-color);
+    background-color: var(--panel-bg-color);
+    cursor: pointer; /* Make header clickable for toggle */
 }
 
 #preview-bar-header span {
@@ -284,16 +304,21 @@ canvas {
     transition: transform 0.3s ease;
 }
 
-#preview-overlay.collapsed #toggle-preview-btn i {
-    transform: rotate(-180deg);
+#bottom-panel.collapsed #toggle-preview-btn i {
+    transform: rotate(180deg);
 }
 
 #preview-bar {
+    flex-grow: 1;
     display: flex;
     align-items: center;
     padding: 10px;
     box-sizing: border-box;
-    height: 120px; /* Set a fixed height for the content area */
+    overflow: hidden;
+}
+
+#bottom-panel.collapsed #preview-bar {
+    display: none;
 }
 
 #preview-list-wrapper {
@@ -306,6 +331,7 @@ canvas {
     display: flex;
     height: 100%;
     gap: 10px;
+    transition: transform 0.3s ease-in-out;
 }
 
 .preview-item {
