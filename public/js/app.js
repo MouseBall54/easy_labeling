@@ -767,8 +767,37 @@ class FileSystem {
         try {
             const file = await this.state.selectedClassFile.getFile();
             const content = await file.text();
-            this.uiManager.elements.classFileContent.textContent = content;
+            
+            const classData = [];
+            const lines = content.split('\n');
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('#') || trimmedLine === '') return;
+
+                const parts = trimmedLine.split(':');
+                if (parts.length >= 2) {
+                    const id = parts[0].trim();
+                    const name = parts.slice(1).join(':').trim();
+                    if (!isNaN(parseInt(id, 10)) && name) {
+                        classData.push({ id, name });
+                    }
+                }
+            });
+
+            let tableHtml = '<table class="table table-striped table-hover table-sm"><thead><tr><th>ID</th><th>Class Name</th></tr></thead><tbody>';
+            if (classData.length === 0) {
+                tableHtml += '<tr><td colspan="2">No classes found in this file.</td></tr>';
+            } else {
+                classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+                classData.forEach(item => {
+                    tableHtml += `<tr><td>${item.id}</td><td>${item.name}</td></tr>`;
+                });
+            }
+            tableHtml += '</tbody></table>';
+
+            this.uiManager.elements.classFileContent.innerHTML = tableHtml;
             this.uiManager.elements.classFileViewerModal.show();
+
         } catch (err) {
             console.error('Error reading class file:', err);
             showToast(`Could not read file: ${this.state.selectedClassFile.name}`, 4000);
