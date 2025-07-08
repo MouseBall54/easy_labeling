@@ -122,7 +122,7 @@ class UIManager {
             zoomOutBtn: document.getElementById('zoomOutBtn'),
             resetZoomBtn: document.getElementById('resetZoomBtn'),
             canvasContainer: document.querySelector('.canvas-container'),
-            zoomLevelDisplay: document.getElementById('zoom-level'),
+            zoomInput: document.getElementById('zoom-input'),
             mouseCoordsDisplay: document.getElementById('mouse-coords'),
             coordXInput: document.getElementById('coordX'),
             coordYInput: document.getElementById('coordY'),
@@ -140,7 +140,9 @@ class UIManager {
             sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
             viewClassFileBtn: document.getElementById('viewClassFileBtn'),
             classFileViewerModal: new bootstrap.Modal(document.getElementById('classFileViewerModal')),
-            classFileContent: document.getElementById('classFileContent'),
+            classFileEditorBody: document.getElementById('classFileEditorBody'),
+            addClassRowBtn: document.getElementById('addClassRowBtn'),
+            saveClassFileBtn: document.getElementById('saveClassFileBtn'),
             previewBar: document.getElementById('preview-bar'),
             previewPrevBtn: document.getElementById('preview-prev-btn'),
             previewNextBtn: document.getElementById('preview-next-btn'),
@@ -470,7 +472,9 @@ class UIManager {
 
     updateZoomDisplay() {
         const zoom = this.canvasController.canvas.getZoom() * 100;
-        this.elements.zoomLevelDisplay.textContent = `Zoom: ${zoom.toFixed(0)}%`;
+        if (document.activeElement !== this.elements.zoomInput) {
+            this.elements.zoomInput.value = zoom.toFixed(0);
+        }
     }
 
     updateMouseCoords(x, y) {
@@ -685,8 +689,8 @@ class FileSystem {
             showToast(`Class Info Folder selected: ${this.state.classInfoFolderHandle.name}`);
             await this.listClassFiles();
         } catch (err) {
-            console.error('Error selecting class info folder:', err);
             if (err.name !== 'AbortError') {
+                console.error('Error selecting class info folder:', err);
                 showToast('Failed to select class info folder.', 4000);
             }
         }
@@ -767,7 +771,9 @@ class FileSystem {
         try {
             const file = await this.state.selectedClassFile.getFile();
             const content = await file.text();
-            
+            const editorBody = this.uiManager.elements.classFileEditorBody;
+            editorBody.innerHTML = ''; // Clear previous content
+
             const classData = [];
             const lines = content.split('\n');
             lines.forEach(line => {
@@ -784,18 +790,18 @@ class FileSystem {
                 }
             });
 
-            let tableHtml = '<table class="table table-striped table-hover table-sm"><thead><tr><th>ID</th><th>Class Name</th></tr></thead><tbody>';
-            if (classData.length === 0) {
-                tableHtml += '<tr><td colspan="2">No classes found in this file.</td></tr>';
-            } else {
+            if (classData.length > 0) {
                 classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
                 classData.forEach(item => {
-                    tableHtml += `<tr><td>${item.id}</td><td>${item.name}</td></tr>`;
+                    const row = editorBody.insertRow();
+                    row.innerHTML = `
+                        <td contenteditable="true" class="class-id">${item.id}</td>
+                        <td contenteditable="true" class="class-name">${item.name}</td>
+                        <td><button class="btn btn-sm btn-outline-danger delete-class-row-btn py-0 px-1"><i class="bi bi-trash"></i></button></td>
+                    `;
                 });
             }
-            tableHtml += '</tbody></table>';
 
-            this.uiManager.elements.classFileContent.innerHTML = tableHtml;
             this.uiManager.elements.classFileViewerModal.show();
 
         } catch (err) {
@@ -803,6 +809,93 @@ class FileSystem {
             showToast(`Could not read file: ${this.state.selectedClassFile.name}`, 4000);
         }
     }
+
+    addNewClassRow() {
+        const editorBody = this.uiManager.elements.classFileEditorBody;
+        const row = editorBody.insertRow();
+        row.innerHTML = `
+            <td contenteditable="true" class="class-id"></td>
+            <td contenteditable="true" class="class-name"></td>
+            <td><button class="btn btn-sm btn-outline-danger delete-class-row-btn py-0 px-1"><i class="bi bi-trash"></i></button></td>
+        `;
+        // Focus on the new ID cell
+        row.querySelector('.class-id').focus();
+    }
+
+    async saveClassFileContent() {
+        if (!this.state.selectedClassFile) {
+            showToast('No class file selected.', 4000);
+            return;
+        }
+
+        const editorBody = this.uiManager.elements.classFileEditorBody;
+        const rows = editorBody.querySelectorAll('tr');
+        const classData = [];
+        const seenIds = new Set();
+        let isValid = true;
+
+        rows.forEach(row => {
+            const idCell = row.querySelector('.class-id');
+            const nameCell = row.querySelector('.class-name');
+
+            const id = idCell.textContent.trim();
+            const name = nameCell.textContent.trim();
+
+            // Validation
+            const numId = parseInt(id, 10);
+            if (id === '' && name === '') { // Ignore completely empty rows
+                return;
+            }
+            if (isNaN(numId) || String(numId) !== id) {
+                showToast(`Invalid ID: "${id}". IDs must be integers.`, 4000);
+                idCell.classList.add('is-invalid');
+                isValid = false;
+            } else if (seenIds.has(id)) {
+                showToast(`Duplicate ID: "${id}". IDs must be unique.`, 4000);
+                idCell.classList.add('is-invalid');
+                isValid = false;
+            } else {
+                idCell.classList.remove('is-invalid');
+                seenIds.add(id);
+            }
+
+            if (name === '') {
+                showToast(`Class name cannot be empty for ID ${id}.`, 4000);
+                nameCell.classList.add('is-invalid');
+                isValid = false;
+            } else {
+                nameCell.classList.remove('is-invalid');
+            }
+
+            if (isValid) {
+                classData.push({ id, name });
+            }
+        });
+
+        if (!isValid) {
+            return;
+        }
+
+        // Sort by ID before saving
+        classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+
+        const newContent = classData.map(item => `${item.id}: ${item.name}`).join('\n');
+
+        try {
+            const writable = await this.state.selectedClassFile.createWritable();
+            await writable.write(newContent);
+            await writable.close();
+            showToast(`Successfully saved changes to ${this.state.selectedClassFile.name}`);
+            
+            // Hide modal and reload class names
+            this.uiManager.elements.classFileViewerModal.hide();
+            await this.loadClassNamesFromFile(this.state.selectedClassFile);
+
+        } catch (err) {
+            console.error('Error saving class file:', err);
+            showToast('Failed to save file. Check console for details.', 4000);
+        }
+    }""
 
 
     downloadClassTemplate() {
@@ -840,7 +933,9 @@ class FileSystem {
             this.state.previewImageCache.clear();
             await this.listImageFiles();
         } catch (err) {
-            console.error('Error selecting image folder:', err);
+            if (err.name !== 'AbortError') {
+                console.error('Error selecting image folder:', err);
+            }
         }
     }
 
@@ -853,7 +948,9 @@ class FileSystem {
             }
             showToast(`Label folder selected: ${this.state.labelFolderHandle.name}`);
         } catch (err) {
-            console.error('Error selecting label folder:', err);
+            if (err.name !== 'AbortError') {
+                console.error('Error selecting label folder:', err);
+            }
         }
     }
 
@@ -1044,9 +1141,21 @@ class CanvasController {
         this.currentRect = null;
         this.activeLabelText = null;
 
-        // 그룹 선택 시 개별 객체의 테두리를 유지하고, 그룹 자체의 외곽선은 숨김
-        fabric.ActiveSelection.prototype.hasBorders = false;
-        fabric.ActiveSelection.prototype.cornerColor = 'transparent';
+        // 그룹 선택(ActiveSelection) 스타일 설정
+        const activeSelectionStyle = {
+            hasBorders: true,
+            borderColor: '#0d6efd', // Bootstrap Primary Blue
+            cornerColor: '#ffffff',
+            cornerStrokeColor: '#0d6efd',
+            cornerStyle: 'circle',
+            transparentCorners: false,
+            borderDashArray: [5, 5],
+            hasRotatingPoint: false
+        };
+        fabric.ActiveSelection.prototype.set(activeSelectionStyle);
+
+        // 객체 회전 기능 비활성화 (상단 회전 핸들 제거)
+        fabric.Object.prototype.setControlVisible('mtr', false);
     }
 
     getObjects(type) {
@@ -1106,6 +1215,7 @@ class CanvasController {
                 labelClass: String(labelClass),
                 originalYolo: { x_center, y_center, width, height }
             });
+            rect.setControlVisible('mtr', false);
             this.canvas.add(rect);
             this.drawLabelText(rect);
         });
@@ -1213,6 +1323,7 @@ class CanvasController {
             // 2) 색상 적용
             const color = getColorForClass(finalLabel);
             this.currentRect.set({ fill: `${color}33`, stroke: color });
+            this.currentRect.setControlVisible('mtr', false);
             
             // 3) 선택 가능하도록 설정 (edit 모드일 때)
             const isEditMode = (this.state.currentMode === 'edit');
@@ -1286,11 +1397,23 @@ class CanvasController {
 
 
     // Zoom and Pan
+    setZoomPercentage(percentage) {
+        const newZoom = parseFloat(percentage) / 100;
+        if (isNaN(newZoom) || newZoom < 0.1 || newZoom > 20) {
+            showToast('Invalid zoom level. Please enter a value between 10% and 2000%.');
+            // Restore the input to the current actual zoom level
+            this.uiManager.updateZoomDisplay();
+            return;
+        }
+        const center = this.canvas.getCenter();
+        this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), newZoom);
+        this.uiManager.updateZoomDisplay();
+    }
+
     zoom(factor) {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
 
     resetZoom() {
@@ -1305,7 +1428,6 @@ class CanvasController {
         this.canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
         this.renderAll();
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
     
     resizeCanvas() {
@@ -1328,14 +1450,13 @@ class CanvasController {
         this.canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
         this.renderAll();
         this.highlightPoint(x, y);
-        this.updateAllLabelTexts();
     }
 
     highlightPoint(x, y) {
         const zoom = this.canvas.getZoom();
         const highlightCircle = new fabric.Circle({
             left: x, top: y, radius: 0, fill: 'transparent', stroke: 'yellow',
-            strokeWidth: 3, originX: 'center', originY: 'center',
+            strokeWidth: 3 / zoom, originX: 'center', originY: 'center',
             selectable: false, evented: false,
         });
         this.canvas.add(highlightCircle);
@@ -1398,15 +1519,16 @@ class CanvasController {
     // Permanent Label Text
     drawLabelText(rect) {
         if (!this.state.showLabelsOnCanvas) return;
-        const zoom = this.canvas.getZoom();
         const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
         const text = new fabric.Text(displayName, {
             left: rect.left,
-            top: rect.top - 20 / zoom,
-            fontSize: this.state.labelFontSize / zoom,
+            top: rect.top - 4, // 4px offset above the box
+            originY: 'bottom',
+            fontSize: this.state.labelFontSize,
+            fontFamily: "'Consolas', monospace",
             fill: rect.stroke,
             backgroundColor: rect.fill,
-            padding: 2 / zoom,
+            padding: 2,
             selectable: false,
             evented: false,
             _isLabelText: true, // Custom property
@@ -1437,9 +1559,11 @@ class CanvasController {
             rect._labelText.set({
                 text: displayName,
                 left: newLeft,
-                top: newTop - 20 / zoom,
-                fontSize: this.state.labelFontSize / zoom,
-                padding: 2 / zoom,
+                top: newTop - 4,
+                originY: 'bottom',
+                fontSize: this.state.labelFontSize,
+                fontFamily: "'Consolas', monospace",
+                padding: 2,
                 fill: rect.stroke,
                 backgroundColor: rect.fill,
             });
@@ -1532,6 +1656,16 @@ class EventManager {
         });
         this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
 
+        this.ui.elements.addClassRowBtn.addEventListener('click', () => this.fileSystem.addNewClassRow());
+
+        this.ui.elements.saveClassFileBtn.addEventListener('click', () => this.fileSystem.saveClassFileContent());
+
+        this.ui.elements.classFileEditorBody.addEventListener('click', (e) => {
+            if (e.target.closest('.delete-class-row-btn')) {
+                e.target.closest('tr').remove();
+            }
+        });
+
         this.ui.elements.classFileSelect.addEventListener('change', (e) => {
             const selectedFileName = e.target.value;
             if (selectedFileName) {
@@ -1571,6 +1705,11 @@ class EventManager {
         this.ui.elements.zoomInBtn.addEventListener('click', () => this.canvas.zoom(1.2));
         this.ui.elements.zoomOutBtn.addEventListener('click', () => this.canvas.zoom(0.8));
         this.ui.elements.resetZoomBtn.addEventListener('click', () => this.canvas.resetZoom());
+
+        this.ui.elements.zoomInput.addEventListener('change', (e) => {
+            this.canvas.setZoomPercentage(e.target.value);
+        });
+
         this.ui.elements.goToCoordsBtn.addEventListener('click', () => {
             const x = parseInt(this.ui.elements.coordXInput.value, 10);
             const y = parseInt(this.ui.elements.coordYInput.value, 10);
