@@ -1046,9 +1046,17 @@ class CanvasController {
         this.currentRect = null;
         this.activeLabelText = null;
 
-        // 그룹 선택 시 개별 객체의 테두리를 유지하고, 그룹 자체의 외곽선은 숨김
-        fabric.ActiveSelection.prototype.hasBorders = false;
-        fabric.ActiveSelection.prototype.cornerColor = 'transparent';
+        // 그룹 선택(ActiveSelection) 스타일 설정
+        const activeSelectionStyle = {
+            hasBorders: true,
+            borderColor: '#0d6efd', // Bootstrap Primary Blue
+            cornerColor: '#ffffff',
+            cornerStrokeColor: '#0d6efd',
+            cornerStyle: 'circle',
+            transparentCorners: false,
+            borderDashArray: [5, 5],
+        };
+        fabric.ActiveSelection.prototype.set(activeSelectionStyle);
     }
 
     getObjects(type) {
