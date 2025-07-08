@@ -534,3 +534,14 @@ canvas {
     height: 100%;
     align-self: center;
 }
+
+/* Hide arrows from number inputs */
+#zoom-input::-webkit-outer-spin-button,
+#zoom-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#zoom-input {
+  -moz-appearance: textfield;
+}

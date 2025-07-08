@@ -122,7 +122,7 @@ class UIManager {
             zoomOutBtn: document.getElementById('zoomOutBtn'),
             resetZoomBtn: document.getElementById('resetZoomBtn'),
             canvasContainer: document.querySelector('.canvas-container'),
-            zoomLevelDisplay: document.getElementById('zoom-level'),
+            zoomInput: document.getElementById('zoom-input'),
             mouseCoordsDisplay: document.getElementById('mouse-coords'),
             coordXInput: document.getElementById('coordX'),
             coordYInput: document.getElementById('coordY'),
@@ -470,7 +470,9 @@ class UIManager {
 
     updateZoomDisplay() {
         const zoom = this.canvasController.canvas.getZoom() * 100;
-        this.elements.zoomLevelDisplay.textContent = `Zoom: ${zoom.toFixed(0)}%`;
+        if (document.activeElement !== this.elements.zoomInput) {
+            this.elements.zoomInput.value = zoom.toFixed(0);
+        }
     }
 
     updateMouseCoords(x, y) {
@@ -1286,6 +1288,20 @@ class CanvasController {
 
 
     // Zoom and Pan
+    setZoomPercentage(percentage) {
+        const newZoom = parseFloat(percentage) / 100;
+        if (isNaN(newZoom) || newZoom < 0.1 || newZoom > 20) {
+            showToast('Invalid zoom level. Please enter a value between 10% and 2000%.');
+            // Restore the input to the current actual zoom level
+            this.uiManager.updateZoomDisplay();
+            return;
+        }
+        const center = this.canvas.getCenter();
+        this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), newZoom);
+        this.uiManager.updateZoomDisplay();
+        this.updateAllLabelTexts();
+    }
+
     zoom(factor) {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
@@ -1573,6 +1589,11 @@ class EventManager {
         this.ui.elements.zoomInBtn.addEventListener('click', () => this.canvas.zoom(1.2));
         this.ui.elements.zoomOutBtn.addEventListener('click', () => this.canvas.zoom(0.8));
         this.ui.elements.resetZoomBtn.addEventListener('click', () => this.canvas.resetZoom());
+
+        this.ui.elements.zoomInput.addEventListener('change', (e) => {
+            this.canvas.setZoomPercentage(e.target.value);
+        });
+
         this.ui.elements.goToCoordsBtn.addEventListener('click', () => {
             const x = parseInt(this.ui.elements.coordXInput.value, 10);
             const y = parseInt(this.ui.elements.coordYInput.value, 10);
