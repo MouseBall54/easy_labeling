@@ -1055,8 +1055,12 @@ class CanvasController {
             cornerStyle: 'circle',
             transparentCorners: false,
             borderDashArray: [5, 5],
+            hasRotatingPoint: false
         };
         fabric.ActiveSelection.prototype.set(activeSelectionStyle);
+
+        // 객체 회전 기능 비활성화 (상단 회전 핸들 제거)
+        fabric.Object.prototype.setControlVisible('mtr', false);
     }
 
     getObjects(type) {
@@ -1116,6 +1120,7 @@ class CanvasController {
                 labelClass: String(labelClass),
                 originalYolo: { x_center, y_center, width, height }
             });
+            rect.setControlVisible('mtr', false);
             this.canvas.add(rect);
             this.drawLabelText(rect);
         });
@@ -1223,6 +1228,7 @@ class CanvasController {
             // 2) 색상 적용
             const color = getColorForClass(finalLabel);
             this.currentRect.set({ fill: `${color}33`, stroke: color });
+            this.currentRect.setControlVisible('mtr', false);
             
             // 3) 선택 가능하도록 설정 (edit 모드일 때)
             const isEditMode = (this.state.currentMode === 'edit');
