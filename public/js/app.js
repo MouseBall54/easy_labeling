@@ -1351,7 +1351,7 @@ class CanvasController {
         const zoom = this.canvas.getZoom();
         const highlightCircle = new fabric.Circle({
             left: x, top: y, radius: 0, fill: 'transparent', stroke: 'yellow',
-            strokeWidth: 3, originX: 'center', originY: 'center',
+            strokeWidth: 3 / zoom, originX: 'center', originY: 'center',
             selectable: false, evented: false,
         });
         this.canvas.add(highlightCircle);
