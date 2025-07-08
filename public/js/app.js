@@ -140,7 +140,9 @@ class UIManager {
             sortLabelsDescBtn: document.getElementById('sortLabelsDescBtn'),
             viewClassFileBtn: document.getElementById('viewClassFileBtn'),
             classFileViewerModal: new bootstrap.Modal(document.getElementById('classFileViewerModal')),
-            classFileContent: document.getElementById('classFileContent'),
+            classFileEditorBody: document.getElementById('classFileEditorBody'),
+            addClassRowBtn: document.getElementById('addClassRowBtn'),
+            saveClassFileBtn: document.getElementById('saveClassFileBtn'),
             previewBar: document.getElementById('preview-bar'),
             previewPrevBtn: document.getElementById('preview-prev-btn'),
             previewNextBtn: document.getElementById('preview-next-btn'),
@@ -687,8 +689,8 @@ class FileSystem {
             showToast(`Class Info Folder selected: ${this.state.classInfoFolderHandle.name}`);
             await this.listClassFiles();
         } catch (err) {
-            console.error('Error selecting class info folder:', err);
             if (err.name !== 'AbortError') {
+                console.error('Error selecting class info folder:', err);
                 showToast('Failed to select class info folder.', 4000);
             }
         }
@@ -769,7 +771,9 @@ class FileSystem {
         try {
             const file = await this.state.selectedClassFile.getFile();
             const content = await file.text();
-            
+            const editorBody = this.uiManager.elements.classFileEditorBody;
+            editorBody.innerHTML = ''; // Clear previous content
+
             const classData = [];
             const lines = content.split('\n');
             lines.forEach(line => {
@@ -786,18 +790,18 @@ class FileSystem {
                 }
             });
 
-            let tableHtml = '<table class="table table-striped table-hover table-sm"><thead><tr><th>ID</th><th>Class Name</th></tr></thead><tbody>';
-            if (classData.length === 0) {
-                tableHtml += '<tr><td colspan="2">No classes found in this file.</td></tr>';
-            } else {
+            if (classData.length > 0) {
                 classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
                 classData.forEach(item => {
-                    tableHtml += `<tr><td>${item.id}</td><td>${item.name}</td></tr>`;
+                    const row = editorBody.insertRow();
+                    row.innerHTML = `
+                        <td contenteditable="true" class="class-id">${item.id}</td>
+                        <td contenteditable="true" class="class-name">${item.name}</td>
+                        <td><button class="btn btn-sm btn-outline-danger delete-class-row-btn py-0 px-1"><i class="bi bi-trash"></i></button></td>
+                    `;
                 });
             }
-            tableHtml += '</tbody></table>';
 
-            this.uiManager.elements.classFileContent.innerHTML = tableHtml;
             this.uiManager.elements.classFileViewerModal.show();
 
         } catch (err) {
@@ -805,6 +809,93 @@ class FileSystem {
             showToast(`Could not read file: ${this.state.selectedClassFile.name}`, 4000);
         }
     }
+
+    addNewClassRow() {
+        const editorBody = this.uiManager.elements.classFileEditorBody;
+        const row = editorBody.insertRow();
+        row.innerHTML = `
+            <td contenteditable="true" class="class-id"></td>
+            <td contenteditable="true" class="class-name"></td>
+            <td><button class="btn btn-sm btn-outline-danger delete-class-row-btn py-0 px-1"><i class="bi bi-trash"></i></button></td>
+        `;
+        // Focus on the new ID cell
+        row.querySelector('.class-id').focus();
+    }
+
+    async saveClassFileContent() {
+        if (!this.state.selectedClassFile) {
+            showToast('No class file selected.', 4000);
+            return;
+        }
+
+        const editorBody = this.uiManager.elements.classFileEditorBody;
+        const rows = editorBody.querySelectorAll('tr');
+        const classData = [];
+        const seenIds = new Set();
+        let isValid = true;
+
+        rows.forEach(row => {
+            const idCell = row.querySelector('.class-id');
+            const nameCell = row.querySelector('.class-name');
+
+            const id = idCell.textContent.trim();
+            const name = nameCell.textContent.trim();
+
+            // Validation
+            const numId = parseInt(id, 10);
+            if (id === '' && name === '') { // Ignore completely empty rows
+                return;
+            }
+            if (isNaN(numId) || String(numId) !== id) {
+                showToast(`Invalid ID: "${id}". IDs must be integers.`, 4000);
+                idCell.classList.add('is-invalid');
+                isValid = false;
+            } else if (seenIds.has(id)) {
+                showToast(`Duplicate ID: "${id}". IDs must be unique.`, 4000);
+                idCell.classList.add('is-invalid');
+                isValid = false;
+            } else {
+                idCell.classList.remove('is-invalid');
+                seenIds.add(id);
+            }
+
+            if (name === '') {
+                showToast(`Class name cannot be empty for ID ${id}.`, 4000);
+                nameCell.classList.add('is-invalid');
+                isValid = false;
+            } else {
+                nameCell.classList.remove('is-invalid');
+            }
+
+            if (isValid) {
+                classData.push({ id, name });
+            }
+        });
+
+        if (!isValid) {
+            return;
+        }
+
+        // Sort by ID before saving
+        classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+
+        const newContent = classData.map(item => `${item.id}: ${item.name}`).join('\n');
+
+        try {
+            const writable = await this.state.selectedClassFile.createWritable();
+            await writable.write(newContent);
+            await writable.close();
+            showToast(`Successfully saved changes to ${this.state.selectedClassFile.name}`);
+            
+            // Hide modal and reload class names
+            this.uiManager.elements.classFileViewerModal.hide();
+            await this.loadClassNamesFromFile(this.state.selectedClassFile);
+
+        } catch (err) {
+            console.error('Error saving class file:', err);
+            showToast('Failed to save file. Check console for details.', 4000);
+        }
+    }""
 
 
     downloadClassTemplate() {
@@ -842,7 +933,9 @@ class FileSystem {
             this.state.previewImageCache.clear();
             await this.listImageFiles();
         } catch (err) {
-            console.error('Error selecting image folder:', err);
+            if (err.name !== 'AbortError') {
+                console.error('Error selecting image folder:', err);
+            }
         }
     }
 
@@ -855,7 +948,9 @@ class FileSystem {
             }
             showToast(`Label folder selected: ${this.state.labelFolderHandle.name}`);
         } catch (err) {
-            console.error('Error selecting label folder:', err);
+            if (err.name !== 'AbortError') {
+                console.error('Error selecting label folder:', err);
+            }
         }
     }
 
@@ -1560,6 +1655,16 @@ class EventManager {
             }
         });
         this.ui.elements.viewClassFileBtn.addEventListener('click', () => this.fileSystem.showClassFileContent());
+
+        this.ui.elements.addClassRowBtn.addEventListener('click', () => this.fileSystem.addNewClassRow());
+
+        this.ui.elements.saveClassFileBtn.addEventListener('click', () => this.fileSystem.saveClassFileContent());
+
+        this.ui.elements.classFileEditorBody.addEventListener('click', (e) => {
+            if (e.target.closest('.delete-class-row-btn')) {
+                e.target.closest('tr').remove();
+            }
+        });
 
         this.ui.elements.classFileSelect.addEventListener('change', (e) => {
             const selectedFileName = e.target.value;
