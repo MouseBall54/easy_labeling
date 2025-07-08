@@ -1299,14 +1299,12 @@ class CanvasController {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), newZoom);
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
 
     zoom(factor) {
         const center = this.canvas.getCenter();
         this.canvas.zoomToPoint(new fabric.Point(center.left, center.top), this.canvas.getZoom() * factor);
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
 
     resetZoom() {
@@ -1321,7 +1319,6 @@ class CanvasController {
         this.canvas.viewportTransform[5] = (containerHeight - imgHeight * scale) / 2;
         this.renderAll();
         this.uiManager.updateZoomDisplay();
-        this.updateAllLabelTexts();
     }
     
     resizeCanvas() {
@@ -1344,7 +1341,6 @@ class CanvasController {
         this.canvas.setViewportTransform([zoom, 0, 0, zoom, newX, newY]);
         this.renderAll();
         this.highlightPoint(x, y);
-        this.updateAllLabelTexts();
     }
 
     highlightPoint(x, y) {
@@ -1414,16 +1410,16 @@ class CanvasController {
     // Permanent Label Text
     drawLabelText(rect) {
         if (!this.state.showLabelsOnCanvas) return;
-        const zoom = this.canvas.getZoom();
         const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
         const text = new fabric.Text(displayName, {
             left: rect.left,
-            top: rect.top - 20 / zoom,
-            fontSize: this.state.labelFontSize / zoom,
+            top: rect.top - 4, // 4px offset above the box
+            originY: 'bottom',
+            fontSize: this.state.labelFontSize,
             fontFamily: "'Consolas', monospace",
             fill: rect.stroke,
             backgroundColor: rect.fill,
-            padding: 2 / zoom,
+            padding: 2,
             selectable: false,
             evented: false,
             _isLabelText: true, // Custom property
@@ -1454,10 +1450,11 @@ class CanvasController {
             rect._labelText.set({
                 text: displayName,
                 left: newLeft,
-                top: newTop - 20 / zoom,
-                fontSize: this.state.labelFontSize / zoom,
+                top: newTop - 4,
+                originY: 'bottom',
+                fontSize: this.state.labelFontSize,
                 fontFamily: "'Consolas', monospace",
-                padding: 2 / zoom,
+                padding: 2,
                 fill: rect.stroke,
                 backgroundColor: rect.fill,
             });
