@@ -1859,7 +1859,13 @@ class EventManager {
     }
 
     handleKeyDown(e) {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        // If the class editor modal is open, don't process any global shortcuts.
+        const isModalOpen = this.ui.elements.classFileViewerModal._element.classList.contains('show');
+        if (isModalOpen) {
+            return;
+        }
+
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
         if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
             e.preventDefault();
