@@ -73,6 +73,7 @@ class AppState {
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
         this.isPreviewBarHidden = false; // Start with the preview bar visible
+        this.isCrosshairVisible = false;
     }
 }
 
@@ -156,6 +157,11 @@ class UIManager {
             expandLeftPanelBtn: document.getElementById('expand-left-panel-btn'),
             collapseRightPanelBtn: document.getElementById('collapse-right-panel-btn'),
             expandRightPanelBtn: document.getElementById('expand-right-panel-btn'),
+            labelClassModal: new bootstrap.Modal(document.getElementById('labelClassModal')),
+            labelClassInput: document.getElementById('labelClassInput'),
+            classSelectionContainer: document.getElementById('class-selection-container'),
+            saveLabelClassBtn: document.getElementById('saveLabelClassBtn'),
+            crosshairToggle: document.getElementById('crosshairToggle'),
         };
     }
 
@@ -180,7 +186,7 @@ class UIManager {
         } else {
             btn.classList.remove('btn-success');
             btn.classList.add('btn-danger');
-            btn.innerHTML = `<i class="bi bi-folder-x"></i> Select Label Folder`;
+            btn.innerHTML = `<i class="bi bi-folder-x"></i> Load Label Folder`;
         }
     }
 
@@ -669,6 +675,104 @@ class UIManager {
                 select.appendChild(option);
             });
     }
+
+    promptForLabelClass(defaultValue = '0') {
+        return new Promise((resolve, reject) => {
+            const {
+                labelClassModal,
+                labelClassInput,
+                classSelectionContainer,
+                saveLabelClassBtn
+            } = this.elements;
+
+            let isResolved = false;
+
+            // --- Data Gathering ---
+            const definedClasses = new Map(this.state.classNames);
+            const usedClasses = new Set(this.canvasController.getObjects('rect').map(r => r.labelClass));
+            
+            // Add used classes to the map if they aren't already defined
+            usedClasses.forEach(id => {
+                if (!definedClasses.has(id)) {
+                    definedClasses.set(id, `(Used in image)`);
+                }
+            });
+
+            // --- UI Population ---
+            labelClassInput.value = defaultValue;
+            classSelectionContainer.innerHTML = ''; // Clear previous buttons
+
+            if (definedClasses.size > 0) {
+                const sortedClasses = [...definedClasses.entries()].sort((a, b) => parseInt(a[0], 10) - parseInt(b[0], 10));
+                
+                sortedClasses.forEach(([id, name]) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-sm btn-outline-primary m-1';
+                    btn.textContent = this.getDisplayNameForClass(id);
+                    btn.dataset.classId = id;
+                    btn.addEventListener('click', () => {
+                        labelClassInput.value = id;
+                        labelClassInput.focus();
+                    });
+                    classSelectionContainer.appendChild(btn);
+                });
+            } else {
+                classSelectionContainer.innerHTML = '<p class="text-muted">No predefined or used classes found. Enter an ID manually.</p>';
+            }
+
+            // --- Event Handling ---
+            const handleSave = () => {
+                const finalLabel = validateLabelClass(labelClassInput.value);
+                if (finalLabel !== null) {
+                    isResolved = true;
+                    cleanup();
+                    resolve(finalLabel);
+                }
+            };
+
+            const handleCancel = () => {
+                cleanup();
+                reject('User cancelled label selection.');
+            };
+            
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSave();
+                } else if (e.key === 'Escape') {
+                    handleCancel();
+                }
+            };
+
+            const handleModalHide = () => {
+                if (!isResolved) {
+                    handleCancel();
+                }
+            };
+
+            const cleanup = () => {
+                saveLabelClassBtn.removeEventListener('click', handleSave);
+                labelClassModal._element.removeEventListener('keydown', handleKeyDown);
+                labelClassModal._element.removeEventListener('hide.bs.modal', handleModalHide);
+                if (labelClassModal._isShown) {
+                    labelClassModal.hide();
+                }
+            };
+
+            saveLabelClassBtn.addEventListener('click', handleSave);
+            labelClassModal._element.addEventListener('keydown', handleKeyDown);
+            labelClassModal._element.addEventListener('hide.bs.modal', handleModalHide, { once: true });
+            
+            // --- Show Modal ---
+            labelClassModal.show();
+            // Focus on the input field when the modal is shown
+            labelClassModal._element.addEventListener('shown.bs.modal', () => {
+                labelClassInput.focus();
+                labelClassInput.select();
+            }, { once: true });
+        });
+    }
 }
 
 
@@ -923,7 +1027,22 @@ class FileSystem {
 
     async selectImageFolder() {
         try {
-            this.state.imageFolderHandle = await window.showDirectoryPicker();
+            const imageFolderHandle = await window.showDirectoryPicker();
+            this.state.imageFolderHandle = imageFolderHandle;
+
+            // Automatically check for a 'label' subfolder
+            try {
+                const labelFolderHandle = await imageFolderHandle.getDirectoryHandle('label');
+                this.state.labelFolderHandle = labelFolderHandle;
+                this.uiManager.updateLabelFolderButton(true, `label (auto)`);
+                showToast(`Found and loaded 'label' subfolder.`);
+            } catch (err) {
+                if (err.name !== 'NotFoundError') {
+                    console.error("Error checking for 'label' subfolder:", err);
+                }
+                // If not found, do nothing. User can select manually.
+            }
+
             // Clear the preview cache when a new folder is selected
             this.state.previewImageCache.forEach(url => {
                 if (url.startsWith('blob:')) {
@@ -932,6 +1051,9 @@ class FileSystem {
             });
             this.state.previewImageCache.clear();
             await this.listImageFiles();
+
+            // Enable the label folder button once the image folder is loaded
+            this.uiManager.elements.selectLabelFolderBtn.disabled = false;
         } catch (err) {
             if (err.name !== 'AbortError') {
                 console.error('Error selecting image folder:', err);
@@ -1140,6 +1262,8 @@ class CanvasController {
         this.startPoint = null;
         this.currentRect = null;
         this.activeLabelText = null;
+        this.crosshairX = null;
+        this.crosshairY = null;
 
         // 그룹 선택(ActiveSelection) 스타일 설정
         const activeSelectionStyle = {
@@ -1295,7 +1419,7 @@ class CanvasController {
         this.renderAll();
     }
 
-    finishDrawing() {
+    async finishDrawing() {
         if (!this.isDrawing) return;
         this.isDrawing = false;
 
@@ -1308,39 +1432,35 @@ class CanvasController {
 
         if (this.currentRect.width < 5 && this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
+            this.currentRect = null;
         } else {
-            const userInput = prompt('Enter label class for the new box:', '0');
-            const finalLabel = validateLabelClass(userInput);
+            try {
+                const finalLabel = await this.uiManager.promptForLabelClass('0');
 
-            if (finalLabel === null) {
+                this.currentRect.set('labelClass', finalLabel);
+                
+                const color = getColorForClass(finalLabel);
+                this.currentRect.set({ fill: `${color}33`, stroke: color });
+                this.currentRect.setControlVisible('mtr', false);
+                
+                const isEditMode = (this.state.currentMode === 'edit');
+                this.currentRect.set({
+                    'selectable': isEditMode,
+                    'hoverCursor': isEditMode ? 'move' : 'crosshair'
+                });
+                
+                this.currentRect.setCoords();
+                this.drawLabelText(this.currentRect);
+                this.canvas.requestRenderAll();
+                
+                this.uiManager.updateLabelList();
+            } catch (error) {
                 this.canvas.remove(this.currentRect);
+                console.log(error); // Log cancellation message
+            } finally {
                 this.currentRect = null;
-                return;
             }
-
-            this.currentRect.set('labelClass', finalLabel);
-            
-            // 2) 색상 적용
-            const color = getColorForClass(finalLabel);
-            this.currentRect.set({ fill: `${color}33`, stroke: color });
-            this.currentRect.setControlVisible('mtr', false);
-            
-            // 3) 선택 가능하도록 설정 (edit 모드일 때)
-            const isEditMode = (this.state.currentMode === 'edit');
-            this.currentRect.set({
-                'selectable': isEditMode,
-                'hoverCursor': isEditMode ? 'move' : 'crosshair'
-            });
-            
-            // 4) 좌표 업데이트 및 렌더링
-            this.currentRect.setCoords();
-            this.drawLabelText(this.currentRect);
-            this.canvas.requestRenderAll();
-            
-            // 5) UI 리스트 업데이트
-            this.uiManager.updateLabelList();
         }
-        this.currentRect = null;
     }
 
     // Object Manipulation
@@ -1366,33 +1486,36 @@ class CanvasController {
 
     // CanvasController 클래스 내부에 위치
 // CanvasController 클래스 내부
-    editLabel(rect) {
-        const userInput = prompt('Enter new label class:', rect.labelClass || '0');
-        const finalLabel = validateLabelClass(userInput);
-
-        if (finalLabel !== null) {
+    async editLabel(rect) {
+        try {
+            const finalLabel = await this.uiManager.promptForLabelClass(rect.labelClass || '0');
+            
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
             rect.originalYolo = null;
             this.updateLabelText(rect);
             this.uiManager.updateLabelList();
+
+        } catch (error) {
+            // User cancelled the modal, do nothing.
+            console.log(error);
+        } finally {
+            // 1) 활성 객체 선택 해제
+            this.canvas.discardActiveObject();
+    
+            // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
+            this.canvas._currentTransform = null;
+    
+            // 3) 드래그/드로잉 플래그도 초기화
+            this.isDrawing = false;
+            this.canvas.isDragging = false;
+            this.canvas.selection = true;
+            this.canvas.defaultCursor = 'default';
+    
+            // 4) 캔버스 강제 리렌더링
+            this.canvas.renderAll();
         }
-
-        // 1) 활성 객체 선택 해제
-        this.canvas.discardActiveObject();
-
-        // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
-        this.canvas._currentTransform = null;
-
-        // 3) 드래그/드로잉 플래그도 초기화
-        this.isDrawing = false;
-        this.canvas.isDragging = false;
-        this.canvas.selection = true;
-        this.canvas.defaultCursor = 'default';
-
-        // 4) 캔버스 강제 리렌더링
-        this.canvas.renderAll();
     }
 
 
@@ -1540,9 +1663,9 @@ class CanvasController {
 
     updateLabelText(rect) {
         if (rect._labelText) {
-            const zoom = this.canvas.getZoom();
+const zoom = this.canvas.getZoom();
             const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
-            
+
             let newLeft, newTop;
 
             if (rect.group) {
@@ -1603,7 +1726,7 @@ class CanvasController {
         }
     }
 
-    selectLabelsByClass(labelClass) {
+        selectLabelsByClass(labelClass) {
         this.canvas.discardActiveObject();
         const rectsToSelect = this.getObjects('rect').filter(rect => rect.labelClass === labelClass);
         if (rectsToSelect.length > 0) {
@@ -1612,7 +1735,72 @@ class CanvasController {
         }
         this.canvas.requestRenderAll();
     }
+
+    // Crosshair
+    createCrosshairLines() {
+        const lineOptions = {
+            stroke: 'rgba(200, 200, 200, 0.8)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+            excludeFromExport: true,
+        };
+        this.crosshairX = new fabric.Line([0, 0, 0, 0], lineOptions);
+        this.crosshairY = new fabric.Line([0, 0, 0, 0], lineOptions);
+        this.canvas.add(this.crosshairX, this.crosshairY);
+    }
+
+    toggleCrosshair(visible) {
+        this.state.isCrosshairVisible = visible;
+        if (visible && !this.crosshairX) {
+            this.createCrosshairLines();
+        }
+        if (this.crosshairX) {
+            this.crosshairX.set('visible', visible);
+            this.crosshairY.set('visible', visible);
+            this.canvas.renderAll();
+        }
+    }
+
+    updateCrosshair(pointer) {
+        if (!this.state.isCrosshairVisible || !this.crosshairX) return;
+
+        const { width, height } = this.canvas;
+        const zoom = this.canvas.getZoom();
+        const vpt = this.canvas.viewportTransform;
+
+        // Transform canvas dimensions into the viewport coordinate system
+        const viewportWidth = width / zoom;
+        const viewportHeight = height / zoom;
+        const viewportLeft = -vpt[4] / zoom;
+        const viewportTop = -vpt[5] / zoom;
+
+        this.crosshairX.set({
+            x1: viewportLeft,
+            y1: pointer.y,
+            x2: viewportLeft + viewportWidth,
+            y2: pointer.y,
+            visible: true
+        });
+        this.crosshairY.set({
+            x1: pointer.x,
+            y1: viewportTop,
+            x2: pointer.x,
+            y2: viewportTop + viewportHeight,
+            visible: true
+        });
+        this.canvas.renderAll();
+    }
+
+    hideCrosshair() {
+        if (this.crosshairX) {
+            this.crosshairX.set('visible', false);
+            this.crosshairY.set('visible', false);
+            this.canvas.renderAll();
+        }
+    }
 }
+
 
 
 // =================================================================================
@@ -1733,12 +1921,29 @@ class EventManager {
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
+        this.ui.elements.crosshairToggle.addEventListener('change', (e) => {
+            this.canvas.toggleCrosshair(e.target.checked);
+        });
+
         // Canvas Events
         this.canvas.canvas.on('mouse:down', this.handleMouseDown.bind(this));
         this.canvas.canvas.on('mouse:move', this.handleMouseMove.bind(this));
         this.canvas.canvas.on('mouse:up', this.handleMouseUp.bind(this));
         this.canvas.canvas.on('mouse:wheel', this.handleMouseWheel.bind(this));
-        this.canvas.canvas.on('mouse:out', () => this.ui.hideMouseCoords());
+        this.canvas.canvas.on('mouse:out', () => {
+            this.ui.hideMouseCoords();
+            this.canvas.hideCrosshair();
+        });
+
+        // Right-click to toggle mode
+
+        // Right-click to toggle mode
+        this.canvas.canvas.upperCanvasEl.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
+            this.canvas.setMode(newMode);
+            showToast(`Mode switched to ${newMode}`);
+        });
         
         const markAsModified = (e) => {
             if (!e.target) return;
@@ -1827,6 +2032,10 @@ class EventManager {
         if (this.state.currentImage) {
             const pointer = this.canvas.canvas.getPointer(opt.e);
             this.state.lastMousePosition = { x: pointer.x, y: pointer.y }; // Track mouse position
+
+            if (this.state.isCrosshairVisible) {
+                this.canvas.updateCrosshair(pointer);
+            }
 
             if (pointer.x >= 0 && pointer.x <= this.state.currentImage.width && pointer.y >= 0 && pointer.y <= this.state.currentImage.height) {
                 this.ui.updateMouseCoords(pointer.x, pointer.y);
@@ -2114,35 +2323,35 @@ class EventManager {
         this.ui.updateLabelList();
     }
 
-    changeSelectedClasses() {
+    async changeSelectedClasses() {
         const activeSelection = this.canvas.canvas.getActiveObject();
         if (!activeSelection) {
             showToast('Please select one or more objects.');
             return;
         }
 
-        const userInput = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
-        const finalLabel = validateLabelClass(userInput);
+        try {
+            const finalLabel = await this.ui.promptForLabelClass(activeSelection.labelClass || '0');
+            const color = getColorForClass(finalLabel);
 
-        if (finalLabel === null) return;
+            const applyChanges = (obj) => {
+                obj.set('labelClass', finalLabel);
+                obj.set({ fill: `${color}33`, stroke: color });
+                obj.originalYolo = null; // Mark as modified
+                this.canvas.updateLabelText(obj);
+            };
 
-        const color = getColorForClass(finalLabel);
-
-        const applyChanges = (obj) => {
-            obj.set('labelClass', finalLabel);
-            obj.set({ fill: `${color}33`, stroke: color });
-            obj.originalYolo = null; // Mark as modified
-            this.canvas.updateLabelText(obj);
-        };
-
-        if (activeSelection.type === 'activeSelection') {
-            activeSelection.forEachObject(applyChanges);
-        } else {
-            applyChanges(activeSelection);
+            if (activeSelection.type === 'activeSelection') {
+                activeSelection.forEachObject(applyChanges);
+            } else {
+                applyChanges(activeSelection);
+            }
+            
+            this.ui.updateLabelList();
+            this.canvas.renderAll();
+        } catch (error) {
+            console.log(error); // User cancelled
         }
-        
-        this.ui.updateLabelList();
-        this.canvas.renderAll();
     }
 
     navigateImage(direction) {
