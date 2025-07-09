@@ -156,6 +156,10 @@ class UIManager {
             expandLeftPanelBtn: document.getElementById('expand-left-panel-btn'),
             collapseRightPanelBtn: document.getElementById('collapse-right-panel-btn'),
             expandRightPanelBtn: document.getElementById('expand-right-panel-btn'),
+            labelClassModal: new bootstrap.Modal(document.getElementById('labelClassModal')),
+            labelClassInput: document.getElementById('labelClassInput'),
+            classSelectionContainer: document.getElementById('class-selection-container'),
+            saveLabelClassBtn: document.getElementById('saveLabelClassBtn'),
         };
     }
 
@@ -668,6 +672,91 @@ class UIManager {
                 }
                 select.appendChild(option);
             });
+    }
+
+    promptForLabelClass(defaultValue = '0') {
+        return new Promise((resolve, reject) => {
+            const {
+                labelClassModal,
+                labelClassInput,
+                classSelectionContainer,
+                saveLabelClassBtn
+            } = this.elements;
+
+            // --- Data Gathering ---
+            const definedClasses = new Map(this.state.classNames);
+            const usedClasses = new Set(this.canvasController.getObjects('rect').map(r => r.labelClass));
+            
+            // Add used classes to the map if they aren't already defined
+            usedClasses.forEach(id => {
+                if (!definedClasses.has(id)) {
+                    definedClasses.set(id, `(Used in image)`);
+                }
+            });
+
+            // --- UI Population ---
+            labelClassInput.value = defaultValue;
+            classSelectionContainer.innerHTML = ''; // Clear previous buttons
+
+            if (definedClasses.size > 0) {
+                const sortedClasses = [...definedClasses.entries()].sort((a, b) => parseInt(a[0], 10) - parseInt(b[0], 10));
+                
+                sortedClasses.forEach(([id, name]) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-sm btn-outline-primary m-1';
+                    btn.textContent = this.getDisplayNameForClass(id);
+                    btn.dataset.classId = id;
+                    btn.addEventListener('click', () => {
+                        labelClassInput.value = id;
+                        labelClassInput.focus();
+                    });
+                    classSelectionContainer.appendChild(btn);
+                });
+            } else {
+                classSelectionContainer.innerHTML = '<p class="text-muted">No predefined or used classes found. Enter an ID manually.</p>';
+            }
+
+            // --- Event Handling ---
+            const handleSave = () => {
+                const finalLabel = validateLabelClass(labelClassInput.value);
+                if (finalLabel !== null) {
+                    cleanup();
+                    resolve(finalLabel);
+                }
+            };
+
+            const handleCancel = () => {
+                cleanup();
+                reject('User cancelled label selection.');
+            };
+            
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSave();
+                } else if (e.key === 'Escape') {
+                    handleCancel();
+                }
+            };
+
+            const cleanup = () => {
+                saveLabelClassBtn.removeEventListener('click', handleSave);
+                labelClassModal._element.removeEventListener('keydown', handleKeyDown);
+                labelClassModal.hide();
+            };
+
+            saveLabelClassBtn.addEventListener('click', handleSave);
+            labelClassModal._element.addEventListener('keydown', handleKeyDown);
+            
+            // --- Show Modal ---
+            labelClassModal.show();
+            // Focus on the input field when the modal is shown
+            labelClassModal._element.addEventListener('shown.bs.modal', () => {
+                labelClassInput.focus();
+                labelClassInput.select();
+            }, { once: true });
+        });
     }
 }
 
@@ -1295,7 +1384,7 @@ class CanvasController {
         this.renderAll();
     }
 
-    finishDrawing() {
+    async finishDrawing() {
         if (!this.isDrawing) return;
         this.isDrawing = false;
 
@@ -1308,39 +1397,35 @@ class CanvasController {
 
         if (this.currentRect.width < 5 && this.currentRect.height < 5) {
             this.canvas.remove(this.currentRect);
+            this.currentRect = null;
         } else {
-            const userInput = prompt('Enter label class for the new box:', '0');
-            const finalLabel = validateLabelClass(userInput);
+            try {
+                const finalLabel = await this.uiManager.promptForLabelClass('0');
 
-            if (finalLabel === null) {
+                this.currentRect.set('labelClass', finalLabel);
+                
+                const color = getColorForClass(finalLabel);
+                this.currentRect.set({ fill: `${color}33`, stroke: color });
+                this.currentRect.setControlVisible('mtr', false);
+                
+                const isEditMode = (this.state.currentMode === 'edit');
+                this.currentRect.set({
+                    'selectable': isEditMode,
+                    'hoverCursor': isEditMode ? 'move' : 'crosshair'
+                });
+                
+                this.currentRect.setCoords();
+                this.drawLabelText(this.currentRect);
+                this.canvas.requestRenderAll();
+                
+                this.uiManager.updateLabelList();
+            } catch (error) {
                 this.canvas.remove(this.currentRect);
+                console.log(error); // Log cancellation message
+            } finally {
                 this.currentRect = null;
-                return;
             }
-
-            this.currentRect.set('labelClass', finalLabel);
-            
-            // 2) 색상 적용
-            const color = getColorForClass(finalLabel);
-            this.currentRect.set({ fill: `${color}33`, stroke: color });
-            this.currentRect.setControlVisible('mtr', false);
-            
-            // 3) 선택 가능하도록 설정 (edit 모드일 때)
-            const isEditMode = (this.state.currentMode === 'edit');
-            this.currentRect.set({
-                'selectable': isEditMode,
-                'hoverCursor': isEditMode ? 'move' : 'crosshair'
-            });
-            
-            // 4) 좌표 업데이트 및 렌더링
-            this.currentRect.setCoords();
-            this.drawLabelText(this.currentRect);
-            this.canvas.requestRenderAll();
-            
-            // 5) UI 리스트 업데이트
-            this.uiManager.updateLabelList();
         }
-        this.currentRect = null;
     }
 
     // Object Manipulation
@@ -1366,33 +1451,36 @@ class CanvasController {
 
     // CanvasController 클래스 내부에 위치
 // CanvasController 클래스 내부
-    editLabel(rect) {
-        const userInput = prompt('Enter new label class:', rect.labelClass || '0');
-        const finalLabel = validateLabelClass(userInput);
-
-        if (finalLabel !== null) {
+    async editLabel(rect) {
+        try {
+            const finalLabel = await this.uiManager.promptForLabelClass(rect.labelClass || '0');
+            
             rect.set('labelClass', finalLabel);
             const color = getColorForClass(finalLabel);
             rect.set({ fill: `${color}33`, stroke: color });
             rect.originalYolo = null;
             this.updateLabelText(rect);
             this.uiManager.updateLabelList();
+
+        } catch (error) {
+            // User cancelled the modal, do nothing.
+            console.log(error);
+        } finally {
+            // 1) 활성 객체 선택 해제
+            this.canvas.discardActiveObject();
+    
+            // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
+            this.canvas._currentTransform = null;
+    
+            // 3) 드래그/드로잉 플래그도 초기화
+            this.isDrawing = false;
+            this.canvas.isDragging = false;
+            this.canvas.selection = true;
+            this.canvas.defaultCursor = 'default';
+    
+            // 4) 캔버스 강제 리렌더링
+            this.canvas.renderAll();
         }
-
-        // 1) 활성 객체 선택 해제
-        this.canvas.discardActiveObject();
-
-        // 2) Fabric 내부의 현재 변환(트랜스폼) 상태 초기화
-        this.canvas._currentTransform = null;
-
-        // 3) 드래그/드로잉 플래그도 초기화
-        this.isDrawing = false;
-        this.canvas.isDragging = false;
-        this.canvas.selection = true;
-        this.canvas.defaultCursor = 'default';
-
-        // 4) 캔버스 강제 리렌더링
-        this.canvas.renderAll();
     }
 
 
@@ -1540,9 +1628,9 @@ class CanvasController {
 
     updateLabelText(rect) {
         if (rect._labelText) {
-            const zoom = this.canvas.getZoom();
+const zoom = this.canvas.getZoom();
             const displayName = this.uiManager.getDisplayNameForClass(rect.labelClass);
-            
+
             let newLeft, newTop;
 
             if (rect.group) {
@@ -2114,35 +2202,35 @@ class EventManager {
         this.ui.updateLabelList();
     }
 
-    changeSelectedClasses() {
+    async changeSelectedClasses() {
         const activeSelection = this.canvas.canvas.getActiveObject();
         if (!activeSelection) {
             showToast('Please select one or more objects.');
             return;
         }
 
-        const userInput = prompt(`Enter new class for selected object(s):`, activeSelection.labelClass || '0');
-        const finalLabel = validateLabelClass(userInput);
+        try {
+            const finalLabel = await this.ui.promptForLabelClass(activeSelection.labelClass || '0');
+            const color = getColorForClass(finalLabel);
 
-        if (finalLabel === null) return;
+            const applyChanges = (obj) => {
+                obj.set('labelClass', finalLabel);
+                obj.set({ fill: `${color}33`, stroke: color });
+                obj.originalYolo = null; // Mark as modified
+                this.canvas.updateLabelText(obj);
+            };
 
-        const color = getColorForClass(finalLabel);
-
-        const applyChanges = (obj) => {
-            obj.set('labelClass', finalLabel);
-            obj.set({ fill: `${color}33`, stroke: color });
-            obj.originalYolo = null; // Mark as modified
-            this.canvas.updateLabelText(obj);
-        };
-
-        if (activeSelection.type === 'activeSelection') {
-            activeSelection.forEachObject(applyChanges);
-        } else {
-            applyChanges(activeSelection);
+            if (activeSelection.type === 'activeSelection') {
+                activeSelection.forEachObject(applyChanges);
+            } else {
+                applyChanges(activeSelection);
+            }
+            
+            this.ui.updateLabelList();
+            this.canvas.renderAll();
+        } catch (error) {
+            console.log(error); // User cancelled
         }
-        
-        this.ui.updateLabelList();
-        this.canvas.renderAll();
     }
 
     navigateImage(direction) {

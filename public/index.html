@@ -218,6 +218,29 @@
         </div>
     </div>
 
+    <!-- Label Class Selection Modal -->
+    <div class="modal fade" id="labelClassModal" tabindex="-1" aria-labelledby="labelClassModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="labelClassModalLabel">Select or Enter Class ID</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Enter a class ID manually or select from the available classes below.</p>
+                    <input type="number" id="labelClassInput" class="form-control mb-3" placeholder="Enter class ID..." min="0">
+                    <div id="class-selection-container">
+                        <!-- Class buttons will be dynamically inserted here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveLabelClassBtn">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Fabric.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <!-- Tiff.js CDN for .tif support -->
