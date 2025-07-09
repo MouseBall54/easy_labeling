@@ -683,6 +683,8 @@ class UIManager {
                 saveLabelClassBtn
             } = this.elements;
 
+            let isResolved = false;
+
             // --- Data Gathering ---
             const definedClasses = new Map(this.state.classNames);
             const usedClasses = new Set(this.canvasController.getObjects('rect').map(r => r.labelClass));
@@ -721,6 +723,7 @@ class UIManager {
             const handleSave = () => {
                 const finalLabel = validateLabelClass(labelClassInput.value);
                 if (finalLabel !== null) {
+                    isResolved = true;
                     cleanup();
                     resolve(finalLabel);
                 }
@@ -740,14 +743,24 @@ class UIManager {
                 }
             };
 
+            const handleModalHide = () => {
+                if (!isResolved) {
+                    handleCancel();
+                }
+            };
+
             const cleanup = () => {
                 saveLabelClassBtn.removeEventListener('click', handleSave);
                 labelClassModal._element.removeEventListener('keydown', handleKeyDown);
-                labelClassModal.hide();
+                labelClassModal._element.removeEventListener('hide.bs.modal', handleModalHide);
+                if (labelClassModal._isShown) {
+                    labelClassModal.hide();
+                }
             };
 
             saveLabelClassBtn.addEventListener('click', handleSave);
             labelClassModal._element.addEventListener('keydown', handleKeyDown);
+            labelClassModal._element.addEventListener('hide.bs.modal', handleModalHide, { once: true });
             
             // --- Show Modal ---
             labelClassModal.show();
