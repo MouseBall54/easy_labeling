@@ -73,6 +73,7 @@ class AppState {
         this.labelSortOrder = 'asc'; // 'asc' or 'desc'
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
         this.isPreviewBarHidden = false; // Start with the preview bar visible
+        this.isCrosshairVisible = false;
     }
 }
 
@@ -160,6 +161,7 @@ class UIManager {
             labelClassInput: document.getElementById('labelClassInput'),
             classSelectionContainer: document.getElementById('class-selection-container'),
             saveLabelClassBtn: document.getElementById('saveLabelClassBtn'),
+            crosshairToggle: document.getElementById('crosshairToggle'),
         };
     }
 
@@ -1260,6 +1262,8 @@ class CanvasController {
         this.startPoint = null;
         this.currentRect = null;
         this.activeLabelText = null;
+        this.crosshairX = null;
+        this.crosshairY = null;
 
         // 그룹 선택(ActiveSelection) 스타일 설정
         const activeSelectionStyle = {
@@ -1722,7 +1726,7 @@ const zoom = this.canvas.getZoom();
         }
     }
 
-    selectLabelsByClass(labelClass) {
+        selectLabelsByClass(labelClass) {
         this.canvas.discardActiveObject();
         const rectsToSelect = this.getObjects('rect').filter(rect => rect.labelClass === labelClass);
         if (rectsToSelect.length > 0) {
@@ -1731,7 +1735,72 @@ const zoom = this.canvas.getZoom();
         }
         this.canvas.requestRenderAll();
     }
+
+    // Crosshair
+    createCrosshairLines() {
+        const lineOptions = {
+            stroke: 'rgba(200, 200, 200, 0.8)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+            excludeFromExport: true,
+        };
+        this.crosshairX = new fabric.Line([0, 0, 0, 0], lineOptions);
+        this.crosshairY = new fabric.Line([0, 0, 0, 0], lineOptions);
+        this.canvas.add(this.crosshairX, this.crosshairY);
+    }
+
+    toggleCrosshair(visible) {
+        this.state.isCrosshairVisible = visible;
+        if (visible && !this.crosshairX) {
+            this.createCrosshairLines();
+        }
+        if (this.crosshairX) {
+            this.crosshairX.set('visible', visible);
+            this.crosshairY.set('visible', visible);
+            this.canvas.renderAll();
+        }
+    }
+
+    updateCrosshair(pointer) {
+        if (!this.state.isCrosshairVisible || !this.crosshairX) return;
+
+        const { width, height } = this.canvas;
+        const zoom = this.canvas.getZoom();
+        const vpt = this.canvas.viewportTransform;
+
+        // Transform canvas dimensions into the viewport coordinate system
+        const viewportWidth = width / zoom;
+        const viewportHeight = height / zoom;
+        const viewportLeft = -vpt[4] / zoom;
+        const viewportTop = -vpt[5] / zoom;
+
+        this.crosshairX.set({
+            x1: viewportLeft,
+            y1: pointer.y,
+            x2: viewportLeft + viewportWidth,
+            y2: pointer.y,
+            visible: true
+        });
+        this.crosshairY.set({
+            x1: pointer.x,
+            y1: viewportTop,
+            x2: pointer.x,
+            y2: viewportTop + viewportHeight,
+            visible: true
+        });
+        this.canvas.renderAll();
+    }
+
+    hideCrosshair() {
+        if (this.crosshairX) {
+            this.crosshairX.set('visible', false);
+            this.crosshairY.set('visible', false);
+            this.canvas.renderAll();
+        }
+    }
 }
+
 
 
 // =================================================================================
@@ -1852,12 +1921,21 @@ class EventManager {
 
         this.ui.elements.darkModeToggle.addEventListener('change', this.toggleDarkMode.bind(this));
 
+        this.ui.elements.crosshairToggle.addEventListener('change', (e) => {
+            this.canvas.toggleCrosshair(e.target.checked);
+        });
+
         // Canvas Events
         this.canvas.canvas.on('mouse:down', this.handleMouseDown.bind(this));
         this.canvas.canvas.on('mouse:move', this.handleMouseMove.bind(this));
         this.canvas.canvas.on('mouse:up', this.handleMouseUp.bind(this));
         this.canvas.canvas.on('mouse:wheel', this.handleMouseWheel.bind(this));
-        this.canvas.canvas.on('mouse:out', () => this.ui.hideMouseCoords());
+        this.canvas.canvas.on('mouse:out', () => {
+            this.ui.hideMouseCoords();
+            this.canvas.hideCrosshair();
+        });
+
+        // Right-click to toggle mode
 
         // Right-click to toggle mode
         this.canvas.canvas.upperCanvasEl.addEventListener('contextmenu', (e) => {
@@ -1954,6 +2032,10 @@ class EventManager {
         if (this.state.currentImage) {
             const pointer = this.canvas.canvas.getPointer(opt.e);
             this.state.lastMousePosition = { x: pointer.x, y: pointer.y }; // Track mouse position
+
+            if (this.state.isCrosshairVisible) {
+                this.canvas.updateCrosshair(pointer);
+            }
 
             if (pointer.x >= 0 && pointer.x <= this.state.currentImage.width && pointer.y >= 0 && pointer.y <= this.state.currentImage.height) {
                 this.ui.updateMouseCoords(pointer.x, pointer.y);
