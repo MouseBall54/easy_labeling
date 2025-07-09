@@ -1858,6 +1858,14 @@ class EventManager {
         this.canvas.canvas.on('mouse:up', this.handleMouseUp.bind(this));
         this.canvas.canvas.on('mouse:wheel', this.handleMouseWheel.bind(this));
         this.canvas.canvas.on('mouse:out', () => this.ui.hideMouseCoords());
+
+        // Right-click to toggle mode
+        this.canvas.canvas.upperCanvasEl.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
+            this.canvas.setMode(newMode);
+            showToast(`Mode switched to ${newMode}`);
+        });
         
         const markAsModified = (e) => {
             if (!e.target) return;
