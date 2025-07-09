@@ -184,7 +184,7 @@ class UIManager {
         } else {
             btn.classList.remove('btn-success');
             btn.classList.add('btn-danger');
-            btn.innerHTML = `<i class="bi bi-folder-x"></i> Select Label Folder`;
+            btn.innerHTML = `<i class="bi bi-folder-x"></i> Load Label Folder`;
         }
     }
 
@@ -1025,7 +1025,22 @@ class FileSystem {
 
     async selectImageFolder() {
         try {
-            this.state.imageFolderHandle = await window.showDirectoryPicker();
+            const imageFolderHandle = await window.showDirectoryPicker();
+            this.state.imageFolderHandle = imageFolderHandle;
+
+            // Automatically check for a 'label' subfolder
+            try {
+                const labelFolderHandle = await imageFolderHandle.getDirectoryHandle('label');
+                this.state.labelFolderHandle = labelFolderHandle;
+                this.uiManager.updateLabelFolderButton(true, `label (auto)`);
+                showToast(`Found and loaded 'label' subfolder.`);
+            } catch (err) {
+                if (err.name !== 'NotFoundError') {
+                    console.error("Error checking for 'label' subfolder:", err);
+                }
+                // If not found, do nothing. User can select manually.
+            }
+
             // Clear the preview cache when a new folder is selected
             this.state.previewImageCache.forEach(url => {
                 if (url.startsWith('blob:')) {
