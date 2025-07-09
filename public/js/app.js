@@ -1049,6 +1049,9 @@ class FileSystem {
             });
             this.state.previewImageCache.clear();
             await this.listImageFiles();
+
+            // Enable the label folder button once the image folder is loaded
+            this.uiManager.elements.selectLabelFolderBtn.disabled = false;
         } catch (err) {
             if (err.name !== 'AbortError') {
                 console.error('Error selecting image folder:', err);
