@@ -44,11 +44,11 @@ The application is primarily a client-side tool that runs in modern web browsers
 
 ## How to Run
 
-1.  Start the server from the project's root directory:
+1.  Start the local development server from the project's root directory:
     ```bash
-    node server.js
+    npm start
     ```
-2.  Open your web browser and navigate to `http://localhost:3000`.
+2.  Your web browser will automatically open to the application.
 
 ## How to Use
 

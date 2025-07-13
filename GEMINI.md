@@ -4,7 +4,7 @@
 
 "Easy Labeling" is a web-based image annotation tool designed for creating object detection datasets. It allows users to load images from their local file system, draw bounding boxes around objects, assign class labels, and save the annotations in the YOLO text format.
 
-The application is primarily a client-side tool that runs in modern web browsers (like Chrome and Edge) and uses the File System Access API to interact with local files directly, eliminating the need for file uploads.
+The application is a pure client-side tool that runs in modern web browsers (like Chrome and Edge) and uses the File System Access API to interact with local files directly. It can be hosted on any static web server, including GitHub Pages.
 
 ## 2. Core Technologies
 
@@ -12,18 +12,20 @@ The application is primarily a client-side tool that runs in modern web browsers
     *   **Framework/Libraries**: Vanilla JavaScript, [Fabric.js](https://fabricjs.com/) for canvas manipulation, [Bootstrap 5](https://getbootstrap.com/) for UI components.
     *   **APIs**: File System Access API is a core feature for local file handling.
     *   **File Support**: Standard images (JPG, PNG) and TIFF (`.tif`, `.tiff`) files via `tiff.js`.
-*   **Backend**:
-    *   **Runtime**: Node.js
-    *   **Framework**: Express.js (`^5.1.0`)
-    *   **Purpose**: The backend is minimal and only serves the static frontend files. There is no complex server-side logic.
+*   **Local Development**:
+    *   **Server**: `live-server` for local development with hot-reloading.
+    *   **Runner**: `npm` scripts.
+*   **Deployment**:
+    *   **Platform**: GitHub Pages
+    *   **CI/CD**: GitHub Actions
 
 ## 3. File Structure
 
-*   `server.js`: The Node.js/Express server entry point. Its sole responsibility is to serve the static files from the `public` directory.
-*   `public/`: Contains all client-side assets.
-    *   `index.html`: The main HTML file for the application structure.
-    *   `css/style.css`: Custom styles for the application.
-    *   `js/app.js`: The core of the application. It manages the UI, canvas, file system interactions, and application state.
+*   `index.html`: The main HTML file for the application structure.
+*   `css/style.css`: Custom styles for the application.
+*   `js/app.js`: The core of the application. It manages the UI, canvas, file system interactions, and application state.
+*   `.github/workflows/deploy.yml`: GitHub Actions workflow for automatic deployment to GitHub Pages.
+*   `package.json`: Defines project metadata and development dependencies.
 *   `WORKLOG.md`: A manually maintained log of significant work items.
 *   `GEMINI.md`: This file, containing the project context and a log of Gemini's activities.
 
@@ -36,9 +38,9 @@ The application is primarily a client-side tool that runs in modern web browsers
     *   **Right Panel (`#right-panel`)**: Displays label filters and the list of labels for the current image.
     *   Both left and right panels are resizable using custom splitter elements (`#left-splitter`, `#right-splitter`).
 
-*   **Client-Side Heavy**: Almost all logic (file reading, canvas drawing, label saving) is handled in the browser.
+*   **Client-Side Heavy**: All logic (file reading, canvas drawing, label saving) is handled in the browser.
 
-*   **State Management**: Application state is managed through a series of classes (`AppState`, `UIManager`, `FileSystem`, `CanvasController`) instantiated within the main `DOMContentLoaded` event listener in `public/js/app.js`.
+*   **State Management**: Application state is managed through a series of classes (`AppState`, `UIManager`, `FileSystem`, `CanvasController`) instantiated within the main `DOMContentLoaded` event listener in `js/app.js`.
 
 *   **Event-Driven**: The application relies heavily on DOM events and Fabric.js canvas events (e.g., `mouse:down`, `object:modified`, `selection:created`) to trigger actions.
 
@@ -120,6 +122,17 @@ This is a detailed list of features identified from the source code.
 
 ### Gemini 어시스턴트의 역할
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
+
+### 2025년 7월 13일
+*   **작업**: GitHub Pages 배포를 위한 프로젝트 구조 변경
+*   **세부 정보**:
+    *   Node.js/Express 기반 서버 구조에서 순수 정적 웹사이트 구조로 변경하여 GitHub Pages에 직접 배포할 수 있도록 했습니다.
+    *   `public` 폴더의 모든 콘텐츠(`index.html`, `css/`, `js/`)를 프로젝트 루트로 이동시켰습니다.
+    *   기존 `server.js`를 삭제하고, 로컬 개발을 위해 `live-server`를 개발 의존성으로 추가했습니다.
+    *   `package.json`의 `scripts`에 `npm start` 명령을 추가하여 `live-server`를 실행하도록 설정하고, 불필요해진 `express` 의존성을 제거했습니다.
+    *   `.github/workflows/deploy.yml` 파일을 생성하여 `main` 브랜치에 푸시할 때마다 GitHub Pages로 자동 배포되는 GitHub Actions 워크플로우를 설정했습니다.
+    *   `README.md`와 `README.ko.md`의 실행 방법을 `node server.js`에서 `npm start`로 업데이트했습니다.
+    *   `GEMINI.md`의 "Core Technologies" 및 "File Structure" 섹션을 새로운 구조에 맞게 수정했습니다.
 
 ### 2025년 7월 7일
 *   **작업**: 좌우 제어판 접기/펼치기 기능 추가
