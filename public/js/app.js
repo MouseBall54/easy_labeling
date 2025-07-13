@@ -682,13 +682,6 @@ class UIManager {
         separator.textContent = '──────────';
         select.appendChild(separator);
 
-        // Add the default "All Classes" option
-        const allOption = document.createElement('option');
-        allOption.value = '';
-        allOption.textContent = 'All Classes';
-        select.appendChild(allOption);
-
-
         this.state.classFiles
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
             .forEach(file => {
@@ -699,7 +692,11 @@ class UIManager {
             });
 
         // Restore previous selection
-        select.value = previousSelection;
+        if (previousSelection) {
+            select.value = previousSelection;
+        } else {
+            select.selectedIndex = -1;
+        }
     }
 
     promptForLabelClass(defaultValue = '0') {
@@ -1997,13 +1994,6 @@ class EventManager {
                 if (fileHandle) {
                     this.fileSystem.loadClassNamesFromFile(fileHandle);
                 }
-            } else {
-                // "All Classes" is selected
-                this.state.selectedClassFile = null;
-                this.state.classNames.clear();
-                this.ui.updateLabelList();
-                this.canvas.updateAllLabelTexts();
-                showToast('Cleared class names. Showing all classes.');
             }
         });
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
