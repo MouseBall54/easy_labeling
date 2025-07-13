@@ -281,9 +281,12 @@ class UIManager {
             // Create group header
             const groupHeader = document.createElement('div');
             groupHeader.className = 'label-group-header list-group-item';
+            const groupColor = getColorForClass(classId);
             groupHeader.innerHTML = `
                 <i class="bi bi-chevron-right me-2"></i>
+                <span class="label-color-swatch me-2" style="background-color: ${groupColor};"></span>
                 <span class="fw-bold">${this.getDisplayNameForClass(classId)}</span>
+                <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group"></i>
                 <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
             `;
 
@@ -305,6 +308,13 @@ class UIManager {
                 } else {
                     this.state.collapsedLabelGroups.delete(classId);
                 }
+            });
+
+            // Event listener for the select button
+            const selectBtn = groupHeader.querySelector('.select-group-btn');
+            selectBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent the group from collapsing
+                this.canvasController.selectLabelsByClass(classId);
             });
 
             // Create and append individual label items
