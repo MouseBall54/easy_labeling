@@ -30,25 +30,25 @@ The application is primarily a client-side tool that runs in modern web browsers
 
 ## Prerequisites
 
--   [Node.js](https://nodejs.org/) (LTS version recommended)
+-   [Ruby](https://www.ruby-lang.org/en/documentation/installation/) (recommended version for GitHub Pages is 3.x)
 -   A modern web browser that supports the File System Access API (e.g., Google Chrome, Microsoft Edge).
 
 ## Installation
 
 1.  Clone the repository or download the source code.
 2.  Open a terminal in the project's root directory.
-3.  Install the required dependencies:
+3.  Install Jekyll and other dependencies:
     ```bash
-    npm install
+    bundle install
     ```
 
 ## How to Run
 
-1.  Start the local development server from the project's root directory:
+1.  Start the Jekyll development server from the project's root directory:
     ```bash
-    npm start
+    bundle exec jekyll serve --livereload
     ```
-2.  Your web browser will automatically open to the application.
+2.  Your web browser will automatically open to the application (usually at `http://localhost:4000`).
 
 ## How to Use
 

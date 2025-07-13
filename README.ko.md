@@ -30,25 +30,25 @@
 
 ## 사전 요구 사항
 
--   [Node.js](https://nodejs.org/) (LTS 버전 권장)
+-   [Ruby](https://www.ruby-lang.org/en/documentation/installation/) (GitHub Pages 권장 버전은 3.x)
 -   File System Access API를 지원하는 최신 웹 브라우저 (예: Google Chrome, Microsoft Edge).
 
 ## 설치 방법
 
 1.  저장소를 클론하거나 소스 코드를 다운로드합니다.
 2.  프로젝트의 루트 디렉토리에서 터미널을 엽니다.
-3.  필요한 종속성을 설치합니다:
+3.  Jekyll 및 기타 종속성을 설치합니다:
     ```bash
-    npm install
+    bundle install
     ```
 
 ## 실행 방법
 
-1.  프로젝트 루트 디렉토리에서 로컬 개발 서버를 시작합니다:
+1.  프로젝트 루트 디렉토리에서 Jekyll 개발 서버를 시작합니다:
     ```bash
-    npm start
+    bundle exec jekyll serve --livereload
     ```
-2.  웹 브라우저가 자동으로 열리며 애플리케이션이 실행됩니다.
+2.  웹 브라우저가 자동으로 열리며 애플리케이션이 실행됩니다 (일반적으로 `http://localhost:4000`).
 
 ## 사용 방법
 

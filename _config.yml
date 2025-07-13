@@ -1,0 +1,33 @@
+title: Easy Labeling
+description: A web-based image annotation tool for creating object detection datasets.
+baseurl: "" # the subpath of your site, e.g. /blog
+url: "" # the base hostname & protocol for your site, e.g. http://example.com
+
+# Build settings
+markdown: kramdown
+theme: minima # You can change this to a different theme if desired.
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Exclude from processing.
+# The following items will not be processed, by Jekyll.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - package.json
+  - package-lock.json
+  - README.md
+  - README.ko.md
+  - WORKLOG.md
+  - GEMINI.md
+  - server.js # If it still exists
+  - .git
+  - .github
+  - .vscode
+  - .yoyo
+  - data
+  - ads.txt
+  - privacy.html
+  - privacy_ko.html
