@@ -74,6 +74,7 @@ class AppState {
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
         this.isPreviewBarHidden = false; // Start with the preview bar visible
         this.isCrosshairVisible = false;
+        this.contextTarget = null; // To store the target of the context menu
     }
 }
 
@@ -162,6 +163,9 @@ class UIManager {
             classSelectionContainer: document.getElementById('class-selection-container'),
             saveLabelClassBtn: document.getElementById('saveLabelClassBtn'),
             crosshairToggle: document.getElementById('crosshairToggle'),
+            contextMenu: document.getElementById('context-menu'),
+            ctxEditLabel: document.getElementById('ctx-edit-label'),
+            ctxDeleteLabel: document.getElementById('ctx-delete-label'),
         };
     }
 
@@ -1511,6 +1515,31 @@ class CanvasController {
         }
     }
 
+    async editMultipleLabels(selection) {
+        try {
+            const finalLabel = await this.uiManager.promptForLabelClass('0');
+
+            selection.getObjects().forEach(obj => {
+                if (obj.type === 'rect') {
+                    obj.set('labelClass', finalLabel);
+                    const color = getColorForClass(finalLabel);
+                    obj.set({ fill: `${color}33`, stroke: color });
+                    obj.originalYolo = null;
+                    this.updateLabelText(obj);
+                }
+            });
+
+            this.renderAll();
+            this.uiManager.updateLabelList();
+
+        } catch (error) {
+            console.log(error); // User cancelled
+        } finally {
+            this.canvas.discardActiveObject();
+            this.renderAll();
+        }
+    }
+
 
     // Zoom and Pan
     setZoomPercentage(percentage) {
@@ -1929,9 +1958,15 @@ class EventManager {
         // Right-click to toggle mode
         this.canvas.canvas.upperCanvasEl.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
-            this.canvas.setMode(newMode);
-            showToast(`Mode switched to ${newMode}`);
+            const target = this.canvas.canvas.findTarget(e, false);
+
+            if (target && (target.type === 'rect' || target.type === 'activeSelection')) {
+                this.showContextMenu(e.clientX, e.clientY, target);
+            } else {
+                const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
+                this.canvas.setMode(newMode);
+                showToast(`Mode switched to ${newMode}`);
+            }
         });
         
         const markAsModified = (e) => {
@@ -1975,6 +2010,48 @@ class EventManager {
 
         // Keyboard Events
         window.addEventListener('keydown', this.handleKeyDown.bind(this));
+    }
+
+    showContextMenu(x, y, target) {
+        const menu = this.ui.elements.contextMenu;
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menu.style.display = 'block';
+
+        const cleanup = () => {
+            menu.style.display = 'none';
+            // Clean up event listeners to prevent memory leaks
+            this.ui.elements.ctxEditLabel.removeEventListener('click', editHandler);
+            this.ui.elements.ctxDeleteLabel.removeEventListener('click', deleteHandler);
+            document.removeEventListener('click', cleanup);
+        };
+
+        const editHandler = () => {
+            if (target.type === 'rect') {
+                this.canvas.editLabel(target);
+            } else if (target.type === 'activeSelection') {
+                this.canvas.editMultipleLabels(target);
+            }
+        };
+
+        const deleteHandler = () => {
+            if (target.type === 'rect') {
+                this.canvas.removeObject(target);
+            } else if (target.type === 'activeSelection') {
+                target.getObjects().forEach(obj => this.canvas.removeObject(obj));
+                this.canvas.canvas.discardActiveObject();
+            }
+            this.ui.updateLabelList();
+            this.canvas.renderAll();
+        };
+
+        this.ui.elements.ctxEditLabel.addEventListener('click', editHandler, { once: true });
+        this.ui.elements.ctxDeleteLabel.addEventListener('click', deleteHandler, { once: true });
+
+        document.addEventListener('click', cleanup, { once: true });
+
+        // Store the target for actions
+        this.state.contextTarget = target;
     }
 
     handleMouseDown(opt) {
