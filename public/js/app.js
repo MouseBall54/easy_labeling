@@ -75,6 +75,7 @@ class AppState {
         this.isPreviewBarHidden = false; // Start with the preview bar visible
         this.isCrosshairVisible = false;
         this.contextTarget = null; // To store the target of the context menu
+        this.collapsedLabelGroups = new Set(); // To store collapsed label group IDs
     }
 }
 
@@ -248,73 +249,109 @@ class UIManager {
         const fragment = document.createDocumentFragment();
         let rects = this.canvasController.getObjects('rect');
 
-        // Sort rects based on the current sort order
-        rects.sort((a, b) => {
-            const idA = parseInt(a.labelClass, 10);
-            const idB = parseInt(b.labelClass, 10);
+        // 1. Group rectangles by class ID
+        const groupedRects = rects.reduce((acc, rect) => {
+            const classId = rect.labelClass;
+            if (!acc[classId]) {
+                acc[classId] = [];
+            }
+            acc[classId].push(rect);
+            return acc;
+        }, {});
+
+        // 2. Sort groups by class ID
+        const sortedGroupKeys = Object.keys(groupedRects).sort((a, b) => {
+            const idA = parseInt(a, 10);
+            const idB = parseInt(b, 10);
             return this.state.labelSortOrder === 'asc' ? idA - idB : idB - idA;
         });
-
-        // Re-order objects on the canvas for correct z-index
-        rects.forEach(rect => this.canvasController.canvas.remove(rect));
-        rects.forEach(rect => this.canvasController.canvas.add(rect));
-        this.canvasController.renderAll();
 
         this.updateLabelFilters(rects);
         this.updateSelectByClassDropdown(rects);
         this.canvasController.highlightSelection();
 
-        rects.forEach((rect, index) => {
-            const li = document.createElement('li');
-            li.id = `label-item-${index}`;
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.draggable = true;
-            li.dataset.index = index;
+        // 3. Create and append group elements
+        sortedGroupKeys.forEach(classId => {
+            const groupRects = groupedRects[classId];
+            const groupContainer = document.createElement('div');
+            groupContainer.className = 'label-group';
 
-            // Get currently active objects from canvas for highlighting
-            const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
-            // Apply active class if this rect is currently selected on canvas
-            const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
-            if (isActive) {
-                li.classList.add('active');
+            const isCollapsed = this.state.collapsedLabelGroups.has(classId);
+
+            // Create group header
+            const groupHeader = document.createElement('div');
+            groupHeader.className = 'label-group-header list-group-item';
+            const groupColor = getColorForClass(classId);
+            groupHeader.innerHTML = `
+                <i class="bi bi-chevron-right me-2"></i>
+                <span class="label-color-swatch me-2" style="background-color: ${groupColor};"></span>
+                <span class="fw-bold">${this.getDisplayNameForClass(classId)}</span>
+                <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group"></i>
+                <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
+            `;
+
+            // Create container for list items
+            const itemsContainer = document.createElement('div');
+            itemsContainer.className = 'label-group-items';
+
+            if (isCollapsed) {
+                groupHeader.classList.add('collapsed');
+                itemsContainer.style.maxHeight = '0';
             }
 
-            const color = getColorForClass(rect.labelClass);
-            const displayName = this.getDisplayNameForClass(rect.labelClass);
-            
-            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
-            
-            li.addEventListener('click', (e) => {
-                if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
-                this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
+            // Event listener for toggling
+            groupHeader.addEventListener('click', () => {
+                const isCurrentlyCollapsed = groupHeader.classList.toggle('collapsed');
+                itemsContainer.style.maxHeight = isCurrentlyCollapsed ? '0' : itemsContainer.scrollHeight + 'px';
+                if (isCurrentlyCollapsed) {
+                    this.state.collapsedLabelGroups.add(classId);
+                } else {
+                    this.state.collapsedLabelGroups.delete(classId);
+                }
             });
 
-            
+            // Event listener for the select button
+            const selectBtn = groupHeader.querySelector('.select-group-btn');
+            selectBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent the group from collapsing
+                this.canvasController.selectLabelsByClass(classId);
+            });
 
-            fragment.appendChild(li);
+            // Create and append individual label items
+            groupRects.forEach(rect => {
+                const originalIndex = rects.indexOf(rect);
+                const li = document.createElement('li');
+                li.id = `label-item-${originalIndex}`;
+                li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                li.draggable = true;
+                li.dataset.index = originalIndex;
+
+                const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
+                const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
+                if (isActive) {
+                    li.classList.add('active');
+                }
+
+                const color = getColorForClass(rect.labelClass);
+                const displayName = this.getDisplayNameForClass(rect.labelClass);
+
+                li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
+
+                li.addEventListener('click', (e) => {
+                    if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
+                    this.canvasController.canvas.setActiveObject(rects[originalIndex]).renderAll();
+                });
+
+                itemsContainer.appendChild(li);
+            });
+
+            groupContainer.appendChild(groupHeader);
+            groupContainer.appendChild(itemsContainer);
+            fragment.appendChild(groupContainer);
         });
 
         this.elements.labelList.appendChild(fragment);
         this.addEditDeleteListeners(rects);
-        
-        const activeClassFilters = new Set();
-        this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
-            activeClassFilters.add(btn.dataset.labelClass);
-        });
-
-        rects.forEach((rect, index) => {
-            let isVisible = true;
-            if (activeClassFilters.size > 0) {
-                isVisible = activeClassFilters.has(rect.labelClass);
-            } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
-                // If there are filters but none are active, hide all
-                isVisible = false;
-            }
-            const listItem = document.getElementById(`label-item-${index}`);
-            if (listItem) {
-                listItem.style.display = isVisible ? '' : 'none';
-            }
-        });
     }
     
     updateLabelFilters(rects) {
@@ -667,7 +704,20 @@ class UIManager {
 
     renderClassFileList() {
         const select = this.elements.classFileSelect;
-        select.innerHTML = '<option value="" selected>All Classes</option>'; // Default option
+        const previousSelection = this.state.selectedClassFile ? this.state.selectedClassFile.name : '';
+        select.innerHTML = ''; // Clear existing options
+
+        // Add the "Create New" option
+        const createNewOption = document.createElement('option');
+        createNewOption.value = '__CREATE_NEW__';
+        createNewOption.textContent = '＋ Create new class file...';
+        select.appendChild(createNewOption);
+
+        // Add a separator
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '──────────';
+        select.appendChild(separator);
 
         this.state.classFiles
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
@@ -675,11 +725,15 @@ class UIManager {
                 const option = document.createElement('option');
                 option.value = file.name;
                 option.textContent = file.name;
-                if (this.state.selectedClassFile && this.state.selectedClassFile.name === file.name) {
-                    option.selected = true;
-                }
                 select.appendChild(option);
             });
+
+        // Restore previous selection
+        if (previousSelection) {
+            select.value = previousSelection;
+        } else {
+            select.selectedIndex = -1;
+        }
     }
 
     promptForLabelClass(defaultValue = '0') {
@@ -807,14 +861,17 @@ class FileSystem {
     }
 
     async listClassFiles() {
-        if (!this.state.classInfoFolderHandle) return;
+        const folderHandle = this.state.classInfoFolderHandle || this.state.labelFolderHandle;
+        if (!folderHandle) return;
+
         this.state.classFiles = [];
-        for await (const entry of this.state.classInfoFolderHandle.values()) {
+        for await (const entry of folderHandle.values()) {
             if (entry.kind === 'file' && /\.(yaml|yml)$/i.test(entry.name)) {
                 this.state.classFiles.push(entry);
             }
         }
         this.uiManager.renderClassFileList();
+
         // If a file is selected, load it. Otherwise, clear the classes.
         if (this.state.selectedClassFile) {
             const stillExists = this.state.classFiles.some(f => f.name === this.state.selectedClassFile.name);
@@ -1005,6 +1062,57 @@ class FileSystem {
             console.error('Error saving class file:', err);
             showToast('Failed to save file. Check console for details.', 4000);
         }
+    }
+
+    async createNewClassFile() {
+        const folderHandle = this.state.classInfoFolderHandle || this.state.labelFolderHandle;
+        if (!folderHandle) {
+            showToast('Please select a Label folder or Class Info folder first.', 5000);
+            this.uiManager.renderClassFileList(); // Reset dropdown to its previous state
+            return;
+        }
+
+        let fileName = prompt("Enter a name for the new class file (e.g., 'my-classes'). '.yaml' will be added automatically.", "custom-classes");
+
+        if (!fileName) {
+            showToast('File creation cancelled.');
+            this.uiManager.renderClassFileList(); // Reset dropdown
+            return;
+        }
+
+        fileName = fileName.trim();
+        if (!fileName.toLowerCase().endsWith('.yaml') && !fileName.toLowerCase().endsWith('.yml')) {
+            fileName += '.yaml';
+        }
+
+        try {
+            // Check if file already exists
+            for await (const entry of folderHandle.values()) {
+                if (entry.name.toLowerCase() === fileName.toLowerCase()) {
+                    showToast(`File "${fileName}" already exists.`, 4000);
+                    this.uiManager.renderClassFileList(); // Reset dropdown
+                    return;
+                }
+            }
+
+            const newFileHandle = await folderHandle.getFileHandle(fileName, { create: true });
+            const writable = await newFileHandle.createWritable();
+            await writable.write('# YAML Class file. Format: id: name\n0: class1\n1: class2');
+            await writable.close();
+
+            showToast(`File "${fileName}" created successfully in ${folderHandle.name}.`, 4000);
+
+            // Refresh the class file list and select the new file
+            await this.listClassFiles();
+            this.state.selectedClassFile = newFileHandle;
+            this.uiManager.elements.classFileSelect.value = fileName;
+            await this.loadClassNamesFromFile(newFileHandle);
+
+        } catch (err) {
+            console.error('Error creating new class file:', err);
+            showToast('Failed to create file. See console for details.', 4000);
+            this.uiManager.renderClassFileList(); // Reset dropdown on error
+        }
     }""
 
 
@@ -1042,6 +1150,7 @@ class FileSystem {
                 this.state.labelFolderHandle = labelFolderHandle;
                 this.uiManager.updateLabelFolderButton(true, `label (auto)`);
                 showToast(`Found and loaded 'label' subfolder.`);
+                await this.listClassFiles(); // Scan for class files
             } catch (err) {
                 if (err.name === 'NotFoundError') {
                     // If the label directory doesn't exist, ask the user to create it.
@@ -1051,6 +1160,7 @@ class FileSystem {
                             this.state.labelFolderHandle = newLabelFolderHandle;
                             this.uiManager.updateLabelFolderButton(true, `label (created)`);
                             showToast(`'label' subfolder created and loaded.`);
+                            await this.listClassFiles(); // Scan for class files
                         } catch (createErr) {
                             console.error("Error creating 'label' subfolder:", createErr);
                             showToast('Failed to create "label" subfolder.', 4000);
@@ -1084,10 +1194,14 @@ class FileSystem {
         try {
             this.state.labelFolderHandle = await window.showDirectoryPicker();
             this.uiManager.updateLabelFolderButton(true, this.state.labelFolderHandle.name);
-            if (this.state.imageFiles.length > 0) {
-                await this.listImageFiles();
-            }
             showToast(`Label folder selected: ${this.state.labelFolderHandle.name}`);
+            
+            // Automatically list class files from the newly selected label folder
+            await this.listClassFiles();
+
+            if (this.state.imageFiles.length > 0) {
+                await this.listImageFiles(); // Re-check label status
+            }
         } catch (err) {
             if (err.name !== 'AbortError') {
                 console.error('Error selecting label folder:', err);
@@ -1904,20 +2018,19 @@ class EventManager {
             }
         });
 
-        this.ui.elements.classFileSelect.addEventListener('change', (e) => {
+        this.ui.elements.classFileSelect.addEventListener('change', async (e) => {
             const selectedFileName = e.target.value;
+
+            if (selectedFileName === '__CREATE_NEW__') {
+                await this.fileSystem.createNewClassFile();
+                return; // Stop further processing
+            }
+
             if (selectedFileName) {
                 const fileHandle = this.state.classFiles.find(f => f.name === selectedFileName);
                 if (fileHandle) {
                     this.fileSystem.loadClassNamesFromFile(fileHandle);
                 }
-            } else {
-                // "All Classes" is selected
-                this.state.selectedClassFile = null;
-                this.state.classNames.clear();
-                this.ui.updateLabelList();
-                this.canvas.updateAllLabelTexts();
-                showToast('Cleared class names. Showing all classes.');
             }
         });
         this.ui.elements.imageSearchInput.addEventListener('input', () => this.ui.renderImageList());
