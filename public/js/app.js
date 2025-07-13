@@ -54,6 +54,7 @@ class AppState {
     constructor() {
         this.imageFolderHandle = null;
         this.labelFolderHandle = null;
+        this.classInfoFolderHandle = null;
         this.imageFiles = [];
         this.classFiles = [];
         this.selectedClassFile = null;
@@ -102,6 +103,7 @@ class UIManager {
         return {
             selectImageFolderBtn: document.getElementById('selectImageFolderBtn'),
             selectLabelFolderBtn: document.getElementById('selectLabelFolderBtn'),
+            loadClassInfoFolderBtn: document.getElementById('loadClassInfoFolderBtn'),
             classFileSelect: document.getElementById('class-file-select'),
             imageList: document.getElementById('image-list'),
             imageSearchInput: document.getElementById('imageSearchInput'),
@@ -811,11 +813,25 @@ class FileSystem {
         this.canvasController = canvasController;
     }
 
+    async selectClassInfoFolder() {
+        try {
+            this.state.classInfoFolderHandle = await window.showDirectoryPicker();
+            showToast(`Class Info Folder selected: ${this.state.classInfoFolderHandle.name}`);
+            await this.listClassFiles();
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                console.error('Error selecting class info folder:', err);
+                showToast('Failed to select class info folder.', 4000);
+            }
+        }
+    }
+
     async listClassFiles() {
-        if (!this.state.labelFolderHandle) return;
+        const folderHandle = this.state.classInfoFolderHandle || this.state.labelFolderHandle;
+        if (!folderHandle) return;
 
         this.state.classFiles = [];
-        for await (const entry of this.state.labelFolderHandle.values()) {
+        for await (const entry of folderHandle.values()) {
             if (entry.kind === 'file' && /\.(yaml|yml)$/i.test(entry.name)) {
                 this.state.classFiles.push(entry);
             }
@@ -1015,8 +1031,9 @@ class FileSystem {
     }
 
     async createNewClassFile() {
-        if (!this.state.labelFolderHandle) {
-            showToast('Please select a Label folder first to store the new class file.', 5000);
+        const folderHandle = this.state.classInfoFolderHandle || this.state.labelFolderHandle;
+        if (!folderHandle) {
+            showToast('Please select a Label folder or Class Info folder first.', 5000);
             this.uiManager.renderClassFileList(); // Reset dropdown to its previous state
             return;
         }
@@ -1036,7 +1053,7 @@ class FileSystem {
 
         try {
             // Check if file already exists
-            for await (const entry of this.state.labelFolderHandle.values()) {
+            for await (const entry of folderHandle.values()) {
                 if (entry.name.toLowerCase() === fileName.toLowerCase()) {
                     showToast(`File "${fileName}" already exists.`, 4000);
                     this.uiManager.renderClassFileList(); // Reset dropdown
@@ -1044,12 +1061,12 @@ class FileSystem {
                 }
             }
 
-            const newFileHandle = await this.state.labelFolderHandle.getFileHandle(fileName, { create: true });
+            const newFileHandle = await folderHandle.getFileHandle(fileName, { create: true });
             const writable = await newFileHandle.createWritable();
             await writable.write('# YAML Class file. Format: id: name\n0: class1\n1: class2');
             await writable.close();
 
-            showToast(`File "${fileName}" created successfully.`, 4000);
+            showToast(`File "${fileName}" created successfully in ${folderHandle.name}.`, 4000);
 
             // Refresh the class file list and select the new file
             await this.listClassFiles();
@@ -1940,6 +1957,7 @@ class EventManager {
         // UI Buttons
         this.ui.elements.selectImageFolderBtn.addEventListener('click', () => this.fileSystem.selectImageFolder());
         this.ui.elements.selectLabelFolderBtn.addEventListener('click', () => this.fileSystem.selectLabelFolder());
+        this.ui.elements.loadClassInfoFolderBtn.addEventListener('click', () => this.fileSystem.selectClassInfoFolder());
         this.ui.elements.saveLabelsBtn.addEventListener('click', () => this.fileSystem.saveLabels(false));
         this.ui.elements.downloadClassesBtn.addEventListener('click', () => this.fileSystem.downloadClassTemplate());
         this.ui.elements.sortLabelsAscBtn.addEventListener('click', () => {
