@@ -486,37 +486,6 @@ class UIManager {
         };
         setup(this.elements.leftSplitter, this.elements.leftPanel, 'left');
         setup(this.elements.rightSplitter, this.elements.rightPanel, 'right');
-        this.setupBottomSplitter();
-    }
-
-    setupBottomSplitter() {
-        const splitter = this.elements.bottomSplitter;
-        const panel = this.elements.bottomPanel;
-
-        splitter.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            const startY = e.clientY;
-            const startHeight = panel.offsetHeight;
-
-            const onMouseMove = (moveEvent) => {
-                const newHeight = startHeight - (moveEvent.clientY - startY);
-                if (newHeight > 50 && newHeight < 400) { // Min/max height
-                    panel.style.height = newHeight + 'px';
-                    this.canvasController.resizeCanvas();
-                    this.canvasController.resetZoom();
-                }
-            };
-
-            const onMouseUp = () => {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-                this.canvasController.resizeCanvas(); // Final resize after drag ends
-                this.canvasController.resetZoom();
-            };
-
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-        });
     }
 
     updateZoomDisplay() {
@@ -688,7 +657,11 @@ class UIManager {
 
     togglePreviewBarVisibility(hide) {
         this.state.isPreviewBarHidden = hide;
-        this.elements.bottomPanel.classList.toggle('collapsed', hide);
+        this.elements.bottomPanel.classList.toggle('show', !hide);
+
+        const icon = this.elements.togglePreviewBtn.querySelector('i');
+        icon.classList.toggle('bi-chevron-down', !hide);
+        icon.classList.toggle('bi-chevron-up', hide);
         
         // If we are showing the bar again, re-render the previews.
         if (!hide) {
