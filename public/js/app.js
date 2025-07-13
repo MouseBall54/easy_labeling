@@ -667,7 +667,27 @@ class UIManager {
 
     renderClassFileList() {
         const select = this.elements.classFileSelect;
-        select.innerHTML = '<option value="" selected>All Classes</option>'; // Default option
+        const previousSelection = this.state.selectedClassFile ? this.state.selectedClassFile.name : '';
+        select.innerHTML = ''; // Clear existing options
+
+        // Add the "Create New" option
+        const createNewOption = document.createElement('option');
+        createNewOption.value = '__CREATE_NEW__';
+        createNewOption.textContent = '＋ Create new class file...';
+        select.appendChild(createNewOption);
+
+        // Add a separator
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '──────────';
+        select.appendChild(separator);
+
+        // Add the default "All Classes" option
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = 'All Classes';
+        select.appendChild(allOption);
+
 
         this.state.classFiles
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
@@ -675,11 +695,11 @@ class UIManager {
                 const option = document.createElement('option');
                 option.value = file.name;
                 option.textContent = file.name;
-                if (this.state.selectedClassFile && this.state.selectedClassFile.name === file.name) {
-                    option.selected = true;
-                }
                 select.appendChild(option);
             });
+
+        // Restore previous selection
+        select.value = previousSelection;
     }
 
     promptForLabelClass(defaultValue = '0') {
@@ -807,14 +827,17 @@ class FileSystem {
     }
 
     async listClassFiles() {
-        if (!this.state.classInfoFolderHandle) return;
+        const folderHandle = this.state.labelFolderHandle || this.state.classInfoFolderHandle;
+        if (!folderHandle) return;
+
         this.state.classFiles = [];
-        for await (const entry of this.state.classInfoFolderHandle.values()) {
+        for await (const entry of folderHandle.values()) {
             if (entry.kind === 'file' && /\.(yaml|yml)$/i.test(entry.name)) {
                 this.state.classFiles.push(entry);
             }
         }
         this.uiManager.renderClassFileList();
+
         // If a file is selected, load it. Otherwise, clear the classes.
         if (this.state.selectedClassFile) {
             const stillExists = this.state.classFiles.some(f => f.name === this.state.selectedClassFile.name);
@@ -1004,6 +1027,56 @@ class FileSystem {
         } catch (err) {
             console.error('Error saving class file:', err);
             showToast('Failed to save file. Check console for details.', 4000);
+        }
+    }
+
+    async createNewClassFile() {
+        if (!this.state.labelFolderHandle) {
+            showToast('Please select a Label folder first to store the new class file.', 5000);
+            this.uiManager.renderClassFileList(); // Reset dropdown to its previous state
+            return;
+        }
+
+        let fileName = prompt("Enter a name for the new class file (e.g., 'my-classes'). '.yaml' will be added automatically.", "custom-classes");
+
+        if (!fileName) {
+            showToast('File creation cancelled.');
+            this.uiManager.renderClassFileList(); // Reset dropdown
+            return;
+        }
+
+        fileName = fileName.trim();
+        if (!fileName.toLowerCase().endsWith('.yaml') && !fileName.toLowerCase().endsWith('.yml')) {
+            fileName += '.yaml';
+        }
+
+        try {
+            // Check if file already exists
+            for await (const entry of this.state.labelFolderHandle.values()) {
+                if (entry.name.toLowerCase() === fileName.toLowerCase()) {
+                    showToast(`File "${fileName}" already exists.`, 4000);
+                    this.uiManager.renderClassFileList(); // Reset dropdown
+                    return;
+                }
+            }
+
+            const newFileHandle = await this.state.labelFolderHandle.getFileHandle(fileName, { create: true });
+            const writable = await newFileHandle.createWritable();
+            await writable.write('# YAML Class file. Format: id: name\n0: class1\n1: class2');
+            await writable.close();
+
+            showToast(`File "${fileName}" created successfully.`, 4000);
+
+            // Refresh the class file list and select the new file
+            await this.listClassFiles();
+            this.state.selectedClassFile = newFileHandle;
+            this.uiManager.elements.classFileSelect.value = fileName;
+            await this.loadClassNamesFromFile(newFileHandle);
+
+        } catch (err) {
+            console.error('Error creating new class file:', err);
+            showToast('Failed to create file. See console for details.', 4000);
+            this.uiManager.renderClassFileList(); // Reset dropdown on error
         }
     }""
 
@@ -1904,8 +1977,14 @@ class EventManager {
             }
         });
 
-        this.ui.elements.classFileSelect.addEventListener('change', (e) => {
+        this.ui.elements.classFileSelect.addEventListener('change', async (e) => {
             const selectedFileName = e.target.value;
+
+            if (selectedFileName === '__CREATE_NEW__') {
+                await this.fileSystem.createNewClassFile();
+                return; // Stop further processing
+            }
+
             if (selectedFileName) {
                 const fileHandle = this.state.classFiles.find(f => f.name === selectedFileName);
                 if (fileHandle) {
