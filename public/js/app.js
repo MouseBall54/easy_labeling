@@ -75,6 +75,7 @@ class AppState {
         this.isPreviewBarHidden = false; // Start with the preview bar visible
         this.isCrosshairVisible = false;
         this.contextTarget = null; // To store the target of the context menu
+        this.collapsedLabelGroups = new Set(); // To store collapsed label group IDs
     }
 }
 
@@ -248,73 +249,99 @@ class UIManager {
         const fragment = document.createDocumentFragment();
         let rects = this.canvasController.getObjects('rect');
 
-        // Sort rects based on the current sort order
-        rects.sort((a, b) => {
-            const idA = parseInt(a.labelClass, 10);
-            const idB = parseInt(b.labelClass, 10);
+        // 1. Group rectangles by class ID
+        const groupedRects = rects.reduce((acc, rect) => {
+            const classId = rect.labelClass;
+            if (!acc[classId]) {
+                acc[classId] = [];
+            }
+            acc[classId].push(rect);
+            return acc;
+        }, {});
+
+        // 2. Sort groups by class ID
+        const sortedGroupKeys = Object.keys(groupedRects).sort((a, b) => {
+            const idA = parseInt(a, 10);
+            const idB = parseInt(b, 10);
             return this.state.labelSortOrder === 'asc' ? idA - idB : idB - idA;
         });
-
-        // Re-order objects on the canvas for correct z-index
-        rects.forEach(rect => this.canvasController.canvas.remove(rect));
-        rects.forEach(rect => this.canvasController.canvas.add(rect));
-        this.canvasController.renderAll();
 
         this.updateLabelFilters(rects);
         this.updateSelectByClassDropdown(rects);
         this.canvasController.highlightSelection();
 
-        rects.forEach((rect, index) => {
-            const li = document.createElement('li');
-            li.id = `label-item-${index}`;
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.draggable = true;
-            li.dataset.index = index;
+        // 3. Create and append group elements
+        sortedGroupKeys.forEach(classId => {
+            const groupRects = groupedRects[classId];
+            const groupContainer = document.createElement('div');
+            groupContainer.className = 'label-group';
 
-            // Get currently active objects from canvas for highlighting
-            const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
-            // Apply active class if this rect is currently selected on canvas
-            const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
-            if (isActive) {
-                li.classList.add('active');
+            const isCollapsed = this.state.collapsedLabelGroups.has(classId);
+
+            // Create group header
+            const groupHeader = document.createElement('div');
+            groupHeader.className = 'label-group-header list-group-item';
+            groupHeader.innerHTML = `
+                <i class="bi bi-chevron-right me-2"></i>
+                <span class="fw-bold">${this.getDisplayNameForClass(classId)}</span>
+                <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
+            `;
+
+            // Create container for list items
+            const itemsContainer = document.createElement('div');
+            itemsContainer.className = 'label-group-items';
+
+            if (isCollapsed) {
+                groupHeader.classList.add('collapsed');
+                itemsContainer.style.maxHeight = '0';
             }
 
-            const color = getColorForClass(rect.labelClass);
-            const displayName = this.getDisplayNameForClass(rect.labelClass);
-            
-            li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${index}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${index}"><i class="bi bi-trash"></i></button></div>`;
-            
-            li.addEventListener('click', (e) => {
-                if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
-                this.canvasController.canvas.setActiveObject(rects[index]).renderAll();
+            // Event listener for toggling
+            groupHeader.addEventListener('click', () => {
+                const isCurrentlyCollapsed = groupHeader.classList.toggle('collapsed');
+                itemsContainer.style.maxHeight = isCurrentlyCollapsed ? '0' : itemsContainer.scrollHeight + 'px';
+                if (isCurrentlyCollapsed) {
+                    this.state.collapsedLabelGroups.add(classId);
+                } else {
+                    this.state.collapsedLabelGroups.delete(classId);
+                }
             });
 
-            
+            // Create and append individual label items
+            groupRects.forEach(rect => {
+                const originalIndex = rects.indexOf(rect);
+                const li = document.createElement('li');
+                li.id = `label-item-${originalIndex}`;
+                li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                li.draggable = true;
+                li.dataset.index = originalIndex;
 
-            fragment.appendChild(li);
+                const activeCanvasObjects = this.canvasController.canvas.getActiveObjects();
+                const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 && activeCanvasObjects[0].type === 'activeSelection' && activeCanvasObjects[0].getObjects().includes(rect));
+                if (isActive) {
+                    li.classList.add('active');
+                }
+
+                const color = getColorForClass(rect.labelClass);
+                const displayName = this.getDisplayNameForClass(rect.labelClass);
+
+                li.innerHTML = `<span><span class="badge me-2" style="background-color: ${color};"> </span>${displayName}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
+
+                li.addEventListener('click', (e) => {
+                    if (e.target.closest('.edit-btn') || e.target.closest('.delete-btn')) return;
+                    this.canvasController.canvas.setActiveObject(rects[originalIndex]).renderAll();
+                });
+
+                itemsContainer.appendChild(li);
+            });
+
+            groupContainer.appendChild(groupHeader);
+            groupContainer.appendChild(itemsContainer);
+            fragment.appendChild(groupContainer);
         });
 
         this.elements.labelList.appendChild(fragment);
         this.addEditDeleteListeners(rects);
-        
-        const activeClassFilters = new Set();
-        this.elements.labelFilters.querySelectorAll('.btn[data-label-class].active').forEach(btn => {
-            activeClassFilters.add(btn.dataset.labelClass);
-        });
-
-        rects.forEach((rect, index) => {
-            let isVisible = true;
-            if (activeClassFilters.size > 0) {
-                isVisible = activeClassFilters.has(rect.labelClass);
-            } else if (activeClassFilters.size === 0 && this.elements.labelFilters.querySelectorAll('.btn[data-label-class]').length > 0) {
-                // If there are filters but none are active, hide all
-                isVisible = false;
-            }
-            const listItem = document.getElementById(`label-item-${index}`);
-            if (listItem) {
-                listItem.style.display = isVisible ? '' : 'none';
-            }
-        });
     }
     
     updateLabelFilters(rects) {
