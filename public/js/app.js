@@ -1027,17 +1027,30 @@ class FileSystem {
             const imageFolderHandle = await window.showDirectoryPicker();
             this.state.imageFolderHandle = imageFolderHandle;
 
-            // Automatically check for a 'label' subfolder
+            // Automatically check for a 'label' subfolder or offer to create one.
             try {
                 const labelFolderHandle = await imageFolderHandle.getDirectoryHandle('label');
                 this.state.labelFolderHandle = labelFolderHandle;
                 this.uiManager.updateLabelFolderButton(true, `label (auto)`);
                 showToast(`Found and loaded 'label' subfolder.`);
             } catch (err) {
-                if (err.name !== 'NotFoundError') {
+                if (err.name === 'NotFoundError') {
+                    // If the label directory doesn't exist, ask the user to create it.
+                    if (confirm(`"label" subfolder not found. Do you want to create it?`)) {
+                        try {
+                            const newLabelFolderHandle = await imageFolderHandle.getDirectoryHandle('label', { create: true });
+                            this.state.labelFolderHandle = newLabelFolderHandle;
+                            this.uiManager.updateLabelFolderButton(true, `label (created)`);
+                            showToast(`'label' subfolder created and loaded.`);
+                        } catch (createErr) {
+                            console.error("Error creating 'label' subfolder:", createErr);
+                            showToast('Failed to create "label" subfolder.', 4000);
+                        }
+                    }
+                } else {
                     console.error("Error checking for 'label' subfolder:", err);
+                    showToast('Error accessing "label" subfolder.', 4000);
                 }
-                // If not found, do nothing. User can select manually.
             }
 
             // Clear the preview cache when a new folder is selected
