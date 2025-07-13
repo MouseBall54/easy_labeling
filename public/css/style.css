@@ -250,6 +250,7 @@ body {
 
 .control-panel .panel-header,
 .control-panel .panel-content {
+    min-width: 0; /* Prevent flex items from resisting collapse */
     opacity: 1;
     visibility: visible;
     transition: opacity 0.2s ease, visibility 0.2s ease;
