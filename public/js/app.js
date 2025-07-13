@@ -166,7 +166,16 @@ class UIManager {
             contextMenu: document.getElementById('context-menu'),
             ctxEditLabel: document.getElementById('ctx-edit-label'),
             ctxDeleteLabel: document.getElementById('ctx-delete-label'),
+            loadingOverlay: document.getElementById('loading-overlay'),
         };
+    }
+
+    showLoadingIndicator() {
+        this.elements.loadingOverlay.classList.add('show');
+    }
+
+    hideLoadingIndicator() {
+        this.elements.loadingOverlay.classList.remove('show');
     }
 
     togglePanel(panel, splitter, expandBtn, isCollapsing) {
@@ -1135,52 +1144,62 @@ class FileSystem {
     }
 
     async loadImageAndLabels(imageFileHandle) {
-        if (this.state.isAutoSaveEnabled && this.state.currentImageFile) {
-            await this.saveLabels(true);
-        }
+        this.uiManager.showLoadingIndicator();
+        try {
+            if (this.state.isAutoSaveEnabled && this.state.currentImageFile) {
+                await this.saveLabels(true);
+            }
 
-        clearTimeout(this.state.saveTimeout);
+            clearTimeout(this.state.saveTimeout);
 
-        this.state.currentLoadToken++;
-        const loadToken = this.state.currentLoadToken;
+            this.state.currentLoadToken++;
+            const loadToken = this.state.currentLoadToken;
 
-        this.state.currentImageFile = imageFileHandle;
-        const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
-        const totalImages = this.state.imageFiles.length;
-        this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
-        
-        const file = await imageFileHandle.getFile();
+            this.state.currentImageFile = imageFileHandle;
+            const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
+            const totalImages = this.state.imageFiles.length;
+            this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
+            
+            const file = await imageFileHandle.getFile();
 
-        const setBackgroundImage = (img) => {
-            if (loadToken !== this.state.currentLoadToken) return;
-            this.state.currentImage = img;
-            this.canvasController.clear();
-            this.uiManager.elements.labelList.innerHTML = '';
-            this.uiManager.elements.labelFilters.innerHTML = '';
-            this.canvasController.setBackgroundImage(img);
-            this.canvasController.resetZoom();
-            this.loadLabels(imageFileHandle.name, loadToken);
-        };
-
-        if (/\.(tif|tiff)$/i.test(file.name)) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
+            const setBackgroundImage = async (img) => {
                 if (loadToken !== this.state.currentLoadToken) return;
-                const tiff = new Tiff({ buffer: e.target.result });
-                const tiffCanvas = tiff.toCanvas();
-                fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
+                this.state.currentImage = img;
+                this.canvasController.clear();
+                this.uiManager.elements.labelList.innerHTML = '';
+                this.uiManager.elements.labelFilters.innerHTML = '';
+                this.canvasController.setBackgroundImage(img);
+                this.canvasController.resetZoom();
+                await this.loadLabels(imageFileHandle.name, loadToken);
             };
-            reader.readAsArrayBuffer(file);
-        } else {
-            const url = URL.createObjectURL(file);
-            fabric.Image.fromURL(url, (img) => {
-                setBackgroundImage(img);
-                URL.revokeObjectURL(url);
-            });
+
+            if (/\.(tif|tiff)$/i.test(file.name)) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    if (loadToken !== this.state.currentLoadToken) return;
+                    const tiff = new Tiff({ buffer: e.target.result });
+                    const tiffCanvas = tiff.toCanvas();
+                    fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                const url = URL.createObjectURL(file);
+                await new Promise((resolve, reject) => {
+                    fabric.Image.fromURL(url, (img) => {
+                        setBackgroundImage(img).then(resolve).catch(reject);
+                        URL.revokeObjectURL(url);
+                    });
+                });
+            }
+            
+            this.uiManager.setActiveImageListItem(imageFileHandle);
+            this.uiManager.renderPreviewBar(imageFileHandle);
+        } catch (error) {
+            console.error("Error loading image and labels:", error);
+            showToast("Failed to load image. See console for details.", 4000);
+        } finally {
+            this.uiManager.hideLoadingIndicator();
         }
-        
-        this.uiManager.setActiveImageListItem(imageFileHandle);
-        this.uiManager.renderPreviewBar(imageFileHandle);
     }
 
     async loadLabels(imageName, loadToken) {
