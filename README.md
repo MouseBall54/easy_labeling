@@ -6,19 +6,27 @@ The application is primarily a client-side tool that runs in modern web browsers
 
 ## Features
 
--   **Local File System Access**: Directly open and save to your local image and label folders without uploading files to a server.
--   **YOLO Format Support**: Annotations are saved in the widely-used YOLO `.txt` format.
--   **Multiple Image Format Support**: Works with standard formats (JPG, PNG, GIF) and TIFF (`.tif`, `.tiff`).
--   **Interactive Canvas**:
-    -   Draw, edit, move, and resize bounding boxes.
-    -   Zoom and pan for precise annotations.
-    -   "Go to Coordinates" feature to navigate to specific points in an image.
--   **Efficient Workflow**:
-    -   Auto-save functionality.
-    -   Keyboard shortcuts for navigation (`A`/`D`), copy/paste (`Ctrl+C`/`Ctrl+V`), select all (`Ctrl+A`), and class changes (`Ctrl+B`).
-    -   Synced selection between the canvas and the label list.
-    -   Class-based filtering of labels.
--   **Enhanced Paste Functionality**: Pasted objects are now clamped within image boundaries and positioned relative to the mouse cursor.
+-   **Local First**: Utilizes the File System Access API to work directly with your local image and label folders. No uploads required.
+-   **Comprehensive Annotation Tools**:
+    -   Draw, edit, move, resize, and delete bounding boxes.
+    -   Dual modes for drawing and editing (`Ctrl+Q` to switch).
+    -   Fine-grained control with zoom, pan, and the ability to go to specific coordinates.
+    -   On-canvas class labels that can be toggled and resized.
+-   **Efficient Workflow & UI**:
+    -   **Collapsible & Resizable Panels**: Collapse the side panels to maximize your workspace and focus on the image.
+    -   **Image Preview Bar**: A scrollable thumbnail bar at the bottom for quick navigation between nearby images.
+    -   **Synced Selection**: Selections on the canvas and in the label list are always in sync.
+    -   **Live Mouse Coordinates**: The current coordinates of your mouse on the image are displayed in the coordinate input fields, allowing for precise adjustments.
+    -   Filter images by labeled/unlabeled status and filter annotations by class.
+    -   Extensive keyboard shortcuts for navigation (`A`/`D`), clipboard (`Ctrl+C`/`V`), selection (`Ctrl+A`), and more.
+-   **Advanced Label Management**:
+    -   Load class names from `.yaml` files to see friendly names instead of just IDs.
+    -   Switch between different class definition files on the fly and view their content in a built-in modal.
+    -   Select all boxes of a specific class or change the class for multiple boxes at once.
+-   **Flexible Configuration**:
+    -   Supports standard image formats (JPG, PNG) plus TIFF (`.tif`, `.tiff`).
+    -   Auto-save feature to prevent data loss.
+    *   Persistent dark mode.
 
 ## Prerequisites
 

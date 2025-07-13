@@ -14,7 +14,11 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-bounding-box"></i> Easy Labeling</a>
-            <span id="current-image-name" class="navbar-text mx-auto"></span>
+            <div class="mx-auto d-flex align-items-center">
+                <button class="btn btn-outline-light btn-sm me-2" id="prevImageBtn" title="Previous Image (A)"><i class="bi bi-chevron-left"></i></button>
+                <span id="current-image-name" class="navbar-text"></span>
+                <button class="btn btn-outline-light btn-sm ms-2" id="nextImageBtn" title="Next Image (D)"><i class="bi bi-chevron-right"></i></button>
+            </div>
             
             <div id="info-display" class="d-flex align-items-center text-white me-3">
                 <div class="btn-group me-3" role="group">
@@ -27,8 +31,11 @@
                     <input type="number" id="coordY" class="form-control form-control-sm" placeholder="Y">
                     <button id="goToCoordsBtn" class="btn btn-primary btn-sm"><i class="bi bi-geo-alt-fill"></i></button>
                 </div>
-                <div id="zoom-level" class="me-3">Zoom: 100%</div>
-                <div id="mouse-coords">X: 0, Y: 0</div>
+                <div class="input-group input-group-sm me-3" style="width: 130px;">
+                    <span class="input-group-text">Zoom</span>
+                    <input type="number" id="zoom-input" class="form-control" placeholder="100" min="10" max="2000">
+                    <span class="input-group-text">%</span>
+                </div>
             </div>
 
             <div class="form-check form-switch text-white me-3">
@@ -44,59 +51,105 @@
     <div class="main-container">
         <!-- Left Control Panel -->
         <div id="left-panel" class="control-panel">
-            <div class="d-grid gap-2 mb-3">
-                <button id="selectImageFolderBtn" class="btn btn-primary w-100 mb-2">Select Image Folder</button>
-                <button id="selectLabelFolderBtn" class="btn btn-secondary w-100">Select Label Folder</button>
+            <div class="panel-header d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-gear-fill"></i> Controls</h5>
+                <button id="collapse-left-panel-btn" class="btn btn-sm btn-outline-secondary" title="Collapse Panel">
+                    <i class="bi bi-chevron-double-left"></i>
+                </button>
             </div>
-            <hr>
-            <h5><i class="bi bi-list-ul"></i> Image Files</h5>
-            <div class="input-group mb-2">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
-            </div>
-            <div id="image-filter-container" class="btn-group w-100 mb-2" role="group">
-                <input type="checkbox" class="btn-check" id="showLabeled" checked>
-                <label class="btn btn-outline-primary" for="showLabeled"><i class="bi bi-check-circle"></i> Labeled</label>
-
-                <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
-                <label class="btn btn-outline-primary" for="showUnlabeled"><i class="bi bi-x-circle"></i> Unlabeled</label>
-            </div>
-            <div id="image-list" class="list-group mb-3">
-                <!-- Image list will be populated here -->
-            </div>
-            <hr>
-            <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
-                <label class="form-check-label" for="autoSaveToggle">Auto Save</label>
-            </div>
-            <div class="d-grid gap-2">
-                <button id="saveLabelsBtn" class="btn btn-success" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
-                <button id="downloadClassesBtn" class="btn btn-secondary mt-2"><i class="bi bi-download"></i> Download Class Template</button>
-            </div>
-            <hr>
-            <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
-            <div class="btn-group w-100" role="group" aria-label="Mode switch">
-                <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
-                <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode (Ctrl+Q)"><i class="bi bi-pencil-square"></i></label>
-
-                <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
-                <label class="btn btn-outline-primary" for="editMode" title="Edit Mode (Ctrl+Q)"><i class="bi bi-cursor"></i></label>
-            </div>
+            <div class="panel-content">
+                <div class="d-grid gap-2 mb-3">
+                    <button id="selectImageFolderBtn" class="btn btn-primary w-100 mb-2">Load Image Folder</button>
+                    <button id="selectLabelFolderBtn" class="btn btn-secondary w-100" disabled>Load Label Folder</button>
+                </div>
+                <hr>
+                <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
+                <div class="btn-group w-100" role="group" aria-label="Mode switch">
+                    <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode (Ctrl+Q)"><i class="bi bi-pencil-square"></i></label>
+    
+                    <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
+                    <label class="btn btn-outline-primary" for="editMode" title="Edit Mode (Ctrl+Q)"><i class="bi bi-cursor"></i></label>
+                </div>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" role="switch" id="crosshairToggle">
+                    <label class="form-check-label" for="crosshairToggle">Show Crosshair</label>
+                </div>
+                <hr>
+                <h5><i class="bi bi-list-ul"></i> Image Files</h5>
+                <div class="input-group mb-2">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
+                </div>
+                <div id="image-filter-container" class="btn-group w-100 mb-2" role="group">
+                    <input type="checkbox" class="btn-check" id="showLabeled" checked>
+                    <label class="btn btn-outline-primary" for="showLabeled"><i class="bi bi-check-circle"></i> Labeled</label>
+    
+                    <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
+                    <label class="btn btn-outline-primary" for="showUnlabeled"><i class="bi bi-x-circle"></i> Unlabeled</label>
+                </div>
+                <div id="image-list" class="list-group mb-3">
+                    <!-- Image list will be populated here -->
+                </div>
+                <hr>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
+                    <label class="form-check-label" for="autoSaveToggle">Auto Save</label>
+                </div>
+                <div class="d-grid gap-2">
+                    <button id="saveLabelsBtn" class="btn btn-success" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
+                    <button id="downloadClassesBtn" class="btn btn-secondary mt-2"><i class="bi bi-download"></i> Download Class Template</button>
+                </div>
         </div>
+    </div>
 
         <div id="left-splitter" class="panel-splitter"></div>
 
         <!-- Canvas Area -->
         <div id="canvas-container" class="canvas-container">
+            <div id="toast-container"></div>
+            <div id="loading-overlay" class="loading-overlay">
+                <div class="spinner-border text-light" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
             <canvas id="canvas"></canvas>
+            <button id="expand-left-panel-btn" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right"></i></button>
+            <button id="expand-right-panel-btn" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left"></i></button>
+            <!-- Bottom Preview Panel -->
+            <div id="bottom-panel">
+                <div id="bottom-splitter"></div>
+                <div id="preview-bar-container">
+                    <div id="preview-bar-header">
+                        <span><i class="bi bi-images"></i> Image Previews</span>
+                        <button id="toggle-preview-btn" class="btn btn-sm btn-outline-secondary" title="Toggle Preview Panel">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                    </div>
+                    <div id="preview-bar">
+                        <button id="preview-prev-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-left"></i></button>
+                        <div id="preview-list-wrapper">
+                            <div id="preview-list"></div>
+                        </div>
+                        <button id="preview-next-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-right"></i></button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div id="right-splitter" class="panel-splitter"></div>
 
         <!-- Right Label Panel -->
         <div id="right-panel" class="control-panel">
-            <div>
-                <h5><i class="bi bi-funnel"></i> Filters</h5>
+            <div class="panel-header d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-tags"></i> Labels & Filters</h5>
+                <button id="collapse-right-panel-btn" class="btn btn-sm btn-outline-secondary" title="Collapse Panel">
+                    <i class="bi bi-chevron-double-right"></i>
+                </button>
+            </div>
+            <div class="panel-content">
+                <div>
+                    <h5><i class="bi bi-funnel"></i> Filters</h5>
                 <div id="label-filters" class="mb-2">
                     <!-- Filter buttons will be added here -->
                 </div>
@@ -118,7 +171,7 @@
                 </div>
                 <div class="input-group mb-2">
                     <select class="form-select" id="select-by-class-dropdown">
-                        <option selected value="">Select a class to select boxes...</option>
+                        <option selected value="">Select a class</option>
                     </select>
                     <button class="btn btn-outline-primary" type="button" id="select-by-class-btn">Select</button>
                 </div>
@@ -137,20 +190,59 @@
                 </ul>
             </div>
         </div>
-    </div>
+    </div> <!-- This closes right-panel -->
 
-    <div id="toast-container"></div>
+    </div> <!-- This closes main-container -->
 
-    <!-- Class File Viewer Modal -->
+    
     <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="classFileViewerModalLabel">Class File Content</h5>
+                    <h5 class="modal-title" id="classFileViewerModalLabel">Edit Class File</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <pre><code id="classFileContent"></code></pre>
+                    <table class="table table-striped table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th style="width: 15%;">ID</th>
+                                <th>Class Name</th>
+                                <th style="width: 15%;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="classFileEditorBody">
+                            <!-- Content will be dynamically generated -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary me-auto" id="addClassRowBtn"><i class="bi bi-plus-lg"></i> Add Row</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="saveClassFileBtn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Label Class Selection Modal -->
+    <div class="modal fade" id="labelClassModal" tabindex="-1" aria-labelledby="labelClassModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="labelClassModalLabel">Select or Enter Class ID</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Enter a class ID manually or select from the available classes below.</p>
+                    <input type="number" id="labelClassInput" class="form-control mb-3" placeholder="Enter class ID..." min="0">
+                    <div id="class-selection-container">
+                        <!-- Class buttons will be dynamically inserted here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveLabelClassBtn">Save</button>
                 </div>
             </div>
         </div>
@@ -162,6 +254,15 @@
     <script src="https://cdn.jsdelivr.net/npm/tiff.js/tiff.min.js"></script>
     <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Context Menu for Bounding Boxes -->
+    <div id="context-menu" class="dropdown-menu">
+        <a class="dropdown-item d-flex justify-content-between align-items-center" href="#" id="ctx-edit-label">         
+        Change Label                                                                        
+        <span class="text-muted ms-3">Ctrl+B</span>                                
+        </a>
+        <a class="dropdown-item" href="#" id="ctx-delete-label">Delete</a>
+    </div>
+
     <!-- Custom JS -->
     <script src="js/app.js"></script>
 </body>
