@@ -2,6 +2,7 @@
     --bg-color: #fff;
     --text-color: #212529;
     --panel-bg-color: #f8f9fa;
+    --panel-bg-color-rgb: 248, 249, 250;
     --panel-border-color: #dee2e6;
     --canvas-bg-color: #e9ecef;
     --canvas-border-color: #ccc;
@@ -20,6 +21,7 @@ body.dark-mode {
     --bg-color: #1a1d21;
     --text-color: #f1f1f1; /* Brighter text for better contrast */
     --panel-bg-color: #2c2f33;
+    --panel-bg-color-rgb: 44, 47, 51;
     --panel-border-color: #40444b;
     --canvas-bg-color: #23272a;
     --canvas-border-color: #54585d;
@@ -199,8 +201,6 @@ body.dark-mode .form-range::-moz-range-thumb:active {
 
 body {
     overflow: hidden; /* Hide scrollbars */
-    display: flex;
-    flex-direction: column;
     height: 100vh;
     background-color: var(--bg-color);
     color: var(--text-color);
@@ -213,7 +213,7 @@ body {
 
 .main-container {
     display: flex;
-    flex-grow: 1;
+    height: calc(100vh - 56px); /* 56px is a common navbar height */
     overflow: hidden;
 }
 
@@ -473,13 +473,23 @@ canvas {
 
 /* Preview Bar Styles */
 #bottom-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     height: 150px; /* Initial height */
-    background-color: var(--panel-bg-color);
+    background-color: rgba(var(--panel-bg-color-rgb), 0.9);
     border-top: 1px solid var(--panel-border-color);
-    transition: height 0.3s ease;
+    transition: transform 0.3s ease;
+    z-index: 10;
+    transform: translateY(calc(100% - 38px)); /* Start collapsed, showing only the header (approx 38px) */
+}
+
+#bottom-panel.show {
+    transform: translateY(0);
 }
 
 #bottom-panel.collapsed {

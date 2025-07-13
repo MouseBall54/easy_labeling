@@ -688,7 +688,8 @@ class UIManager {
 
     togglePreviewBarVisibility(hide) {
         this.state.isPreviewBarHidden = hide;
-        this.elements.bottomPanel.classList.toggle('collapsed', hide);
+        this.elements.bottomPanel.classList.toggle('show', !hide);
+        // this.elements.bottomPanel.classList.toggle('collapsed', hide);
         
         // If we are showing the bar again, re-render the previews.
         if (!hide) {
