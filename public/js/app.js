@@ -74,6 +74,7 @@ class AppState {
         this.previewImageCache = new Map(); // For caching preview image ObjectURLs
         this.isPreviewBarHidden = false; // Start with the preview bar visible
         this.isCrosshairVisible = false;
+        this.contextTarget = null; // To store the target of the context menu
     }
 }
 
@@ -162,7 +163,19 @@ class UIManager {
             classSelectionContainer: document.getElementById('class-selection-container'),
             saveLabelClassBtn: document.getElementById('saveLabelClassBtn'),
             crosshairToggle: document.getElementById('crosshairToggle'),
+            contextMenu: document.getElementById('context-menu'),
+            ctxEditLabel: document.getElementById('ctx-edit-label'),
+            ctxDeleteLabel: document.getElementById('ctx-delete-label'),
+            loadingOverlay: document.getElementById('loading-overlay'),
         };
+    }
+
+    showLoadingIndicator() {
+        this.elements.loadingOverlay.classList.add('show');
+    }
+
+    hideLoadingIndicator() {
+        this.elements.loadingOverlay.classList.remove('show');
     }
 
     togglePanel(panel, splitter, expandBtn, isCollapsing) {
@@ -1023,17 +1036,30 @@ class FileSystem {
             const imageFolderHandle = await window.showDirectoryPicker();
             this.state.imageFolderHandle = imageFolderHandle;
 
-            // Automatically check for a 'label' subfolder
+            // Automatically check for a 'label' subfolder or offer to create one.
             try {
                 const labelFolderHandle = await imageFolderHandle.getDirectoryHandle('label');
                 this.state.labelFolderHandle = labelFolderHandle;
                 this.uiManager.updateLabelFolderButton(true, `label (auto)`);
                 showToast(`Found and loaded 'label' subfolder.`);
             } catch (err) {
-                if (err.name !== 'NotFoundError') {
+                if (err.name === 'NotFoundError') {
+                    // If the label directory doesn't exist, ask the user to create it.
+                    if (confirm(`"label" subfolder not found. Do you want to create it?`)) {
+                        try {
+                            const newLabelFolderHandle = await imageFolderHandle.getDirectoryHandle('label', { create: true });
+                            this.state.labelFolderHandle = newLabelFolderHandle;
+                            this.uiManager.updateLabelFolderButton(true, `label (created)`);
+                            showToast(`'label' subfolder created and loaded.`);
+                        } catch (createErr) {
+                            console.error("Error creating 'label' subfolder:", createErr);
+                            showToast('Failed to create "label" subfolder.', 4000);
+                        }
+                    }
+                } else {
                     console.error("Error checking for 'label' subfolder:", err);
+                    showToast('Error accessing "label" subfolder.', 4000);
                 }
-                // If not found, do nothing. User can select manually.
             }
 
             // Clear the preview cache when a new folder is selected
@@ -1118,52 +1144,62 @@ class FileSystem {
     }
 
     async loadImageAndLabels(imageFileHandle) {
-        if (this.state.isAutoSaveEnabled && this.state.currentImageFile) {
-            await this.saveLabels(true);
-        }
+        this.uiManager.showLoadingIndicator();
+        try {
+            if (this.state.isAutoSaveEnabled && this.state.currentImageFile) {
+                await this.saveLabels(true);
+            }
 
-        clearTimeout(this.state.saveTimeout);
+            clearTimeout(this.state.saveTimeout);
 
-        this.state.currentLoadToken++;
-        const loadToken = this.state.currentLoadToken;
+            this.state.currentLoadToken++;
+            const loadToken = this.state.currentLoadToken;
 
-        this.state.currentImageFile = imageFileHandle;
-        const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
-        const totalImages = this.state.imageFiles.length;
-        this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
-        
-        const file = await imageFileHandle.getFile();
+            this.state.currentImageFile = imageFileHandle;
+            const currentIndex = this.state.imageFiles.findIndex(f => f.name === imageFileHandle.name);
+            const totalImages = this.state.imageFiles.length;
+            this.uiManager.updateImageInfo(imageFileHandle.name, currentIndex, totalImages);
+            
+            const file = await imageFileHandle.getFile();
 
-        const setBackgroundImage = (img) => {
-            if (loadToken !== this.state.currentLoadToken) return;
-            this.state.currentImage = img;
-            this.canvasController.clear();
-            this.uiManager.elements.labelList.innerHTML = '';
-            this.uiManager.elements.labelFilters.innerHTML = '';
-            this.canvasController.setBackgroundImage(img);
-            this.canvasController.resetZoom();
-            this.loadLabels(imageFileHandle.name, loadToken);
-        };
-
-        if (/\.(tif|tiff)$/i.test(file.name)) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
+            const setBackgroundImage = async (img) => {
                 if (loadToken !== this.state.currentLoadToken) return;
-                const tiff = new Tiff({ buffer: e.target.result });
-                const tiffCanvas = tiff.toCanvas();
-                fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
+                this.state.currentImage = img;
+                this.canvasController.clear();
+                this.uiManager.elements.labelList.innerHTML = '';
+                this.uiManager.elements.labelFilters.innerHTML = '';
+                this.canvasController.setBackgroundImage(img);
+                this.canvasController.resetZoom();
+                await this.loadLabels(imageFileHandle.name, loadToken);
             };
-            reader.readAsArrayBuffer(file);
-        } else {
-            const url = URL.createObjectURL(file);
-            fabric.Image.fromURL(url, (img) => {
-                setBackgroundImage(img);
-                URL.revokeObjectURL(url);
-            });
+
+            if (/\.(tif|tiff)$/i.test(file.name)) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    if (loadToken !== this.state.currentLoadToken) return;
+                    const tiff = new Tiff({ buffer: e.target.result });
+                    const tiffCanvas = tiff.toCanvas();
+                    fabric.Image.fromURL(tiffCanvas.toDataURL(), setBackgroundImage);
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                const url = URL.createObjectURL(file);
+                await new Promise((resolve, reject) => {
+                    fabric.Image.fromURL(url, (img) => {
+                        setBackgroundImage(img).then(resolve).catch(reject);
+                        URL.revokeObjectURL(url);
+                    });
+                });
+            }
+            
+            this.uiManager.setActiveImageListItem(imageFileHandle);
+            this.uiManager.renderPreviewBar(imageFileHandle);
+        } catch (error) {
+            console.error("Error loading image and labels:", error);
+            showToast("Failed to load image. See console for details.", 4000);
+        } finally {
+            this.uiManager.hideLoadingIndicator();
         }
-        
-        this.uiManager.setActiveImageListItem(imageFileHandle);
-        this.uiManager.renderPreviewBar(imageFileHandle);
     }
 
     async loadLabels(imageName, loadToken) {
@@ -1508,6 +1544,31 @@ class CanvasController {
     
             // 4) 캔버스 강제 리렌더링
             this.canvas.renderAll();
+        }
+    }
+
+    async editMultipleLabels(selection) {
+        try {
+            const finalLabel = await this.uiManager.promptForLabelClass('0');
+
+            selection.getObjects().forEach(obj => {
+                if (obj.type === 'rect') {
+                    obj.set('labelClass', finalLabel);
+                    const color = getColorForClass(finalLabel);
+                    obj.set({ fill: `${color}33`, stroke: color });
+                    obj.originalYolo = null;
+                    this.updateLabelText(obj);
+                }
+            });
+
+            this.renderAll();
+            this.uiManager.updateLabelList();
+
+        } catch (error) {
+            console.log(error); // User cancelled
+        } finally {
+            this.canvas.discardActiveObject();
+            this.renderAll();
         }
     }
 
@@ -1929,9 +1990,15 @@ class EventManager {
         // Right-click to toggle mode
         this.canvas.canvas.upperCanvasEl.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
-            this.canvas.setMode(newMode);
-            showToast(`Mode switched to ${newMode}`);
+            const target = this.canvas.canvas.findTarget(e, false);
+
+            if (target && (target.type === 'rect' || target.type === 'activeSelection')) {
+                this.showContextMenu(e.clientX, e.clientY, target);
+            } else {
+                const newMode = this.state.currentMode === 'edit' ? 'draw' : 'edit';
+                this.canvas.setMode(newMode);
+                showToast(`Mode switched to ${newMode}`);
+            }
         });
         
         const markAsModified = (e) => {
@@ -1975,6 +2042,48 @@ class EventManager {
 
         // Keyboard Events
         window.addEventListener('keydown', this.handleKeyDown.bind(this));
+    }
+
+    showContextMenu(x, y, target) {
+        const menu = this.ui.elements.contextMenu;
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menu.style.display = 'block';
+
+        const cleanup = () => {
+            menu.style.display = 'none';
+            // Clean up event listeners to prevent memory leaks
+            this.ui.elements.ctxEditLabel.removeEventListener('click', editHandler);
+            this.ui.elements.ctxDeleteLabel.removeEventListener('click', deleteHandler);
+            document.removeEventListener('click', cleanup);
+        };
+
+        const editHandler = () => {
+            if (target.type === 'rect') {
+                this.canvas.editLabel(target);
+            } else if (target.type === 'activeSelection') {
+                this.canvas.editMultipleLabels(target);
+            }
+        };
+
+        const deleteHandler = () => {
+            if (target.type === 'rect') {
+                this.canvas.removeObject(target);
+            } else if (target.type === 'activeSelection') {
+                target.getObjects().forEach(obj => this.canvas.removeObject(obj));
+                this.canvas.canvas.discardActiveObject();
+            }
+            this.ui.updateLabelList();
+            this.canvas.renderAll();
+        };
+
+        this.ui.elements.ctxEditLabel.addEventListener('click', editHandler, { once: true });
+        this.ui.elements.ctxDeleteLabel.addEventListener('click', deleteHandler, { once: true });
+
+        document.addEventListener('click', cleanup, { once: true });
+
+        // Store the target for actions
+        this.state.contextTarget = target;
     }
 
     handleMouseDown(opt) {
