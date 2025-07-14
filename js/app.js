@@ -1117,6 +1117,13 @@ class FileSystem {
             const imageFolderHandle = await window.showDirectoryPicker();
             this.state.imageFolderHandle = imageFolderHandle;
 
+            // Reset label folder state when a new image folder is selected
+            this.state.labelFolderHandle = null;
+            this.uiManager.updateLabelFolderButton(false);
+            this.state.classFiles = [];
+            this.state.classNames.clear();
+            this.uiManager.renderClassFileList();
+
             // Automatically check for a 'label' subfolder or offer to create one.
             try {
                 const labelFolderHandle = await imageFolderHandle.getDirectoryHandle('label');
