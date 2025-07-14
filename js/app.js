@@ -1117,6 +1117,13 @@ class FileSystem {
             const imageFolderHandle = await window.showDirectoryPicker();
             this.state.imageFolderHandle = imageFolderHandle;
 
+            // Reset label folder state when a new image folder is selected
+            this.state.labelFolderHandle = null;
+            this.uiManager.updateLabelFolderButton(false);
+            this.state.classFiles = [];
+            this.state.classNames.clear();
+            this.uiManager.renderClassFileList();
+
             // Automatically check for a 'label' subfolder or offer to create one.
             try {
                 const labelFolderHandle = await imageFolderHandle.getDirectoryHandle('label');
@@ -1253,6 +1260,12 @@ class FileSystem {
                 if (loadToken !== this.state.currentLoadToken) return;
                 this.state.currentImage = img;
                 this.canvasController.clear();
+                
+                // Re-toggle crosshair if it was active
+                if (this.uiManager.elements.crosshairToggle.checked) {
+                    this.canvasController.toggleCrosshair(true);
+                }
+
                 this.uiManager.elements.labelList.innerHTML = '';
                 this.uiManager.elements.labelFilters.innerHTML = '';
                 this.canvasController.setBackgroundImage(img);
@@ -1408,6 +1421,8 @@ class CanvasController {
 
     clear() {
         this.canvas.clear();
+        this.crosshairX = null;
+        this.crosshairY = null;
     }
 
     setBackgroundImage(img) {
@@ -2587,9 +2602,19 @@ class App {
 
     init() {
         this.eventManager.bindEventListeners();
+        // Set initial mode
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
         this.uiManager.togglePreviewBarVisibility(true); // Start hidden
+        // Check for compatibility
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isFileSystemAccessSupported = 'showDirectoryPicker' in window;
+
+        if (isMobile || !isFileSystemAccessSupported) {
+            const unsupportedModal = new bootstrap.Modal(document.getElementById('unsupportedDeviceModal'));
+            unsupportedModal.show();
+        }
+    // Start hidden
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
