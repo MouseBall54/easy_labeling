@@ -2625,4 +2625,21 @@ class App {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => new App());
+document.addEventListener('DOMContentLoaded', () => {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+        alert('Mobile Access Notice: This application is optimized for a desktop environment and may not function correctly on mobile devices. For the best experience, please use a desktop browser.');
+        // Optionally, you can hide the main content or disable functionality here
+        document.body.innerHTML = '<div class="container mt-5"><div class="alert alert-warning"><h2>Mobile Access Notice</h2><p>This application is designed for desktop use. Please switch to a desktop browser for full functionality.</p></div></div>';
+        return;
+    }
+
+    // Check for File System Access API support
+    if (!('showDirectoryPicker' in window)) {
+        alert('Incompatible Browser: This application uses the File System Access API, which is not supported by your current browser. Please use a modern browser like Chrome or Edge.');
+        // Optionally, disable UI elements
+        return;
+    }
+
+    const app = new App();
+});
