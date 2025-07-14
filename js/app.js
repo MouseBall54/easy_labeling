@@ -1253,6 +1253,12 @@ class FileSystem {
                 if (loadToken !== this.state.currentLoadToken) return;
                 this.state.currentImage = img;
                 this.canvasController.clear();
+                
+                // Re-toggle crosshair if it was active
+                if (this.uiManager.elements.crosshairToggle.checked) {
+                    this.canvasController.toggleCrosshair(true);
+                }
+
                 this.uiManager.elements.labelList.innerHTML = '';
                 this.uiManager.elements.labelFilters.innerHTML = '';
                 this.canvasController.setBackgroundImage(img);
@@ -1408,6 +1414,8 @@ class CanvasController {
 
     clear() {
         this.canvas.clear();
+        this.crosshairX = null;
+        this.crosshairY = null;
     }
 
     setBackgroundImage(img) {

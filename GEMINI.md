@@ -4,7 +4,7 @@
 
 "Easy Labeling" is a web-based image annotation tool designed for creating object detection datasets. It allows users to load images from their local file system, draw bounding boxes around objects, assign class labels, and save the annotations in the YOLO text format.
 
-The application is a pure client-side tool that runs in modern web browsers (like Chrome and Edge) and uses the File System Access API to interact with local files directly. It can be hosted on any static web server, including GitHub Pages.
+The application is a pure client-side tool that runs in modern web browsers (like Chrome and Edge) and uses the File System Access API to interact with local files directly. It can be hosted on any static web server.
 
 ## 2. Core Technologies
 
@@ -15,17 +15,13 @@ The application is a pure client-side tool that runs in modern web browsers (lik
 *   **Local Development**:
     *   **Server**: `live-server` for local development with hot-reloading.
     *   **Runner**: `npm` scripts.
-*   **Deployment**:
-    *   **Platform**: GitHub Pages
-    *   **CI/CD**: GitHub Actions
 
 ## 3. File Structure
 
 *   `index.html`: The main HTML file for the application structure.
 *   `css/style.css`: Custom styles for the application.
 *   `js/app.js`: The core of the application. It manages the UI, canvas, file system interactions, and application state.
-*   `.github/workflows/deploy.yml`: GitHub Actions workflow for automatic deployment to GitHub Pages.
-*   `package.json`: Defines project metadata and development dependencies.
+*   `package.json`: Defines project metadata and development dependencies (`live-server`).
 *   `WORKLOG.md`: A manually maintained log of significant work items.
 *   `GEMINI.md`: This file, containing the project context and a log of Gemini's activities.
 
@@ -81,6 +77,7 @@ This is a detailed list of features identified from the source code.
 *   **Clipboard**:
     *   Copy (`Ctrl+C`) and paste (`Ctrl+V`) single or multiple bounding boxes.
     *   Pasted objects are positioned relative to the mouse cursor's location on the canvas.
+*   **Crosshair**: A toggleable crosshair to help align annotations.
 
 ### 5.3. Bounding Box and Label Handling
 *   **Labeling**:
@@ -123,6 +120,17 @@ This is a detailed list of features identified from the source code.
 ### Gemini 어시스턴트의 역할
 저의 역할은 이 프로젝트의 개발을 지원하는 것입니다. 저는 수행된 모든 작업을 문서화하기 위해 이 "작업 기록" 섹션을 유지하여 변경 및 결정 사항에 대한 명확한 내역을 보장합니다. 이 로그는 세션 중에 계속 업데이트됩니다.
 
+### 2025년 7월 14일
+*   **작업**: "십자선 표시(Show Crosshair)" 기능 오류 수정
+*   **세부 정보**:
+    *   `js/app.js`의 `FileSystem.loadImageAndLabels` 함수를 수정했습니다.
+    *   이미지를 전환할 때, "십자선 표시" 토글이 활성화되어 있으면 십자선이 다시 그려지도록 로직을 추가했습니다.
+    *   이전에는 첫 이미지 로드 시에만 십자선이 생성되고, 이미지 전환 후에는 다시 생성되지 않아 기능이 비활성화되는 문제가 있었습니다.
+*   **작업**: `GEMINI.md` 프로젝트 컨텍스트 업데이트
+*   **세부 정보**:
+    *   `server.js`가 없고 `live-server`를 사용하는 현재 프로젝트 구조를 반영하여 "Core Technologies" 및 "File Structure" 섹션을 업데이트했습니다.
+    *   프로젝트의 파일 경로 및 기술 스택에 대한 혼동을 방지하기 위해 내용을 최신 상태로 정리했습니다.
+
 ### 2025년 7월 13일
 *   **작업**: GitHub Pages 배포를 위한 프로젝트 구조 변경
 *   **세부 정보**:
@@ -160,35 +168,35 @@ This is a detailed list of features identified from the source code.
     *   `EventManager`에 `hidePreviewBtn`과 `showPreviewBtn`에 대한 클릭 이벤트 리스너를 바인딩하여, 사용자가 버튼을 클릭할 때 미리보기 창의 표시 상태를 전환하도록 했습니다.
 *   **작업**: 그리기 모드 커서 동작 개선
 *   **세부 정보**:
-    *   `public/js/app.js`를 수정하여 그리기(Draw) 모드일 때의 마우스 커서 동작을 개선했습니다.
+    *   `js/app.js`를 수정하여 그리기(Draw) 모드일 때의 마우스 커서 동작을 개선했습니다.
     *   기존에는 그리기 모드에서도 이미 생성된 바운딩 박스 위에 마우스를 올리면 이동(move) 커서로 변경되어 사용자에게 혼란을 줄 수 있었습니다.
     *   `CanvasController`의 `setMode`, `addLabelsFromYolo`, `finishDrawing` 함수를 수정하여, 객체의 `hoverCursor` 속성을 현재 모드에 맞게 동적으로 설정하도록 변경했습니다.
     *   이제 그리기 모드에서는 기존 객체 위에 마우스가 위치하더라도 일관되게 십자선(+) 커서가 유지되어, 사용자가 계속해서 새로운 객체를 그릴 수 있음을 명확하게 인지할 수 있습니다.
 *   **작업**: DOM 업데이트 성능 개선
 *   **세부 정보**:
-    *   `public/js/app.js`의 `UIManager` 클래스에서 `renderImageList`와 `updateLabelList` 함수의 DOM 조작 방식을 최적화했습니다.
+    *   `js/app.js`의 `UIManager` 클래스에서 `renderImageList`와 `updateLabelList` 함수의 DOM 조작 방식을 최적화했습니다.
     *   기존에는 `innerHTML`을 사용하여 목록 전체를 매번 다시 그리는 방식이었으나, 이를 `DocumentFragment`를 사용하도록 변경했습니다.
     *   이제 목록 아이템들을 가상의 `DocumentFragment`에 먼저 추가한 후, 단 한 번의 `appendChild` 호출로 실제 DOM에 삽입합니다.
     *   이 변경으로 브라우저의 리플로우 및 리페인트 발생을 최소화하여, 이미지 및 레이블 목록이 많을 때의 UI 렌더링 속도와 반응성을 향상시켰습니다.
 *   **작업**: 이미지 미리보기 렌더링 성능 개선
 *   **세부 정보**:
-    *   `public/js/app.js`를 수정하여 이미지 미리보기(썸네일) 렌더링 성능을 최적화했습니다.
+    *   `js/app.js`를 수정하여 이미지 미리보기(썸네일) 렌더링 성능을 최적화했습니다.
     *   `AppState`에 `previewImageCache` (Map 객체)를 추가하여 한 번 생성된 썸네일의 ObjectURL 또는 DataURL을 캐싱하도록 했습니다.
     *   `UIManager`의 `renderPreviewBar` 함수는 이제 썸네일을 표시하기 전에 캐시를 먼저 확인합니다. 캐시된 URL이 있으면 이를 즉시 사용하고, 없으면 새로 생성한 후 캐시에 저장하여 다음 요청 시 빠르게 로드될 수 있도록 했습니다.
     *   사용자가 `selectImageFolder`를 통해 새로운 이미지 폴더를 선택하면, 기존 캐시를 모두 초기화하여 메모리 누수를 방지하고 이전 폴더의 데이터가 남지 않도록 처리했습니다.
     *   이 개선을 통해 이미지 간 전환 시 미리보기 바의 렌더링이 훨씬 부드러워지고 불필요한 파일 I/O가 감소했습니다.
 *   **작업**: 이미지 폴더 로딩 성능 개선
 *   **세부 정보**:
-    *   `public/js/app.js`의 `listImageFiles` 함수 로직을 변경했습니다.
+    *   `js/app.js`의 `listImageFiles` 함수 로직을 변경했습니다.
     *   기존에는 이미지 목록을 불러올 때 각 이미지 파일마다 레이블 파일(.txt)의 존재 여부를 개별적으로 확인하여, 이미지 수가 많을 경우 로딩 시간이 길어지는 문제가 있었습니다.
     *   개선된 로직에서는 레이블 폴더의 모든 `.txt` 파일 이름을 미리 한 번에 읽어와 `Set` 객체에 저장한 뒤, 메모리에서 빠르게 존재 여부를 확인하도록 수정했습니다.
     *   이로 인해 수백, 수천 번의 파일 시스템 접근이 단 한 번으로 줄어들어 이미지 폴더 초기 로딩 속도가 크게 향상되었습니다.
     *   더 이상 사용되지 않는 `checkLabelStatus` 함수를 코드에서 제거하여 정리했습니다.
 *   **작업**: 이미지 미리보기 창 동작 수정
 *   **세부 정보**:
-    *   `public/css/style.css`에서 `#preview-bar`의 배경색 `rgba` 값을 `0.5`에서 `0.2`로 변경하여 더 투명하게 만들었습니다.
-    *   `public/js/app.js`의 `init` 함수를 수정하여, 애플리케이션 시작 시에는 미리보기 창을 숨기고 이미지 폴더를 로드했을 때만 나타나도록 변경했습니다.
-    *   `public/js/app.js`의 `EventManager`에서 미리보기 창의 `<` 및 `>` 버튼 이벤트 리스너를 `scrollPreview`에서 `navigateImage`로 변경하여, 키보드 `A`/`D` 키와 동일하게 이전/다음 이미지로 넘어가도록 기능을 수정했습니다.
+    *   `css/style.css`에서 `#preview-bar`의 배경색 `rgba` 값을 `0.5`에서 `0.2`로 변경하여 더 투명하게 만들었습니다.
+    *   `js/app.js`의 `init` 함수를 수정하여, 애플리케이션 시작 시에는 미리보기 창을 숨기고 이미지 폴더를 로드했을 때만 나타나도록 변경했습니다.
+    *   `js/app.js`의 `EventManager`에서 미리보기 창의 `<` 및 `>` 버튼 이벤트 리스너를 `scrollPreview`에서 `navigateImage`로 변경하여, 키보드 `A`/`D` 키와 동일하게 이전/다음 이미지로 넘어가도록 기능을 수정했습니다.
 
 ### 2025년 7월 4일
 
@@ -198,8 +206,8 @@ This is a detailed list of features identified from the source code.
 ### 2025년 7월 4일
 *   **작업**: "이슈 레이블" 강조 및 필터 기능 제거
 *   **세부 정보**:
-    *   `public/index.html`에서 "Show Issue Filter" 토글을 제거했습니다.
-    *   `public/js/app.js`에서 관련 로직을 모두 제거했습니다:
+    *   `index.html`에서 "Show Issue Filter" 토글을 제거했습니다.
+    *   `js/app.js`에서 관련 로직을 모두 제거했습니다:
         *   `AppState`에서 `isIssueFilterVisible` 속성을 제거했습니다.
         *   `UIManager.getDOMElements`에서 토글을 제거했습니다.
         *   `UIManager.updateLabelList` 및 `UIManager.updateLabelFilters`에서 이슈 관련 로직을 제거했습니다.
@@ -209,10 +217,10 @@ This is a detailed list of features identified from the source code.
 *   **세부 정보**:
     *   "Load Class Info Folder" 버튼을 왼쪽 패널에서 오른쪽 "Labels" 패널 상단으로 이동시켰습니다.
     *   버튼의 색상을 `btn-info`에서 `btn-outline-primary`로 변경하여 UI의 다른 부분과 조화를 이루도록 했습니다.
-    *   `public/index.html`의 오른쪽 패널에서 기존 "Load .yaml" 버튼을 제거했습니다.
-    *   `public/index.html`에 클래스 파일을 선택할 수 있는 드롭다운 메뉴와 선택된 파일의 내용을 볼 수 있는 "View" 버튼을 추가했습니다.
-    *   파일 내용을 표시하기 위해 `public/index.html`에 Bootstrap 모달을 추가했습니다.
-    *   새로운 기능을 처리하도록 `public/js/app.js`를 수정했습니다:
+    *   `index.html`의 오른쪽 패널에서 기존 "Load .yaml" 버튼을 제거했습니다.
+    *   `index.html`에 클래스 파일을 선택할 수 있는 드롭다운 메뉴와 선택된 파일의 내용을 볼 수 있는 "View" 버튼을 추가했습니다.
+    *   파일 내용을 표시하기 위해 `index.html`에 Bootstrap 모달을 추가했습니다.
+    *   새로운 기능을 처리하도록 `js/app.js`를 수정했습니다:
         *   클래스 정보 폴더 핸들 및 파일 목록을 관리하도록 `AppState`를 업데이트했습니다.
         *   새 UI 요소(드롭다운, 보기 버튼, 모달)를 가져오고 클래스 파일 드롭다운을 렌더링하도록 `UIManager`를 업데이트했습니다.
         *   `FileSystem`의 `loadClassNames`를 `selectClassInfoFolder`, `listClassFiles`, `loadClassNamesFromFile`로 교체하여 디렉터리 선택 및 파일 처리를 처리하도록 했습니다.
@@ -223,7 +231,7 @@ This is a detailed list of features identified from the source code.
 ### 2025년 7월 2일
 *   **작업**: 붙여넣기 기능 수정
 *   **세부 정보**:
-    *   `public/js/app.js`의 `paste` 함수를 수정했습니다.
+    *   `js/app.js`의 `paste` 함수를 수정했습니다.
     *   이제 객체를 붙여넣을 때 마우스 커서가 이미지 영역 내에 있으면 해당 이미지 좌표에 붙여넣어지고, 그렇지 않으면 (0, 0) 위치에 붙여넣어집니다.
 *   **작업**: 프로젝트 분석 및 정리
 *   **세부 정보**:
@@ -236,7 +244,7 @@ This is a detailed list of features identified from the source code.
 *   **작업**: 프로젝트 분석 및 설정
 *   **세부 정보**:
     *   세션을 초기화하고 프로젝트 파일 구조를 검토했습니다.
-    *   `public/js/app.js`의 핵심 애플리케이션 로직, `server.js`의 서버 설정, `public/index.html`의 UI 구조를 분석했습니다.
+    *   `js/app.js`의 핵심 애플리케이션 로직, `server.js`의 서버 설정, `index.html`의 UI 구조를 분석했습니다.
     *   이 프로젝트가 파일 시스템 접근 API를 사용하는 클라이언트 측 중심의 웹 애플리케케이션임을 확인했습니다.
     *   요청에 따라 모든 향후 활동을 문서화하기 위해 `GEMINI.md`에 이 "작업 기록"을 설정했습니다.
 
@@ -244,6 +252,6 @@ This is a detailed list of features identified from the source code.
 *   **작업**: 'Auto Save' 기능 수정
 *   **세부 정보**:
     *   실시간 'Auto Save' 기능이 다중 선택을 방해하는 문제를 해결했습니다.
-    *   `triggerAutoSave` 함수와 관련된 모든 호출을 `public/js/app.js`에서 제거했습니다.
+    *   `triggerAutoSave` 함수와 관련된 모든 호출을 `js/app.js`에서 제거했습니다.
     *   `loadImageAndLabels` 함수를 수정하여, 'Auto Save'가 활성화된 경우 이미지를 전환할 때만 이전 이미지의 레이블이 저장되도록 변경했습니다.
     *   이를 통해 사용자는 다중 선택이 풀리는 문제 없이 객체를 편집할 수 있으며, 작업 내용은 이미지 이동 시 안전하게 저장됩니다.
