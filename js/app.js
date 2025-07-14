@@ -2602,9 +2602,19 @@ class App {
 
     init() {
         this.eventManager.bindEventListeners();
+        // Set initial mode
         this.canvasController.setMode(this.state.currentMode);
         this.uiManager.updateLabelFolderButton(false);
         this.uiManager.togglePreviewBarVisibility(true); // Start hidden
+        // Check for compatibility
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isFileSystemAccessSupported = 'showDirectoryPicker' in window;
+
+        if (isMobile || !isFileSystemAccessSupported) {
+            const unsupportedModal = new bootstrap.Modal(document.getElementById('unsupportedDeviceModal'));
+            unsupportedModal.show();
+        }
+    // Start hidden
 
         // Apply dark mode on load
         const storedTheme = localStorage.getItem('darkMode');
