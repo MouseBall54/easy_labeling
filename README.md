@@ -4,17 +4,39 @@
 
 The application is a pure client-side tool that runs in modern web browsers (like Chrome and Edge) and uses the File System Access API to interact with local files directly, eliminating the need for file uploads.
 
+## How to Use
+
+**No installation required!**
+
+Simply open the application in your web browser by visiting the following URL:
+
+**[https://mouseball54.github.io/easy_labeling/](https://mouseball54.github.io/easy_labeling/)**
+
+### Basic Usage Guide
+
+1.  **Load Folders**:
+    -   Click **Load Image Folder** and select your image directory.
+    -   Click **Load Label Folder** to select your annotations folder. (This may be found automatically if it's a subfolder named `label`).
+    -   (Optional) Click **Load Class Info Folder** and select a folder with `.yaml` files for class names.
+2.  **Annotate**:
+    -   Select an image from the list on the left.
+    -   Switch to **Draw Mode** (`Ctrl+Q` or `Right-Click` on the canvas) and drag to create a box. Enter a class ID when prompted.
+    -   Switch to **Edit Mode** (`Ctrl+Q` or `Right-Click` on the canvas) to select, move, resize, or delete boxes.
+3.  **Navigate & Save**:
+    -   Use the `A` and `D` keys to cycle through images.
+    -   Enable **Auto Save** for convenience or press `Ctrl+S` to save manually.
+
 ## Key Features
 
 ### 1. File and Folder Management
 
 -   **Local-First Approach**: Works directly with your local folders.
     -   **Load Image Folder**: Load images from your computer. The tool supports `.jpg`, `.png`, `.gif`, and `.tiff`/`.tif` formats.
-    -   **Load Label Folder**: Specify a folder to save YOLO `.txt` annotation files. If a subfolder named `label` exists in the image folder, it's loaded automatically.
+    -   **Load Label Folder**: Specify a folder to save YOLO `.txt` annotation files. If a subfolder named `label` exists in the image folder, it's loaded automatically. If it doesn't exist, the application will offer to create it for you.
 -   **Class Definition Files**:
     -   **Load Class Info Folder**: Load class definitions from `.yaml` or `.yml` files. This allows you to see descriptive names (e.g., "person", "car") instead of just numeric IDs.
     -   **Class File Switcher**: A dropdown menu appears if multiple `.yaml` files are found, letting you switch between them.
-    -   **Class File Viewer/Editor**: View and edit the contents of the selected class file directly within the application via a modal window.
+    -   **Class File Creator/Editor**: Create new `.yaml` class files or edit existing ones directly within the application. A modal editor allows you to add, modify, or delete class ID and name pairs.
     -   **Download Template**: Download a `custom-classes.yaml` template to get started.
 -   **Auto-Save**: Toggle the "Auto Save" feature to automatically save labels for the previous image when you navigate to a new one, preventing data loss.
 -   **Manual Save**: Save the current labels at any time with the "Save Labels" button (`Ctrl+S`).
@@ -101,38 +123,34 @@ The application is a pure client-side tool that runs in modern web browsers (lik
 | **General**                 |                                |
 | Discard Selection           | `Escape`                       |
 
-## Prerequisites
+## For Local Development
+
+If you want to run the application locally or contribute to the development, follow these steps.
+
+### Prerequisites
 
 -   [Node.js](https://nodejs.org/) (LTS version recommended)
 -   A modern web browser that supports the File System Access API (e.g., Google Chrome, Microsoft Edge).
 
-## Installation
+### Installation
 
-1.  Clone the repository or download the source code.
-2.  Open a terminal in the project's root directory.
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/MouseBall54/easy_labeling.git
+    ```
+2.  Navigate to the project directory:
+    ```bash
+    cd easy_labeling
+    ```
 3.  Install the required dependencies:
     ```bash
     npm install
     ```
 
-## How to Run
+### Running Locally
 
-1.  Start the local development server from the project's root directory:
+1.  Start the local development server:
     ```bash
     npm start
     ```
-2.  Your web browser will automatically open to the application.
-
-## Basic Usage Guide
-
-1.  **Load Folders**:
-    -   Click **Load Image Folder** and select your image directory.
-    -   Click **Load Label Folder** to select your annotations folder. (This may be found automatically if it's a subfolder named `label`).
-    -   (Optional) Click **Load Class Info Folder** and select a folder with `.yaml` files for class names.
-2.  **Annotate**:
-    -   Select an image from the list on the left.
-    -   Switch to **Draw Mode** (`Ctrl+Q`) and drag to create a box. Enter a class ID when prompted.
-    -   Switch to **Edit Mode** (`Ctrl+Q`) to select, move, resize, or delete boxes.
-3.  **Navigate & Save**:
-    -   Use the `A` and `D` keys to cycle through images.
-    -   Enable **Auto Save** for convenience or press `Ctrl+S` to save manually.
+2.  Your web browser will automatically open the application.
