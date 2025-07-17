@@ -123,34 +123,3 @@
 | **일반** | |
 | 선택 해제 | `Escape` |
 
-## 로컬 개발 환경 설정
-
-로컬 환경에서 애플리케이션을 실행하거나 개발에 기여하고 싶다면 아래 단계를 따르세요.
-
-### 전제 조건
-
--   [Node.js](https://nodejs.org/) (LTS 버전 권장)
--   파일 시스템 접근 API를 지원하는 최신 웹 브라우저 (예: Google Chrome, Microsoft Edge).
-
-### 설치
-
-1.  저장소를 복제합니다:
-    ```bash
-    git clone https://github.com/MouseBall54/easy_labeling.git
-    ```
-2.  프로젝트 디렉터리로 이동합니다:
-    ```bash
-    cd easy_labeling
-    ```
-3.  필요한 종속성을 설치합니다:
-    ```bash
-    npm install
-    ```
-
-### 로컬에서 실행하기
-
-1.  로컬 개발 서버를 시작합니다:
-    ```bash
-    npm start
-    ```
-2.  웹 브라우저가 자동으로 애플리케이션으로 열립니다.

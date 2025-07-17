@@ -122,35 +122,3 @@ Simply open the application in your web browser by visiting the following URL:
 | Move 10px                   | `Shift` + `Arrow Keys`         |
 | **General**                 |                                |
 | Discard Selection           | `Escape`                       |
-
-## For Local Development
-
-If you want to run the application locally or contribute to the development, follow these steps.
-
-### Prerequisites
-
--   [Node.js](https://nodejs.org/) (LTS version recommended)
--   A modern web browser that supports the File System Access API (e.g., Google Chrome, Microsoft Edge).
-
-### Installation
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/MouseBall54/easy_labeling.git
-    ```
-2.  Navigate to the project directory:
-    ```bash
-    cd easy_labeling
-    ```
-3.  Install the required dependencies:
-    ```bash
-    npm install
-    ```
-
-### Running Locally
-
-1.  Start the local development server:
-    ```bash
-    npm start
-    ```
-2.  Your web browser will automatically open the application.
