@@ -1,0 +1,32 @@
+/**
+ * Models Module Index
+ * 
+ * Central export point for all model classes used throughout the Easy Labeling application.
+ * This module provides clean API access to data models and state management.
+ */
+
+// Export AppState model
+export { 
+  AppState, 
+  createAppState, 
+  createAppStateWithConfig,
+  type IAppState,
+  type AppStateConfig,
+  type AppStateMethods
+} from './AppState';
+
+// Re-export types for convenience
+export type {
+  ImageFile,
+  ClassFile,
+  ClassDefinition,
+  ClipboardData,
+  LoadToken,
+  AppStateEvent,
+  AppStateEventHandler,
+  AppStateValidation,
+  SerializableAppState,
+  AppStateMigration,
+  AppStateVersion,
+  AppStateFactory
+} from '../types/app-state';

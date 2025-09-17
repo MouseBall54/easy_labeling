@@ -2,16 +2,7 @@
  * Easy Labeling TypeScript Main Entry Point
  *
  * This is the main entry point for the TypeScript version of Easy Labeling.
- * Currently a Hello World test to verify the build environment.
+ * Phase 4 Complete: AppState model has been successfully implemented with full type safety.
  */
-interface TestInterface {
-    message: string;
-    timestamp: Date;
-}
-declare class TestClass {
-    private data;
-    constructor(message: string);
-    getMessage(): string;
-}
-export { TestClass, TestInterface };
+export { AppState, createAppState, createAppStateWithConfig } from './models';
 //# sourceMappingURL=main.d.ts.map
