@@ -7,6 +7,7 @@
 export { showToast, showErrorToast, showSuccessToast, showWarningToast, showTypedToast, type ToastType, type ToastConfig } from './notifications';
 export { colorPalette, DEFAULT_COLOR, getColorForClass, getColorsForClasses, isColorInPalette, getColorIndex, getContrastingTextColor, hexToRgba, ColorManager, type ColorConfig } from './color-palette';
 export { validateLabelClass, validateLabelClassAdvanced, validateFileName, validateImageExtension, validateBoundingBox, validateYOLOCoordinates, validateZoomLevel, validateFontSize, validateNumber, validateEmail, validateUrl, sanitizeInput, type ValidationResult } from './validation';
+export { YoloParser, parseYolo, exportYolo, validateYoloString } from './yolo-parser';
 export { showToast as toast } from './notifications';
 export { getColorForClass as getColor } from './color-palette';
 export { validateLabelClass as validateLabel } from './validation';
@@ -17,6 +18,7 @@ export declare const UtilityCategories: {
     readonly NOTIFICATIONS: readonly ["showToast", "showErrorToast", "showSuccessToast", "showWarningToast", "showTypedToast"];
     readonly COLORS: readonly ["getColorForClass", "getColorsForClasses", "getContrastingTextColor", "hexToRgba", "ColorManager"];
     readonly VALIDATION: readonly ["validateLabelClass", "validateFileName", "validateImageExtension", "validateBoundingBox", "validateYOLOCoordinates"];
+    readonly YOLO: readonly ["YoloParser", "parseYolo", "exportYolo", "validateYoloString"];
 };
 /**
  * Utility configuration interface
@@ -75,6 +77,7 @@ export declare const UTILITY_VERSION: {
         notifications: string;
         colors: string;
         validation: string;
+        yolo: string;
     };
     buildDate: string;
 };

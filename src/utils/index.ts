@@ -47,6 +47,14 @@ export {
     type ValidationResult
 } from './validation';
 
+// Export YOLO parser utilities
+export {
+    YoloParser,
+    parseYolo,
+    exportYolo,
+    validateYoloString
+} from './yolo-parser';
+
 // Re-export commonly used utilities with shorter names
 export { showToast as toast } from './notifications';
 export { getColorForClass as getColor } from './color-palette';
@@ -76,6 +84,12 @@ export const UtilityCategories = {
         'validateImageExtension',
         'validateBoundingBox',
         'validateYOLOCoordinates'
+    ],
+    YOLO: [
+        'YoloParser',
+        'parseYolo',
+        'exportYolo',
+        'validateYoloString'
     ]
 } as const;
 
@@ -182,7 +196,8 @@ export const UTILITY_VERSION = {
     modules: {
         notifications: '1.0.0',
         colors: '1.0.0',
-        validation: '1.0.0'
+        validation: '1.0.0',
+        yolo: '1.0.0'
     },
     buildDate: new Date().toISOString()
 };

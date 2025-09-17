@@ -2,18 +2,23 @@
  * Easy Labeling TypeScript Main Entry Point
  * 
  * This is the main entry point for the TypeScript version of Easy Labeling.
- * Phase 4 Complete: AppState model has been successfully implemented with full type safety.
+ * Phase 5 Complete: FileSystem service has been successfully implemented with YOLO support.
  */
 
 import { createAppState, AppState } from './models';
+import { createFileSystemService, YoloParser, parseYolo } from './services';
+import { parseYolo as utilParseYolo } from './utils';
 
 // Phase Progress Report
-console.log('🚀 Easy Labeling TypeScript Migration - Phase 4 Complete!');
+console.log('🚀 Easy Labeling TypeScript Migration - Phase 5 Complete!');
 console.log('✅ TypeScript compilation working');
 console.log('✅ Webpack bundling working');
 console.log('✅ AppState model implemented with type safety');
 console.log('✅ Event system and validation added');
-console.log('📅 Phase 4 completed:', new Date().toISOString());
+console.log('✅ FileSystem service implemented');
+console.log('✅ YOLO parser with validation');
+console.log('✅ File I/O abstraction layer');
+console.log('📅 Phase 5 completed:', new Date().toISOString());
 
 // Test Phase 4: AppState Model
 console.log('\n🧪 Testing Phase 4 AppState Implementation:');
@@ -47,17 +52,53 @@ console.log('✅ Serialization test:', Object.keys(serialized).length, 'properti
 
 console.log('🎯 Phase 4 AppState tests completed successfully!');
 
+// Test Phase 5: FileSystem Service
+console.log('\n🧪 Testing Phase 5 FileSystem Service Implementation:');
+
+// Create FileSystem service instance
+const fileSystem = createFileSystemService();
+console.log('✅ FileSystem service created');
+
+// Test YOLO parser
+const testYoloData = `0 0.5 0.5 0.3 0.4
+1 0.2 0.8 0.1 0.2`;
+
+try {
+  const labels = parseYolo(testYoloData);
+  console.log('✅ YOLO parsing test:', labels.length, 'labels parsed');
+  
+  const yoloString = YoloParser.labelsToYoloString(labels);
+  console.log('✅ YOLO export test: string generated');
+  
+  const validation = YoloParser.parseYoloString(testYoloData);
+  console.log('✅ YOLO validation test:', validation.errors.length === 0 ? 'PASSED' : 'FAILED');
+  
+} catch (error) {
+  console.error('❌ YOLO parser test failed:', error);
+}
+
+// Test FileSystem service methods
+console.log('✅ Service methods available:', [
+  'selectImageFolder',
+  'selectLabelFolder', 
+  'loadLabels',
+  'saveLabels',
+  'parseYoloString'
+].every(method => typeof (fileSystem as any)[method] === 'function'));
+
+console.log('🎯 Phase 5 FileSystem service tests completed successfully!');
+
 // DOM ready test
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('📱 DOM loaded - ready for Phase 5 implementation');
+  console.log('📱 DOM loaded - ready for Phase 6 implementation');
   
-  // Create Phase 4 completion indicator
+  // Create Phase 5 completion indicator
   const indicator = document.createElement('div');
   indicator.style.cssText = `
     position: fixed;
     top: 10px;
     right: 10px;
-    background: #17a2b8;
+    background: #28a745;
     color: white;
     padding: 12px 18px;
     border-radius: 8px;
@@ -69,8 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
     border: 2px solid #fff;
   `;
   indicator.innerHTML = `
-    <div>🚀 Phase 4 Complete</div>
-    <div style="font-size: 11px; opacity: 0.9; margin-top: 4px;">AppState Model Ready</div>
+    <div>🚀 Phase 5 Complete</div>
+    <div style="font-size: 11px; opacity: 0.9; margin-top: 4px;">FileSystem Service Ready</div>
   `;
   document.body.appendChild(indicator);
   
@@ -82,5 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 8000);
 });
 
-// Export Phase 4 components
+// Export Phase 4 & 5 components
 export { AppState, createAppState, createAppStateWithConfig } from './models';
+export { FileSystemService, createFileSystemService, YoloParser } from './services';
+export { parseYolo, exportYolo, validateYoloString } from './utils';

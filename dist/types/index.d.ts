@@ -8,6 +8,7 @@ export * from './app-state';
 export * from './canvas';
 export * from './file-system';
 export * from './ui';
+export type { IFileSystemService, FileOperationResult, FileLoadResult, YoloLabel, YoloParseResult, YoloExportOptions, ClassFileContent, ClassFileValidation, FolderScanResult, LabelStatus, ImageInfo, ImageLoadOptions, TiffProcessingOptions, CacheEntry, CacheStats, FileSystemError, ImageLoadError, YoloFormatError, FileFormat, LabelFormat, ClassFileFormat, FileTypeInfo, FileSystemServiceFactory } from './filesystem';
 export type Mode = 'edit' | 'draw';
 export type LabelSortOrder = 'asc' | 'desc';
 export type FileType = 'image' | 'label' | 'class';
