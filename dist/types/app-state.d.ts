@@ -25,7 +25,7 @@ export interface ClassDefinition {
     color?: string;
 }
 export interface ClipboardData {
-    type: 'label' | 'labels';
+    type: 'label' | 'labels' | 'bounding-boxes';
     data: any;
     timestamp: Date;
 }

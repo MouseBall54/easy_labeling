@@ -40,7 +40,7 @@ export interface ClassDefinition {
 
 // Clipboard data structure
 export interface ClipboardData {
-  type: 'label' | 'labels';
+  type: 'label' | 'labels' | 'bounding-boxes';
   data: any;
   timestamp: Date;
 }

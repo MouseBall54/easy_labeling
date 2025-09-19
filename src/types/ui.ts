@@ -232,6 +232,75 @@ export interface UIEvent<T = any> {
 
 export type UIEventHandler<T = any> = (event: UIEvent<T>) => void;
 
+// ===================================================================
+// Event Manager Types
+// ===================================================================
+
+// Keyboard shortcut definition
+export interface KeyboardShortcut {
+  key: string;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  description: string;
+  action: string;
+  category?: string;
+  preventDefault?: boolean;
+  enabled?: boolean;
+}
+
+// Mouse event types
+export type MouseEventType =
+  | 'click'
+  | 'dblclick'
+  | 'mousedown'
+  | 'mouseup'
+  | 'mousemove'
+  | 'mouseenter'
+  | 'mouseleave'
+  | 'wheel'
+  | 'contextmenu';
+
+// Context menu event
+export interface ContextMenuEvent {
+  type: 'canvas' | 'ui' | 'generic';
+  position: Point;
+  canvasPosition?: Point;
+  target: any;
+  hasSelection: boolean;
+  selectedObjects: any[];
+}
+
+// Event manager events
+export interface EventManagerEvent {
+  type: string;
+  data?: any;
+  timestamp?: Date;
+}
+
+export type EventManagerEventHandler = (event: EventManagerEvent) => void;
+
+// Event manager configuration
+export interface EventManagerConfig {
+  enableKeyboardShortcuts: boolean;
+  enableContextMenu: boolean;
+  enableDragAndDrop: boolean;
+  doubleClickDelay: number;
+  longPressDelay: number;
+  dragThreshold: number;
+}
+
+// Event manager interface
+export interface IEventManager {
+  addEventListener(type: string, handler: EventManagerEventHandler): void;
+  removeEventListener(type: string, handler: EventManagerEventHandler): void;
+  getShortcuts(): KeyboardShortcut[];
+  setConfig(config: Partial<EventManagerConfig>): void;
+  getConfig(): EventManagerConfig;
+  destroy(): void;
+}
+
 // UI validation
 export interface UIValidation {
   isValid: boolean;
@@ -341,14 +410,7 @@ export interface PreviewItem {
   isSelected: boolean;
 }
 
-// Keyboard shortcuts
-export interface KeyboardShortcut {
-  key: string;
-  modifiers?: ('ctrl' | 'alt' | 'shift')[];
-  action: () => void;
-  description: string;
-  category: 'navigation' | 'editing' | 'view' | 'file';
-}
+// Note: KeyboardShortcut interface defined earlier in Event Manager Types section
 
 // Accessibility support
 export interface AccessibilityConfig {

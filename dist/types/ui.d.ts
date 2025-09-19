@@ -3,7 +3,7 @@
  *
  * Types related to user interface management, DOM elements, and UI interactions.
  */
-import { Mode } from './index';
+import { Mode, Point } from './index';
 import { ICanvasController, BoundingBox } from './canvas';
 import { IFileSystem } from './file-system';
 import { AppStateConfig } from './app-state';
@@ -161,6 +161,49 @@ export interface UIEvent<T = any> {
     timestamp: Date;
 }
 export type UIEventHandler<T = any> = (event: UIEvent<T>) => void;
+export interface KeyboardShortcut {
+    key: string;
+    ctrlKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    metaKey?: boolean;
+    description: string;
+    action: string;
+    category?: string;
+    preventDefault?: boolean;
+    enabled?: boolean;
+}
+export type MouseEventType = 'click' | 'dblclick' | 'mousedown' | 'mouseup' | 'mousemove' | 'mouseenter' | 'mouseleave' | 'wheel' | 'contextmenu';
+export interface ContextMenuEvent {
+    type: 'canvas' | 'ui' | 'generic';
+    position: Point;
+    canvasPosition?: Point;
+    target: any;
+    hasSelection: boolean;
+    selectedObjects: any[];
+}
+export interface EventManagerEvent {
+    type: string;
+    data?: any;
+    timestamp?: Date;
+}
+export type EventManagerEventHandler = (event: EventManagerEvent) => void;
+export interface EventManagerConfig {
+    enableKeyboardShortcuts: boolean;
+    enableContextMenu: boolean;
+    enableDragAndDrop: boolean;
+    doubleClickDelay: number;
+    longPressDelay: number;
+    dragThreshold: number;
+}
+export interface IEventManager {
+    addEventListener(type: string, handler: EventManagerEventHandler): void;
+    removeEventListener(type: string, handler: EventManagerEventHandler): void;
+    getShortcuts(): KeyboardShortcut[];
+    setConfig(config: Partial<EventManagerConfig>): void;
+    getConfig(): EventManagerConfig;
+    destroy(): void;
+}
 export interface UIValidation {
     isValid: boolean;
     errors: string[];
@@ -232,13 +275,6 @@ export interface PreviewItem {
     imageURL: string;
     thumbnail: HTMLElement;
     isSelected: boolean;
-}
-export interface KeyboardShortcut {
-    key: string;
-    modifiers?: ('ctrl' | 'alt' | 'shift')[];
-    action: () => void;
-    description: string;
-    category: 'navigation' | 'editing' | 'view' | 'file';
 }
 export interface AccessibilityConfig {
     enableHighContrast: boolean;
