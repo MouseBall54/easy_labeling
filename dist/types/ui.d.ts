@@ -153,7 +153,7 @@ export interface FilterOptions {
     showAll: boolean;
     hideEmpty: boolean;
 }
-export type UIEventType = 'image:selected' | 'label:created' | 'label:edited' | 'label:deleted' | 'filter:changed' | 'search:changed' | 'mode:changed' | 'theme:changed' | 'panel:toggled' | 'zoom:changed';
+export type UIEventType = 'image:selected' | 'image:list-rendered' | 'label:created' | 'label:edited' | 'label:deleted' | 'label:selected' | 'label:list-rendered' | 'filter:changed' | 'filter:updated' | 'search:changed' | 'mode:changed' | 'theme:changed' | 'panel:toggled' | 'zoom:changed' | 'loading:show' | 'loading:hide' | 'loading:progress' | 'context-menu:show' | 'context-menu:hide';
 export interface UIEvent<T = any> {
     type: UIEventType;
     data?: T;
