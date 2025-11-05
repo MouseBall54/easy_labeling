@@ -84,9 +84,65 @@ class App {
    * Setup cross-component references for circular dependencies
    */
   private setupCrossReferences(): void {
-    // Setup cross-component references
-    // UIManager should have access to canvas through appState
-    // Cross-references handled through dependency injection
+    const refreshLabelPanels = () => {
+      try {
+        this.uiManager.updateLabelList();
+        const boxes = this.canvasController.getAllBoundingBoxes();
+        this.uiManager.updateLabelFilters(boxes);
+        this.uiManager.updateSelectByClassDropdown(boxes);
+        if (this.appState.currentImageFile) {
+          this.appState.setImageLabelStatus(
+            this.appState.currentImageFile.name,
+            boxes.length > 0
+          );
+        }
+      } catch (error) {
+        console.error('Failed to refresh label panels', error);
+      }
+    };
+
+    const refreshLabelSelection = () => {
+      try {
+        this.uiManager.updateLabelList();
+      } catch (error) {
+        console.error('Failed to sync label selection', error);
+      }
+    };
+
+    this.canvasController.addEventListener('object:added', refreshLabelPanels);
+    this.canvasController.addEventListener('object:removed', refreshLabelPanels);
+    this.canvasController.addEventListener('object:modified', refreshLabelPanels);
+
+    this.canvasController.addEventListener('selection:created', refreshLabelSelection);
+    this.canvasController.addEventListener('selection:updated', refreshLabelSelection);
+    this.canvasController.addEventListener('selection:cleared', refreshLabelSelection);
+
+    this.canvasController.addEventListener('after:render', () => {
+      try {
+        this.uiManager.updateZoomDisplay();
+      } catch (error) {
+        console.error('Failed to update zoom display', error);
+      }
+    });
+
+    this.eventManager.addEventListener('mouse:coordinates-updated', (evt) => {
+      const coords = evt.data?.canvas;
+      if (coords) {
+        try {
+          this.uiManager.updateMouseCoords(coords.x, coords.y);
+        } catch (error) {
+          console.error('Failed to update mouse coordinates display', error);
+        }
+      }
+    });
+
+    this.eventManager.addEventListener('labels:saved', () => {
+      try {
+        showSuccessToast('Labels saved');
+      } catch (error) {
+        console.error('Failed to show save toast', error);
+      }
+    });
 
     console.log('🔗 Cross-references established between components');
   }
@@ -95,19 +151,40 @@ class App {
    * Setup application-level event listeners
    */
   private setupApplicationEvents(): void {
-    // Listen to application state changes
     this.appState.addEventListener('mode:changed', (event) => {
-      // Suppress console noise
+      const currentMode = event.data?.current;
+      if (currentMode) {
+        try {
+          this.uiManager.updateModeButtons(currentMode);
+        } catch (error) {
+          console.error('Failed to update mode buttons', error);
+        }
+      }
     });
 
-    this.appState.addEventListener('image:selected', (event) => {
-      // Suppress console noise
+    this.appState.addEventListener('image:current-changed', (event) => {
+      const currentImageName = event.data?.current || '';
+      try {
+        this.uiManager.renderImageList();
+        this.uiManager.updateCurrentImageDisplay(currentImageName);
+        this.uiManager.updateLabelList();
+        const boxes = this.canvasController.getAllBoundingBoxes();
+        this.uiManager.updateLabelFilters(boxes);
+        this.uiManager.updateSelectByClassDropdown(boxes);
+      } catch (error) {
+        console.error('Failed to handle image change event', error);
+      }
     });
 
-    this.appState.addEventListener('labels:saved', (event) => {
-      // Suppress console noise
+    this.appState.addEventListener('image:label-status-changed', () => {
+      try {
+        this.uiManager.renderImageList();
+      } catch (error) {
+        console.error('Failed to refresh image list after label status change', error);
+      }
     });
 
+    // Listen to application state changes
     // Handle browser errors
     window.addEventListener('error', (event) => {
       console.error('🚨 Application error:', event.error);
