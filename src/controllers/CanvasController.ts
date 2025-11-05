@@ -1292,6 +1292,8 @@ export class CanvasController implements ICanvasController {
       fontFamily: this.labelOptions.fontFamily,
       fill: this.labelOptions.fontColor,
       backgroundColor: this.labelOptions.backgroundColor,
+      // Avoid invalid baseline value warnings; ensure canvas uses a valid baseline
+      textBaseline: 'alphabetic',
       selectable: false,
       evented: false
     }) as FabricText;

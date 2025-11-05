@@ -596,6 +596,8 @@ export class UIManager implements IUIManager {
       const imgResult = await (this._fileSystem as any).loadImage?.(imageFile.handle);
       if (imgResult?.success && imgResult.data) {
         const imgEl = imgResult.data as HTMLImageElement;
+        // Keep current image element in state for size reference when saving
+        try { (this._state as any).currentImage = imgEl; } catch {}
         this._canvasController.loadImage(imgEl);
 
         // Load labels if label folder selected

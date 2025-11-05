@@ -648,6 +648,8 @@ export class EventManager implements IEventManager {
         const result = await this.fileSystemService.loadImage(imageFile.handle);
         if (result.success && result.data) {
           this.appState.setCurrentImage(imageFile);
+          // Keep current image element in state for save operations
+          try { (this.appState as any).currentImage = result.data; } catch {}
           this.canvasController.loadImage(result.data);
 
           // Load existing labels
