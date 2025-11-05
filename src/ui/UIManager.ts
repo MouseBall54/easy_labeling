@@ -122,6 +122,8 @@ export class UIManager implements IUIManager {
   // ===================================================================
 
   private initializeElements(): void {
+    // Assign IDs at runtime for elements without IDs in static HTML
+    this.ensureDomIds();
     this._elements = {
       // Folder selection buttons
       selectImageFolderBtn: this.getElementById('select-image-folder-btn') as HTMLButtonElement,
@@ -336,6 +338,66 @@ export class UIManager implements IUIManager {
       throw new Error(`Element with ID '${id}' not found`);
     }
     return element as HTMLElement;
+  }
+
+  // Assign semantic IDs at runtime for elements missing IDs in public HTML
+  private ensureDomIds(): void {
+    const q = (sel: string, root: Document | HTMLElement = document) => root.querySelector(sel) as HTMLElement | null;
+    const setId = (el: HTMLElement | null, id: string) => { if (el && !el.id) el.id = id; };
+
+    // Navbar prev/next around current image name
+    const nav = q('.navbar .container-fluid');
+    if (nav) {
+      const centerGroup = nav.querySelector('.mx-auto');
+      if (centerGroup) {
+        const buttons = Array.from(centerGroup.querySelectorAll('button')) as HTMLElement[];
+        if (buttons.length >= 2) {
+          setId(buttons[0], 'prevImageBtn');
+          setId(buttons[buttons.length - 1], 'nextImageBtn');
+        }
+        const nameSpan = centerGroup.querySelector('span.navbar-text') as HTMLElement | null;
+        setId(nameSpan, 'current-image-name');
+      }
+    }
+
+    // Zoom buttons by icon
+    const info = q('#info-display');
+    if (info) {
+      const zoomIn = q('button i.bi-zoom-in', info)?.closest('button') as HTMLElement | null;
+      const zoomOut = q('button i.bi-zoom-out', info)?.closest('button') as HTMLElement | null;
+      const resetZoom = q('button i.bi-aspect-ratio', info)?.closest('button') as HTMLElement | null;
+      setId(zoomIn, 'zoomInBtn');
+      setId(zoomOut, 'zoomOutBtn');
+      setId(resetZoom, 'resetZoomBtn');
+
+      // Coords container inputs/button
+      const coords = q('#coords-input-container');
+      if (coords) {
+        const inputs = coords.querySelectorAll('input');
+        setId(inputs[0] as HTMLElement, 'coordX');
+        setId(inputs[1] as HTMLElement, 'coordY');
+        const goBtn = coords.querySelector('button');
+        setId(goBtn as HTMLElement, 'goToCoordsBtn');
+      }
+
+      // Zoom percent input
+      const zoomGroup = Array.from(info.querySelectorAll('.input-group input[type="number"]'))[0] as HTMLElement | null;
+      setId(zoomGroup, 'zoom-input');
+    }
+
+    // Left panel buttons by text
+    const leftPanel = q('#left-panel');
+    if (leftPanel) {
+      const loadImg = Array.from(leftPanel.querySelectorAll('button')).find(b => b.textContent?.toLowerCase().includes('load image folder')) as HTMLElement | undefined;
+      const loadLbl = Array.from(leftPanel.querySelectorAll('button')).find(b => b.textContent?.toLowerCase().includes('load label folder')) as HTMLElement | undefined;
+      setId(loadImg || null, 'selectImageFolderBtn');
+      setId(loadLbl || null, 'selectLabelFolderBtn');
+
+      const saveBtn = Array.from(leftPanel.querySelectorAll('button')).find(b => b.textContent?.toLowerCase().includes('save labels')) as HTMLElement | undefined;
+      const dlBtn = Array.from(leftPanel.querySelectorAll('button')).find(b => b.textContent?.toLowerCase().includes('download class')) as HTMLElement | undefined;
+      setId(saveBtn || null, 'saveLabelsBtn');
+      setId(dlBtn || null, 'downloadClassesBtn');
+    }
   }
 
   // ===================================================================
