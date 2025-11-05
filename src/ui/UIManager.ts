@@ -224,7 +224,7 @@ export class UIManager implements IUIManager {
   }
 
   private getElementById(id: string): HTMLElement {
-    // During migration, support both new (kebab-case) and legacy (camelCase) IDs
+    // Centralized ID aliases to map semantic kebab-case IDs to legacy DOM IDs
     const legacyIdMap: Record<string, string> = {
       // Folder selection
       'select-image-folder-btn': 'selectImageFolderBtn',
@@ -237,11 +237,14 @@ export class UIManager implements IUIManager {
       'add-class-row-btn': 'addClassRowBtn',
       'save-class-file-btn': 'saveClassFileBtn',
       'download-classes-btn': 'downloadClassesBtn',
+      'class-file-select': 'class-file-select',
 
       // Image list / filters
       'image-search-input': 'imageSearchInput',
       'show-labeled-checkbox': 'showLabeled',
       'show-unlabeled-checkbox': 'showUnlabeled',
+      'image-list': 'image-list',
+      'label-list': 'label-list',
 
       // Save/load
       'save-labels-btn': 'saveLabelsBtn',
@@ -250,13 +253,17 @@ export class UIManager implements IUIManager {
       // Canvas display options
       'show-labels-on-canvas-toggle': 'showLabelsOnCanvasToggle',
       'label-font-size-slider': 'label-font-size',
+      'label-font-size-value': 'label-font-size-value',
       'crosshair-toggle': 'crosshairToggle',
 
       // Modes
       'draw-mode-btn': 'drawMode',
       'edit-mode-btn': 'editMode',
 
-      // Sorting
+      // Label filters & selects
+      'label-filters': 'label-filters',
+      'select-by-class-dropdown': 'select-by-class-dropdown',
+      'select-by-class-btn': 'select-by-class-btn',
       'sort-labels-asc-btn': 'sortLabelsAscBtn',
       'sort-labels-desc-btn': 'sortLabelsDescBtn',
 
@@ -264,6 +271,7 @@ export class UIManager implements IUIManager {
       'zoom-in-btn': 'zoomInBtn',
       'zoom-out-btn': 'zoomOutBtn',
       'reset-zoom-btn': 'resetZoomBtn',
+      'zoom-input': 'zoom-input',
 
       // Coords
       'mouse-coords-display': 'info-display',
@@ -272,8 +280,30 @@ export class UIManager implements IUIManager {
       'go-to-coords-btn': 'goToCoordsBtn',
 
       // Navigation
+      'current-image-name': 'current-image-name',
       'prev-image-btn': 'prevImageBtn',
       'next-image-btn': 'nextImageBtn',
+
+      // Panels & splitters
+      'left-panel': 'left-panel',
+      'right-panel': 'right-panel',
+      'left-splitter': 'left-splitter',
+      'right-splitter': 'right-splitter',
+      'collapse-left-panel-btn': 'collapse-left-panel-btn',
+      'expand-left-panel-btn': 'expand-left-panel-btn',
+      'collapse-right-panel-btn': 'collapse-right-panel-btn',
+      'expand-right-panel-btn': 'expand-right-panel-btn',
+
+      // Preview bar
+      'preview-bar': 'preview-bar',
+      'preview-bar-header': 'preview-bar-header',
+      'toggle-preview-btn': 'toggle-preview-btn',
+      'preview-prev-btn': 'preview-prev-btn',
+      'preview-next-btn': 'preview-next-btn',
+      'preview-list-wrapper': 'preview-list-wrapper',
+      'preview-list': 'preview-list',
+      'bottom-panel': 'bottom-panel',
+      'bottom-splitter': 'bottom-splitter',
 
       // Theme
       'dark-mode-toggle': 'darkModeToggle',
@@ -281,6 +311,17 @@ export class UIManager implements IUIManager {
       // Label class modal
       'label-class-input': 'labelClassInput',
       'save-label-class-btn': 'saveLabelClassBtn',
+      'class-selection-container': 'class-selection-container',
+
+      // Context menu
+      'context-menu': 'context-menu',
+      'ctx-edit-label': 'ctx-edit-label',
+      'ctx-delete-label': 'ctx-delete-label',
+
+      // Canvas & overlays
+      'canvas-container': 'canvas-container',
+      'loading-overlay': 'loading-overlay',
+      'toast-container': 'toast-container'
     };
 
     let element = document.getElementById(id);
