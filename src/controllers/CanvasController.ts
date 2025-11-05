@@ -1340,10 +1340,12 @@ export class CanvasController implements ICanvasController {
 
     const scaleX = this.imageObject.scaleX || 1;
     const scaleY = this.imageObject.scaleY || 1;
+    const imgLeft = this.imageObject.left || 0;
+    const imgTop = this.imageObject.top || 0;
 
     return {
-      x: canvasPoint.x / scaleX,
-      y: canvasPoint.y / scaleY
+      x: (canvasPoint.x - imgLeft) / scaleX,
+      y: (canvasPoint.y - imgTop) / scaleY
     };
   }
 
@@ -1352,10 +1354,12 @@ export class CanvasController implements ICanvasController {
 
     const scaleX = this.imageObject.scaleX || 1;
     const scaleY = this.imageObject.scaleY || 1;
+    const imgLeft = this.imageObject.left || 0;
+    const imgTop = this.imageObject.top || 0;
 
     return {
-      x: imagePoint.x * scaleX,
-      y: imagePoint.y * scaleY
+      x: imagePoint.x * scaleX + imgLeft,
+      y: imagePoint.y * scaleY + imgTop
     };
   }
 
