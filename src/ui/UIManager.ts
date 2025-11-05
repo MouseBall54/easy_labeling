@@ -874,11 +874,6 @@ export class UIManager implements IUIManager {
         const result = await (this._fileSystem as any).selectImageFolder?.();
         if (result?.success && result.data) {
           this._state.setImageFolder(result.data);
-          const listRes = await (this._fileSystem as any).listImageFiles?.(result.data);
-          if (listRes?.success && Array.isArray(listRes.data)) {
-            (this._state as any).imageFiles = listRes.data;
-            this.renderImageList();
-          }
 
           // Auto-detect or create label folder inside the selected image folder
           try {
@@ -888,27 +883,38 @@ export class UIManager implements IUIManager {
             try { labelHandle = await imageFolderHandle.getDirectoryHandle('labels'); } catch {}
             if (!labelHandle) { try { labelHandle = await imageFolderHandle.getDirectoryHandle('label'); } catch {} }
 
-            if (labelHandle) {
-              this._state.setLabelFolder(labelHandle);
-              this.updateLabelFolderButton(true, labelHandle.name);
-              showSuccessToast(`Detected label folder: ${labelHandle.name}`);
-            } else {
-              // Ask user if they want to create label folder
+            if (!labelHandle) {
               const create = window.confirm('No label folder found inside the selected image folder.\nCreate a new "labels" folder?');
               if (create) {
                 try {
-                  const created = await imageFolderHandle.getDirectoryHandle('labels', { create: true });
-                  this._state.setLabelFolder(created);
-                  this.updateLabelFolderButton(true, created.name);
-                  showSuccessToast('Created label folder: labels');
+                  if (typeof imageFolderHandle.requestPermission === 'function') {
+                    const perm = await imageFolderHandle.requestPermission({ mode: 'readwrite' });
+                    if (perm !== 'granted') {
+                      await imageFolderHandle.requestPermission({ mode: 'readwrite' });
+                    }
+                  }
+                  labelHandle = await imageFolderHandle.getDirectoryHandle('labels', { create: true });
                 } catch (err) {
                   console.error('Failed to create labels folder', err);
-                  showErrorToast('Failed to create label folder');
+                  showErrorToast('Permission blocked. Use "Load Label Folder" to pick a folder.');
                 }
               }
             }
+
+            if (labelHandle) {
+              this._state.setLabelFolder(labelHandle);
+              this.updateLabelFolderButton(true, labelHandle.name);
+              showSuccessToast(`Label folder ready: ${labelHandle.name}`);
+            }
           } catch (e) {
             console.warn('Label folder detection/creation skipped:', e);
+          }
+
+          // List images after label folder handling
+          const listRes = await (this._fileSystem as any).listImageFiles?.(result.data);
+          if (listRes?.success && Array.isArray(listRes.data)) {
+            (this._state as any).imageFiles = listRes.data;
+            this.renderImageList();
           }
         }
       } catch (e) {
