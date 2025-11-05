@@ -367,41 +367,6 @@ canvas {
 }
 
 /* Image list item styles */
-#image-list .image-list-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--list-group-item-border);
-    cursor: pointer;
-    background-color: var(--list-group-item-bg);
-    color: var(--text-color);
-}
-
-#image-list .image-list-item:hover {
-    background-color: rgba(13, 110, 253, 0.08); /* subtle hover */
-}
-
-#image-list .image-list-item.selected {
-    background-color: var(--list-group-item-active-bg);
-    border-left: 3px solid var(--list-group-item-active-border);
-    color: var(--list-group-item-active-text);
-}
-
-#image-list .image-item-content {
-    display: flex;
-    width: 100%;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-#image-list .image-status.labeled {
-    color: #198754; /* bootstrap success */
-}
-
-#image-list .image-status.unlabeled {
-    color: #6c757d; /* bootstrap secondary */
-}
 
 #label-list-container {
     flex-grow: 1;
