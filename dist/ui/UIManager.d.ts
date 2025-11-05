@@ -74,6 +74,7 @@ export declare class UIManager implements IUIManager {
     getSearchOptions(): SearchOptions;
     getFilterOptions(): FilterOptions;
     private setupEventListeners;
+    private syncModeUI;
     validateUIState(): any;
     validateFormData(formData: FormData): any;
     addEditDeleteListeners(rects: BoundingBox[]): void;

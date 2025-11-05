@@ -37,6 +37,7 @@ export declare class CanvasController implements ICanvasController {
     loadImage(imageElement: HTMLImageElement): void;
     clearImage(): void;
     resizeToImage(image: HTMLImageElement): void;
+    private resizeCanvasToContainer;
     startDrawing(point: Point): void;
     updateDrawing(point: Point): void;
     finishDrawing(point: Point): BoundingBox | null;
@@ -61,6 +62,14 @@ export declare class CanvasController implements ICanvasController {
     setZoom(zoom: number): void;
     panTo(x: number, y: number): void;
     resetPan(): void;
+    /**
+     * Pan the viewport so that the given image coordinates appear centered
+     */
+    goToImageCoordinates(x: number, y: number): void;
+    /**
+     * Convenience method to set zoom by percentage (e.g., 100 => 1.0)
+     */
+    setZoomPercent(percent: number): void;
     showCrosshair(point: Point): void;
     hideCrosshair(): void;
     updateCrosshair(point: Point): void;
@@ -75,6 +84,7 @@ export declare class CanvasController implements ICanvasController {
     render(): void;
     requestRender(): void;
     private setupCanvasEvents;
+    private applyModeSettings;
     private updateSelectedObjects;
     private handleObjectModified;
     private createLabelText;

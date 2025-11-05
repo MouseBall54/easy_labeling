@@ -55,6 +55,10 @@ class App {
       );
       console.log('✅ UIManager initialized');
 
+      // Initialize Fabric canvas in the existing container from public/index.html
+      this.canvasController.initializeCanvas('canvas-container');
+      console.log('✅ Canvas initialized in #canvas-container');
+
       // Initialize Event Manager (needs all other components)
       this.eventManager = new EventManager(
         this.appState,
@@ -185,9 +189,12 @@ class App {
    */
   private testEventSystemIntegration(): boolean {
     try {
-      // Test state event
+      // Test state event without altering final mode
+      const prevMode = this.appState.currentMode as 'draw' | 'edit';
       this.appState.setMode('edit');
       this.appState.setMode('draw');
+      // restore previous mode
+      this.appState.setMode(prevMode);
       return true;
     } catch (error) {
       console.error('Event system test error:', error);
@@ -316,35 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Make app available globally for debugging
     (window as any).easyLabelingApp = app;
 
-    // Create Phase 8 completion indicator
-    const indicator = document.createElement('div');
-    indicator.style.cssText = `
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      background: #007bff;
-      color: white;
-      padding: 12px 18px;
-      border-radius: 8px;
-      font-family: 'Segoe UI', monospace;
-      font-size: 13px;
-      font-weight: bold;
-      z-index: 9999;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      border: 2px solid #fff;
-    `;
-    indicator.innerHTML = `
-      <div>🎯 Phase 8 Complete</div>
-      <div style="font-size: 11px; opacity: 0.9; margin-top: 4px;">TypeScript Integration Ready</div>
-    `;
-    document.body.appendChild(indicator);
-
-    // Auto-remove after 10 seconds
-    setTimeout(() => {
-      indicator.style.transition = 'opacity 0.5s ease';
-      indicator.style.opacity = '0';
-      setTimeout(() => indicator.remove(), 500);
-    }, 10000);
+    // Removed: Phase 8 completion indicator toast
 
   } catch (error) {
     console.error('❌ Failed to initialize Easy Labeling application:', error);

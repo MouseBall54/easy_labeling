@@ -4,7 +4,7 @@
  * Types related to canvas manipulation, drawing, and Fabric.js integration.
  */
 
-import { fabric } from 'fabric';
+import type { fabric } from 'fabric';
 import { Point, Rectangle, Size } from './index';
 
 // Canvas dimensions
@@ -220,6 +220,8 @@ export interface CanvasMethods {
   setZoom(zoom: number): void;
   panTo(x: number, y: number): void;
   resetPan(): void;
+  setZoomPercent(percent: number): void;
+  goToImageCoordinates(x: number, y: number): void;
   
   // Crosshair operations
   showCrosshair(point: Point): void;

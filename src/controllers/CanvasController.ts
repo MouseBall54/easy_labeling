@@ -32,6 +32,8 @@ import {
 } from '../types/canvas';
 
 import { Point, Rectangle, Size } from '../types';
+// Runtime alias for global FabricJS when using CDN externals
+const FabricJS: any = (typeof (window as any) !== 'undefined' && (window as any).fabric) ? (window as any).fabric : (fabric as unknown as any);
 import { IAppState } from '../types/app-state';
 import { colorPalette } from '../utils/color-palette';
 
@@ -112,6 +114,14 @@ export class CanvasController implements ICanvasController {
       selectedObjects: [],
       multipleSelection: false
     };
+
+    // React to mode changes from AppState
+    try {
+      this.appState.addEventListener('mode:changed', (evt: any) => {
+        const current = evt?.data?.current as ('draw' | 'edit') | undefined;
+        this.applyModeSettings(current);
+      });
+    } catch {}
   }
 
   // ===================================================================
@@ -188,7 +198,7 @@ export class CanvasController implements ICanvasController {
     this.containerElement.appendChild(canvasElement);
 
     // Initialize Fabric.js canvas
-    this._canvas = new fabric.Canvas(canvasElement, {
+    this._canvas = new FabricJS.Canvas(canvasElement, {
       backgroundColor: this._config.backgroundColor,
       selection: this._config.selection,
       preserveObjectStacking: this._config.preserveObjectStacking,
@@ -202,11 +212,42 @@ export class CanvasController implements ICanvasController {
       stateful: false
     });
 
+    // Make canvas fill container
+    this.resizeCanvasToContainer();
+
     // Setup event handlers
     this.setupCanvasEvents();
 
+    // Prevent default context menu and toggle mode on right-click within container
+    try {
+      this.containerElement.addEventListener('contextmenu', (e: MouseEvent) => {
+        e.preventDefault();
+      });
+      this.containerElement.addEventListener('mousedown', (e: MouseEvent) => {
+        if (e.button === 2) { // Right click
+          this.appState.toggleMode();
+          e.preventDefault();
+        }
+      });
+    } catch {}
+
     // Apply label options from app state
     this.syncWithAppState();
+
+    // Apply current mode settings to canvas
+    this.applyModeSettings(this.appState.currentMode);
+
+    // Resize canvas on window resize
+    window.addEventListener('resize', () => {
+      this.resizeCanvasToContainer();
+      if (this.currentImage && this.imageObject) {
+        const prevZoom = this._state.zoom;
+        this.resetZoom();
+        this.resizeToImage(this.currentImage);
+        this.setZoom(prevZoom);
+      }
+      this.requestRender();
+    });
 
     this.dispatchEvent({
       type: 'after:render',
@@ -259,7 +300,7 @@ export class CanvasController implements ICanvasController {
     this.currentImage = imageElement;
 
     // Create fabric image object
-    this.imageObject = new fabric.Image(imageElement, {
+    this.imageObject = new FabricJS.Image(imageElement, {
       left: 0,
       top: 0,
       selectable: false,
@@ -278,8 +319,8 @@ export class CanvasController implements ICanvasController {
     this.resizeToImage(imageElement);
 
     // Add image to canvas (send to back)
-    this._canvas.add(this.imageObject);
-    this.imageObject.sendToBack();
+    this._canvas.add(this.imageObject! as unknown as fabric.Object);
+    this.imageObject!.sendToBack();
 
     // Reset viewport
     this.resetZoom();
@@ -307,45 +348,35 @@ export class CanvasController implements ICanvasController {
 
   public resizeToImage(image: HTMLImageElement): void {
     if (!this._canvas) return;
+    // Ensure canvas matches container size
+    this.resizeCanvasToContainer();
 
-    // Calculate dimensions that fit the container while maintaining aspect ratio
-    const containerRect = this.containerElement?.getBoundingClientRect();
-    const maxWidth = containerRect?.width || 800;
-    const maxHeight = containerRect?.height || 600;
+    const canvasWidth = this._canvas.getWidth();
+    const canvasHeight = this._canvas.getHeight();
 
-    const imageAspect = image.width / image.height;
-    const containerAspect = maxWidth / maxHeight;
-
-    let newWidth: number;
-    let newHeight: number;
-
-    if (imageAspect > containerAspect) {
-      // Image is wider - fit to width
-      newWidth = Math.min(maxWidth, image.width);
-      newHeight = newWidth / imageAspect;
-    } else {
-      // Image is taller - fit to height
-      newHeight = Math.min(maxHeight, image.height);
-      newWidth = newHeight * imageAspect;
-    }
-
-    // Update config dimensions
-    this._config = { ...this._config, width: newWidth, height: newHeight };
-
-    this._canvas.setDimensions({
-      width: newWidth,
-      height: newHeight
-    });
-
-    // Scale image to fit canvas
+    // Scale image to fit inside canvas and center it
     if (this.imageObject) {
-      const scaleX = newWidth / image.width;
-      const scaleY = newHeight / image.height;
+      const scale = Math.min(canvasWidth / image.width, canvasHeight / image.height);
+      const scaledW = image.width * scale;
+      const scaledH = image.height * scale;
       this.imageObject.set({
-        scaleX,
-        scaleY
+        scaleX: scale,
+        scaleY: scale,
+        left: (canvasWidth - scaledW) / 2,
+        top: (canvasHeight - scaledH) / 2
       });
+      this._canvas.centerObject(this.imageObject as any);
+      (this.imageObject as any).setCoords();
     }
+  }
+
+  private resizeCanvasToContainer(): void {
+    if (!this._canvas || !this.containerElement) return;
+    const rect = this.containerElement.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    this._config = { ...this._config, width, height };
+    this._canvas.setDimensions({ width, height });
   }
 
   // ===================================================================
@@ -361,7 +392,7 @@ export class CanvasController implements ICanvasController {
     this._state.endPoint = point;
 
     // Create temporary rectangle for drawing feedback
-    const rect = new fabric.Rect({
+    const rect = new FabricJS.Rect({
       left: point.x,
       top: point.y,
       width: 0,
@@ -510,7 +541,7 @@ export class CanvasController implements ICanvasController {
     const canvasHeight = this.imageObject ? bbox.height * (this.imageObject.scaleY || 1) : bbox.height;
 
     // Create rectangle
-    const rect = new fabric.Rect({
+    const rect = new FabricJS.Rect({
       left: canvasCoords.x,
       top: canvasCoords.y,
       width: canvasWidth,
@@ -813,6 +844,34 @@ export class CanvasController implements ICanvasController {
     this.panTo(0, 0);
   }
 
+  /**
+   * Pan the viewport so that the given image coordinates appear centered
+   */
+  public goToImageCoordinates(x: number, y: number): void {
+    if (!this._canvas) return;
+
+    const canvasWidth = this._canvas.getWidth();
+    const canvasHeight = this._canvas.getHeight();
+    const zoom = this._state.zoom;
+
+    const canvasPoint = this.imageToCanvasCoordinates({ x, y });
+    const vpt = this._canvas.viewportTransform;
+    if (vpt && vpt.length >= 6) {
+      vpt[4] = canvasWidth / 2 - zoom * canvasPoint.x;
+      vpt[5] = canvasHeight / 2 - zoom * canvasPoint.y;
+      this._canvas.setViewportTransform(vpt);
+      this._canvas.renderAll();
+    }
+  }
+
+  /**
+   * Convenience method to set zoom by percentage (e.g., 100 => 1.0)
+   */
+  public setZoomPercent(percent: number): void {
+    const clamped = Math.max(10, Math.min(500, percent));
+    this.setZoom(clamped / 100);
+  }
+
   // ===================================================================
   // Crosshair Operations
   // ===================================================================
@@ -826,7 +885,7 @@ export class CanvasController implements ICanvasController {
     const canvasHeight = this._canvas.getHeight();
 
     // Horizontal line
-    this._state.crosshairX = new fabric.Line([0, point.y, canvasWidth, point.y], {
+    this._state.crosshairX = new FabricJS.Line([0, point.y, canvasWidth, point.y], {
       stroke: '#ffffff',
       strokeWidth: 1,
       strokeDashArray: [5, 5],
@@ -838,7 +897,7 @@ export class CanvasController implements ICanvasController {
     (this._state.crosshairX as any).crosshairType = 'horizontal';
 
     // Vertical line
-    this._state.crosshairY = new fabric.Line([point.x, 0, point.x, canvasHeight], {
+    this._state.crosshairY = new FabricJS.Line([point.x, 0, point.x, canvasHeight], {
       stroke: '#ffffff',
       strokeWidth: 1,
       strokeDashArray: [5, 5],
@@ -876,8 +935,29 @@ export class CanvasController implements ICanvasController {
   }
 
   public updateCrosshair(point: Point): void {
-    if (this.appState.isCrosshairVisible) {
+    if (!this._canvas) return;
+
+    if (!this.appState.isCrosshairVisible) {
+      this.hideCrosshair();
+      return;
+    }
+
+    // Only show crosshair when pointer is inside a label box area
+    const imgPt = this.canvasToImageCoordinates(point);
+    const objects = this._canvas.getObjects() as FabricRectangle[];
+    const isInsideAnyBox = objects.some(obj => {
+      const bbox = obj.boundingBox;
+      if (!obj.isLabel || !bbox) return false;
+      return (
+        imgPt.x >= bbox.x && imgPt.x <= bbox.x + bbox.width &&
+        imgPt.y >= bbox.y && imgPt.y <= bbox.y + bbox.height
+      );
+    });
+
+    if (isInsideAnyBox) {
       this.showCrosshair(point);
+    } else {
+      this.hideCrosshair();
     }
   }
 
@@ -1011,9 +1091,23 @@ export class CanvasController implements ICanvasController {
     if (!this._canvas) return;
 
     // Mouse events
+    let isPanning = false;
+    let lastPos = { x: 0, y: 0 };
+
     this._canvas.on('mouse:down', (e) => {
       const pointer = this._canvas!.getPointer(e.e);
       this.updateCrosshair(pointer);
+
+      // Start panning on middle click or when Alt pressed (right-click reserved for mode toggle)
+      const ev = e.e as MouseEvent;
+      const startPan = ev.button === 1 || ev.altKey || (ev as any).spaceKey;
+      if (startPan) {
+        isPanning = true;
+        lastPos = { x: ev.clientX, y: ev.clientY };
+        this._canvas!.setCursor('grabbing');
+        this._canvas!.requestRenderAll();
+        return;
+      }
 
       if (this.appState.currentMode === 'draw' && !e.target) {
         this.startDrawing(pointer);
@@ -1024,6 +1118,30 @@ export class CanvasController implements ICanvasController {
       const pointer = this._canvas!.getPointer(e.e);
       this.updateCrosshair(pointer);
 
+      // Dispatch mouse move with canvas/image coordinates
+      try {
+        const imagePt = this.canvasToImageCoordinates(pointer);
+        this.dispatchEvent({
+          type: 'mouse:move',
+          pointer,
+          data: { canvas: { x: pointer.x, y: pointer.y }, image: { x: imagePt.x, y: imagePt.y } }
+        });
+      } catch {}
+
+      if (isPanning) {
+        const ev = e.e as MouseEvent;
+        const v: any = this._canvas!.viewportTransform as any;
+        if (!v || v.length < 6) {
+          return;
+        }
+        v[4] += ev.clientX - lastPos.x;
+        v[5] += ev.clientY - lastPos.y;
+        this._canvas!.setViewportTransform(v as number[]);
+        lastPos = { x: ev.clientX, y: ev.clientY };
+        this._canvas!.requestRenderAll();
+        return;
+      }
+
       if (this._state.isDrawing) {
         this.updateDrawing(pointer);
       }
@@ -1031,6 +1149,13 @@ export class CanvasController implements ICanvasController {
 
     this._canvas.on('mouse:up', (e) => {
       const pointer = this._canvas!.getPointer(e.e);
+
+      if (isPanning) {
+        isPanning = false;
+        this._canvas!.setCursor('default');
+        this._canvas!.requestRenderAll();
+        return;
+      }
 
       if (this._state.isDrawing) {
         this.finishDrawing(pointer);
@@ -1059,6 +1184,40 @@ export class CanvasController implements ICanvasController {
         this.handleObjectModified(e.target as FabricRectangle);
       }
     });
+
+    // Wheel zoom (zoom to pointer)
+    this._canvas.on('mouse:wheel', (opt: any) => {
+      const delta = opt.e.deltaY;
+      let zoom = this._state.zoom;
+      zoom *= delta > 0 ? 0.9 : 1.1;
+      zoom = Math.max(0.1, Math.min(5, zoom));
+
+      const point = new FabricJS.Point(opt.e.offsetX, opt.e.offsetY);
+      this._canvas!.zoomToPoint(point, zoom);
+      this._state.zoom = zoom;
+
+      opt.e.preventDefault();
+      opt.e.stopPropagation();
+    });
+  }
+
+  private applyModeSettings(mode?: 'draw' | 'edit'): void {
+    if (!this._canvas) return;
+    const m = mode || this.appState.currentMode;
+
+    // In draw mode, disable selection and target finding to make drawing easier
+    const drawMode = m === 'draw';
+    (this._canvas as any).selection = !drawMode;
+    (this._canvas as any).skipTargetFind = drawMode;
+
+    // Update object selectability based on mode
+    const objects = this._canvas.getObjects();
+    objects.forEach(obj => {
+      obj.selectable = !drawMode;
+      obj.evented = !drawMode;
+    });
+
+    this._canvas.requestRenderAll();
   }
 
   private updateSelectedObjects(): void {
@@ -1126,7 +1285,7 @@ export class CanvasController implements ICanvasController {
       labelText += ` (${(bbox.confidence * 100).toFixed(1)}%)`;
     }
 
-    const text = new fabric.Text(labelText, {
+    const text = new FabricJS.Text(labelText, {
       left: (rect.left || 0) + 2,
       top: (rect.top || 0) - this.labelOptions.fontSize - 2,
       fontSize: this.labelOptions.fontSize,

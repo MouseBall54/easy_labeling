@@ -31,6 +31,7 @@ import {
   PreviewItem
 } from '../types/ui';
 import { Mode, Point } from '../types/index';
+import { showSuccessToast, showErrorToast } from '../utils';
 import { BoundingBox } from '../types/canvas';
 
 /**
@@ -223,11 +224,77 @@ export class UIManager implements IUIManager {
   }
 
   private getElementById(id: string): HTMLElement {
-    const element = document.getElementById(id);
+    // During migration, support both new (kebab-case) and legacy (camelCase) IDs
+    const legacyIdMap: Record<string, string> = {
+      // Folder selection
+      'select-image-folder-btn': 'selectImageFolderBtn',
+      'select-label-folder-btn': 'selectLabelFolderBtn',
+      'load-class-info-folder-btn': 'loadClassInfoFolderBtn',
+
+      // Class file elements
+      'view-class-file-btn': 'viewClassFileBtn',
+      'class-file-editor-body': 'classFileEditorBody',
+      'add-class-row-btn': 'addClassRowBtn',
+      'save-class-file-btn': 'saveClassFileBtn',
+      'download-classes-btn': 'downloadClassesBtn',
+
+      // Image list / filters
+      'image-search-input': 'imageSearchInput',
+      'show-labeled-checkbox': 'showLabeled',
+      'show-unlabeled-checkbox': 'showUnlabeled',
+
+      // Save/load
+      'save-labels-btn': 'saveLabelsBtn',
+      'auto-save-toggle': 'autoSaveToggle',
+
+      // Canvas display options
+      'show-labels-on-canvas-toggle': 'showLabelsOnCanvasToggle',
+      'label-font-size-slider': 'label-font-size',
+      'crosshair-toggle': 'crosshairToggle',
+
+      // Modes
+      'draw-mode-btn': 'drawMode',
+      'edit-mode-btn': 'editMode',
+
+      // Sorting
+      'sort-labels-asc-btn': 'sortLabelsAscBtn',
+      'sort-labels-desc-btn': 'sortLabelsDescBtn',
+
+      // Zoom controls
+      'zoom-in-btn': 'zoomInBtn',
+      'zoom-out-btn': 'zoomOutBtn',
+      'reset-zoom-btn': 'resetZoomBtn',
+
+      // Coords
+      'mouse-coords-display': 'info-display',
+      'coord-x-input': 'coordX',
+      'coord-y-input': 'coordY',
+      'go-to-coords-btn': 'goToCoordsBtn',
+
+      // Navigation
+      'prev-image-btn': 'prevImageBtn',
+      'next-image-btn': 'nextImageBtn',
+
+      // Theme
+      'dark-mode-toggle': 'darkModeToggle',
+
+      // Label class modal
+      'label-class-input': 'labelClassInput',
+      'save-label-class-btn': 'saveLabelClassBtn',
+    };
+
+    let element = document.getElementById(id);
+    if (!element) {
+      const legacyId = legacyIdMap[id];
+      if (legacyId) {
+        element = document.getElementById(legacyId);
+      }
+    }
+
     if (!element) {
       throw new Error(`Element with ID '${id}' not found`);
     }
-    return element;
+    return element as HTMLElement;
   }
 
   // ===================================================================
@@ -510,9 +577,46 @@ export class UIManager implements IUIManager {
     this.dispatchUIEvent('image:list-rendered', { count: this.imageListItems.length });
   }
 
-  private selectImage(imageFile: any): void {
+  private async selectImage(imageFile: any): Promise<void> {
     this._state.setCurrentImage(imageFile);
     this.dispatchUIEvent('image:selected', { imageFile });
+
+    // Update selected highlight and current image name
+    try {
+      this.imageListItems.forEach(item => {
+        item.element.classList.toggle('selected', item.file.name === imageFile.name);
+      });
+    } catch {}
+    if (this._elements?.currentImageNameSpan) {
+      this._elements.currentImageNameSpan.textContent = imageFile?.name || '';
+    }
+
+    try {
+      // Load image from file system and display on canvas
+      const imgResult = await (this._fileSystem as any).loadImage?.(imageFile.handle);
+      if (imgResult?.success && imgResult.data) {
+        const imgEl = imgResult.data as HTMLImageElement;
+        this._canvasController.loadImage(imgEl);
+
+        // Load labels if label folder selected
+        const labelFolder = (this._state as any).labelFolderHandle;
+        if (labelFolder) {
+          const lblResult = await (this._fileSystem as any).loadLabels?.(imageFile.name, labelFolder);
+          if (lblResult?.success && Array.isArray(lblResult.data)) {
+            // Clear existing labels
+            this._canvasController.getAllBoundingBoxes().forEach(b => this._canvasController.removeBoundingBox(b.id));
+            const width = (imgEl as any).naturalWidth || imgEl.width || 1;
+            const height = (imgEl as any).naturalHeight || imgEl.height || 1;
+            lblResult.data.forEach((y: any) => {
+              const bbox = this._canvasController.yoloToBoundingBox(y, { width, height });
+              this._canvasController.addBoundingBox(bbox);
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load selected image', e);
+    }
   }
 
   updateLabelList(): void {
@@ -745,6 +849,92 @@ export class UIManager implements IUIManager {
   // ===================================================================
 
   private setupEventListeners(): void {
+    // Sync UI when mode changes programmatically (e.g., right-click toggle)
+    try {
+      (this._state as any).addEventListener('mode:changed', (evt: any) => {
+        const current = evt?.data?.current;
+        this.syncModeUI(current);
+      });
+      // Initialize once
+      this.syncModeUI((this._state as any).currentMode);
+    } catch {}
+    // Update coord inputs with image pointer position
+    try {
+      (this._canvasController as any).addEventListener('mouse:move', (evt: any) => {
+        const img = evt?.data?.image;
+        if (img && Number.isFinite(img.x) && Number.isFinite(img.y)) {
+          this.elements.coordXInput.value = String(Math.round(img.x));
+          this.elements.coordYInput.value = String(Math.round(img.y));
+        }
+      });
+    } catch {}
+    // Folder selection
+    this.elements.selectImageFolderBtn.addEventListener('click', async () => {
+      try {
+        const result = await (this._fileSystem as any).selectImageFolder?.();
+        if (result?.success && result.data) {
+          this._state.setImageFolder(result.data);
+          const listRes = await (this._fileSystem as any).listImageFiles?.(result.data);
+          if (listRes?.success && Array.isArray(listRes.data)) {
+            (this._state as any).imageFiles = listRes.data;
+            this.renderImageList();
+          }
+        }
+      } catch (e) {
+        console.error('Failed to select image folder', e);
+      }
+    });
+
+    this.elements.selectLabelFolderBtn.addEventListener('click', async () => {
+      try {
+        const result = await (this._fileSystem as any).selectLabelFolder?.();
+        if (result?.success && result.data) {
+          this._state.setLabelFolder(result.data);
+          this.updateLabelFolderButton(true, result.data.name);
+        }
+      } catch (e) {
+        console.error('Failed to select label folder', e);
+      }
+    });
+
+    this.elements.loadClassInfoFolderBtn.addEventListener('click', async () => {
+      try {
+        const result = await (this._fileSystem as any).selectClassInfoFolder?.();
+        if (result?.success && result.data) {
+          this._state.setClassInfoFolder(result.data);
+        }
+      } catch (e) {
+        console.error('Failed to select class info folder', e);
+      }
+    });
+
+    // Zoom controls
+    this.elements.zoomInBtn.addEventListener('click', () => this._canvasController.zoomIn());
+    this.elements.zoomOutBtn.addEventListener('click', () => this._canvasController.zoomOut());
+    this.elements.resetZoomBtn.addEventListener('click', () => this._canvasController.resetZoom());
+
+    // Mode switching
+    this.elements.drawModeBtn.addEventListener('click', () => this._state.setMode('draw'));
+    this.elements.editModeBtn.addEventListener('click', () => this._state.setMode('edit'));
+
+    // Canvas display options
+    this.elements.showLabelsOnCanvasToggle.addEventListener('change', () => {
+      this._state.setShowLabels(this.elements.showLabelsOnCanvasToggle.checked);
+      this._canvasController.updateLabels();
+    });
+    this.elements.labelFontSizeSlider.addEventListener('input', () => {
+      const val = Number(this.elements.labelFontSizeSlider.value);
+      this.elements.labelFontSizeValue.textContent = String(val);
+      this._state.setLabelFontSize(val);
+      this._canvasController.setLabelFont(val);
+    });
+    this.elements.autoSaveToggle.addEventListener('change', () => {
+      this._state.setAutoSave(this.elements.autoSaveToggle.checked);
+    });
+    this.elements.crosshairToggle.addEventListener('change', () => {
+      this._state.toggleCrosshair();
+    });
+
     // Window resize handler
     window.addEventListener('resize', () => {
       this.resizePanels();
@@ -776,12 +966,76 @@ export class UIManager implements IUIManager {
       this.toggleDarkMode();
     });
 
+    // Save labels
+    this.elements.saveLabelsBtn.addEventListener('click', async () => {
+      try {
+        if (!this._state.currentImageFile || !(this._state as any).labelFolderHandle) {
+          showErrorToast('Select image and label folders first');
+          return;
+        }
+        const boundingBoxes = this._canvasController.getAllBoundingBoxes();
+        const yoloLabels = boundingBoxes.map(bbox =>
+          this._canvasController.boundingBoxToYOLO(bbox, {
+            width: (this._state as any).currentImage?.width || 1,
+            height: (this._state as any).currentImage?.height || 1
+          })
+        );
+
+        const result = await (this._fileSystem as any).saveLabels?.(
+          this._state.currentImageFile.name,
+          yoloLabels,
+          (this._state as any).labelFolderHandle
+        );
+        if (result?.success) {
+          showSuccessToast('Labels saved successfully');
+        } else {
+          showErrorToast(result?.error || 'Failed to save labels');
+        }
+      } catch (e: any) {
+        console.error('Save labels failed', e);
+        showErrorToast('Failed to save labels');
+      }
+    });
+
+    // Go to coordinates
+    this.elements.goToCoordsBtn.addEventListener('click', () => {
+      const x = Number(this.elements.coordXInput.value);
+      const y = Number(this.elements.coordYInput.value);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        this._canvasController.goToImageCoordinates(x, y);
+      }
+    });
+
+    // Zoom input (percent)
+    this.elements.zoomInput.addEventListener('change', () => {
+      const pct = Number(this.elements.zoomInput.value);
+      if (Number.isFinite(pct) && pct > 0) {
+        this._canvasController.setZoomPercent(pct);
+      }
+    });
+
     // Hide context menu on document click
     document.addEventListener('click', (e) => {
       if (!this.elements.contextMenu.contains(e.target as Node)) {
         this.hideContextMenu();
       }
     });
+  }
+
+  // Keep mode buttons in sync with AppState
+  private syncModeUI(currentMode: 'draw' | 'edit'): void {
+    try {
+      const drawInput = document.getElementById('drawMode') as HTMLInputElement | null;
+      const editInput = document.getElementById('editMode') as HTMLInputElement | null;
+      const drawLabel = document.querySelector('label[for="drawMode"]') as HTMLElement | null;
+      const editLabel = document.querySelector('label[for="editMode"]') as HTMLElement | null;
+
+      const isDraw = currentMode === 'draw';
+      if (drawInput) drawInput.checked = isDraw;
+      if (editInput) editInput.checked = !isDraw;
+      if (drawLabel) drawLabel.classList.toggle('active', isDraw);
+      if (editLabel) editLabel.classList.toggle('active', !isDraw);
+    } catch {}
   }
 
   // ===================================================================

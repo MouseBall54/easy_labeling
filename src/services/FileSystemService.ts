@@ -316,6 +316,11 @@ export class FileSystemService implements IFileSystemService {
 
   public async loadImage(fileHandle: FileSystemFileHandle, options?: ImageLoadOptions): Promise<FileOperationResult<HTMLImageElement>> {
     try {
+      // TIFF handling: delegate to TIFF loader if needed
+      const ext = this.getFileExtension(fileHandle.name).toLowerCase();
+      if (ext === 'tif' || ext === 'tiff') {
+        return await this.loadTiffImage(fileHandle);
+      }
       // Check cache first
       const cacheKey = `${fileHandle.name}`;
       const cached = this.imageCache.get(cacheKey);
