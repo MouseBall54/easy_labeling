@@ -879,6 +879,37 @@ export class UIManager implements IUIManager {
             (this._state as any).imageFiles = listRes.data;
             this.renderImageList();
           }
+
+          // Auto-detect or create label folder inside the selected image folder
+          try {
+            const imageFolderHandle = result.data as any;
+            let labelHandle: any | null = null;
+            // Try common names first: 'labels', then 'label'
+            try { labelHandle = await imageFolderHandle.getDirectoryHandle('labels'); } catch {}
+            if (!labelHandle) { try { labelHandle = await imageFolderHandle.getDirectoryHandle('label'); } catch {} }
+
+            if (labelHandle) {
+              this._state.setLabelFolder(labelHandle);
+              this.updateLabelFolderButton(true, labelHandle.name);
+              showSuccessToast(`Detected label folder: ${labelHandle.name}`);
+            } else {
+              // Ask user if they want to create label folder
+              const create = window.confirm('No label folder found inside the selected image folder.\nCreate a new "labels" folder?');
+              if (create) {
+                try {
+                  const created = await imageFolderHandle.getDirectoryHandle('labels', { create: true });
+                  this._state.setLabelFolder(created);
+                  this.updateLabelFolderButton(true, created.name);
+                  showSuccessToast('Created label folder: labels');
+                } catch (err) {
+                  console.error('Failed to create labels folder', err);
+                  showErrorToast('Failed to create label folder');
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Label folder detection/creation skipped:', e);
+          }
         }
       } catch (e) {
         console.error('Failed to select image folder', e);
