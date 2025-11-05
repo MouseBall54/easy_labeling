@@ -5,7 +5,7 @@
  * Handles Bootstrap modals, panel management, list rendering, and theme management.
  */
 
-import { IAppState } from '../types/app-state';
+import { IAppState, ClassDefinition, ClassFile } from '../types/app-state';
 import { ICanvasController } from '../types/canvas';
 import { IFileSystem } from '../types/file-system';
 import {
@@ -33,6 +33,7 @@ import {
 import { Mode, Point } from '../types/index';
 import { showSuccessToast, showErrorToast } from '../utils';
 import { BoundingBox } from '../types/canvas';
+import { getColorForClass } from '../utils/color-palette';
 
 /**
  * Bootstrap Modal wrapper for type safety
@@ -78,6 +79,9 @@ export class UIManager implements IUIManager {
   private imageListItems: ImageListItem[] = [];
   private labelListItems: LabelListItem[] = [];
   private previewItems: PreviewItem[] = [];
+  private pendingLabelIds: string[] = [];
+  private classSelectionButtons: HTMLButtonElement[] = [];
+  private currentContext: any = null;
 
   constructor(
     private _state: IAppState,
@@ -95,6 +99,8 @@ export class UIManager implements IUIManager {
     this.setupEventListeners();
     this.setupSplitters();
     this.initializePanelConfigs();
+    this.populateClassFileDropdown(this._state.classFiles);
+    this.renderClassSelectionButtons(this._state.selectedClassFile?.content || []);
   }
 
   // ===================================================================
@@ -352,8 +358,8 @@ export class UIManager implements IUIManager {
       if (centerGroup) {
         const buttons = Array.from(centerGroup.querySelectorAll('button')) as HTMLElement[];
         if (buttons.length >= 2) {
-          setId(buttons[0], 'prevImageBtn');
-          setId(buttons[buttons.length - 1], 'nextImageBtn');
+          setId(buttons[0] ?? null, 'prevImageBtn');
+          setId(buttons[buttons.length - 1] ?? null, 'nextImageBtn');
         }
         const nameSpan = centerGroup.querySelector('span.navbar-text') as HTMLElement | null;
         setId(nameSpan, 'current-image-name');
@@ -373,16 +379,16 @@ export class UIManager implements IUIManager {
       // Coords container inputs/button
       const coords = q('#coords-input-container');
       if (coords) {
-        const inputs = coords.querySelectorAll('input');
-        setId(inputs[0] as HTMLElement, 'coordX');
-        setId(inputs[1] as HTMLElement, 'coordY');
-        const goBtn = coords.querySelector('button');
-        setId(goBtn as HTMLElement, 'goToCoordsBtn');
+        const inputs = Array.from(coords.querySelectorAll('input')) as HTMLElement[];
+        setId(inputs[0] ?? null, 'coordX');
+        setId(inputs[1] ?? null, 'coordY');
+        const goBtn = coords.querySelector('button') as HTMLElement | null;
+        setId(goBtn, 'goToCoordsBtn');
       }
 
       // Zoom percent input
-      const zoomGroup = Array.from(info.querySelectorAll('.input-group input[type="number"]'))[0] as HTMLElement | null;
-      setId(zoomGroup, 'zoom-input');
+      const zoomGroup = Array.from(info.querySelectorAll('.input-group input[type=\"number\"]'))[0] as HTMLElement | undefined;
+      setId(zoomGroup ?? null, 'zoom-input');
     }
 
     // Left panel buttons by text
@@ -728,6 +734,10 @@ export class UIManager implements IUIManager {
     const labelList = this.elements.labelList;
     labelList.innerHTML = '';
 
+    const selectedIds = new Set(
+      this._canvasController.getSelectedBoundingBoxes().map(box => box.id)
+    );
+
     // Get current bounding boxes from canvas
     const boundingBoxes = this._canvasController.getAllBoundingBoxes();
 
@@ -737,6 +747,7 @@ export class UIManager implements IUIManager {
       listItem.dataset.labelId = bbox.id;
 
       const className = this.getDisplayNameForClass(bbox.classId.toString());
+      const isSelected = selectedIds.has(bbox.id);
 
       listItem.innerHTML = `
         <div class="label-item-content">
@@ -749,6 +760,10 @@ export class UIManager implements IUIManager {
         this.selectLabel(bbox.id);
       });
 
+      if (isSelected) {
+        listItem.classList.add('selected');
+      }
+
       labelList.appendChild(listItem);
 
       return {
@@ -756,7 +771,7 @@ export class UIManager implements IUIManager {
         classId: bbox.classId,
         className,
         boundingBox: bbox,
-        isSelected: false,
+        isSelected,
         element: listItem
       };
     });
@@ -766,6 +781,11 @@ export class UIManager implements IUIManager {
 
   private selectLabel(labelId: string): void {
     this._canvasController.selectBoundingBox(labelId);
+    this.labelListItems.forEach(item => {
+      const selected = item.id === labelId;
+      item.isSelected = selected;
+      item.element.classList.toggle('selected', selected);
+    });
     this.dispatchUIEvent('label:selected', { labelId });
   }
 
@@ -834,6 +854,199 @@ export class UIManager implements IUIManager {
   }
 
   // ===================================================================
+  // Class & Label Management
+  // ===================================================================
+
+  private populateClassFileDropdown(classFiles: ClassFile[]): void {
+    const dropdown = this.elements.classFileSelect;
+    dropdown.innerHTML = '<option value="">Choose...</option>';
+
+    classFiles.forEach(file => {
+      const option = document.createElement('option');
+      option.value = file.name;
+      option.textContent = file.name;
+      if (file.isSelected) {
+        option.selected = true;
+      }
+      dropdown.appendChild(option);
+    });
+  }
+
+  private renderClassSelectionButtons(classDefs: ClassDefinition[]): void {
+    const container = this.elements.classSelectionContainer;
+    container.innerHTML = '';
+    this.classSelectionButtons = [];
+
+    if (!classDefs.length) {
+      const helper = document.createElement('p');
+      helper.className = 'text-muted small mb-0';
+      helper.textContent = '클래스 파일을 불러오면 빠르게 선택할 수 있습니다.';
+      container.appendChild(helper);
+      return;
+    }
+
+    classDefs.forEach((def: ClassDefinition) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline-secondary btn-sm me-2 mb-2 class-select-btn';
+      btn.textContent = `${def.id}: ${def.name}`;
+      btn.addEventListener('click', () => this.applyClassToPendingLabels(def.id));
+      container.appendChild(btn);
+      this.classSelectionButtons.push(btn);
+    });
+  }
+
+  private async loadClassFileByName(fileName: string): Promise<void> {
+    const classFile = this._state.classFiles.find(file => file.name === fileName);
+    if (!classFile) {
+      showErrorToast('선택한 클래스 파일을 찾을 수 없습니다.');
+      return;
+    }
+
+    await this.loadClassFileContent(classFile);
+  }
+
+  private async loadClassFileContent(classFile: ClassFile): Promise<void> {
+    try {
+      const result = await (this._fileSystem as any).loadClassFile?.(classFile.handle);
+      if (!result?.success || !result.data) {
+        showErrorToast(result?.error || '클래스 파일을 불러오지 못했습니다.');
+        return;
+      }
+
+      this._state.classNames.clear();
+      result.data.classes.forEach((def: ClassDefinition) => this._state.addClassDefinition(def));
+      this._state.selectClassFile(classFile);
+
+      this._state.classFiles.forEach(file => {
+        file.isSelected = file.name === classFile.name;
+        if (file.name === classFile.name) {
+          file.content = result.data.classes;
+        }
+      });
+
+      this.populateClassFileDropdown(this._state.classFiles);
+      this.renderClassSelectionButtons(result.data.classes);
+
+      this._canvasController.updateLabels();
+      const boxes = this._canvasController.getAllBoundingBoxes();
+      this.updateLabelFilters(boxes);
+      this.updateSelectByClassDropdown(boxes);
+      this.updateLabelList();
+
+      showSuccessToast(`클래스 파일 로드 완료 (${result.data.classes.length}개)`);
+    } catch (error) {
+      console.error('Failed to load class file', error);
+      showErrorToast('클래스 파일 로드에 실패했습니다.');
+    }
+  }
+
+  private resetClassDefinitions(): void {
+    this._state.classNames.clear();
+    this._state.selectClassFile(null);
+    this.renderClassSelectionButtons([]);
+    this._canvasController.updateLabels();
+    const boxes = this._canvasController.getAllBoundingBoxes();
+    this.updateLabelFilters(boxes);
+    this.updateSelectByClassDropdown(boxes);
+    this.updateLabelList();
+    this.elements.classFileSelect.value = '';
+  }
+
+  public promptForLabelClass(labelIds: string[], defaultClassId?: number): void {
+    if (!labelIds || labelIds.length === 0) return;
+
+    this.pendingLabelIds = [...labelIds];
+
+    let initialClass = defaultClassId;
+    if (initialClass === undefined) {
+      const firstId = labelIds[0];
+      const bbox = this._canvasController.getAllBoundingBoxes().find(b => b.id === firstId);
+      if (bbox) {
+        initialClass = bbox.classId;
+      }
+    }
+
+    if (initialClass !== undefined) {
+      this.elements.labelClassInput.value = String(initialClass);
+    } else {
+      this.elements.labelClassInput.value = '';
+    }
+
+    this.elements.labelClassModal.show();
+    try {
+      this.elements.labelClassInput.focus();
+    } catch {}
+  }
+
+  private applyClassToPendingLabels(classId: number): void {
+    if (Number.isNaN(classId) || classId < 0) {
+      showErrorToast('유효한 클래스 ID를 입력하세요.');
+      return;
+    }
+    if (this.pendingLabelIds.length === 0) {
+      return;
+    }
+
+    const color = getColorForClass(classId);
+
+    this.pendingLabelIds.forEach(id => {
+      this._canvasController.updateBoundingBox(id, {
+        classId,
+        color
+      });
+    });
+
+    this._canvasController.updateLabels();
+    const boxes = this._canvasController.getAllBoundingBoxes();
+    this.updateLabelFilters(boxes);
+    this.updateSelectByClassDropdown(boxes);
+    this.updateLabelList();
+
+    this.pendingLabelIds = [];
+    this.elements.labelClassInput.value = '';
+    this.elements.labelClassModal.hide();
+  }
+
+  private handleContextMenuEdit(): void {
+    this.hideContextMenu();
+
+    const selected = this._canvasController.getSelectedBoundingBoxes();
+    const targetBoxes: BoundingBox[] = selected.length > 0
+      ? selected
+      : (this.currentContext?.selectedObjects || [])
+          .map((obj: any) => obj.boundingBox)
+          .filter((bbox: BoundingBox | undefined): bbox is BoundingBox => !!bbox);
+
+    if (!targetBoxes.length) {
+      showErrorToast('먼저 라벨을 선택하세요.');
+      return;
+    }
+
+    const ids = targetBoxes.map(b => b.id);
+    this.promptForLabelClass(ids, targetBoxes[0]?.classId);
+  }
+
+  private handleContextMenuDelete(): void {
+    this.hideContextMenu();
+    const deleted = this._canvasController.deleteSelected();
+
+    if (deleted.length === 0 && this.currentContext?.selectedObjects?.length) {
+      this.currentContext.selectedObjects.forEach((obj: any) => {
+        const bboxId = obj?.boundingBox?.id;
+        if (bboxId) {
+          this._canvasController.removeBoundingBox(bboxId);
+        }
+      });
+    }
+  }
+
+  private clearPendingLabelAssignment(): void {
+    this.pendingLabelIds = [];
+    this.elements.labelClassInput.value = '';
+  }
+
+  // ===================================================================
   // Status Updates
   // ===================================================================
 
@@ -877,17 +1090,19 @@ export class UIManager implements IUIManager {
   // Context Menu
   // ===================================================================
 
-  showContextMenu(config: ContextMenuConfig): void {
+  showContextMenuAt(position: Point, context?: any): void {
     const contextMenu = this.elements.contextMenu;
     contextMenu.style.display = 'block';
-    contextMenu.style.left = `${config.x}px`;
-    contextMenu.style.top = `${config.y}px`;
+    contextMenu.style.left = `${position.x}px`;
+    contextMenu.style.top = `${position.y}px`;
+    this.currentContext = context;
 
-    this.dispatchUIEvent('context-menu:show', config);
+    this.dispatchUIEvent('context-menu:show', { position, context });
   }
 
   hideContextMenu(): void {
     this.elements.contextMenu.style.display = 'none';
+    this.currentContext = null;
     this.dispatchUIEvent('context-menu:hide');
   }
 
@@ -954,6 +1169,13 @@ export class UIManager implements IUIManager {
   // ===================================================================
 
   private setupEventListeners(): void {
+    const labelClassModalEl = document.getElementById('labelClassModal');
+    if (labelClassModalEl) {
+      labelClassModalEl.addEventListener('hidden.bs.modal', () => {
+        this.clearPendingLabelAssignment();
+      });
+    }
+
     // Sync UI when mode changes programmatically (e.g., right-click toggle)
     try {
       (this._state as any).addEventListener('mode:changed', (evt: any) => {
@@ -1044,9 +1266,46 @@ export class UIManager implements IUIManager {
         const result = await (this._fileSystem as any).selectClassInfoFolder?.();
         if (result?.success && result.data) {
           this._state.setClassInfoFolder(result.data);
+
+          const listRes = await (this._fileSystem as any).listClassFiles?.(result.data);
+          if (listRes?.success && Array.isArray(listRes.data)) {
+            (this._state as any).classFiles = listRes.data;
+            this.populateClassFileDropdown(listRes.data);
+
+            if (listRes.data.length > 0) {
+              await this.loadClassFileByName(listRes.data[0]!.name);
+            } else {
+              this.resetClassDefinitions();
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to select class info folder', e);
+      }
+    });
+
+    this.elements.classFileSelect.addEventListener('change', async () => {
+      const value = this.elements.classFileSelect.value;
+      if (!value) {
+        this.resetClassDefinitions();
+        return;
+      }
+      await this.loadClassFileByName(value);
+    });
+
+    this.elements.saveLabelClassBtn.addEventListener('click', () => {
+      const classId = Number(this.elements.labelClassInput.value);
+      if (!Number.isFinite(classId)) {
+        showErrorToast('유효한 클래스 ID를 입력하세요.');
+        return;
+      }
+      this.applyClassToPendingLabels(classId);
+    });
+
+    this.elements.labelClassInput.addEventListener('keydown', (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.elements.saveLabelClassBtn.click();
       }
     });
 
@@ -1161,6 +1420,16 @@ export class UIManager implements IUIManager {
       if (!this.elements.contextMenu.contains(e.target as Node)) {
         this.hideContextMenu();
       }
+    });
+
+    this.elements.ctxEditLabel.addEventListener('click', (event) => {
+      event.preventDefault();
+      this.handleContextMenuEdit();
+    });
+
+    this.elements.ctxDeleteLabel.addEventListener('click', (event) => {
+      event.preventDefault();
+      this.handleContextMenuDelete();
     });
   }
 

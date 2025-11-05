@@ -15,11 +15,11 @@
 ## Phase 2. 라벨 & 클래스 워크플로
 - 목표: 클래스 정의 로딩/선택 및 라벨 관리 기능을 복원.
 - 체크리스트
-  - [ ] `FileSystemService.listClassFiles`와 클래스 YAML 파서를 UIManager에서 호출하여 드롭다운을 채운다.
-  - [ ] 클래스 선택 모달(`labelClassModal`) 오픈/저장 로직을 구현하고, 새 박스 생성 시 클래스 ID 입력 경로를 연결한다.
-  - [ ] 컨텍스트 메뉴 및 버튼을 통해 라벨 클래스 변경·삭제 기능을 동작하게 한다.
-  - [ ] `updateLabelList`를 캔버스/이벤트와 연동해 라벨 패널이 항상 최신 상태를 반영하도록 한다.
-  - [ ] `AppState.classNames`를 이용해 클래스 이름이 캔버스 라벨 및 리스트에 표시되도록 한다.
+  - [x] `FileSystemService.listClassFiles`와 클래스 YAML 파서를 UIManager에서 호출하여 드롭다운을 채운다.
+  - [x] 클래스 선택 모달(`labelClassModal`) 오픈/저장 로직을 구현하고, 새 박스 생성 시 클래스 ID 입력 경로를 연결한다.
+  - [x] 컨텍스트 메뉴 및 버튼을 통해 라벨 클래스 변경·삭제 기능을 동작하게 한다.
+  - [x] `updateLabelList`를 캔버스/이벤트와 연동해 라벨 패널이 항상 최신 상태를 반영하도록 한다.
+  - [x] `AppState.classNames`를 이용해 클래스 이름이 캔버스 라벨 및 리스트에 표시되도록 한다.
 
 ## Phase 3. 탐색/필터 UX
 - 목표: 이미지 탐색 관련 생산성 기능을 복원.

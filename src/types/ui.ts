@@ -155,10 +155,9 @@ export interface LabelGroup {
 
 // Context menu configuration
 export interface ContextMenuConfig {
-  x: number;
-  y: number;
-  target: BoundingBox | null;
-  options: ContextMenuOption[];
+  position: Point;
+  context?: any;
+  options?: ContextMenuOption[];
 }
 
 export interface ContextMenuOption {
@@ -358,7 +357,7 @@ export interface UIMethods {
   hideClassEditor(): void;
   
   // Context menu
-  showContextMenu(config: ContextMenuConfig): void;
+  showContextMenuAt(position: Point, context?: any): void;
   hideContextMenu(): void;
   
   // Event listeners

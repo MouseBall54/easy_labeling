@@ -109,10 +109,9 @@ export interface LabelGroup {
     isCollapsed: boolean;
 }
 export interface ContextMenuConfig {
-    x: number;
-    y: number;
-    target: BoundingBox | null;
-    options: ContextMenuOption[];
+    position: Point;
+    context?: any;
+    options?: ContextMenuOption[];
 }
 export interface ContextMenuOption {
     label: string;
@@ -232,7 +231,7 @@ export interface UIMethods {
     getDisplayNameForClass(labelClass: string): string;
     showClassEditor(): void;
     hideClassEditor(): void;
-    showContextMenu(config: ContextMenuConfig): void;
+    showContextMenuAt(position: Point, context?: any): void;
     hideContextMenu(): void;
     addEditDeleteListeners(rects: BoundingBox[]): void;
     addEventListener(type: UIEventType, handler: UIEventHandler): void;

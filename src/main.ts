@@ -109,7 +109,13 @@ class App {
       }
     };
 
-    this.canvasController.addEventListener('object:added', refreshLabelPanels);
+    this.canvasController.addEventListener('object:added', (event) => {
+      refreshLabelPanels();
+      const bbox = event.data?.boundingBox;
+      if (bbox && this.appState.currentMode === 'draw') {
+        this.uiManager.promptForLabelClass([bbox.id], bbox.classId);
+      }
+    });
     this.canvasController.addEventListener('object:removed', refreshLabelPanels);
     this.canvasController.addEventListener('object:modified', refreshLabelPanels);
 
@@ -141,6 +147,32 @@ class App {
         showSuccessToast('Labels saved');
       } catch (error) {
         console.error('Failed to show save toast', error);
+      }
+    });
+
+    this.eventManager.addEventListener('context-menu:show', (event) => {
+      const context = event.data?.context;
+      const position = context?.position || event.data?.position;
+      if (context && position) {
+        try {
+          this.appState.setContextTarget(context);
+        } catch (error) {
+          console.error('Failed to update context target', error);
+        }
+        try {
+          this.uiManager.showContextMenuAt(position, context);
+        } catch (error) {
+          console.error('Failed to show context menu', error);
+        }
+      }
+    });
+
+    this.eventManager.addEventListener('context-menu:hide', () => {
+      try {
+        this.uiManager.hideContextMenu();
+        this.appState.setContextTarget(null);
+      } catch (error) {
+        console.error('Failed to hide context menu', error);
       }
     });
 

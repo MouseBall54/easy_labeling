@@ -7,8 +7,8 @@
 import { IAppState } from '../types/app-state';
 import { ICanvasController } from '../types/canvas';
 import { IFileSystem } from '../types/file-system';
-import { DOMElements, PanelConfig, ContextMenuConfig, UIState, ThemeConfig, SearchOptions, FilterOptions, UIEventType, UIEventHandler, IUIManager } from '../types/ui';
-import { Mode } from '../types/index';
+import { DOMElements, PanelConfig, UIState, ThemeConfig, SearchOptions, FilterOptions, UIEventType, UIEventHandler, IUIManager } from '../types/ui';
+import { Mode, Point } from '../types/index';
 import { BoundingBox } from '../types/canvas';
 /**
  * UIManager implementation
@@ -29,6 +29,9 @@ export declare class UIManager implements IUIManager {
     private imageListItems;
     private labelListItems;
     private previewItems;
+    private pendingLabelIds;
+    private classSelectionButtons;
+    private currentContext;
     constructor(_state: IAppState, _canvasController: ICanvasController, _fileSystem: IFileSystem);
     get elements(): DOMElements;
     get state(): IAppState;
@@ -36,6 +39,7 @@ export declare class UIManager implements IUIManager {
     get fileSystem(): IFileSystem;
     private initializeElements;
     private getElementById;
+    private ensureDomIds;
     addEventListener(type: UIEventType, handler: UIEventHandler): void;
     removeEventListener(type: UIEventType, handler: UIEventHandler): void;
     private dispatchUIEvent;
@@ -59,12 +63,22 @@ export declare class UIManager implements IUIManager {
     updateLabelFilters(rects: BoundingBox[]): void;
     private toggleFilter;
     updateSelectByClassDropdown(rects: BoundingBox[]): void;
+    private populateClassFileDropdown;
+    private renderClassSelectionButtons;
+    private loadClassFileByName;
+    private loadClassFileContent;
+    private resetClassDefinitions;
+    promptForLabelClass(labelIds: string[], defaultClassId?: number): void;
+    private applyClassToPendingLabels;
+    private handleContextMenuEdit;
+    private handleContextMenuDelete;
+    private clearPendingLabelAssignment;
     updateLabelFolderButton(selected: boolean, folderName?: string): void;
     updateModeButtons(mode: Mode): void;
     updateZoomDisplay(): void;
     updateMouseCoords(x: number, y: number): void;
     updateCurrentImageDisplay(imageName: string): void;
-    showContextMenu(config: ContextMenuConfig): void;
+    showContextMenuAt(position: Point, context?: any): void;
     hideContextMenu(): void;
     showClassEditor(): void;
     hideClassEditor(): void;
