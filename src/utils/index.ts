@@ -156,8 +156,7 @@ export class UtilityManager {
      * Initialize utilities with current configuration
      */
     initialize(): void {
-        // This could be extended to set up any global utility configurations
-        console.log('Utilities initialized with config:', this.config);
+        // Initialize utility configuration (no console noise in production)
     }
 }
 

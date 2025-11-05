@@ -27,10 +27,6 @@ class App {
   private initialized = false;
 
   constructor() {
-    console.log('🚀 Easy Labeling TypeScript Migration - Phase 8 Integration!');
-    console.log('✅ All 7 previous phases completed successfully');
-    console.log('✅ Phase 8: Application integration starting...');
-
     this.initialize();
   }
 
@@ -39,13 +35,13 @@ class App {
    */
   private async initialize(): Promise<void> {
     try {
-      console.log('🔧 Initializing dependency injection system...');
+      // Initializing dependency injection system
 
       // Initialize Canvas Controller first
       this.canvasController = new CanvasController(
         this.appState
       );
-      console.log('✅ CanvasController initialized');
+      // CanvasController initialized
 
       // Initialize UI Manager (needs CanvasController)
       this.uiManager = new UIManager(
@@ -53,7 +49,7 @@ class App {
         this.canvasController,
         this.fileSystemService as any // Type compatibility will be fixed in future updates
       );
-      console.log('✅ UIManager initialized');
+      // UIManager initialized
 
       // Initialize Fabric canvas in the existing container from public/index.html
       this.canvasController.initializeCanvas('canvas-container');
@@ -65,24 +61,17 @@ class App {
         this.canvasController,
         this.fileSystemService
       );
-      console.log('✅ EventManager initialized');
+      // EventManager initialized
 
       // Setup cross-component references
       this.setupCrossReferences();
-      console.log('✅ Cross-component references established');
 
       // Setup event listeners for application lifecycle
       this.setupApplicationEvents();
-      console.log('✅ Application event system ready');
 
       this.initialized = true;
-      console.log('🎯 Phase 8 application integration completed successfully!');
-
-      // Show success notification
-      showSuccessToast('🚀 Easy Labeling TypeScript migration complete!');
-
-      // Perform functionality tests
-      await this.performFunctionalityTests();
+      // Phase 8 application integration completed
+      // (suppress success toast and integration tests logs on first load)
 
     } catch (error) {
       console.error('❌ Application initialization failed:', error);
@@ -108,15 +97,15 @@ class App {
   private setupApplicationEvents(): void {
     // Listen to application state changes
     this.appState.addEventListener('mode:changed', (event) => {
-      console.log('📡 App mode changed:', event.data);
+      // Suppress console noise
     });
 
     this.appState.addEventListener('image:selected', (event) => {
-      console.log('📡 Image selected:', event.data);
+      // Suppress console noise
     });
 
     this.appState.addEventListener('labels:saved', (event) => {
-      console.log('📡 Labels saved:', event.data);
+      // Suppress console noise
     });
 
     // Handle browser errors
@@ -314,7 +303,6 @@ class App {
 
 // Initialize application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('📱 DOM loaded - Phase 8 integration starting...');
 
   try {
     // Create and start the application
