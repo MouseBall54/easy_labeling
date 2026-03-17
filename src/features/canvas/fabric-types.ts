@@ -105,6 +105,7 @@ export interface FabricCanvasLike {
   discardActiveObject(): FabricCanvasLike;
   renderAll(): void;
   requestRenderAll(): void;
+  calcOffset?(): void;
   setWidth(width: number): void;
   setHeight(height: number): void;
   setBackgroundImage(image: unknown, callback: () => void): void;
@@ -120,12 +121,17 @@ export interface FabricCanvasLike {
   findTarget?(event: Event, skipGroup?: boolean): FabricObjectLike | null;
 }
 
+export interface FabricImageLike extends FabricObjectLike {
+  type: "image";
+}
+
 export interface FabricRuntimeLike {
   Canvas: new (
     elementId: string,
     options: { width: number; height: number; backgroundColor: string }
   ) => FabricCanvasLike;
   Rect: new (options: Record<string, unknown>) => FabricRectLike;
+  Image: new (element: unknown, options?: Record<string, unknown>) => FabricImageLike;
   Text: new (text: string, options: Record<string, unknown>) => FabricTextLike;
   Circle: new (options: Record<string, unknown>) => FabricCircleLike;
   Line: new (points: [number, number, number, number], options: Record<string, unknown>) => FabricLineLike;
