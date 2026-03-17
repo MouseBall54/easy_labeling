@@ -504,7 +504,7 @@ canvas {
 #bottom-splitter {
     height: 5px;
     background-color: var(--panel-border-color);
-    cursor: default;
+    cursor: ns-resize;
 }
 
 #preview-bar-container {
