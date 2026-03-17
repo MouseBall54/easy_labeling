@@ -1,6 +1,6 @@
-import type { FabricActiveSelectionLike, FabricAnimationOptions, FabricCanvasLike, FabricCircleLike, FabricLineLike, FabricObjectLike, FabricRectLike, FabricRuntimeLike, FabricTextLike, YoloMetadata } from "../../../../src/features/canvas/fabric-types.js";
+import type { FabricActiveSelectionLike, FabricAnimationOptions, FabricCanvasLike, FabricCircleLike, FabricImageLike, FabricLineLike, FabricObjectLike, FabricRectLike, FabricRuntimeLike, FabricTextLike, YoloMetadata } from "../../../../src/features/canvas/fabric-types.js";
 
-type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity";
+type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element";
 
 function cloneMetadata(metadata: YoloMetadata | null | undefined): YoloMetadata | null | undefined {
   if (metadata === null || metadata === undefined) {
@@ -218,6 +218,26 @@ class FakeFabricCircle extends FakeFabricObject<"circle"> implements FabricCircl
   }
 }
 
+class FakeFabricImage extends FakeFabricObject<"image"> implements FabricImageLike {
+  public element: unknown;
+
+  constructor(element: unknown, options: Record<string, unknown> = {}) {
+    super("image", Number(options.left ?? 0), Number(options.top ?? 0), Number(options.width ?? 0), Number(options.height ?? 0));
+    this.element = element;
+  }
+
+  protected cloneSelf(): FabricObjectLike {
+    const clone = new FakeFabricImage(this.element, {
+      left: this.left,
+      top: this.top,
+      width: this.width,
+      height: this.height
+    });
+    this.copyCommonTo(clone);
+    return clone;
+  }
+}
+
 class FakeActiveSelection extends FakeFabricObject<"activeSelection"> implements FabricActiveSelectionLike {
   constructor(private readonly objects: FabricObjectLike[], options: { canvas: FabricCanvasLike }) {
     super("activeSelection", 0, 0, 0, 0);
@@ -232,7 +252,9 @@ class FakeActiveSelection extends FakeFabricObject<"activeSelection"> implements
   }
 
   forEachObject(callback: (obj: FabricObjectLike) => void): void {
-    this.objects.forEach((obj) => callback(obj));
+    this.objects.forEach((obj) => {
+      callback(obj);
+    });
   }
 
   override getBoundingRect(): { left: number; top: number; width: number; height: number } {
@@ -277,8 +299,10 @@ export class FakeCanvas implements FabricCanvasLike {
   };
   public renderAllCalls = 0;
   public requestRenderAllCalls = 0;
+  public calcOffsetCalls = 0;
   public objects: FabricObjectLike[] = [];
   public activeObject: FabricObjectLike | null = null;
+  public backgroundImage: unknown = null;
   private zoom = 1;
   private readonly handlers = new Map<string, Array<(event: { e: MouseEvent | WheelEvent; target?: FabricObjectLike | null }) => void>>();
 
@@ -344,6 +368,10 @@ export class FakeCanvas implements FabricCanvasLike {
     this.renderAll();
   }
 
+  calcOffset(): void {
+    this.calcOffsetCalls += 1;
+  }
+
   setWidth(width: number): void {
     this.width = width;
   }
@@ -353,7 +381,7 @@ export class FakeCanvas implements FabricCanvasLike {
   }
 
   setBackgroundImage(image: unknown, callback: () => void): void {
-    void image;
+    this.backgroundImage = image;
     callback();
   }
 
@@ -420,6 +448,7 @@ export function createFakeFabricRuntime(): FabricRuntimeLike {
   return {
     Canvas: FakeCanvas,
     Rect: FakeFabricRect,
+    Image: FakeFabricImage,
     Text: FakeFabricText,
     Circle: FakeFabricCircle,
     Line: FakeFabricLine,

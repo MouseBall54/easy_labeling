@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createCanvasController, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
-import { createFakeFabricRuntime, createRect } from "./test-fakes.js";
+import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
   return {
@@ -65,6 +65,23 @@ describe("features/canvas/canvas-controller", () => {
     controller.highlightSelection();
     expect(rect.stroke).toBe("color-5");
     expect(rect.strokeDashArray).toEqual([]);
+  });
+
+  it("wraps DOM images in a Fabric image before setting the canvas background", () => {
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(
+      createState(),
+      createDeps({ fabric, getCanvasContainerSize: () => ({ width: 640, height: 480 }) })
+    );
+
+    const domImage = { width: 200, height: 100 };
+    controller.setBackgroundImage(domImage);
+
+    const canvas = controller.canvas as FakeCanvas;
+    expect(canvas.backgroundImage).toBeInstanceOf(fabric.Image);
+    expect((canvas.backgroundImage as { element: unknown }).element).toBe(domImage);
+    expect(canvas.width).toBe(640);
+    expect(canvas.height).toBe(480);
   });
 
   it("discards tiny rectangles and accepts larger draw rectangles via prompt-injected label", async () => {
@@ -136,5 +153,19 @@ describe("features/canvas/canvas-controller", () => {
     expect(rectB.labelClass).toBe("11");
     expect(rectA.originalYolo).toBeNull();
     expect(rectB.originalYolo).toBeNull();
+  });
+
+  it("recalculates Fabric offsets after viewport and size changes", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const canvas = controller.canvas as FakeCanvas;
+
+    controller.setBackgroundImage({ width: 200, height: 100 });
+    controller.setZoomPercentage("150");
+    controller.zoom(1.2);
+    controller.resetZoom();
+    controller.resizeCanvas();
+    controller.goToCoords(25, 30);
+
+    expect(canvas.calcOffsetCalls).toBe(6);
   });
 });
