@@ -1,0 +1,421 @@
+import { getDOMElements } from "../ui/dom-elements.js";
+import { getColorForClass } from "../features/canvas/colors.js";
+import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
+import { renderLabelClassModalContent } from "../ui/modals.js";
+import { renderClassFileSelect, renderImageList, renderLabelFilters, renderPreviewList, renderSelectByClassDropdown, showLoadingOverlay, hideLoadingOverlay } from "../ui/renderers.js";
+import { applyDarkMode, readStoredDarkMode } from "../ui/theme.js";
+function showToast(documentRef, message, duration = 3000) {
+    const toastContainer = documentRef.getElementById("toast-container");
+    if (!toastContainer) {
+        return;
+    }
+    const toast = documentRef.createElement("div");
+    toast.className = "toast-message";
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    window.setTimeout(() => toast.classList.add("show"), 10);
+    window.setTimeout(() => {
+        toast.classList.remove("show");
+        window.setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+function validateLabelClass(input, notify) {
+    if (input === null) {
+        return null;
+    }
+    const trimmedInput = input.trim();
+    if (trimmedInput === "") {
+        notify("Label class cannot be empty.");
+        return null;
+    }
+    const value = Number(trimmedInput);
+    if (!Number.isInteger(value) || value < 0 || value > 10000) {
+        notify("Invalid Label: Please enter an integer between 0 and 10000.", 4000);
+        return null;
+    }
+    return String(value);
+}
+const PREVIEW_PLACEHOLDER_SRC = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjAuNTsxOzAuNSIgZHVyPSIxcyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KPC9zdmc+";
+export function createUiManagerAdapter(input) {
+    const elements = getDOMElements(input.documentRef, input.bootstrapRef);
+    let deps = null;
+    let loadingDepth = 0;
+    const getCanvasController = () => {
+        return deps?.canvasController;
+    };
+    const getFileSystem = () => {
+        return deps?.fileSystem;
+    };
+    const ensurePreviewImage = async (file, imageElement) => {
+        const cached = input.state.runtime.previewImageCache.get(file.name);
+        if (cached) {
+            imageElement.src = cached;
+            return;
+        }
+        imageElement.src = PREVIEW_PLACEHOLDER_SRC;
+        try {
+            const blob = await file.getFile();
+            const objectUrl = URL.createObjectURL(blob);
+            input.state.runtime.previewImageCache.set(file.name, objectUrl);
+            if (elements.previewList.contains(imageElement)) {
+                imageElement.src = objectUrl;
+            }
+        }
+        catch {
+            imageElement.src = PREVIEW_PLACEHOLDER_SRC;
+        }
+    };
+    const manager = {
+        elements,
+        connect(connectedDeps) {
+            deps = connectedDeps;
+        },
+        getDisplayNameForClass(labelClass) {
+            const normalized = labelClass ?? "";
+            if (input.state.session.classNames.has(normalized)) {
+                return `${normalized}: ${input.state.session.classNames.get(normalized)}`;
+            }
+            return normalized;
+        },
+        updateLabelFolderButton(hasLabelFolder) {
+            const button = elements.selectLabelFolderBtn;
+            const folderName = input.state.session.labelFolderHandle?.name ?? "";
+            if (hasLabelFolder && folderName) {
+                button.classList.remove("btn-secondary", "btn-danger");
+                button.classList.add("btn-success");
+                button.innerHTML = `<i class="bi bi-folder-check"></i> ${folderName}`;
+                return;
+            }
+            button.classList.remove("btn-success");
+            button.classList.add("btn-danger");
+            button.innerHTML = '<i class="bi bi-folder-x"></i> Load Label Folder';
+        },
+        togglePreviewBarVisibility(hidden) {
+            input.state.view.isPreviewBarHidden = hidden;
+            elements.bottomPanel.classList.toggle("show", !hidden);
+            const icon = elements.togglePreviewBtn.querySelector("i");
+            if (!icon) {
+                return;
+            }
+            icon.classList.toggle("bi-chevron-down", !hidden);
+            icon.classList.toggle("bi-chevron-up", hidden);
+        },
+        async promptForLabelClass(defaultValue) {
+            const canvasController = getCanvasController();
+            const rects = canvasController?.raw.getObjects("rect") ?? [];
+            const classOptions = [...new Set([
+                    ...Array.from(input.state.session.classNames.keys()),
+                    ...rects.map((rect) => rect.labelClass ?? "").filter(Boolean)
+                ])]
+                .sort((left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10))
+                .map((id) => ({ id, displayName: manager.getDisplayNameForClass(id) }));
+            renderLabelClassModalContent({
+                defaultValue,
+                labelClassInputElement: elements.labelClassInput,
+                classSelectionContainerElement: elements.classSelectionContainer,
+                classOptions
+            });
+            elements.labelClassModal.show();
+            elements.labelClassInput.focus();
+            elements.labelClassInput.select();
+            return new Promise((resolve, reject) => {
+                const cleanup = () => {
+                    elements.saveLabelClassBtn.removeEventListener("click", onSave);
+                    elements.labelClassModal._element?.removeEventListener("hidden.bs.modal", onHidden);
+                    elements.labelClassInput.removeEventListener("keydown", onKeyDown);
+                };
+                const onSave = () => {
+                    const validated = validateLabelClass(elements.labelClassInput.value, manager.notify);
+                    if (validated === null) {
+                        return;
+                    }
+                    cleanup();
+                    elements.labelClassModal.hide();
+                    resolve(validated);
+                };
+                const onHidden = () => {
+                    cleanup();
+                    reject(new Error("Label prompt cancelled"));
+                };
+                const onKeyDown = (event) => {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        onSave();
+                        return;
+                    }
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        elements.labelClassModal.hide();
+                    }
+                };
+                elements.saveLabelClassBtn.addEventListener("click", onSave);
+                elements.labelClassModal._element?.addEventListener("hidden.bs.modal", onHidden, { once: true });
+                elements.labelClassInput.addEventListener("keydown", onKeyDown);
+            });
+        },
+        notify(message, duration = 3000) {
+            showToast(input.documentRef, message, duration);
+        },
+        updateZoomDisplay(zoomLevel) {
+            const resolvedZoom = typeof zoomLevel === "number" ? zoomLevel : 1;
+            elements.zoomInput.value = `${Math.round(resolvedZoom * 100)}`;
+        },
+        applyDarkMode(enabled) {
+            applyDarkMode({
+                enabled,
+                bodyElement: input.documentRef.body,
+                documentRef: input.documentRef,
+                storage: input.storage
+            });
+        },
+        restoreDarkModeFromStorage() {
+            const enabled = readStoredDarkMode(input.storage);
+            elements.darkModeToggle.checked = enabled;
+            if (enabled) {
+                manager.applyDarkMode(true);
+            }
+        },
+        renderImageList() {
+            const fileSystem = getFileSystem();
+            renderImageList({
+                imageListElement: elements.imageList,
+                imageFiles: input.state.session.imageFiles,
+                imageLabelStatus: input.state.session.imageLabelStatus,
+                currentImageFile: input.state.session.currentImageFile,
+                searchTerm: elements.imageSearchInput.value,
+                showLabeled: elements.showLabeledCheckbox.checked,
+                showUnlabeled: elements.showUnlabeledCheckbox.checked,
+                onImageClick: (file) => {
+                    fileSystem?.loadImage(file).catch((error) => {
+                        const message = error instanceof Error ? error.message : "Unexpected error";
+                        manager.notify(message, 4000);
+                    });
+                }
+            });
+        },
+        renderPreviewList() {
+            const fileSystem = getFileSystem();
+            const filesToPreview = renderPreviewList({
+                bottomPanelElement: elements.bottomPanel,
+                previewListElement: elements.previewList,
+                previewListWrapperElement: elements.previewListWrapper,
+                imageFiles: input.state.session.imageFiles,
+                currentImageFile: input.state.session.currentImageFile,
+                isPreviewBarHidden: input.state.view.isPreviewBarHidden,
+                onPreviewClick: (file) => {
+                    fileSystem?.loadImage(file).catch((error) => {
+                        const message = error instanceof Error ? error.message : "Unexpected error";
+                        manager.notify(message, 4000);
+                    });
+                }
+            });
+            filesToPreview.forEach((file) => {
+                const previewItem = elements.previewList.querySelector(`.preview-item[data-file-name="${CSS.escape(file.name)}"]`);
+                const imageElement = previewItem?.querySelector("img");
+                if (imageElement) {
+                    void ensurePreviewImage(file, imageElement);
+                }
+            });
+        },
+        renderClassFileSelect() {
+            renderClassFileSelect(elements.classFileSelect, input.state.session.classFiles, input.state.session.selectedClassFile?.name ?? null);
+        },
+        updateLabelList() {
+            const canvasController = getCanvasController();
+            if (!canvasController) {
+                return;
+            }
+            const rects = canvasController.raw.getObjects("rect").filter((rect) => rect.type === "rect");
+            elements.labelList.innerHTML = "";
+            const groupedRects = rects.reduce((groups, rect) => {
+                const key = rect.labelClass ?? "";
+                const existing = groups.get(key) ?? [];
+                existing.push(rect);
+                groups.set(key, existing);
+                return groups;
+            }, new Map());
+            const sortedGroupKeys = [...groupedRects.keys()].sort((left, right) => {
+                const leftNumber = Number.parseInt(left, 10);
+                const rightNumber = Number.parseInt(right, 10);
+                return input.state.view.labelSortOrder === "asc" ? leftNumber - rightNumber : rightNumber - leftNumber;
+            });
+            sortedGroupKeys.forEach((classId) => {
+                const groupRects = groupedRects.get(classId) ?? [];
+                const groupContainer = input.documentRef.createElement("div");
+                groupContainer.className = "label-group";
+                const groupHeader = input.documentRef.createElement("div");
+                groupHeader.className = "label-group-header list-group-item";
+                groupHeader.innerHTML = `
+          <i class="bi bi-chevron-right me-2"></i>
+          <span class="label-color-swatch me-2" style="background-color: ${getColorForClass(classId)};"></span>
+          <span class="fw-bold">${manager.getDisplayNameForClass(classId)}</span>
+          <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group"></i>
+          <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
+        `;
+                const itemsContainer = input.documentRef.createElement("div");
+                itemsContainer.className = "label-group-items";
+                const isCollapsed = input.state.view.collapsedLabelGroups.has(classId);
+                if (isCollapsed) {
+                    groupHeader.classList.add("collapsed");
+                    itemsContainer.style.maxHeight = "0";
+                }
+                groupHeader.addEventListener("click", () => {
+                    const collapsed = groupHeader.classList.toggle("collapsed");
+                    itemsContainer.style.maxHeight = collapsed ? "0" : `${itemsContainer.scrollHeight}px`;
+                    if (collapsed) {
+                        input.state.view.collapsedLabelGroups.add(classId);
+                    }
+                    else {
+                        input.state.view.collapsedLabelGroups.delete(classId);
+                    }
+                });
+                groupHeader.querySelector(".select-group-btn")?.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    canvasController.raw.selectLabelsByClass(classId);
+                });
+                groupRects.forEach((rect) => {
+                    const originalIndex = rects.indexOf(rect);
+                    const item = input.documentRef.createElement("li");
+                    item.id = `label-item-${originalIndex}`;
+                    item.className = "list-group-item d-flex justify-content-between align-items-center";
+                    item.dataset.index = String(originalIndex);
+                    const activeCanvasObjects = canvasController.raw.canvas.getActiveObjects();
+                    const activeSelection = activeCanvasObjects.length === 1 && isActiveSelectionObject(activeCanvasObjects[0])
+                        ? activeCanvasObjects[0]
+                        : null;
+                    const isActive = activeCanvasObjects.includes(rect) || (activeCanvasObjects.length === 1 &&
+                        activeSelection !== null &&
+                        activeSelection.getObjects().includes(rect));
+                    if (isActive) {
+                        item.classList.add("active");
+                    }
+                    item.innerHTML = `<span><span class="badge me-2" style="background-color: ${getColorForClass(rect.labelClass)};"> </span>${manager.getDisplayNameForClass(rect.labelClass)}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
+                    item.addEventListener("click", (event) => {
+                        if (event.target?.closest(".edit-btn, .delete-btn")) {
+                            return;
+                        }
+                        canvasController.raw.canvas.setActiveObject(rect);
+                        canvasController.raw.highlightSelection();
+                    });
+                    item.querySelector(".edit-btn")?.addEventListener("click", (event) => {
+                        event.stopPropagation();
+                        if (isRectObject(rect)) {
+                            void canvasController.raw.editLabel(rect);
+                        }
+                    });
+                    item.querySelector(".delete-btn")?.addEventListener("click", (event) => {
+                        event.stopPropagation();
+                        if (isRectObject(rect)) {
+                            canvasController.raw.removeObject(rect);
+                        }
+                        manager.updateLabelList();
+                        canvasController.raw.renderAll();
+                    });
+                    itemsContainer.appendChild(item);
+                });
+                groupContainer.append(groupHeader, itemsContainer);
+                elements.labelList.appendChild(groupContainer);
+            });
+            renderLabelFilters({
+                labelFiltersElement: elements.labelFilters,
+                rects: rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })),
+                getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass)
+            });
+            elements.labelFilters.querySelectorAll("button[data-label-class]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    canvasController.raw.selectLabelsByClass(button.dataset.labelClass ?? "");
+                });
+            });
+            elements.labelFilters.querySelectorAll("button:not([data-label-class])").forEach((button) => {
+                button.addEventListener("click", () => {
+                    canvasController.raw.selectAllLabels();
+                });
+            });
+            renderSelectByClassDropdown(elements.selectByClassDropdown, rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })), (labelClass) => manager.getDisplayNameForClass(labelClass));
+        },
+        updateCurrentImageName() {
+            elements.currentImageNameSpan.textContent = input.state.session.currentImageFile?.name ?? "";
+        },
+        updateMouseCoords(x, y) {
+            elements.mouseCoordsDisplay.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
+            elements.mouseCoordsDisplay.style.visibility = "visible";
+        },
+        hideMouseCoords() {
+            elements.mouseCoordsDisplay.style.visibility = "hidden";
+        },
+        showLoading() {
+            loadingDepth += 1;
+            showLoadingOverlay(elements.loadingOverlay);
+        },
+        hideLoading() {
+            loadingDepth = Math.max(0, loadingDepth - 1);
+            if (loadingDepth === 0) {
+                hideLoadingOverlay(elements.loadingOverlay);
+            }
+        },
+        togglePanel(panel, splitter, expandButton, collapse) {
+            panel.style.display = collapse ? "none" : "";
+            splitter.style.display = collapse ? "none" : "";
+            expandButton.style.display = collapse ? "inline-flex" : "none";
+        },
+        setupSplitters() {
+            const canvasController = getCanvasController();
+            if (!canvasController) {
+                return;
+            }
+            const setup = (splitter, panel, direction) => {
+                splitter.addEventListener("mousedown", (event) => {
+                    event.preventDefault();
+                    const onMouseMove = (moveEvent) => {
+                        const containerRect = splitter.parentElement?.getBoundingClientRect();
+                        if (!containerRect) {
+                            return;
+                        }
+                        const newWidth = direction === "left"
+                            ? moveEvent.clientX - containerRect.left
+                            : containerRect.right - moveEvent.clientX;
+                        if (newWidth > 200 && newWidth < 600) {
+                            panel.style.width = `${newWidth}px`;
+                            canvasController.raw.resizeCanvas();
+                            canvasController.raw.resetZoom();
+                        }
+                    };
+                    const onMouseUp = () => {
+                        document.removeEventListener("mousemove", onMouseMove);
+                        document.removeEventListener("mouseup", onMouseUp);
+                        canvasController.raw.resizeCanvas();
+                        canvasController.raw.resetZoom();
+                    };
+                    document.addEventListener("mousemove", onMouseMove);
+                    document.addEventListener("mouseup", onMouseUp);
+                });
+            };
+            const setupBottomSplitter = () => {
+                elements.bottomSplitter.addEventListener("mousedown", (event) => {
+                    event.preventDefault();
+                    const bottomPanel = elements.bottomPanel;
+                    const initialHeight = bottomPanel.getBoundingClientRect().height;
+                    const startY = event.clientY;
+                    const onMouseMove = (moveEvent) => {
+                        const delta = startY - moveEvent.clientY;
+                        const nextHeight = Math.max(80, Math.min(400, initialHeight + delta));
+                        bottomPanel.style.height = `${nextHeight}px`;
+                    };
+                    const onMouseUp = () => {
+                        document.removeEventListener("mousemove", onMouseMove);
+                        document.removeEventListener("mouseup", onMouseUp);
+                    };
+                    document.addEventListener("mousemove", onMouseMove);
+                    document.addEventListener("mouseup", onMouseUp);
+                });
+            };
+            setup(elements.leftSplitter, elements.leftPanel, "left");
+            setup(elements.rightSplitter, elements.rightPanel, "right");
+            setupBottomSplitter();
+        },
+        showClassFileContentModal() {
+            elements.classFileViewerModal.show();
+        }
+    };
+    return manager;
+}
