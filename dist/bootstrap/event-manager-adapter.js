@@ -10,6 +10,18 @@ export function createEventManagerAdapter(input) {
                     input.uiManager.notify(message, 4000);
                 });
             };
+            const syncViewControls = () => {
+                elements.drawModeBtn.checked = input.state.view.currentMode === "draw";
+                elements.editModeBtn.checked = input.state.view.currentMode === "edit";
+                elements.autoSaveToggle.checked = input.state.view.isAutoSaveEnabled;
+                elements.showLabelsOnCanvasToggle.checked = input.state.view.showLabelsOnCanvas;
+                elements.crosshairToggle.checked = input.state.view.isCrosshairVisible;
+            };
+            const setMode = (mode) => {
+                elements.drawModeBtn.checked = mode === "draw";
+                elements.editModeBtn.checked = mode === "edit";
+                input.canvasController.setMode?.(mode);
+            };
             const renderLists = () => {
                 input.uiManager.renderImageList();
                 input.uiManager.renderPreviewList();
@@ -111,10 +123,10 @@ export function createEventManagerAdapter(input) {
                 input.state.view.isAutoSaveEnabled = toggle.checked;
             });
             elements.drawModeBtn.addEventListener("change", () => {
-                input.canvasController.setMode?.("draw");
+                setMode("draw");
             });
             elements.editModeBtn.addEventListener("change", () => {
-                input.canvasController.setMode?.("edit");
+                setMode("edit");
             });
             elements.zoomInBtn.addEventListener("click", () => {
                 input.canvasController.raw.zoom(1.2);
@@ -217,6 +229,9 @@ export function createEventManagerAdapter(input) {
                 if (rawCanvas.isDragging) {
                     rawCanvas.isDragging = false;
                     rawCanvas.selection = true;
+                    rawCanvas.setViewportTransform([...rawCanvas.viewportTransform]);
+                    rawCanvas.calcOffset?.();
+                    rawCanvas.requestRenderAll();
                     return;
                 }
                 runAsync(() => input.canvasController.raw.finishDrawing().then(() => {
@@ -234,6 +249,7 @@ export function createEventManagerAdapter(input) {
                     zoom = 0.1;
                 }
                 rawCanvas.zoomToPoint({ x: wheelEvent.offsetX, y: wheelEvent.offsetY }, zoom);
+                rawCanvas.calcOffset?.();
                 wheelEvent.preventDefault();
                 wheelEvent.stopPropagation();
                 input.uiManager.updateZoomDisplay(rawCanvas.getZoom());
@@ -301,8 +317,9 @@ export function createEventManagerAdapter(input) {
                     document.addEventListener("click", cleanup, { once: true });
                     return;
                 }
-                input.canvasController.setMode?.(input.state.view.currentMode === "edit" ? "draw" : "edit");
+                setMode(input.state.view.currentMode === "edit" ? "draw" : "edit");
             });
+            syncViewControls();
             input.windowRef.addEventListener("keydown", (event) => {
                 if (elements.classFileViewerModal._element?.classList.contains("show")) {
                     return;
@@ -331,19 +348,22 @@ export function createEventManagerAdapter(input) {
                 }
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "q") {
                     event.preventDefault();
-                    input.canvasController.setMode?.(input.state.view.currentMode === "edit" ? "draw" : "edit");
+                    setMode(input.state.view.currentMode === "edit" ? "draw" : "edit");
                     return;
                 }
                 if ((event.ctrlKey || event.metaKey) && (event.key === "c" || event.key === "C")) {
+                    event.preventDefault();
                     input.canvasController.raw.copy();
                     return;
                 }
                 if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
+                    event.preventDefault();
                     input.canvasController.raw.paste();
                     input.uiManager.updateLabelList();
                     return;
                 }
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+                    event.preventDefault();
                     const activeObject = rawCanvas.getActiveObject();
                     if (activeObject && isRectObject(activeObject)) {
                         runAsync(() => input.canvasController.raw.editLabel(activeObject));
@@ -390,6 +410,7 @@ export function createEventManagerAdapter(input) {
                     return;
                 }
                 if (event.key === "Delete" || event.key === "Backspace") {
+                    event.preventDefault();
                     const activeObjects = rawCanvas.getActiveObjects();
                     activeObjects.forEach((object) => {
                         if (isRectObject(object)) {

@@ -57,6 +57,9 @@ export function createCanvasController(state, deps) {
         getLastMousePosition: () => state.lastMousePosition,
         getCurrentImageSize: () => state.currentImage
     });
+    const syncCanvasOffset = () => {
+        canvas.calcOffset?.();
+    };
     const controller = {
         canvas,
         getObjects(type) {
@@ -74,7 +77,12 @@ export function createCanvasController(state, deps) {
             const containerSize = deps.getCanvasContainerSize();
             canvas.setWidth(containerSize.width);
             canvas.setHeight(containerSize.height);
-            canvas.setBackgroundImage(image, this.renderAll.bind(this));
+            const backgroundImage = new deps.fabric.Image(image, {
+                originX: "left",
+                originY: "top"
+            });
+            canvas.setBackgroundImage(backgroundImage, this.renderAll.bind(this));
+            syncCanvasOffset();
         },
         setMode(mode) {
             state.currentMode = mode;
@@ -243,8 +251,12 @@ export function createCanvasController(state, deps) {
                 return;
             }
             rects.splice(destIndex, 0, movedRect);
-            rects.forEach((rect) => canvas.remove(rect));
-            rects.forEach((rect) => canvas.add(rect));
+            rects.forEach((rect) => {
+                canvas.remove(rect);
+            });
+            rects.forEach((rect) => {
+                canvas.add(rect);
+            });
         },
         async editLabel(rect) {
             try {
@@ -296,11 +308,13 @@ export function createCanvasController(state, deps) {
             }
             const center = canvas.getCenter();
             canvas.zoomToPoint(new deps.fabric.Point(center.left, center.top), newZoom);
+            syncCanvasOffset();
             deps.updateZoomDisplay();
         },
         zoom(factor) {
             const center = canvas.getCenter();
             canvas.zoomToPoint(new deps.fabric.Point(center.left, center.top), canvas.getZoom() * factor);
+            syncCanvasOffset();
             deps.updateZoomDisplay();
         },
         resetZoom() {
@@ -309,9 +323,15 @@ export function createCanvasController(state, deps) {
             }
             const container = deps.getCanvasContainerSize();
             const scale = Math.min(container.width / state.currentImage.width, container.height / state.currentImage.height) * 0.95;
-            canvas.setZoom(scale);
-            canvas.viewportTransform[4] = (container.width - state.currentImage.width * scale) / 2;
-            canvas.viewportTransform[5] = (container.height - state.currentImage.height * scale) / 2;
+            canvas.setViewportTransform([
+                scale,
+                0,
+                0,
+                scale,
+                (container.width - state.currentImage.width * scale) / 2,
+                (container.height - state.currentImage.height * scale) / 2
+            ]);
+            syncCanvasOffset();
             this.renderAll();
             deps.updateZoomDisplay();
         },
@@ -319,6 +339,7 @@ export function createCanvasController(state, deps) {
             const container = deps.getCanvasContainerSize();
             canvas.setWidth(container.width);
             canvas.setHeight(container.height);
+            syncCanvasOffset();
         },
         goToCoords(x, y) {
             if (!state.currentImage) {
@@ -333,6 +354,7 @@ export function createCanvasController(state, deps) {
             const newX = -x * zoomLevel + canvas.getWidth() / 2;
             const newY = -y * zoomLevel + canvas.getHeight() / 2;
             canvas.setViewportTransform([zoomLevel, 0, 0, zoomLevel, newX, newY]);
+            syncCanvasOffset();
             this.renderAll();
             this.highlightPoint(x, y);
         },
@@ -427,7 +449,9 @@ export function createCanvasController(state, deps) {
             if (visible) {
                 this.getObjects("rect")
                     .filter(isRectObject)
-                    .forEach((rect) => this.drawLabelText(rect));
+                    .forEach((rect) => {
+                    this.drawLabelText(rect);
+                });
             }
             else {
                 canvas
