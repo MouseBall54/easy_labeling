@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   CREATE_NEW_CLASS_FILE_VALUE,
+  bindLabelFilterEvents,
   hideLoadingOverlay,
   renderClassFileSelect,
   renderImageList,
+  renderLabelFilters,
   renderPreviewList,
   showLoadingOverlay
 } from "../../../src/ui/renderers.js";
@@ -113,5 +115,61 @@ describe("ui/renderers", () => {
 
     hideLoadingOverlay(loadingOverlayElement as unknown as HTMLElement);
     expect(loadingOverlayElement.classList.contains("show")).toBe(false);
+  });
+
+  it("renders filter buttons with stable data-ui/data-testid attributes", () => {
+    const labelFiltersElement = new FakeElement("div");
+
+    renderLabelFilters({
+      labelFiltersElement: labelFiltersElement as unknown as HTMLElement,
+      rects: [
+        { labelClass: "1" },
+        { labelClass: "2" },
+        { labelClass: "2" }
+      ],
+      getDisplayNameForClass: (labelClass) => `Class ${labelClass}`
+    });
+
+    const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
+    const classButtons = labelFiltersElement.children.filter((child) => child.dataset.ui === "filter-class");
+
+    expect(allButton?.dataset.testid).toBe("filter-all");
+    expect(classButtons).toHaveLength(2);
+    expect(classButtons[0]?.dataset.testid).toBe("filter-class-1");
+    expect(classButtons[1]?.dataset.testid).toBe("filter-class-2");
+  });
+
+  it("binds filter click handlers using data-ui selectors", () => {
+    const labelFiltersElement = new FakeElement("div");
+    const selectAll = { calls: 0 };
+    const selectedClasses: string[] = [];
+
+    renderLabelFilters({
+      labelFiltersElement: labelFiltersElement as unknown as HTMLElement,
+      rects: [
+        { labelClass: "1" },
+        { labelClass: "2" }
+      ],
+      getDisplayNameForClass: (labelClass) => `Class ${labelClass}`
+    });
+
+    bindLabelFilterEvents({
+      labelFiltersElement: labelFiltersElement as unknown as HTMLElement,
+      onSelectAll: () => {
+        selectAll.calls += 1;
+      },
+      onSelectClass: (labelClass) => {
+        selectedClasses.push(labelClass);
+      }
+    });
+
+    const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
+    const classButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-class" && child.dataset.labelClass === "2");
+
+    allButton?.dispatch("click");
+    classButton?.dispatch("click");
+
+    expect(selectAll.calls).toBe(1);
+    expect(selectedClasses).toEqual(["2"]);
   });
 });

@@ -148,6 +148,12 @@ export class FakeElement {
     if (selector === ".btn[data-label-class]") {
       return this.children.filter((child) => child.classList.contains("btn") && Boolean(child.dataset.labelClass));
     }
+    if (selector === '[data-ui="filter-class"]') {
+      return this.children.filter((child) => child.dataset.ui === "filter-class");
+    }
+    if (selector === '[data-ui="filter-all"]') {
+      return this.children.filter((child) => child.dataset.ui === "filter-all");
+    }
     return [];
   }
 

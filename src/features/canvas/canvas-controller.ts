@@ -547,17 +547,9 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
       }
 
       const displayName = deps.getDisplayNameForClass(rect.labelClass);
-      let newLeft: number;
-      let newTop: number;
-
-      if (rect.group) {
-        const bounds = rect.getBoundingRect();
-        newLeft = rect.group.left + rect.group.width / 2 + bounds.left;
-        newTop = rect.group.top + rect.group.height / 2 + bounds.top;
-      } else {
-        newLeft = rect.left;
-        newTop = rect.top;
-      }
+      const bounds = rect.getBoundingRect(true);
+      const newLeft = bounds.left;
+      const newTop = bounds.top;
 
       rect._labelText.set({
         text: displayName,
@@ -610,6 +602,7 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     },
 
     selectAllLabels(): void {
+      canvas.discardActiveObject();
       const rects = this.getObjects("rect").filter(isRectObject);
       if (rects.length === 0) {
         return;

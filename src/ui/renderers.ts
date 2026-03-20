@@ -33,6 +33,12 @@ export interface LabelFilterRenderInput {
   getDisplayNameForClass: (labelClass: string) => string;
 }
 
+export interface LabelFilterBindingInput {
+  labelFiltersElement: HTMLElement;
+  onSelectAll: () => void;
+  onSelectClass: (labelClass: string) => void;
+}
+
 export function showLoadingOverlay(loadingOverlayElement: HTMLElement): void {
   loadingOverlayElement.classList.add("show");
 }
@@ -163,17 +169,37 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
   if (uniqueClasses.length > 1) {
     const allButton = document.createElement("button");
     allButton.className = "btn btn-sm btn-primary me-1 mb-1";
+    allButton.type = "button";
     allButton.textContent = "All";
+    allButton.dataset.ui = "filter-all";
+    allButton.dataset.testid = "filter-all";
     input.labelFiltersElement.appendChild(allButton);
   }
 
   for (const labelClass of uniqueClasses) {
     const button = document.createElement("button");
     button.className = "btn btn-sm btn-outline-secondary me-1 mb-1 active";
+    button.type = "button";
     button.textContent = `${input.getDisplayNameForClass(labelClass)} (${classCounts[labelClass] ?? 0})`;
     button.dataset.labelClass = labelClass;
+    button.dataset.ui = "filter-class";
+    button.dataset.testid = `filter-class-${labelClass}`;
     input.labelFiltersElement.appendChild(button);
   }
+}
+
+export function bindLabelFilterEvents(input: LabelFilterBindingInput): void {
+  input.labelFiltersElement.querySelectorAll<HTMLButtonElement>('[data-ui="filter-class"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      input.onSelectClass(button.dataset.labelClass ?? "");
+    });
+  });
+
+  input.labelFiltersElement.querySelectorAll<HTMLButtonElement>('[data-ui="filter-all"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      input.onSelectAll();
+    });
+  });
 }
 
 export function renderPreviewList(input: PreviewListRenderInput): FileHandle[] {

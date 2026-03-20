@@ -6,6 +6,7 @@ import { getColorForClass } from "../features/canvas/colors.js";
 import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
 import {
+  bindLabelFilterEvents,
   renderClassFileSelect,
   renderImageList,
   renderLabelFilters,
@@ -341,7 +342,7 @@ export function createUiManagerAdapter(input: {
           <i class="bi bi-chevron-right me-2"></i>
           <span class="label-color-swatch me-2" style="background-color: ${getColorForClass(classId)};"></span>
           <span class="fw-bold">${manager.getDisplayNameForClass(classId)}</span>
-          <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group"></i>
+          <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group" data-ui="select-group" data-testid="select-group-${classId}"></i>
           <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
         `;
 
@@ -363,7 +364,7 @@ export function createUiManagerAdapter(input: {
           }
         });
 
-        groupHeader.querySelector<HTMLElement>(".select-group-btn")?.addEventListener("click", (event) => {
+        groupHeader.querySelector<HTMLElement>('[data-ui="select-group"]')?.addEventListener("click", (event) => {
           event.stopPropagation();
           canvasController.raw.selectLabelsByClass(classId);
         });
@@ -388,22 +389,22 @@ export function createUiManagerAdapter(input: {
             item.classList.add("active");
           }
 
-          item.innerHTML = `<span><span class="badge me-2" style="background-color: ${getColorForClass(rect.labelClass)};"> </span>${manager.getDisplayNameForClass(rect.labelClass)}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
+          item.innerHTML = `<span><span class="badge me-2" style="background-color: ${getColorForClass(rect.labelClass)};"> </span>${manager.getDisplayNameForClass(rect.labelClass)}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
           item.addEventListener("click", (event) => {
-            if ((event.target as HTMLElement | null)?.closest(".edit-btn, .delete-btn")) {
+            if ((event.target as HTMLElement | null)?.closest('[data-ui="edit-label"], [data-ui="delete-label"]')) {
               return;
             }
             canvasController.raw.canvas.setActiveObject(rect);
             canvasController.raw.highlightSelection();
           });
 
-          item.querySelector<HTMLElement>(".edit-btn")?.addEventListener("click", (event) => {
+          item.querySelector<HTMLElement>('[data-ui="edit-label"]')?.addEventListener("click", (event) => {
             event.stopPropagation();
             if (isRectObject(rect)) {
               void canvasController.raw.editLabel(rect);
             }
           });
-          item.querySelector<HTMLElement>(".delete-btn")?.addEventListener("click", (event) => {
+          item.querySelector<HTMLElement>('[data-ui="delete-label"]')?.addEventListener("click", (event) => {
             event.stopPropagation();
             if (isRectObject(rect)) {
               canvasController.raw.removeObject(rect);
@@ -424,15 +425,14 @@ export function createUiManagerAdapter(input: {
         rects: rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })),
         getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass)
       });
-      elements.labelFilters.querySelectorAll<HTMLButtonElement>("button[data-label-class]").forEach((button) => {
-        button.addEventListener("click", () => {
-          canvasController.raw.selectLabelsByClass(button.dataset.labelClass ?? "");
-        });
-      });
-      elements.labelFilters.querySelectorAll<HTMLButtonElement>("button:not([data-label-class])").forEach((button) => {
-        button.addEventListener("click", () => {
+      bindLabelFilterEvents({
+        labelFiltersElement: elements.labelFilters,
+        onSelectClass: (labelClass) => {
+          canvasController.raw.selectLabelsByClass(labelClass);
+        },
+        onSelectAll: () => {
           canvasController.raw.selectAllLabels();
-        });
+        }
       });
       renderSelectByClassDropdown(
         elements.selectByClassDropdown,

@@ -168,4 +168,36 @@ describe("features/canvas/canvas-controller", () => {
 
     expect(canvas.calcOffsetCalls).toBe(6);
   });
+
+  it("anchors label text to bounding rect coordinates even during active selection grouping", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const rect = createRect({ left: 10, top: 20, width: 30, height: 40, labelClass: "2" });
+    rect.group = { left: 100, top: 200, width: 60, height: 60 };
+    controller.canvas.add(rect);
+    controller.drawLabelText(rect);
+
+    controller.updateLabelText(rect);
+
+    expect(rect._labelText?.left).toBe(10);
+    expect(rect._labelText?.top).toBe(16);
+  });
+
+  it("resets previous active selection before selecting all labels", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const canvas = controller.canvas as FakeCanvas;
+    const rectA = createRect({ left: 1, top: 2, width: 10, height: 12, labelClass: "1" });
+    const rectB = createRect({ left: 20, top: 30, width: 8, height: 6, labelClass: "2" });
+    controller.canvas.add(rectA, rectB);
+
+    controller.selectAllLabels();
+    const firstSelection = canvas.getActiveObject();
+    controller.selectAllLabels();
+
+    expect(firstSelection?.type).toBe("activeSelection");
+    expect(canvas.getActiveObject()?.type).toBe("activeSelection");
+    expect(rectA.left).toBe(1);
+    expect(rectA.top).toBe(2);
+    expect(rectB.left).toBe(20);
+    expect(rectB.top).toBe(30);
+  });
 });
