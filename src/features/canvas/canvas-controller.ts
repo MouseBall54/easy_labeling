@@ -4,6 +4,7 @@ import { createClipboardManager } from "./clipboard.js";
 import { getColorForClass as defaultGetColorForClass } from "./colors.js";
 import { createCrosshairLines, hideCrosshair, toggleCrosshair, updateCrosshair, type CrosshairState } from "./crosshair.js";
 import {
+  isActiveSelectionObject,
   isRectObject,
   type CanvasImageLike,
   type FabricActiveSelectionLike,
@@ -15,6 +16,7 @@ import {
   type FabricTextLike,
   type YoloMetadata
 } from "./fabric-types.js";
+import { normalizeFilterClassKey } from "../../ui/filter-state.js";
 
 export interface CanvasControllerState {
   currentMode: AppMode;
@@ -66,6 +68,7 @@ export interface CanvasController {
   updateLabelText(rect: FabricRectLike): void;
   updateAllLabelTexts(): void;
   toggleAllLabelTexts(visible: boolean): void;
+  applyVisibilityFromHiddenClasses(hiddenLabelClasses: ReadonlySet<string>, clearSelectionWhenFilteredHidden?: boolean): void;
   selectAllLabels(): void;
   selectLabelsByClass(labelClass: string): void;
   createCrosshairLines(): void;
@@ -147,6 +150,28 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
 
   const syncCanvasOffset = (): void => {
     canvas.calcOffset?.();
+  };
+
+  const isRectHiddenByFilter = (rect: FabricRectLike, hiddenLabelClasses: ReadonlySet<string>): boolean => {
+    const normalizedClass = normalizeFilterClassKey(rect.labelClass);
+    return hiddenLabelClasses.has(normalizedClass);
+  };
+
+  const shouldClearSelectionForVisibility = (hiddenLabelClasses: ReadonlySet<string>): boolean => {
+    const activeObject = canvas.getActiveObject();
+    if (!activeObject) {
+      return false;
+    }
+
+    if (isRectObject(activeObject)) {
+      return isRectHiddenByFilter(activeObject, hiddenLabelClasses);
+    }
+
+    if (isActiveSelectionObject(activeObject)) {
+      return activeObject.getObjects().some((obj) => isRectObject(obj) && isRectHiddenByFilter(obj, hiddenLabelClasses));
+    }
+
+    return canvas.getActiveObjects().some((obj) => isRectObject(obj) && isRectHiddenByFilter(obj, hiddenLabelClasses));
   };
 
   const controller: CanvasController = {
@@ -599,6 +624,24 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
       }
 
       this.renderAll();
+    },
+
+    applyVisibilityFromHiddenClasses(hiddenLabelClasses: ReadonlySet<string>, clearSelectionWhenFilteredHidden = true): void {
+      if (clearSelectionWhenFilteredHidden && shouldClearSelectionForVisibility(hiddenLabelClasses)) {
+        canvas.discardActiveObject();
+      }
+
+      this.getObjects("rect")
+        .filter(isRectObject)
+        .forEach((rect) => {
+          const isHidden = isRectHiddenByFilter(rect, hiddenLabelClasses);
+          rect.set("visible", !isHidden);
+          if (rect._labelText) {
+            rect._labelText.set("visible", !isHidden);
+          }
+        });
+
+      canvas.requestRenderAll();
     },
 
     selectAllLabels(): void {

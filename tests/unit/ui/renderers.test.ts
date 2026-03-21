@@ -11,6 +11,7 @@ import {
   showLoadingOverlay
 } from "../../../src/ui/renderers.js";
 import type { FileHandle } from "../../../src/types/files.js";
+import { UNLABELED_FILTER_KEY } from "../../../src/ui/filter-state.js";
 import { FakeDocument, FakeElement } from "./test-dom.js";
 
 function fileHandle(name: string): FileHandle {
@@ -127,7 +128,9 @@ describe("ui/renderers", () => {
         { labelClass: "2" },
         { labelClass: "2" }
       ],
-      getDisplayNameForClass: (labelClass) => `Class ${labelClass}`
+      getDisplayNameForClass: (labelClass) => `Class ${labelClass}`,
+      activeFilterKeys: new Set(["2"]),
+      isAllActive: false
     });
 
     const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
@@ -135,8 +138,27 @@ describe("ui/renderers", () => {
 
     expect(allButton?.dataset.testid).toBe("filter-all");
     expect(classButtons).toHaveLength(2);
+    expect(classButtons[0]?.dataset.filterKey).toBe("1");
     expect(classButtons[0]?.dataset.testid).toBe("filter-class-1");
+    expect(classButtons[0]?.classList.contains("active")).toBe(false);
+    expect(classButtons[1]?.dataset.filterKey).toBe("2");
     expect(classButtons[1]?.dataset.testid).toBe("filter-class-2");
+    expect(classButtons[1]?.classList.contains("active")).toBe(true);
+  });
+
+  it("renders All whenever labels exist", () => {
+    const labelFiltersElement = new FakeElement("div");
+
+    renderLabelFilters({
+      labelFiltersElement: labelFiltersElement as unknown as HTMLElement,
+      rects: [{ labelClass: "1" }],
+      getDisplayNameForClass: (labelClass) => `Class ${labelClass}`,
+      isAllActive: true
+    });
+
+    const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
+    expect(allButton).toBeDefined();
+    expect(allButton?.classList.contains("btn-primary")).toBe(true);
   });
 
   it("binds filter click handlers using data-ui selectors", () => {
@@ -171,5 +193,24 @@ describe("ui/renderers", () => {
 
     expect(selectAll.calls).toBe(1);
     expect(selectedClasses).toEqual(["2"]);
+  });
+
+  it("renders unlabeled filter key with stable data-testid", () => {
+    const labelFiltersElement = new FakeElement("div");
+
+    renderLabelFilters({
+      labelFiltersElement: labelFiltersElement as unknown as HTMLElement,
+      rects: [
+        { labelClass: UNLABELED_FILTER_KEY },
+        { labelClass: "3" }
+      ],
+      getDisplayNameForClass: (labelClass) => `Class ${labelClass}`
+    });
+
+    const unlabeledButton = labelFiltersElement.children.find(
+      (child) => child.dataset.ui === "filter-class" && child.dataset.filterKey === UNLABELED_FILTER_KEY
+    );
+
+    expect(unlabeledButton?.dataset.testid).toBe("filter-class-unlabeled");
   });
 });

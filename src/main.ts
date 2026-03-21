@@ -13,12 +13,16 @@ import {
   type CdnRuntimeGlobals
 } from "./bootstrap/runtime.js";
 import { createUiManagerAdapter, type RuntimeUiManager } from "./bootstrap/ui-manager-adapter.js";
+import { normalizeFilterClassKey } from "./ui/filter-state.js";
 
 export type { CdnRuntimeGlobals };
 
 interface TestApi {
   getRectCount(): number;
   getCurrentImageName(): string;
+  getVisibleRectCount(): number;
+  getVisibleClassKeys(): string[];
+  getVisibleLabelRowCount(): number;
 }
 
 export function getCdnRuntimeGlobals(
@@ -104,7 +108,25 @@ function bootstrapBrowserRuntime(): void {
 
   Reflect.set(window, "__easyLabelingTestApi", {
     getRectCount: () => runtimeCanvasController.raw.getObjects("rect").length,
-    getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? ""
+    getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
+    getVisibleRectCount: () => {
+      return runtimeCanvasController.raw
+        .getObjects("rect")
+        .filter((rect) => rect.visible !== false)
+        .length;
+    },
+    getVisibleClassKeys: () => {
+      const visibleClassKeys = runtimeCanvasController.raw
+        .getObjects("rect")
+        .filter((rect) => rect.visible !== false)
+        .map((rect) => normalizeFilterClassKey(rect.labelClass));
+      return [...new Set(visibleClassKeys)].sort((left, right) => {
+        return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+      });
+    },
+    getVisibleLabelRowCount: () => {
+      return runtimeUiManager.elements.labelList.querySelectorAll("li[data-index]").length;
+    }
   } satisfies TestApi);
 }
 

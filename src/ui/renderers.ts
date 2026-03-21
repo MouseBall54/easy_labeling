@@ -1,4 +1,5 @@
 import type { FileHandle } from "../types/files.js";
+import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 
 export const CREATE_NEW_CLASS_FILE_VALUE = "__CREATE_NEW__";
 
@@ -31,6 +32,8 @@ export interface LabelFilterRenderInput {
   labelFiltersElement: HTMLElement;
   rects: LabelRectLike[];
   getDisplayNameForClass: (labelClass: string) => string;
+  activeFilterKeys?: ReadonlySet<string>;
+  isAllActive?: boolean;
 }
 
 export interface LabelFilterBindingInput {
@@ -166,9 +169,9 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
   totalElement.textContent = `Total: ${totalCount}`;
   input.labelFiltersElement.appendChild(totalElement);
 
-  if (uniqueClasses.length > 1) {
+  if (totalCount > 0) {
     const allButton = document.createElement("button");
-    allButton.className = "btn btn-sm btn-primary me-1 mb-1";
+    allButton.className = `btn btn-sm me-1 mb-1 ${input.isAllActive ? "btn-primary" : "btn-outline-primary"}`;
     allButton.type = "button";
     allButton.textContent = "All";
     allButton.dataset.ui = "filter-all";
@@ -178,12 +181,17 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
 
   for (const labelClass of uniqueClasses) {
     const button = document.createElement("button");
-    button.className = "btn btn-sm btn-outline-secondary me-1 mb-1 active";
+    const normalizedFilterKey = labelClass === UNLABELED_FILTER_KEY ? UNLABELED_FILTER_KEY : labelClass;
+    const isActive = input.activeFilterKeys?.has(normalizedFilterKey) ?? false;
+    button.className = `btn btn-sm me-1 mb-1 ${isActive ? "btn-secondary active" : "btn-outline-secondary"}`;
     button.type = "button";
     button.textContent = `${input.getDisplayNameForClass(labelClass)} (${classCounts[labelClass] ?? 0})`;
     button.dataset.labelClass = labelClass;
+    button.dataset.filterKey = normalizedFilterKey;
     button.dataset.ui = "filter-class";
-    button.dataset.testid = `filter-class-${labelClass}`;
+    button.dataset.testid = normalizedFilterKey === UNLABELED_FILTER_KEY
+      ? "filter-class-unlabeled"
+      : `filter-class-${labelClass}`;
     input.labelFiltersElement.appendChild(button);
   }
 }
@@ -191,7 +199,7 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
 export function bindLabelFilterEvents(input: LabelFilterBindingInput): void {
   input.labelFiltersElement.querySelectorAll<HTMLButtonElement>('[data-ui="filter-class"]').forEach((button) => {
     button.addEventListener("click", () => {
-      input.onSelectClass(button.dataset.labelClass ?? "");
+      input.onSelectClass(button.dataset.filterKey ?? button.dataset.labelClass ?? "");
     });
   });
 

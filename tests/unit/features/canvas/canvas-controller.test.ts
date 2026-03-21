@@ -200,4 +200,53 @@ describe("features/canvas/canvas-controller", () => {
     expect(rectB.left).toBe(20);
     expect(rectB.top).toBe(30);
   });
+
+  it("applies hidden-class visibility to rect and label text without coordinate drift", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const rectA = createRect({ left: 10, top: 20, width: 30, height: 40, labelClass: "1" });
+    const rectB = createRect({ left: 50, top: 60, width: 15, height: 25, labelClass: "2" });
+    controller.canvas.add(rectA, rectB);
+    controller.drawLabelText(rectA);
+    controller.drawLabelText(rectB);
+
+    const beforeA = { left: rectA.left, top: rectA.top };
+    const beforeB = { left: rectB.left, top: rectB.top };
+
+    controller.applyVisibilityFromHiddenClasses(new Set(["1"]), true);
+    expect(rectA.visible).toBe(false);
+    expect(rectA._labelText?.visible).toBe(false);
+    expect(rectB.visible).toBe(true);
+    expect(rectB._labelText?.visible).toBe(true);
+    expect(rectA.left).toBe(beforeA.left);
+    expect(rectA.top).toBe(beforeA.top);
+    expect(rectB.left).toBe(beforeB.left);
+    expect(rectB.top).toBe(beforeB.top);
+
+    controller.applyVisibilityFromHiddenClasses(new Set(), true);
+    expect(rectA.visible).toBe(true);
+    expect(rectA._labelText?.visible).toBe(true);
+    expect(rectB.visible).toBe(true);
+    expect(rectB._labelText?.visible).toBe(true);
+    expect(rectA.left).toBe(beforeA.left);
+    expect(rectA.top).toBe(beforeA.top);
+    expect(rectB.left).toBe(beforeB.left);
+    expect(rectB.top).toBe(beforeB.top);
+  });
+
+  it("clears active selection when selected object becomes hidden", () => {
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(createState(), createDeps({ fabric }));
+    const rectA = createRect({ left: 10, top: 20, width: 30, height: 40, labelClass: "1" });
+    const rectB = createRect({ left: 50, top: 60, width: 15, height: 25, labelClass: "2" });
+    controller.canvas.add(rectA, rectB);
+
+    const selection = new fabric.ActiveSelection([rectA, rectB], { canvas: controller.canvas });
+    controller.canvas.setActiveObject(selection);
+
+    controller.applyVisibilityFromHiddenClasses(new Set(["1"]), true);
+
+    expect(controller.canvas.getActiveObject()).toBeNull();
+    expect(rectA.visible).toBe(false);
+    expect(rectB.visible).toBe(true);
+  });
 });

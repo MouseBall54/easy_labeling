@@ -18,6 +18,7 @@ import type { ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
+import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 
 interface TiffDecodedCanvas {
   toDataURL(type?: string): string;
@@ -294,6 +295,12 @@ export function createFileSystemAdapter(input: {
 
           const imageFolderHandle = await picker();
           await imageSessionService.selectImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
+            input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
+              scope: "session-replacement",
+              hiddenLabelClasses: input.state.view.hiddenLabelClasses,
+              persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
+              resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
+            });
             if (input.state.session.currentImageFile) {
               if (input.state.session.labelFolderHandle) {
                 try {

@@ -25,6 +25,10 @@ export interface AppViewState {
   isCrosshairVisible: boolean;
   contextTarget: EventTarget | null;
   collapsedLabelGroups: Set<string>;
+  hiddenLabelClasses: Set<string>;
+  clearSelectionWhenFilteredHidden: boolean;
+  persistFilterStateAcrossImageNavigation: boolean;
+  resetFilterStateOnSessionReplacement: boolean;
 }
 
 export interface AppRuntimeState {
@@ -64,7 +68,11 @@ export function createInitialAppState(): AppState {
       isPreviewBarHidden: false,
       isCrosshairVisible: false,
       contextTarget: null,
-      collapsedLabelGroups: new Set<string>()
+      collapsedLabelGroups: new Set<string>(),
+      hiddenLabelClasses: new Set<string>(),
+      clearSelectionWhenFilteredHidden: true,
+      persistFilterStateAcrossImageNavigation: true,
+      resetFilterStateOnSessionReplacement: true
     },
     runtime: {
       saveTimeout: null,

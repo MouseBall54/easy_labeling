@@ -362,12 +362,30 @@ canvas {
 }
 
 /* Make the image and label lists scrollable */
+#image-filter-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: stretch;
+    position: relative;
+    z-index: 1;
+}
+
+#image-filter-container .btn {
+    flex: 1 1 0;
+}
+
 #image-list {
+    flex: 1 1 auto;
+    min-height: 8rem;
     max-height: 35vh; /* Adjust this value as needed */
     overflow-y: auto;
     border: 1px solid var(--list-group-item-border);
     border-radius: .25rem;
     background-color: var(--list-group-item-bg);
+    margin-top: 0.5rem;
+    position: relative;
+    z-index: 2;
 }
 
 #label-list-container {
@@ -384,6 +402,16 @@ canvas {
     border-radius: .25rem;
     margin-bottom: 0; /* Remove default margin */
     background-color: var(--list-group-item-bg);
+}
+
+[data-ui="filter-summary"] {
+    white-space: nowrap;
+}
+
+.label-list-empty {
+    border: none;
+    background-color: transparent;
+    cursor: default;
 }
 
 /* Label Grouping Styles */

@@ -16,6 +16,12 @@ import {
   hideLoadingOverlay
 } from "../ui/renderers.js";
 import { applyDarkMode, readStoredDarkMode } from "../ui/theme.js";
+import {
+  deriveVisibilitySummary,
+  normalizeFilterClassKey,
+  resetHiddenLabelClasses,
+  toggleHiddenLabelClass
+} from "../ui/filter-state.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 
@@ -316,8 +322,17 @@ export function createUiManagerAdapter(input: {
       }
 
       const rects = canvasController.raw.getObjects("rect").filter((rect) => rect.type === "rect");
+      const visibleRects = rects.filter((rect) => {
+        const classKey = normalizeFilterClassKey(rect.labelClass);
+        return !input.state.view.hiddenLabelClasses.has(classKey);
+      });
+      const visibilitySummary = deriveVisibilitySummary(
+        rects.map((rect) => rect.labelClass),
+        input.state.view.hiddenLabelClasses
+      );
+
       elements.labelList.innerHTML = "";
-      const groupedRects = rects.reduce<Map<string, typeof rects>>((groups, rect) => {
+      const groupedRects = visibleRects.reduce<Map<string, typeof visibleRects>>((groups, rect) => {
         const key = rect.labelClass ?? "";
         const existing = groups.get(key) ?? [];
         existing.push(rect);
@@ -401,7 +416,10 @@ export function createUiManagerAdapter(input: {
           item.querySelector<HTMLElement>('[data-ui="edit-label"]')?.addEventListener("click", (event) => {
             event.stopPropagation();
             if (isRectObject(rect)) {
-              void canvasController.raw.editLabel(rect);
+              void canvasController.raw.editLabel(rect).finally(() => {
+                manager.updateLabelList();
+                canvasController.raw.renderAll();
+              });
             }
           });
           item.querySelector<HTMLElement>('[data-ui="delete-label"]')?.addEventListener("click", (event) => {
@@ -420,23 +438,55 @@ export function createUiManagerAdapter(input: {
         elements.labelList.appendChild(groupContainer);
       });
 
+      if (visibleRects.length === 0) {
+        const emptyState = input.documentRef.createElement("div");
+        emptyState.className = "label-list-empty list-group-item text-muted";
+        emptyState.dataset.ui = "label-list-empty";
+        emptyState.dataset.testid = "label-list-empty";
+        emptyState.textContent = "No labels match the current filter.";
+        elements.labelList.appendChild(emptyState);
+      }
+
       renderLabelFilters({
         labelFiltersElement: elements.labelFilters,
-        rects: rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })),
-        getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass)
+        rects: rects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
+        getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass),
+        activeFilterKeys: new Set(visibleRects.map((rect) => normalizeFilterClassKey(rect.labelClass))),
+        isAllActive: input.state.view.hiddenLabelClasses.size === 0
       });
+
+      const filterSummary = input.documentRef.createElement("span");
+      filterSummary.className = "badge bg-dark me-2 mb-1 align-items-center d-inline-flex";
+      filterSummary.dataset.ui = "filter-summary";
+      filterSummary.textContent = `Visible: ${visibilitySummary.visibleCount} / Total: ${visibilitySummary.totalCount}`;
+      elements.labelFilters.appendChild(filterSummary);
+
       bindLabelFilterEvents({
         labelFiltersElement: elements.labelFilters,
         onSelectClass: (labelClass) => {
-          canvasController.raw.selectLabelsByClass(labelClass);
+          input.state.view.hiddenLabelClasses = toggleHiddenLabelClass(input.state.view.hiddenLabelClasses, labelClass);
+          canvasController.raw.applyVisibilityFromHiddenClasses(
+            input.state.view.hiddenLabelClasses,
+            input.state.view.clearSelectionWhenFilteredHidden
+          );
+          manager.updateLabelList();
         },
         onSelectAll: () => {
-          canvasController.raw.selectAllLabels();
+          input.state.view.hiddenLabelClasses = resetHiddenLabelClasses();
+          canvasController.raw.applyVisibilityFromHiddenClasses(
+            input.state.view.hiddenLabelClasses,
+            input.state.view.clearSelectionWhenFilteredHidden
+          );
+          manager.updateLabelList();
         }
       });
+      canvasController.raw.applyVisibilityFromHiddenClasses(
+        input.state.view.hiddenLabelClasses,
+        input.state.view.clearSelectionWhenFilteredHidden
+      );
       renderSelectByClassDropdown(
         elements.selectByClassDropdown,
-        rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })),
+        visibleRects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
         (labelClass) => manager.getDisplayNameForClass(labelClass)
       );
     },
