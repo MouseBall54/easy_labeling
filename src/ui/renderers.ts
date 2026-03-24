@@ -80,7 +80,10 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
       : '<i class="bi bi-x-circle-fill text-muted me-2"></i>';
     const item = document.createElement("a");
     item.href = "#";
-    item.className = "list-group-item list-group-item-action d-flex align-items-center";
+    item.className = "list-group-item list-group-item-action d-flex align-items-center image-list-item";
+    item.dataset.ui = "image-list-item";
+    item.dataset.fileName = file.name;
+    item.dataset.testid = `image-list-item-${file.name}`;
     item.innerHTML = `${icon}<span>${file.name}</span>`;
 
     if (input.currentImageFile && file.name === input.currentImageFile.name) {
@@ -245,7 +248,8 @@ export function renderPreviewList(input: PreviewListRenderInput): FileHandle[] {
 
   for (const file of filesToPreview) {
     const item = document.createElement("div");
-    item.className = "preview-item";
+    item.className = "preview-item preview-list-item";
+    item.dataset.ui = "preview-list-item";
     item.dataset.fileName = file.name;
     if (file.name === input.currentImageFile.name) {
       item.classList.add("active");

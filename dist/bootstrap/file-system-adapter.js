@@ -2,6 +2,7 @@ import { createImageSessionService } from "../features/images/image-session-serv
 import { createNewClassFile, readClassNamesFromFileHandle, readClassFileRowsForEditor, validateAndSaveClassRowsToFileHandle } from "../features/classes/class-file-service.js";
 import { imageFileNameToLabelFileName } from "../domain/files/image-names.js";
 import { isNotFoundError, listFileHandles, readTextFileByName } from "../platform/file-system-access.js";
+import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 class LiveImageSessionState {
     appState;
     constructor(appState) {
@@ -196,6 +197,12 @@ export function createFileSystemAdapter(input) {
                     }
                     const imageFolderHandle = await picker();
                     await imageSessionService.selectImageFolder(imageFolderHandle);
+                    input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
+                        scope: "session-replacement",
+                        hiddenLabelClasses: input.state.view.hiddenLabelClasses,
+                        persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
+                        resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
+                    });
                     if (input.state.session.currentImageFile) {
                         if (input.state.session.labelFolderHandle) {
                             try {

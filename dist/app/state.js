@@ -22,7 +22,11 @@ export function createInitialAppState() {
             isPreviewBarHidden: false,
             isCrosshairVisible: false,
             contextTarget: null,
-            collapsedLabelGroups: new Set()
+            collapsedLabelGroups: new Set(),
+            hiddenLabelClasses: new Set(),
+            clearSelectionWhenFilteredHidden: true,
+            persistFilterStateAcrossImageNavigation: true,
+            resetFilterStateOnSessionReplacement: true
         },
         runtime: {
             saveTimeout: null,

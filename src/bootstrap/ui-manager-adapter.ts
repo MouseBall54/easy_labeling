@@ -349,10 +349,14 @@ export function createUiManagerAdapter(input: {
       sortedGroupKeys.forEach((classId) => {
         const groupRects = groupedRects.get(classId) ?? [];
         const groupContainer = input.documentRef.createElement("div");
-        groupContainer.className = "label-group";
+        groupContainer.className = "label-group label-group-container";
+        groupContainer.dataset.ui = "label-group";
+        groupContainer.dataset.groupClass = classId;
 
         const groupHeader = input.documentRef.createElement("div");
-        groupHeader.className = "label-group-header list-group-item";
+        groupHeader.className = "label-group-header list-group-item label-group-toggle";
+        groupHeader.dataset.ui = "label-group-header";
+        groupHeader.dataset.groupClass = classId;
         groupHeader.innerHTML = `
           <i class="bi bi-chevron-right me-2"></i>
           <span class="label-color-swatch me-2" style="background-color: ${getColorForClass(classId)};"></span>
@@ -362,7 +366,9 @@ export function createUiManagerAdapter(input: {
         `;
 
         const itemsContainer = input.documentRef.createElement("div");
-        itemsContainer.className = "label-group-items";
+        itemsContainer.className = "label-group-items label-group-list";
+        itemsContainer.dataset.ui = "label-group-items";
+        itemsContainer.dataset.groupClass = classId;
         const isCollapsed = input.state.view.collapsedLabelGroups.has(classId);
         if (isCollapsed) {
           groupHeader.classList.add("collapsed");
@@ -388,8 +394,10 @@ export function createUiManagerAdapter(input: {
           const originalIndex = rects.indexOf(rect);
           const item = input.documentRef.createElement("li");
           item.id = `label-item-${originalIndex}`;
-          item.className = "list-group-item d-flex justify-content-between align-items-center";
+          item.className = "list-group-item d-flex justify-content-between align-items-center label-list-item";
           item.dataset.index = String(originalIndex);
+          item.dataset.ui = "label-list-item";
+          item.dataset.labelClass = normalizeFilterClassKey(rect.labelClass);
 
           const activeCanvasObjects = canvasController.raw.canvas.getActiveObjects();
           const activeSelection = activeCanvasObjects.length === 1 && isActiveSelectionObject(activeCanvasObjects[0])

@@ -2,8 +2,9 @@ import { getDOMElements } from "../ui/dom-elements.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
-import { renderClassFileSelect, renderImageList, renderLabelFilters, renderPreviewList, renderSelectByClassDropdown, showLoadingOverlay, hideLoadingOverlay } from "../ui/renderers.js";
+import { bindLabelFilterEvents, renderClassFileSelect, renderImageList, renderLabelFilters, renderPreviewList, renderSelectByClassDropdown, showLoadingOverlay, hideLoadingOverlay } from "../ui/renderers.js";
 import { applyDarkMode, readStoredDarkMode } from "../ui/theme.js";
+import { deriveVisibilitySummary, normalizeFilterClassKey, resetHiddenLabelClasses, toggleHiddenLabelClass } from "../ui/filter-state.js";
 function showToast(documentRef, message, duration = 3000) {
     const toastContainer = documentRef.getElementById("toast-container");
     if (!toastContainer) {
@@ -226,8 +227,13 @@ export function createUiManagerAdapter(input) {
                 return;
             }
             const rects = canvasController.raw.getObjects("rect").filter((rect) => rect.type === "rect");
+            const visibleRects = rects.filter((rect) => {
+                const classKey = normalizeFilterClassKey(rect.labelClass);
+                return !input.state.view.hiddenLabelClasses.has(classKey);
+            });
+            const visibilitySummary = deriveVisibilitySummary(rects.map((rect) => rect.labelClass), input.state.view.hiddenLabelClasses);
             elements.labelList.innerHTML = "";
-            const groupedRects = rects.reduce((groups, rect) => {
+            const groupedRects = visibleRects.reduce((groups, rect) => {
                 const key = rect.labelClass ?? "";
                 const existing = groups.get(key) ?? [];
                 existing.push(rect);
@@ -242,18 +248,24 @@ export function createUiManagerAdapter(input) {
             sortedGroupKeys.forEach((classId) => {
                 const groupRects = groupedRects.get(classId) ?? [];
                 const groupContainer = input.documentRef.createElement("div");
-                groupContainer.className = "label-group";
+                groupContainer.className = "label-group label-group-container";
+                groupContainer.dataset.ui = "label-group";
+                groupContainer.dataset.groupClass = classId;
                 const groupHeader = input.documentRef.createElement("div");
-                groupHeader.className = "label-group-header list-group-item";
+                groupHeader.className = "label-group-header list-group-item label-group-toggle";
+                groupHeader.dataset.ui = "label-group-header";
+                groupHeader.dataset.groupClass = classId;
                 groupHeader.innerHTML = `
           <i class="bi bi-chevron-right me-2"></i>
           <span class="label-color-swatch me-2" style="background-color: ${getColorForClass(classId)};"></span>
           <span class="fw-bold">${manager.getDisplayNameForClass(classId)}</span>
-          <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group"></i>
+          <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group" data-ui="select-group" data-testid="select-group-${classId}"></i>
           <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
         `;
                 const itemsContainer = input.documentRef.createElement("div");
-                itemsContainer.className = "label-group-items";
+                itemsContainer.className = "label-group-items label-group-list";
+                itemsContainer.dataset.ui = "label-group-items";
+                itemsContainer.dataset.groupClass = classId;
                 const isCollapsed = input.state.view.collapsedLabelGroups.has(classId);
                 if (isCollapsed) {
                     groupHeader.classList.add("collapsed");
@@ -269,7 +281,7 @@ export function createUiManagerAdapter(input) {
                         input.state.view.collapsedLabelGroups.delete(classId);
                     }
                 });
-                groupHeader.querySelector(".select-group-btn")?.addEventListener("click", (event) => {
+                groupHeader.querySelector('[data-ui="select-group"]')?.addEventListener("click", (event) => {
                     event.stopPropagation();
                     canvasController.raw.selectLabelsByClass(classId);
                 });
@@ -277,8 +289,10 @@ export function createUiManagerAdapter(input) {
                     const originalIndex = rects.indexOf(rect);
                     const item = input.documentRef.createElement("li");
                     item.id = `label-item-${originalIndex}`;
-                    item.className = "list-group-item d-flex justify-content-between align-items-center";
+                    item.className = "list-group-item d-flex justify-content-between align-items-center label-list-item";
                     item.dataset.index = String(originalIndex);
+                    item.dataset.ui = "label-list-item";
+                    item.dataset.labelClass = normalizeFilterClassKey(rect.labelClass);
                     const activeCanvasObjects = canvasController.raw.canvas.getActiveObjects();
                     const activeSelection = activeCanvasObjects.length === 1 && isActiveSelectionObject(activeCanvasObjects[0])
                         ? activeCanvasObjects[0]
@@ -289,21 +303,24 @@ export function createUiManagerAdapter(input) {
                     if (isActive) {
                         item.classList.add("active");
                     }
-                    item.innerHTML = `<span><span class="badge me-2" style="background-color: ${getColorForClass(rect.labelClass)};"> </span>${manager.getDisplayNameForClass(rect.labelClass)}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
+                    item.innerHTML = `<span><span class="badge me-2" style="background-color: ${getColorForClass(rect.labelClass)};"> </span>${manager.getDisplayNameForClass(rect.labelClass)}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
                     item.addEventListener("click", (event) => {
-                        if (event.target?.closest(".edit-btn, .delete-btn")) {
+                        if (event.target?.closest('[data-ui="edit-label"], [data-ui="delete-label"]')) {
                             return;
                         }
                         canvasController.raw.canvas.setActiveObject(rect);
                         canvasController.raw.highlightSelection();
                     });
-                    item.querySelector(".edit-btn")?.addEventListener("click", (event) => {
+                    item.querySelector('[data-ui="edit-label"]')?.addEventListener("click", (event) => {
                         event.stopPropagation();
                         if (isRectObject(rect)) {
-                            void canvasController.raw.editLabel(rect);
+                            void canvasController.raw.editLabel(rect).finally(() => {
+                                manager.updateLabelList();
+                                canvasController.raw.renderAll();
+                            });
                         }
                     });
-                    item.querySelector(".delete-btn")?.addEventListener("click", (event) => {
+                    item.querySelector('[data-ui="delete-label"]')?.addEventListener("click", (event) => {
                         event.stopPropagation();
                         if (isRectObject(rect)) {
                             canvasController.raw.removeObject(rect);
@@ -316,22 +333,41 @@ export function createUiManagerAdapter(input) {
                 groupContainer.append(groupHeader, itemsContainer);
                 elements.labelList.appendChild(groupContainer);
             });
+            if (visibleRects.length === 0) {
+                const emptyState = input.documentRef.createElement("div");
+                emptyState.className = "label-list-empty list-group-item text-muted";
+                emptyState.dataset.ui = "label-list-empty";
+                emptyState.dataset.testid = "label-list-empty";
+                emptyState.textContent = "No labels match the current filter.";
+                elements.labelList.appendChild(emptyState);
+            }
             renderLabelFilters({
                 labelFiltersElement: elements.labelFilters,
-                rects: rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })),
-                getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass)
+                rects: rects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
+                getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass),
+                activeFilterKeys: new Set(visibleRects.map((rect) => normalizeFilterClassKey(rect.labelClass))),
+                isAllActive: input.state.view.hiddenLabelClasses.size === 0
             });
-            elements.labelFilters.querySelectorAll("button[data-label-class]").forEach((button) => {
-                button.addEventListener("click", () => {
-                    canvasController.raw.selectLabelsByClass(button.dataset.labelClass ?? "");
-                });
+            const filterSummary = input.documentRef.createElement("span");
+            filterSummary.className = "badge bg-dark me-2 mb-1 align-items-center d-inline-flex";
+            filterSummary.dataset.ui = "filter-summary";
+            filterSummary.textContent = `Visible: ${visibilitySummary.visibleCount} / Total: ${visibilitySummary.totalCount}`;
+            elements.labelFilters.appendChild(filterSummary);
+            bindLabelFilterEvents({
+                labelFiltersElement: elements.labelFilters,
+                onSelectClass: (labelClass) => {
+                    input.state.view.hiddenLabelClasses = toggleHiddenLabelClass(input.state.view.hiddenLabelClasses, labelClass);
+                    canvasController.raw.applyVisibilityFromHiddenClasses(input.state.view.hiddenLabelClasses, input.state.view.clearSelectionWhenFilteredHidden);
+                    manager.updateLabelList();
+                },
+                onSelectAll: () => {
+                    input.state.view.hiddenLabelClasses = resetHiddenLabelClasses();
+                    canvasController.raw.applyVisibilityFromHiddenClasses(input.state.view.hiddenLabelClasses, input.state.view.clearSelectionWhenFilteredHidden);
+                    manager.updateLabelList();
+                }
             });
-            elements.labelFilters.querySelectorAll("button:not([data-label-class])").forEach((button) => {
-                button.addEventListener("click", () => {
-                    canvasController.raw.selectAllLabels();
-                });
-            });
-            renderSelectByClassDropdown(elements.selectByClassDropdown, rects.map((rect) => ({ labelClass: rect.labelClass ?? "" })), (labelClass) => manager.getDisplayNameForClass(labelClass));
+            canvasController.raw.applyVisibilityFromHiddenClasses(input.state.view.hiddenLabelClasses, input.state.view.clearSelectionWhenFilteredHidden);
+            renderSelectByClassDropdown(elements.selectByClassDropdown, visibleRects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })), (labelClass) => manager.getDisplayNameForClass(labelClass));
         },
         updateCurrentImageName() {
             elements.currentImageNameSpan.textContent = input.state.session.currentImageFile?.name ?? "";

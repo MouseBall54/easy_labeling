@@ -11,36 +11,36 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark app-navbar" data-ui="app-navbar">
         <div class="container-fluid">
-            <a class="navbar-brand" href="#"><i class="bi bi-bounding-box"></i> Easy Labeling</a>
-            <div class="mx-auto d-flex align-items-center">
-                <button class="btn btn-outline-light btn-sm me-2" id="prevImageBtn" title="Previous Image (A)"><i class="bi bi-chevron-left"></i></button>
-                <span id="current-image-name" class="navbar-text"></span>
-                <button class="btn btn-outline-light btn-sm ms-2" id="nextImageBtn" title="Next Image (D)"><i class="bi bi-chevron-right"></i></button>
+            <a class="navbar-brand app-brand" href="#" data-ui="app-brand"><i class="bi bi-bounding-box"></i> Easy Labeling</a>
+            <div class="mx-auto d-flex align-items-center image-navigation" data-ui="image-navigation">
+                <button class="btn btn-outline-light btn-sm me-2" type="button" id="prevImageBtn" data-ui="nav-prev-image" title="Previous Image (A)"><i class="bi bi-chevron-left"></i></button>
+                <span id="current-image-name" class="navbar-text current-image-name" data-ui="current-image-name"></span>
+                <button class="btn btn-outline-light btn-sm ms-2" type="button" id="nextImageBtn" data-ui="nav-next-image" title="Next Image (D)"><i class="bi bi-chevron-right"></i></button>
             </div>
             
-            <div id="info-display" class="d-flex align-items-center text-white me-3">
-                <div class="btn-group me-3" role="group">
-                    <button class="btn btn-primary btn-sm" id="zoomInBtn" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
-                    <button class="btn btn-primary btn-sm" id="zoomOutBtn" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
-                    <button class="btn btn-primary btn-sm" id="resetZoomBtn" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
+            <div id="info-display" class="d-flex align-items-center text-white me-3 canvas-toolbar" data-ui="canvas-toolbar">
+                <div class="btn-group me-3 zoom-controls" data-ui="zoom-controls" role="group">
+                    <button class="btn btn-primary btn-sm" type="button" id="zoomInBtn" data-ui="zoom-in" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
+                    <button class="btn btn-primary btn-sm" type="button" id="zoomOutBtn" data-ui="zoom-out" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
+                    <button class="btn btn-primary btn-sm" type="button" id="resetZoomBtn" data-ui="zoom-reset" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
                 </div>
-                <div id="coords-input-container" class="d-flex align-items-center me-3">
-                    <input type="number" id="coordX" class="form-control form-control-sm" placeholder="X">
-                    <input type="number" id="coordY" class="form-control form-control-sm" placeholder="Y">
-                    <button id="goToCoordsBtn" class="btn btn-primary btn-sm"><i class="bi bi-geo-alt-fill"></i></button>
+                <div id="coords-input-container" class="d-flex align-items-center me-3 coordinates-toolbar" data-ui="coordinates-toolbar">
+                    <input type="number" id="coordX" class="form-control form-control-sm" data-ui="coord-input-x" placeholder="X">
+                    <input type="number" id="coordY" class="form-control form-control-sm" data-ui="coord-input-y" placeholder="Y">
+                    <button id="goToCoordsBtn" type="button" class="btn btn-primary btn-sm" data-ui="go-to-coordinates"><i class="bi bi-geo-alt-fill"></i></button>
                 </div>
-                <div class="input-group input-group-sm me-3" style="width: 130px;">
+                <div class="input-group input-group-sm me-3 zoom-input-group" data-ui="zoom-input-group" style="width: 130px;">
                     <span class="input-group-text">Zoom</span>
-                    <input type="number" id="zoom-input" class="form-control" placeholder="100" min="10" max="2000">
+                    <input type="number" id="zoom-input" class="form-control" data-ui="zoom-input" placeholder="100" min="10" max="2000">
                     <span class="input-group-text">%</span>
                 </div>
-                <span id="mouse-coords" class="small text-white-50 me-2"></span>
+                <span id="mouse-coords" class="small text-white-50 me-2 mouse-coordinates" data-ui="mouse-coordinates"></span>
             </div>
 
-            <div class="form-check form-switch text-white me-3">
-                <input class="form-check-input" type="checkbox" role="switch" id="darkModeToggle">
+            <div class="form-check form-switch text-white me-3 theme-toggle-group" data-ui="theme-toggle-group">
+                <input class="form-check-input" type="checkbox" id="darkModeToggle" data-ui="dark-mode-toggle">
                 <label class="form-check-label" for="darkModeToggle"><i class="bi bi-moon-stars-fill"></i></label>
             </div>
             <span class="navbar-text">
@@ -54,52 +54,56 @@
         <div id="left-panel" class="control-panel">
             <div class="panel-header d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0"><i class="bi bi-gear-fill"></i> Controls</h5>
-                <button id="collapse-left-panel-btn" class="btn btn-sm btn-outline-secondary" title="Collapse Panel">
+                <button id="collapse-left-panel-btn" type="button" class="btn btn-sm btn-outline-secondary" title="Collapse Panel">
                     <i class="bi bi-chevron-double-left"></i>
                 </button>
             </div>
-            <div class="panel-content">
-                <div class="d-grid gap-2 mb-3">
-                    <button id="selectImageFolderBtn" class="btn btn-primary w-100 mb-2">Load Image Folder</button>
-                    <button id="selectLabelFolderBtn" class="btn btn-secondary w-100" disabled>Load Label Folder</button>
+            <div class="panel-content left-panel-content" data-ui="left-panel-content">
+                <div class="d-grid gap-2 mb-3 folder-actions" data-ui="folder-actions">
+                    <button id="selectImageFolderBtn" type="button" class="btn btn-primary w-100 mb-2" data-ui="load-image-folder">Load Image Folder</button>
+                    <button id="selectLabelFolderBtn" type="button" class="btn btn-secondary w-100" data-ui="load-label-folder" disabled>Load Label Folder</button>
                 </div>
                 <hr>
-                <h5><i class="bi bi-hand-index-thumb"></i> Mode</h5>
-                <div class="btn-group w-100" role="group" aria-label="Mode switch">
+                <section class="panel-section mode-section" data-ui="mode-section">
+                <h5 class="panel-section-title"><i class="bi bi-hand-index-thumb"></i> Mode</h5>
+                <div class="btn-group w-100 mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Mode switch">
                     <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
-                    <label class="btn btn-outline-primary" for="drawMode" title="Draw Mode (Ctrl+Q)"><i class="bi bi-pencil-square"></i></label>
+                    <label class="btn btn-outline-primary" for="drawMode" data-ui="mode-draw" title="Draw Mode (Ctrl+Q)"><i class="bi bi-pencil-square"></i></label>
     
                     <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
-                    <label class="btn btn-outline-primary" for="editMode" title="Edit Mode (Ctrl+Q)"><i class="bi bi-cursor"></i></label>
+                    <label class="btn btn-outline-primary" for="editMode" data-ui="mode-edit" title="Edit Mode (Ctrl+Q)"><i class="bi bi-cursor"></i></label>
                 </div>
-                <div class="form-check form-switch mt-2">
-                    <input class="form-check-input" type="checkbox" role="switch" id="crosshairToggle">
+                <div class="form-check form-switch mt-2 crosshair-toggle-group" data-ui="crosshair-toggle-group">
+                    <input class="form-check-input" type="checkbox" id="crosshairToggle" data-ui="crosshair-toggle">
                     <label class="form-check-label" for="crosshairToggle">Show Crosshair</label>
                 </div>
+                </section>
                 <hr>
-                <h5><i class="bi bi-list-ul"></i> Image Files</h5>
-                <div class="input-group mb-2">
+                <section class="panel-section image-library-section" data-ui="image-library-section">
+                <h5 class="panel-section-title"><i class="bi bi-list-ul"></i> Image Files</h5>
+                <div class="input-group mb-2 image-search-group" data-ui="image-search-group">
                     <span class="input-group-text"><i class="bi bi-search"></i></span>
-                    <input type="text" id="imageSearchInput" class="form-control" placeholder="Search files...">
+                    <input type="text" id="imageSearchInput" class="form-control" data-ui="image-search-input" placeholder="Search files...">
                 </div>
-                <div id="image-filter-container" class="btn-group w-100 mb-2" role="group">
+                <div id="image-filter-container" class="btn-group w-100 mb-2 image-status-filters" data-ui="image-status-filters" role="group">
                     <input type="checkbox" class="btn-check" id="showLabeled" checked>
-                    <label class="btn btn-outline-primary" for="showLabeled"><i class="bi bi-check-circle"></i> Labeled</label>
+                    <label class="btn btn-outline-primary" for="showLabeled" data-ui="filter-labeled-images"><i class="bi bi-check-circle"></i> Labeled</label>
     
                     <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
-                    <label class="btn btn-outline-primary" for="showUnlabeled"><i class="bi bi-x-circle"></i> Unlabeled</label>
+                    <label class="btn btn-outline-primary" for="showUnlabeled" data-ui="filter-unlabeled-images"><i class="bi bi-x-circle"></i> Unlabeled</label>
                 </div>
-                <div id="image-list" class="list-group mb-3">
+                <div id="image-list" class="list-group mb-3 image-list-panel" data-ui="image-list-panel">
                     <!-- Image list will be populated here -->
                 </div>
+                </section>
                 <hr>
-                <div class="form-check form-switch mb-2">
-                    <input class="form-check-input" type="checkbox" role="switch" id="autoSaveToggle">
+                <div class="form-check form-switch mb-2 autosave-toggle-group" data-ui="autosave-toggle-group">
+                    <input class="form-check-input" type="checkbox" id="autoSaveToggle" data-ui="auto-save-toggle">
                     <label class="form-check-label" for="autoSaveToggle">Auto Save</label>
                 </div>
-                <div class="d-grid gap-2">
-                    <button id="saveLabelsBtn" class="btn btn-success" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
-                    <button id="downloadClassesBtn" class="btn btn-secondary mt-2"><i class="bi bi-download"></i> Download Class Template</button>
+                <div class="d-grid gap-2 save-actions" data-ui="save-actions">
+                    <button id="saveLabelsBtn" type="button" class="btn btn-success" data-ui="save-labels" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
+                    <button id="downloadClassesBtn" type="button" class="btn btn-secondary mt-2" data-ui="download-class-template"><i class="bi bi-download"></i> Download Class Template</button>
                 </div>
         </div>
     </div>
@@ -115,27 +119,27 @@
                 </div>
             </div>
             <canvas id="canvas"></canvas>
-            <button id="expand-left-panel-btn" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right"></i></button>
-            <button id="expand-right-panel-btn" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left"></i></button>
+            <button id="expand-left-panel-btn" type="button" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right"></i></button>
+            <button id="expand-right-panel-btn" type="button" class="btn btn-sm btn-outline-secondary panel-expand-btn" title="Expand Panel" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left"></i></button>
             <!-- Bottom Preview Panel -->
-            <div id="bottom-panel">
+             <div id="bottom-panel" class="preview-panel" data-ui="preview-panel">
                 <div id="bottom-splitter"></div>
                 <div id="preview-bar-container">
-                    <div id="preview-bar-header">
-                        <span><i class="bi bi-images"></i> Image Previews</span>
-                        <button id="toggle-preview-btn" class="btn btn-sm btn-outline-secondary" title="Toggle Preview Panel">
-                            <i class="bi bi-chevron-down"></i>
-                        </button>
-                    </div>
-                    <div id="preview-bar">
-                        <button id="preview-prev-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-left"></i></button>
-                        <div id="preview-list-wrapper">
-                            <div id="preview-list"></div>
-                        </div>
-                        <button id="preview-next-btn" class="btn btn-dark btn-sm"><i class="bi bi-chevron-right"></i></button>
-                    </div>
-                </div>
-            </div>
+                     <div id="preview-bar-header" class="preview-panel-header" data-ui="preview-panel-header">
+                         <span class="preview-panel-title" data-ui="preview-panel-title"><i class="bi bi-images"></i> Image Previews</span>
+                         <button id="toggle-preview-btn" type="button" class="btn btn-sm btn-outline-secondary" data-ui="toggle-preview-panel" title="Toggle Preview Panel">
+                             <i class="bi bi-chevron-down"></i>
+                         </button>
+                     </div>
+                     <div id="preview-bar" class="preview-bar-content" data-ui="preview-bar-content">
+                         <button id="preview-prev-btn" type="button" class="btn btn-dark btn-sm" data-ui="preview-nav-prev"><i class="bi bi-chevron-left"></i></button>
+                         <div id="preview-list-wrapper">
+                             <div id="preview-list"></div>
+                         </div>
+                         <button id="preview-next-btn" type="button" class="btn btn-dark btn-sm" data-ui="preview-nav-next"><i class="bi bi-chevron-right"></i></button>
+                     </div>
+                 </div>
+             </div>
         </div>
 
         <div id="right-splitter" class="panel-splitter"></div>
@@ -144,55 +148,56 @@
         <div id="right-panel" class="control-panel">
             <div class="panel-header d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0"><i class="bi bi-tags"></i> Labels & Filters</h5>
-                <button id="collapse-right-panel-btn" class="btn btn-sm btn-outline-secondary" title="Collapse Panel">
+                <button id="collapse-right-panel-btn" type="button" class="btn btn-sm btn-outline-secondary" title="Collapse Panel">
                     <i class="bi bi-chevron-double-right"></i>
                 </button>
             </div>
-            <div class="panel-content">
-                <div>
-                    <h5><i class="bi bi-funnel"></i> Filters</h5>
-                <div id="label-filters" class="mb-2">
+            <div class="panel-content right-panel-content" data-ui="right-panel-content">
+                <section class="panel-section label-filter-section" data-ui="label-filter-section">
+                    <h5 class="panel-section-title"><i class="bi bi-funnel"></i> Filters</h5>
+                <div id="label-filters" class="mb-2 label-filter-list" data-ui="label-filter-list">
                     <!-- Filter buttons will be added here -->
                 </div>
-                <div class="form-check form-switch mb-2">
-                    <input class="form-check-input" type="checkbox" role="switch" id="showLabelsOnCanvasToggle" checked>
+                <div class="form-check form-switch mb-2 label-visibility-toggle-group" data-ui="label-visibility-toggle-group">
+                    <input class="form-check-input" type="checkbox" id="showLabelsOnCanvasToggle" data-ui="show-labels-on-canvas-toggle" checked>
                     <label class="form-check-label" for="showLabelsOnCanvasToggle">Show Class Labels</label>
                 </div>
-                <div class="mb-2">
+                <div class="mb-2 label-font-size-group" data-ui="label-font-size-group">
                     <label for="label-font-size" class="form-label">Label Font Size (<span id="label-font-size-value">14</span>px)</label>
-                    <input type="range" class="form-range" min="8" max="48" value="14" id="label-font-size">
+                    <input type="range" class="form-range" min="8" max="48" value="14" id="label-font-size" data-ui="label-font-size-slider">
                 </div>
+                </section>
                 <hr>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="mb-0"><i class="bi bi-tags"></i> Labels</h5>
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button id="sortLabelsAscBtn" class="btn btn-outline-secondary" title="Sort Ascending"><i class="bi bi-sort-numeric-down"></i></button>
-                        <button id="sortLabelsDescBtn" class="btn btn-outline-secondary" title="Sort Descending"><i class="bi bi-sort-numeric-up-alt"></i></button>
+                <section class="panel-section label-list-section" data-ui="label-list-section">
+                <div class="d-flex justify-content-between align-items-center mb-2 label-list-header" data-ui="label-list-header">
+                    <h5 class="mb-0 panel-section-title"><i class="bi bi-tags"></i> Labels</h5>
+                    <div class="btn-group btn-group-sm label-sort-controls" data-ui="label-sort-controls" role="group">
+                        <button id="sortLabelsAscBtn" type="button" class="btn btn-outline-secondary" data-ui="sort-labels-asc" title="Sort Ascending"><i class="bi bi-sort-numeric-down"></i></button>
+                        <button id="sortLabelsDescBtn" type="button" class="btn btn-outline-secondary" data-ui="sort-labels-desc" title="Sort Descending"><i class="bi bi-sort-numeric-up-alt"></i></button>
                     </div>
                 </div>
-                <div class="input-group mb-2">
+                <div class="input-group mb-2 select-by-class-group" data-ui="select-by-class-group">
                     <select class="form-select" id="select-by-class-dropdown">
                         <option selected value="">Select a class</option>
                     </select>
-                    <button class="btn btn-outline-primary" type="button" id="select-by-class-btn">Select</button>
+                    <button class="btn btn-outline-primary" type="button" id="select-by-class-btn" data-ui="select-by-class-submit">Select</button>
                 </div>
-                <div class="d-grid gap-2 mb-2">
-                    <button id="loadClassInfoFolderBtn" class="btn btn-outline-primary"><i class="bi bi-folder-symlink"></i> Load Class Info Folder</button>
+                <div class="d-grid gap-2 mb-2 class-info-actions" data-ui="class-info-actions">
+                    <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary" data-ui="load-class-info-folder"><i class="bi bi-folder-symlink"></i> Load Class Info Folder</button>
                 </div>
-                <div class="input-group mb-2">
+                <div class="input-group mb-2 class-file-select-group" data-ui="class-file-select-group">
                     <label class="input-group-text" for="class-file-select">Class File</label>
                     <select class="form-select" id="class-file-select">
                         <option selected>Choose...</option>
                     </select>
-                    <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn"><i class="bi bi-eye"></i></button>
+                    <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file"><i class="bi bi-eye"></i></button>
                 </div>
-                <ul id="label-list" class="list-group">
+                <ul id="label-list" class="list-group label-list-panel" data-ui="label-list-panel">
                     <!-- Labels will be added here -->
                 </ul>
+                </section>
             </div>
         </div>
-    </div> <!-- This closes right-panel -->
-
     </div> <!-- This closes main-container -->
 
     

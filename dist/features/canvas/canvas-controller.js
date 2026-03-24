@@ -2,7 +2,8 @@ import { parseYoloRows, serializeRectsToYolo } from "../../domain/yolo/yolo.js";
 import { createClipboardManager } from "./clipboard.js";
 import { getColorForClass as defaultGetColorForClass } from "./colors.js";
 import { createCrosshairLines, hideCrosshair, toggleCrosshair, updateCrosshair } from "./crosshair.js";
-import { isRectObject } from "./fabric-types.js";
+import { isActiveSelectionObject, isRectObject } from "./fabric-types.js";
+import { normalizeFilterClassKey } from "../../ui/filter-state.js";
 function applyLegacyFabricDefaults(fabric) {
     const activeSelectionStyle = {
         hasBorders: true,
@@ -59,6 +60,23 @@ export function createCanvasController(state, deps) {
     });
     const syncCanvasOffset = () => {
         canvas.calcOffset?.();
+    };
+    const isRectHiddenByFilter = (rect, hiddenLabelClasses) => {
+        const normalizedClass = normalizeFilterClassKey(rect.labelClass);
+        return hiddenLabelClasses.has(normalizedClass);
+    };
+    const shouldClearSelectionForVisibility = (hiddenLabelClasses) => {
+        const activeObject = canvas.getActiveObject();
+        if (!activeObject) {
+            return false;
+        }
+        if (isRectObject(activeObject)) {
+            return isRectHiddenByFilter(activeObject, hiddenLabelClasses);
+        }
+        if (isActiveSelectionObject(activeObject)) {
+            return activeObject.getObjects().some((obj) => isRectObject(obj) && isRectHiddenByFilter(obj, hiddenLabelClasses));
+        }
+        return canvas.getActiveObjects().some((obj) => isRectObject(obj) && isRectHiddenByFilter(obj, hiddenLabelClasses));
     };
     const controller = {
         canvas,
@@ -413,17 +431,9 @@ export function createCanvasController(state, deps) {
                 return;
             }
             const displayName = deps.getDisplayNameForClass(rect.labelClass);
-            let newLeft;
-            let newTop;
-            if (rect.group) {
-                const bounds = rect.getBoundingRect();
-                newLeft = rect.group.left + rect.group.width / 2 + bounds.left;
-                newTop = rect.group.top + rect.group.height / 2 + bounds.top;
-            }
-            else {
-                newLeft = rect.left;
-                newTop = rect.top;
-            }
+            const bounds = rect.getBoundingRect(true);
+            const newLeft = bounds.left;
+            const newTop = bounds.top;
             rect._labelText.set({
                 text: displayName,
                 left: newLeft,
@@ -470,7 +480,23 @@ export function createCanvasController(state, deps) {
             }
             this.renderAll();
         },
+        applyVisibilityFromHiddenClasses(hiddenLabelClasses, clearSelectionWhenFilteredHidden = true) {
+            if (clearSelectionWhenFilteredHidden && shouldClearSelectionForVisibility(hiddenLabelClasses)) {
+                canvas.discardActiveObject();
+            }
+            this.getObjects("rect")
+                .filter(isRectObject)
+                .forEach((rect) => {
+                const isHidden = isRectHiddenByFilter(rect, hiddenLabelClasses);
+                rect.set("visible", !isHidden);
+                if (rect._labelText) {
+                    rect._labelText.set("visible", !isHidden);
+                }
+            });
+            canvas.requestRenderAll();
+        },
         selectAllLabels() {
+            canvas.discardActiveObject();
             const rects = this.getObjects("rect").filter(isRectObject);
             if (rects.length === 0) {
                 return;

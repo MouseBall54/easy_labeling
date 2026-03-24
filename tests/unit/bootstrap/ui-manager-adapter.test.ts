@@ -263,6 +263,8 @@ describe("bootstrap/ui-manager-adapter updateLabelList", () => {
 
     expect(elements.labelList.children).toHaveLength(1);
     expect(flattenRows(elements.labelList)).toHaveLength(2);
+    expect(elements.labelList.children[0]?.dataset.ui).toBe("label-group");
+    expect(elements.labelList.children[0]?.dataset.groupClass).toBe("1");
     expect(renderLabelFiltersMock).toHaveBeenCalledTimes(1);
     expect(renderLabelFiltersMock.mock.calls[0][0].rects).toEqual([
       { labelClass: "1" },

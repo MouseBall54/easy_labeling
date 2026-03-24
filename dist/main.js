@@ -4,6 +4,7 @@ import { createEventManagerAdapter } from "./bootstrap/event-manager-adapter.js"
 import { createFileSystemAdapter } from "./bootstrap/file-system-adapter.js";
 import { getBrowserRuntimeSnapshot, resolveCdnRuntimeGlobals, runLegacyUnsupportedGate } from "./bootstrap/runtime.js";
 import { createUiManagerAdapter } from "./bootstrap/ui-manager-adapter.js";
+import { normalizeFilterClassKey } from "./ui/filter-state.js";
 export function getCdnRuntimeGlobals(scope = window) {
     return resolveCdnRuntimeGlobals(scope);
 }
@@ -75,7 +76,25 @@ function bootstrapBrowserRuntime() {
     runtimeUiManager.setupSplitters();
     Reflect.set(window, "__easyLabelingTestApi", {
         getRectCount: () => runtimeCanvasController.raw.getObjects("rect").length,
-        getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? ""
+        getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
+        getVisibleRectCount: () => {
+            return runtimeCanvasController.raw
+                .getObjects("rect")
+                .filter((rect) => rect.visible !== false)
+                .length;
+        },
+        getVisibleClassKeys: () => {
+            const visibleClassKeys = runtimeCanvasController.raw
+                .getObjects("rect")
+                .filter((rect) => rect.visible !== false)
+                .map((rect) => normalizeFilterClassKey(rect.labelClass));
+            return [...new Set(visibleClassKeys)].sort((left, right) => {
+                return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+            });
+        },
+        getVisibleLabelRowCount: () => {
+            return runtimeUiManager.elements.labelList.querySelectorAll("li[data-index]").length;
+        }
     });
 }
 if (typeof window !== "undefined" && typeof document !== "undefined") {

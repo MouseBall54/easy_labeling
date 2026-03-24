@@ -62,6 +62,9 @@ describe("ui/renderers", () => {
 
     expect(rendered.map((file) => file.name)).toEqual(["img10.jpg"]);
     expect(imageListElement.children).toHaveLength(1);
+    expect(imageListElement.children[0]?.dataset.ui).toBe("image-list-item");
+    expect(imageListElement.children[0]?.dataset.fileName).toBe("img10.jpg");
+    expect(imageListElement.children[0]?.dataset.testid).toBe("image-list-item-img10.jpg");
     expect(imageListElement.children[0]?.classList.contains("active")).toBe(true);
     expect(imageListElement.children[0]?.innerHTML.includes("bi-check-circle-fill")).toBe(true);
   });
@@ -103,6 +106,8 @@ describe("ui/renderers", () => {
     expect(bottomPanelElement.style.display).toBe("flex");
     expect(shownResult.map((file) => file.name)).toEqual(["1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg"]);
     expect(previewListElement.children).toHaveLength(5);
+    expect(previewListElement.children[2]?.dataset.ui).toBe("preview-list-item");
+    expect(previewListElement.children[2]?.dataset.fileName).toBe("3.jpg");
     expect(previewListElement.children[2]?.classList.contains("active")).toBe(true);
     expect(previewListElement.children[2]?.children[0]?.tagName).toBe("img");
     expect(previewListElement.children[2]?.children[0]?.alt).toBe("3.jpg");
