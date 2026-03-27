@@ -20,17 +20,31 @@
                 <button class="btn btn-outline-light btn-sm ms-2" type="button" id="nextImageBtn" data-ui="nav-next-image" title="Next Image (D)"><i class="bi bi-chevron-right"></i></button>
             </div>
             
-            <div id="info-display" class="d-flex align-items-center text-white me-3 canvas-toolbar" data-ui="canvas-toolbar">
-                <div class="btn-group me-3 zoom-controls" data-ui="zoom-controls" role="group">
-                    <button class="btn btn-primary btn-sm" type="button" id="zoomInBtn" data-ui="zoom-in" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
-                    <button class="btn btn-primary btn-sm" type="button" id="zoomOutBtn" data-ui="zoom-out" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
-                    <button class="btn btn-primary btn-sm" type="button" id="resetZoomBtn" data-ui="zoom-reset" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
-                </div>
-                <div id="coords-input-container" class="d-flex align-items-center me-3 coordinates-toolbar" data-ui="coordinates-toolbar">
-                    <input type="number" id="coordX" class="form-control form-control-sm" data-ui="coord-input-x" placeholder="X">
-                    <input type="number" id="coordY" class="form-control form-control-sm" data-ui="coord-input-y" placeholder="Y">
-                    <button id="goToCoordsBtn" type="button" class="btn btn-primary btn-sm" data-ui="go-to-coordinates"><i class="bi bi-geo-alt-fill"></i></button>
-                </div>
+             <div id="info-display" class="d-flex align-items-center text-white me-3 canvas-toolbar" data-ui="canvas-toolbar">
+                 <div class="btn-group me-3 zoom-controls" data-ui="zoom-controls" role="group">
+                     <button class="btn btn-primary btn-sm" type="button" id="zoomInBtn" data-ui="zoom-in" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
+                     <button class="btn btn-primary btn-sm" type="button" id="zoomOutBtn" data-ui="zoom-out" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
+                     <button class="btn btn-primary btn-sm" type="button" id="resetZoomBtn" data-ui="zoom-reset" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
+                 </div>
+                  <span class="small text-white-50 me-2">History</span>
+                  <div class="btn-group me-3 history-controls" data-ui="history-controls" role="group" aria-label="History controls">
+                      <button class="btn btn-outline-light btn-sm" type="button" id="undoBtn" data-ui="history-undo" title="Undo" aria-label="Undo" disabled><i class="bi bi-arrow-counterclockwise"></i></button>
+                      <button class="btn btn-outline-light btn-sm" type="button" id="redoBtn" data-ui="history-redo" title="Redo" aria-label="Redo" disabled><i class="bi bi-arrow-clockwise"></i></button>
+                  </div>
+                  <span class="small text-white-50 me-2">Arrange</span>
+                  <div class="btn-group me-3 arrange-controls" data-ui="arrange-controls" role="group" aria-label="Arrange controls">
+                     <button class="btn btn-outline-light btn-sm" type="button" id="alignLeftBtn" data-ui="arrange-align-left" title="Align Left" aria-label="Align Left" disabled><i class="bi bi-align-start"></i></button>
+                     <button class="btn btn-outline-light btn-sm" type="button" id="alignRightBtn" data-ui="arrange-align-right" title="Align Right" aria-label="Align Right" disabled><i class="bi bi-align-end"></i></button>
+                     <button class="btn btn-outline-light btn-sm" type="button" id="alignTopBtn" data-ui="arrange-align-top" title="Align Top" aria-label="Align Top" disabled><i class="bi bi-align-top"></i></button>
+                     <button class="btn btn-outline-light btn-sm" type="button" id="alignBottomBtn" data-ui="arrange-align-bottom" title="Align Bottom" aria-label="Align Bottom" disabled><i class="bi bi-align-bottom"></i></button>
+                     <button class="btn btn-outline-light btn-sm" type="button" id="distributeHorizontalBtn" data-ui="arrange-distribute-horizontal" title="Distribute Horizontally" aria-label="Distribute Horizontally" disabled><i class="bi bi-distribute-horizontal"></i></button>
+                     <button class="btn btn-outline-light btn-sm" type="button" id="distributeVerticalBtn" data-ui="arrange-distribute-vertical" title="Distribute Vertically" aria-label="Distribute Vertically" disabled><i class="bi bi-distribute-vertical"></i></button>
+                 </div>
+                 <div id="coords-input-container" class="d-flex align-items-center me-3 coordinates-toolbar" data-ui="coordinates-toolbar">
+                     <input type="number" id="coordX" class="form-control form-control-sm" data-ui="coord-input-x" placeholder="X">
+                     <input type="number" id="coordY" class="form-control form-control-sm" data-ui="coord-input-y" placeholder="Y">
+                     <button id="goToCoordsBtn" type="button" class="btn btn-primary btn-sm" data-ui="go-to-coordinates"><i class="bi bi-geo-alt-fill"></i></button>
+                 </div>
                 <div class="input-group input-group-sm me-3 zoom-input-group" data-ui="zoom-input-group" style="width: 130px;">
                     <span class="input-group-text">Zoom</span>
                     <input type="number" id="zoom-input" class="form-control" data-ui="zoom-input" placeholder="100" min="10" max="2000">

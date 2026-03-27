@@ -25,6 +25,7 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
   public strokeDashArray: number[] = [];
   public shadow: unknown = null;
   public labelClass: string | undefined;
+  public annotationId: string | undefined;
   public originalYolo: YoloMetadata | null | undefined;
   public _labelText: FabricTextLike | null | undefined;
   public group: { left: number; top: number; width: number; height: number } | null = null;
@@ -90,6 +91,7 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
     target.strokeDashArray = [...this.strokeDashArray];
     target.shadow = this.shadow;
     target.labelClass = this.labelClass;
+    target.annotationId = this.annotationId;
     target.originalYolo = cloneMetadata(this.originalYolo);
   }
 
@@ -111,6 +113,7 @@ export class FakeFabricRect extends FakeFabricObject<"rect"> implements FabricRe
     this.selectable = Boolean(options.selectable ?? true);
     this.hoverCursor = String(options.hoverCursor ?? "move");
     this.labelClass = options.labelClass as string | undefined;
+    this.annotationId = options.annotationId as string | undefined;
     this.originalYolo = (options.originalYolo as YoloMetadata | null | undefined) ?? undefined;
   }
 
@@ -125,6 +128,7 @@ export class FakeFabricRect extends FakeFabricObject<"rect"> implements FabricRe
       strokeWidth: this.strokeWidth,
       selectable: this.selectable,
       hoverCursor: this.hoverCursor,
+      annotationId: this.annotationId,
       labelClass: this.labelClass,
       originalYolo: cloneMetadata(this.originalYolo)
     });

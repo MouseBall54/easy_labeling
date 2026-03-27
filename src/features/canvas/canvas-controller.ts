@@ -4,6 +4,8 @@ import { createClipboardManager } from "./clipboard.js";
 import { getColorForClass as defaultGetColorForClass } from "./colors.js";
 import { createCrosshairLines, hideCrosshair, toggleCrosshair, updateCrosshair, type CrosshairState } from "./crosshair.js";
 import {
+  createAnnotationId,
+  ensureAnnotationId,
   isActiveSelectionObject,
   isRectObject,
   type CanvasImageLike,
@@ -17,6 +19,24 @@ import {
   type YoloMetadata
 } from "./fabric-types.js";
 import { normalizeFilterClassKey } from "../../ui/filter-state.js";
+import {
+  extractVisibleRectSelection,
+  getRectBounds,
+  planEdgeAlignment,
+  planEqualEdgeGapDistribution,
+  type ArrangeEdge
+} from "./arrange.js";
+import {
+  areRectSnapshotsEqual,
+  type CanvasHistoryEntry,
+  createCanvasHistoryService,
+  createRectSnapshotsByAnnotationId,
+  createSelectionPayloadFromActiveObject,
+  type CanvasHistoryGestureBaseline,
+  type CanvasHistoryRectSnapshot,
+  type CanvasHistorySelectionPayload,
+  type CanvasHistoryService
+} from "./history.js";
 
 export interface CanvasControllerState {
   currentMode: AppMode;
@@ -38,6 +58,7 @@ export interface CanvasControllerDeps {
   getDisplayNameForClass(labelClass: string | undefined): string;
   notify(message: string, duration?: number): void;
   getColorForClass?: (labelClass: string | undefined) => string;
+  historyService?: CanvasHistoryService;
 }
 
 export interface CanvasController {
@@ -77,6 +98,20 @@ export interface CanvasController {
   hideCrosshair(): void;
   copy(): void;
   paste(): void;
+  deleteSelection(): void;
+  alignSelectionLeft(): void;
+  alignSelectionRight(): void;
+  alignSelectionTop(): void;
+  alignSelectionBottom(): void;
+  distributeSelectionHorizontally(): void;
+  distributeSelectionVertically(): void;
+  captureHistoryBaseline(): CanvasHistoryGestureBaseline;
+  commitHistoryFromBaseline(baseline: CanvasHistoryGestureBaseline): void;
+  clearHistory(): void;
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
 }
 
 function applyLegacyFabricDefaults(fabric: FabricRuntimeLike): void {
@@ -105,6 +140,19 @@ function buildOriginalYolo(metadata: {
   width: string | undefined;
   height: string | undefined;
 }): YoloMetadata {
+  return {
+    x_center: metadata.x_center,
+    y_center: metadata.y_center,
+    width: metadata.width,
+    height: metadata.height
+  };
+}
+
+function cloneOriginalYolo(metadata: YoloMetadata | null | undefined): YoloMetadata | null | undefined {
+  if (metadata === null || metadata === undefined) {
+    return metadata;
+  }
+
   return {
     x_center: metadata.x_center,
     y_center: metadata.y_center,
@@ -148,6 +196,71 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     getCurrentImageSize: () => state.currentImage
   });
 
+  const history = deps.historyService ?? createCanvasHistoryService();
+
+  const captureRectSnapshots = (): CanvasHistoryRectSnapshot[] => {
+    const rects = canvas.getObjects("rect").filter(isRectObject);
+    return createRectSnapshotsByAnnotationId(rects);
+  };
+
+  const captureSelectionSnapshot = (): CanvasHistorySelectionPayload => {
+    return createSelectionPayloadFromActiveObject(canvas.getActiveObject());
+  };
+
+  const pushHistoryIfRectsChanged = (input: {
+    before: CanvasHistoryRectSnapshot[];
+    after: CanvasHistoryRectSnapshot[];
+    selectionBefore: CanvasHistorySelectionPayload;
+    selectionAfter: CanvasHistorySelectionPayload;
+  }): void => {
+    if (history.isReplayMuted()) {
+      return;
+    }
+
+    if (areRectSnapshotsEqual(input.before, input.after)) {
+      return;
+    }
+
+    history.push({
+      before: input.before,
+      after: input.after,
+      selectionBefore: input.selectionBefore,
+      selectionAfter: input.selectionAfter
+    });
+  };
+
+  const removeRectInternal = (object: FabricRectLike): void => {
+    if (object._labelText) {
+      canvas.remove(object._labelText);
+    }
+    canvas.remove(object);
+  };
+
+  const deleteRects = (rects: readonly FabricRectLike[]): void => {
+    const uniqueRects = [...new Set(rects)];
+    if (uniqueRects.length === 0) {
+      return;
+    }
+
+    const before = captureRectSnapshots();
+    const selectionBefore = captureSelectionSnapshot();
+
+    uniqueRects.forEach((rect) => {
+      removeRectInternal(rect);
+    });
+
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+    deps.updateLabelList();
+
+    pushHistoryIfRectsChanged({
+      before,
+      after: captureRectSnapshots(),
+      selectionBefore,
+      selectionAfter: captureSelectionSnapshot()
+    });
+  };
+
   const syncCanvasOffset = (): void => {
     canvas.calcOffset?.();
   };
@@ -172,6 +285,192 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     }
 
     return canvas.getActiveObjects().some((obj) => isRectObject(obj) && isRectHiddenByFilter(obj, hiddenLabelClasses));
+  };
+
+  const applyEdgeAlignment = (edge: ArrangeEdge): void => {
+    const activeObject = canvas.getActiveObject();
+    const selectedRects = extractVisibleRectSelection(activeObject);
+    if (selectedRects.length < 2) {
+      return;
+    }
+
+    const selectionBefore = captureSelectionSnapshot();
+    const before = captureRectSnapshots();
+
+    const plan = planEdgeAlignment(selectedRects, edge);
+    if (plan.length === 0) {
+      return;
+    }
+
+    let movedCount = 0;
+    plan.forEach(({ rect, left, top }) => {
+      const bounds = getRectBounds(rect);
+      const deltaX = left - bounds.left;
+      const deltaY = top - bounds.top;
+      if (deltaX === 0 && deltaY === 0) {
+        return;
+      }
+
+      rect.set({
+        left: rect.left + deltaX,
+        top: rect.top + deltaY
+      });
+      rect.setCoords();
+      rect.originalYolo = null;
+      controller.updateLabelText(rect);
+      movedCount += 1;
+    });
+
+    if (movedCount === 0) {
+      return;
+    }
+
+    canvas.requestRenderAll();
+    deps.updateLabelList();
+
+    const selectionAfter = captureSelectionSnapshot();
+    const after = captureRectSnapshots();
+
+    pushHistoryIfRectsChanged({
+      before,
+      after,
+      selectionBefore,
+      selectionAfter
+    });
+  };
+
+  const restoreSelectionFromPayload = (payload: CanvasHistorySelectionPayload): void => {
+    const rectByAnnotationId = new Map<string, FabricRectLike>();
+    canvas
+      .getObjects("rect")
+      .filter(isRectObject)
+      .forEach((rect) => {
+        rectByAnnotationId.set(ensureAnnotationId(rect), rect);
+      });
+
+    const selectedRects = payload.annotationIds
+      .map((annotationId) => rectByAnnotationId.get(annotationId) ?? null)
+      .filter((rect): rect is FabricRectLike => rect !== null);
+
+    if (selectedRects.length === 0) {
+      canvas.discardActiveObject();
+      return;
+    }
+
+    if (selectedRects.length === 1) {
+      selectedRects[0].setCoords();
+      canvas.setActiveObject(selectedRects[0]);
+      return;
+    }
+
+    if (payload.primaryAnnotationId) {
+      const primaryIndex = selectedRects.findIndex((rect) => ensureAnnotationId(rect) === payload.primaryAnnotationId);
+      if (primaryIndex > 0) {
+        const [primary] = selectedRects.splice(primaryIndex, 1);
+        if (primary) {
+          selectedRects.unshift(primary);
+        }
+      }
+    }
+
+    selectedRects.forEach((rect) => {
+      rect.setCoords();
+    });
+    const selection = new deps.fabric.ActiveSelection(selectedRects, { canvas });
+    canvas.setActiveObject(selection);
+  };
+
+  const applyRectSnapshots = (targetSnapshots: readonly CanvasHistoryRectSnapshot[]): void => {
+    const targetById = new Map(targetSnapshots.map((snapshot) => [snapshot.annotationId, snapshot]));
+    const existingRects = canvas.getObjects("rect").filter(isRectObject);
+    const existingById = new Map<string, FabricRectLike>();
+    existingRects.forEach((rect) => {
+      existingById.set(ensureAnnotationId(rect), rect);
+    });
+
+    existingById.forEach((rect, annotationId) => {
+      if (!targetById.has(annotationId)) {
+        removeRectInternal(rect);
+      }
+    });
+
+    targetSnapshots.forEach((snapshot) => {
+      const existingRect = existingById.get(snapshot.annotationId);
+      const color = colorForClass(snapshot.labelClass);
+      const originalYolo = cloneOriginalYolo(snapshot.originalYolo);
+
+      if (existingRect) {
+        const currentBounds = existingRect.getBoundingRect(true);
+        const deltaX = snapshot.boundsLeft - currentBounds.left;
+        const deltaY = snapshot.boundsTop - currentBounds.top;
+        existingRect.set({
+          left: existingRect.left + deltaX,
+          top: existingRect.top + deltaY,
+          width: snapshot.width,
+          height: snapshot.height,
+          scaleX: snapshot.scaleX,
+          scaleY: snapshot.scaleY,
+          labelClass: snapshot.labelClass,
+          fill: `${color}33`,
+          stroke: color
+        });
+        existingRect.originalYolo = originalYolo;
+        existingRect.setCoords();
+
+        if (state.showLabelsOnCanvas) {
+          if (!existingRect._labelText) {
+            controller.drawLabelText(existingRect);
+          } else {
+            controller.updateLabelText(existingRect);
+          }
+        } else if (existingRect._labelText) {
+          canvas.remove(existingRect._labelText);
+          existingRect._labelText = null;
+        }
+        return;
+      }
+
+      const isEditMode = state.currentMode === "edit";
+      const rect = new deps.fabric.Rect({
+        left: snapshot.left,
+        top: snapshot.top,
+        width: snapshot.width,
+        height: snapshot.height,
+        scaleX: snapshot.scaleX,
+        scaleY: snapshot.scaleY,
+        fill: `${color}33`,
+        stroke: color,
+        strokeWidth: 2,
+        strokeUniform: true,
+        selectable: isEditMode,
+        hoverCursor: isEditMode ? "move" : "crosshair",
+        annotationId: snapshot.annotationId,
+        labelClass: snapshot.labelClass,
+        originalYolo
+      });
+
+      rect.setControlVisible("mtr", false);
+      canvas.add(rect);
+
+      if (state.showLabelsOnCanvas) {
+        controller.drawLabelText(rect);
+      }
+    });
+  };
+
+  const replayHistoryEntry = (entry: CanvasHistoryEntry, direction: "undo" | "redo"): void => {
+    const rectSnapshots = direction === "undo" ? entry.before : entry.after;
+    const selectionSnapshot = direction === "undo" ? entry.selectionBefore : entry.selectionAfter;
+
+    history.withReplayMuted(() => {
+      canvas.discardActiveObject();
+      applyRectSnapshots(rectSnapshots);
+      restoreSelectionFromPayload(selectionSnapshot);
+    });
+
+    controller.updateAllLabelTexts();
+    deps.updateLabelList();
+    canvas.requestRenderAll();
   };
 
   const controller: CanvasController = {
@@ -238,6 +537,7 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
           strokeUniform: true,
           selectable: state.currentMode === "edit",
           hoverCursor: state.currentMode === "draw" ? "crosshair" : "move",
+          annotationId: createAnnotationId(),
           labelClass: String(row.labelClass),
           originalYolo: buildOriginalYolo(row)
         });
@@ -346,11 +646,19 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
       }
 
       try {
+        const before = createRectSnapshotsByAnnotationId(
+          canvas
+            .getObjects("rect")
+            .filter(isRectObject)
+            .filter((rect) => rect !== currentRect)
+        );
+        const selectionBefore = captureSelectionSnapshot();
         const finalLabel = await deps.promptForLabelClass("0");
         currentRect.set("labelClass", finalLabel);
         const color = colorForClass(finalLabel);
         currentRect.set({ fill: `${color}33`, stroke: color });
         currentRect.setControlVisible("mtr", false);
+        ensureAnnotationId(currentRect);
 
         const isEditMode = state.currentMode === "edit";
         currentRect.set({
@@ -362,6 +670,13 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
         this.drawLabelText(currentRect);
         canvas.requestRenderAll();
         deps.updateLabelList();
+
+        pushHistoryIfRectsChanged({
+          before,
+          after: captureRectSnapshots(),
+          selectionBefore,
+          selectionAfter: captureSelectionSnapshot()
+        });
       } catch (error: unknown) {
         if (!(error instanceof Error) || error.message !== "Label prompt cancelled") {
           deps.notify("Unable to create label. Please try again.", 4000);
@@ -373,10 +688,7 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     },
 
     removeObject(object: FabricRectLike): void {
-      if (object._labelText) {
-        canvas.remove(object._labelText);
-      }
-      canvas.remove(object);
+      deleteRects([object]);
     },
 
     sortObjectsByLabel(order = "asc"): void {
@@ -401,6 +713,8 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     },
 
     async editLabel(rect: FabricRectLike): Promise<void> {
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
       try {
         const finalLabel = await deps.promptForLabelClass(rect.labelClass ?? "0");
         rect.set("labelClass", finalLabel);
@@ -417,10 +731,19 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
         canvas.selection = true;
         canvas.defaultCursor = "default";
         canvas.renderAll();
+
+        pushHistoryIfRectsChanged({
+          before,
+          after: captureRectSnapshots(),
+          selectionBefore,
+          selectionAfter: captureSelectionSnapshot()
+        });
       }
     },
 
     async editMultipleLabels(selection: FabricActiveSelectionLike): Promise<void> {
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
       try {
         const finalLabel = await deps.promptForLabelClass("0");
 
@@ -440,6 +763,13 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
       } finally {
         canvas.discardActiveObject();
         this.renderAll();
+
+        pushHistoryIfRectsChanged({
+          before,
+          after: captureRectSnapshots(),
+          selectionBefore,
+          selectionAfter: captureSelectionSnapshot()
+        });
       }
     },
 
@@ -693,7 +1023,207 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     },
 
     paste(): void {
-      clipboard.paste();
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      const pasted = clipboard.paste();
+      if (pasted.length === 0) {
+        return;
+      }
+
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+    },
+
+    deleteSelection(): void {
+      const activeObjects = canvas.getActiveObjects();
+      const rectsToDelete: FabricRectLike[] = [];
+
+      activeObjects.forEach((object) => {
+        if (isRectObject(object)) {
+          rectsToDelete.push(object);
+          return;
+        }
+
+        if (isActiveSelectionObject(object)) {
+          object.getObjects().forEach((child) => {
+            if (isRectObject(child)) {
+              rectsToDelete.push(child);
+            }
+          });
+        }
+      });
+
+      deleteRects(rectsToDelete);
+    },
+
+    alignSelectionLeft(): void {
+      applyEdgeAlignment("left");
+    },
+
+    alignSelectionRight(): void {
+      applyEdgeAlignment("right");
+    },
+
+    alignSelectionTop(): void {
+      applyEdgeAlignment("top");
+    },
+
+    alignSelectionBottom(): void {
+      applyEdgeAlignment("bottom");
+    },
+
+    distributeSelectionHorizontally(): void {
+      const activeObject = canvas.getActiveObject();
+      const selectedRects = extractVisibleRectSelection(activeObject);
+      if (selectedRects.length < 3) {
+        return;
+      }
+
+      const selectionBefore = captureSelectionSnapshot();
+      const before = captureRectSnapshots();
+
+      const plan = planEqualEdgeGapDistribution(selectedRects, "horizontal");
+      if (plan.length === 0) {
+        return;
+      }
+
+      const epsilon = 1e-8;
+      let movedCount = 0;
+
+      plan.forEach(({ rect, left, top }) => {
+        const bounds = getRectBounds(rect);
+        const deltaX = left - bounds.left;
+        const deltaY = top - bounds.top;
+        const hasMoved = Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon;
+        if (!hasMoved) {
+          return;
+        }
+
+        rect.set({ left: rect.left + deltaX, top: rect.top + deltaY });
+        rect.setCoords();
+        rect.originalYolo = null;
+        this.updateLabelText(rect);
+        movedCount += 1;
+      });
+
+      if (movedCount === 0) {
+        return;
+      }
+
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+
+      const selectionAfter = captureSelectionSnapshot();
+      const after = captureRectSnapshots();
+
+      pushHistoryIfRectsChanged({
+        before,
+        after,
+        selectionBefore,
+        selectionAfter
+      });
+    },
+
+    distributeSelectionVertically(): void {
+      const activeObject = canvas.getActiveObject();
+      const selectedRects = extractVisibleRectSelection(activeObject);
+      if (selectedRects.length < 3) {
+        return;
+      }
+
+      const selectionBefore = captureSelectionSnapshot();
+      const before = captureRectSnapshots();
+
+      const plan = planEqualEdgeGapDistribution(selectedRects, "vertical");
+      if (plan.length === 0) {
+        return;
+      }
+
+      const epsilon = 1e-8;
+      let movedCount = 0;
+
+      plan.forEach(({ rect, left, top }) => {
+        const bounds = getRectBounds(rect);
+        const deltaX = left - bounds.left;
+        const deltaY = top - bounds.top;
+        const hasMoved = Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon;
+        if (!hasMoved) {
+          return;
+        }
+
+        rect.set({ left: rect.left + deltaX, top: rect.top + deltaY });
+        rect.setCoords();
+        rect.originalYolo = null;
+        this.updateLabelText(rect);
+        movedCount += 1;
+      });
+
+      if (movedCount === 0) {
+        return;
+      }
+
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+
+      const selectionAfter = captureSelectionSnapshot();
+      const after = captureRectSnapshots();
+
+      pushHistoryIfRectsChanged({
+        before,
+        after,
+        selectionBefore,
+        selectionAfter
+      });
+    },
+
+    captureHistoryBaseline(): CanvasHistoryGestureBaseline {
+      return {
+        before: captureRectSnapshots(),
+        selectionBefore: captureSelectionSnapshot()
+      };
+    },
+
+    commitHistoryFromBaseline(baseline: CanvasHistoryGestureBaseline): void {
+      pushHistoryIfRectsChanged({
+        before: baseline.before,
+        after: captureRectSnapshots(),
+        selectionBefore: baseline.selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+    },
+
+    clearHistory(): void {
+      history.reset();
+    },
+
+    undo(): void {
+      const entry = history.undo();
+      if (!entry) {
+        return;
+      }
+
+      replayHistoryEntry(entry, "undo");
+    },
+
+    redo(): void {
+      const entry = history.redo();
+      if (!entry) {
+        return;
+      }
+
+      replayHistoryEntry(entry, "redo");
+    },
+
+    canUndo(): boolean {
+      return history.canUndo();
+    },
+
+    canRedo(): boolean {
+      return history.canRedo();
     }
   };
 

@@ -20,6 +20,7 @@ export interface FabricSettable {
 
 export interface FabricObjectLike extends FabricSettable {
   type: string;
+  annotationId?: string;
   left: number;
   top: number;
   width: number;
@@ -52,6 +53,34 @@ export interface FabricObjectLike extends FabricSettable {
 
 export interface FabricRectLike extends FabricObjectLike {
   type: "rect";
+}
+
+let fallbackAnnotationIdCounter = 0;
+
+export function createAnnotationId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  fallbackAnnotationIdCounter += 1;
+  return `annotation-${fallbackAnnotationIdCounter}`;
+}
+
+export function ensureAnnotationId(rect: FabricRectLike): string {
+  const existing = rect.annotationId;
+  if (typeof existing === "string" && existing.trim().length > 0) {
+    return existing;
+  }
+
+  const annotationId = createAnnotationId();
+  rect.annotationId = annotationId;
+  return annotationId;
+}
+
+export function assignFreshAnnotationId(rect: FabricRectLike): string {
+  const annotationId = createAnnotationId();
+  rect.annotationId = annotationId;
+  return annotationId;
 }
 
 export interface FabricTextLike extends FabricObjectLike {

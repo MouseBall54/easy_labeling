@@ -29,6 +29,7 @@ describe("features/canvas/clipboard", () => {
       labelClass: "4",
       originalYolo: { x_center: "0.1", y_center: "0.2", width: "0.3", height: "0.4" }
     });
+    source.annotationId = "source-annotation-id";
     canvas.add(source);
     canvas.setActiveObject(source);
 
@@ -40,6 +41,8 @@ describe("features/canvas/clipboard", () => {
 
     const pasted = pastedRects[1];
     expect(pasted.labelClass).toBe("4");
+    expect(pasted.annotationId).toEqual(expect.any(String));
+    expect(pasted.annotationId).not.toBe(source.annotationId);
     expect(pasted.originalYolo).toBeNull();
     expect(pasted.stroke).toBe("color-4");
     expect(pasted.fill).toBe("color-433");
@@ -97,6 +100,10 @@ describe("features/canvas/clipboard", () => {
     expect(pasted[0].top).toBe(65);
     expect(pasted[1].left).toBe(105);
     expect(pasted[1].top).toBe(85);
+    expect(pasted[0].annotationId).toEqual(expect.any(String));
+    expect(pasted[1].annotationId).toEqual(expect.any(String));
+    expect(pasted[0].annotationId).not.toBe(rectA.annotationId);
+    expect(pasted[1].annotationId).not.toBe(rectB.annotationId);
     expect(pasted[0].originalYolo).toBeNull();
     expect(pasted[1].originalYolo).toBeNull();
     expect(drawLabelText).toHaveBeenCalledTimes(2);

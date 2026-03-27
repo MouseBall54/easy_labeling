@@ -13,6 +13,7 @@ import {
   type CdnRuntimeGlobals
 } from "./bootstrap/runtime.js";
 import { createUiManagerAdapter, type RuntimeUiManager } from "./bootstrap/ui-manager-adapter.js";
+import { ensureAnnotationId } from "./features/canvas/fabric-types.js";
 import { normalizeFilterClassKey } from "./ui/filter-state.js";
 
 export type { CdnRuntimeGlobals };
@@ -23,6 +24,25 @@ interface TestApi {
   getVisibleRectCount(): number;
   getVisibleClassKeys(): string[];
   getVisibleLabelRowCount(): number;
+  getRectGeometries(): Array<{
+    annotationId: string;
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    width: number;
+    height: number;
+  }>;
+  getSelectedRectIds(): string[];
+  getActiveSelectionBounds(): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null;
+  canUndo(): boolean;
+  canRedo(): boolean;
+  selectRectsByIndex(indices: number[]): void;
 }
 
 export function getCdnRuntimeGlobals(
@@ -103,6 +123,7 @@ function bootstrapBrowserRuntime(): void {
 
   const runtimeUiManager = appResult.app.uiManager as RuntimeUiManager;
   const runtimeCanvasController = appResult.app.canvasController as RuntimeCanvasController;
+  let testSelectionIds: string[] = [];
   runtimeUiManager.restoreDarkModeFromStorage();
   runtimeUiManager.setupSplitters();
 
@@ -126,6 +147,85 @@ function bootstrapBrowserRuntime(): void {
     },
     getVisibleLabelRowCount: () => {
       return runtimeUiManager.elements.labelList.querySelectorAll("li[data-index]").length;
+    },
+    getRectGeometries: () => {
+      return runtimeCanvasController.raw.getObjects("rect").map((rect) => {
+        const bounds = rect.getBoundingRect(true);
+        return {
+          annotationId: ensureAnnotationId(rect as Parameters<typeof ensureAnnotationId>[0]),
+          left: bounds.left,
+          right: bounds.left + bounds.width,
+          top: bounds.top,
+          bottom: bounds.top + bounds.height,
+          width: bounds.width,
+          height: bounds.height
+        };
+      });
+    },
+    getSelectedRectIds: () => {
+      const activeObject = runtimeCanvasController.raw.canvas.getActiveObject() as {
+        getObjects?: () => Array<{ annotationId?: unknown }>;
+        _objects?: Array<{ annotationId?: unknown }>;
+        type?: string;
+        annotationId?: unknown;
+      } | null;
+      if (!activeObject) {
+        return [...testSelectionIds];
+      }
+      if (typeof activeObject.getObjects === "function") {
+        return activeObject.getObjects().map((rect) => ensureAnnotationId(rect as Parameters<typeof ensureAnnotationId>[0]));
+      }
+      if (Array.isArray(activeObject._objects) && activeObject._objects.length > 0) {
+        return activeObject._objects.map((rect) => ensureAnnotationId(rect as Parameters<typeof ensureAnnotationId>[0]));
+      }
+      if (activeObject.type === "rect") {
+        return [ensureAnnotationId(activeObject as Parameters<typeof ensureAnnotationId>[0])];
+      }
+      return [...testSelectionIds];
+    },
+    getActiveSelectionBounds: () => {
+      const activeObject = runtimeCanvasController.raw.canvas.getActiveObject();
+      if (!activeObject || activeObject.type !== "activeSelection") {
+        return null;
+      }
+      const bounds = activeObject.getBoundingRect(true);
+      return {
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height
+      };
+    },
+    canUndo: () => runtimeCanvasController.raw.canUndo(),
+    canRedo: () => runtimeCanvasController.raw.canRedo(),
+    selectRectsByIndex: (indices: number[]) => {
+      const rects = runtimeCanvasController.raw.getObjects("rect");
+      const normalizedIndices = [...new Set(indices.filter((index) => Number.isInteger(index) && index >= 0))].sort(
+        (left, right) => left - right
+      );
+      if (normalizedIndices.length === rects.length && normalizedIndices.every((index, position) => index === position)) {
+        runtimeCanvasController.raw.selectAllLabels();
+        testSelectionIds = runtimeCanvasController.raw
+          .getObjects("rect")
+          .map((rect) => ensureAnnotationId(rect as Parameters<typeof ensureAnnotationId>[0]));
+        return;
+      }
+      const selectedRects = indices
+        .map((index) => (Number.isInteger(index) ? rects[index] : undefined))
+        .filter((rect): rect is (typeof rects)[number] => rect != null);
+      runtimeCanvasController.raw.canvas.discardActiveObject();
+      if (selectedRects.length === 0) {
+        testSelectionIds = [];
+      } else if (selectedRects.length === 1) {
+        runtimeCanvasController.raw.canvas.setActiveObject(selectedRects[0]);
+        testSelectionIds = [ensureAnnotationId(selectedRects[0] as Parameters<typeof ensureAnnotationId>[0])];
+      } else {
+        runtimeCanvasController.raw.canvas.setActiveObject(
+          new runtimeGlobals.fabric.ActiveSelection(selectedRects, { canvas: runtimeCanvasController.raw.canvas })
+        );
+        testSelectionIds = selectedRects.map((rect) => ensureAnnotationId(rect as Parameters<typeof ensureAnnotationId>[0]));
+      }
+      runtimeCanvasController.raw.renderAll();
     }
   } satisfies TestApi);
 }

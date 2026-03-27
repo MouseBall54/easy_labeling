@@ -32,6 +32,14 @@ export interface UiDomElements {
   zoomInBtn: HTMLElement;
   zoomOutBtn: HTMLElement;
   resetZoomBtn: HTMLElement;
+  undoBtn: HTMLElement;
+  redoBtn: HTMLElement;
+  alignLeftBtn: HTMLElement;
+  alignRightBtn: HTMLElement;
+  alignTopBtn: HTMLElement;
+  alignBottomBtn: HTMLElement;
+  distributeHorizontalBtn: HTMLElement;
+  distributeVerticalBtn: HTMLElement;
   canvasContainer: HTMLElement;
   zoomInput: HTMLInputElement;
   mouseCoordsDisplay: HTMLElement;
@@ -128,6 +136,14 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     zoomInBtn: requireById<HTMLElement>(documentRef, "zoomInBtn"),
     zoomOutBtn: requireById<HTMLElement>(documentRef, "zoomOutBtn"),
     resetZoomBtn: requireById<HTMLElement>(documentRef, "resetZoomBtn"),
+    undoBtn: requireById<HTMLElement>(documentRef, "undoBtn"),
+    redoBtn: requireById<HTMLElement>(documentRef, "redoBtn"),
+    alignLeftBtn: requireById<HTMLElement>(documentRef, "alignLeftBtn"),
+    alignRightBtn: requireById<HTMLElement>(documentRef, "alignRightBtn"),
+    alignTopBtn: requireById<HTMLElement>(documentRef, "alignTopBtn"),
+    alignBottomBtn: requireById<HTMLElement>(documentRef, "alignBottomBtn"),
+    distributeHorizontalBtn: requireById<HTMLElement>(documentRef, "distributeHorizontalBtn"),
+    distributeVerticalBtn: requireById<HTMLElement>(documentRef, "distributeVerticalBtn"),
     canvasContainer: requireBySelector<HTMLElement>(documentRef, ".canvas-container"),
     zoomInput: requireById<HTMLInputElement>(documentRef, "zoom-input"),
     mouseCoordsDisplay: requireById<HTMLElement>(documentRef, "mouse-coords"),

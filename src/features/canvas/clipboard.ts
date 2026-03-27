@@ -1,5 +1,5 @@
 import type { CanvasPoint } from "../../types/labels.js";
-import { isActiveSelectionObject, isRectObject, type FabricCanvasLike, type FabricObjectLike, type FabricRectLike, type FabricRuntimeLike } from "./fabric-types.js";
+import { assignFreshAnnotationId, isActiveSelectionObject, isRectObject, type FabricCanvasLike, type FabricObjectLike, type FabricRectLike, type FabricRuntimeLike } from "./fabric-types.js";
 
 export interface ClipboardDeps {
   fabric: FabricRuntimeLike;
@@ -13,11 +13,12 @@ export interface ClipboardDeps {
 
 export interface ClipboardManager {
   copy(): void;
-  paste(): void;
+  paste(): FabricRectLike[];
   hasClipboardData(): boolean;
 }
 
 function resetPastedRectStyling(rect: FabricRectLike, getColorForClass: (labelClass: string | undefined) => string): void {
+  assignFreshAnnotationId(rect);
   rect.originalYolo = null;
   const color = getColorForClass(rect.labelClass);
   rect.set({ fill: `${color}33`, stroke: color });
@@ -42,10 +43,12 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
       );
     },
 
-    paste(): void {
+    paste(): FabricRectLike[] {
       if (!clipboard) {
-        return;
+        return [];
       }
+
+      const pastedRects: FabricRectLike[] = [];
 
       clipboard.clone(
         (cloned) => {
@@ -81,6 +84,7 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
               deps.canvas.add(obj);
               deps.drawLabelText(obj);
               newObjects.push(obj);
+              pastedRects.push(obj);
             });
           } else {
             const clonedObject = deps.fabric.util.object.clone(cloned);
@@ -95,6 +99,7 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
             deps.canvas.add(clonedObject);
             deps.drawLabelText(clonedObject);
             newObjects.push(clonedObject);
+            pastedRects.push(clonedObject);
           }
 
           if (newObjects.length === 0) {
@@ -108,6 +113,8 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
         },
         ["labelClass", "originalYolo"]
       );
+
+      return pastedRects;
     },
 
     hasClipboardData(): boolean {

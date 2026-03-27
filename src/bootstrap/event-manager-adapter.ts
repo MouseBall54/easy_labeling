@@ -1,6 +1,7 @@
 import type { EventManager } from "../app/contracts.js";
 import type { AppState } from "../app/state.js";
-import { isActiveSelectionObject, isRectObject, type FabricObjectLike } from "../features/canvas/fabric-types.js";
+import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
+import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
@@ -24,12 +25,57 @@ export function createEventManagerAdapter(input: {
         });
       };
 
+      const runAsyncAndSyncToolbar = (action: () => Promise<void>): void => {
+        runAsync(() => action().then(() => {
+          syncToolbarActionState();
+        }));
+      };
+
       const syncViewControls = (): void => {
         elements.drawModeBtn.checked = input.state.view.currentMode === "draw";
         elements.editModeBtn.checked = input.state.view.currentMode === "edit";
         elements.autoSaveToggle.checked = input.state.view.isAutoSaveEnabled;
         elements.showLabelsOnCanvasToggle.checked = input.state.view.showLabelsOnCanvas;
         elements.crosshairToggle.checked = input.state.view.isCrosshairVisible;
+      };
+
+      const getActiveVisibleRectSelectionCount = (): number => {
+        const activeObject = rawCanvas.getActiveObject();
+        if (!activeObject || !isActiveSelectionObject(activeObject)) {
+          return 0;
+        }
+
+        return activeObject
+          .getObjects()
+          .filter(isRectObject)
+          .filter((object) => object.visible !== false).length;
+      };
+
+      const syncToolbarActionState = (): void => {
+        const actionableCount = getActiveVisibleRectSelectionCount();
+        const alignDisabled = actionableCount < 2;
+        const distributeDisabled = actionableCount < 3;
+        const undoDisabled = !input.canvasController.raw.canUndo();
+        const redoDisabled = !input.canvasController.raw.canRedo();
+
+        (elements.alignLeftBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.alignRightBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.alignTopBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.alignBottomBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.distributeHorizontalBtn as HTMLButtonElement).disabled = distributeDisabled;
+        (elements.distributeVerticalBtn as HTMLButtonElement).disabled = distributeDisabled;
+        (elements.undoBtn as HTMLButtonElement).disabled = undoDisabled;
+        (elements.redoBtn as HTMLButtonElement).disabled = redoDisabled;
+      };
+
+      const runUndo = (): void => {
+        input.canvasController.raw.undo();
+        syncToolbarActionState();
+      };
+
+      const runRedo = (): void => {
+        input.canvasController.raw.redo();
+        syncToolbarActionState();
       };
 
       const setMode = (mode: "draw" | "edit"): void => {
@@ -44,8 +90,41 @@ export function createEventManagerAdapter(input: {
         input.uiManager.updateLabelList();
       };
 
+      let pendingGestureBaseline: CanvasHistoryGestureBaseline | null = null;
+
+      const isRectOrSelectionTarget = (target: unknown): boolean => {
+        if (!target || typeof target !== "object") {
+          return false;
+        }
+
+        const fabricLikeObject = target as { type?: string };
+        return fabricLikeObject.type === "rect" || fabricLikeObject.type === "activeSelection";
+      };
+
+      const maybeStartGestureBaseline = (target: unknown): void => {
+        if (input.state.view.currentMode !== "edit") {
+          pendingGestureBaseline = null;
+          return;
+        }
+
+        if (!isRectOrSelectionTarget(target)) {
+          pendingGestureBaseline = null;
+          return;
+        }
+
+        pendingGestureBaseline = input.canvasController.raw.captureHistoryBaseline();
+      };
+
+      const finalizeGestureBaseline = (): void => {
+        if (!pendingGestureBaseline) {
+          return;
+        }
+        input.canvasController.raw.commitHistoryFromBaseline(pendingGestureBaseline);
+        pendingGestureBaseline = null;
+      };
+
       elements.selectImageFolderBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.selectImageFolder());
+        runAsyncAndSyncToolbar(() => input.fileSystem.selectImageFolder());
       });
 
       elements.selectLabelFolderBtn.addEventListener("click", () => {
@@ -112,17 +191,17 @@ export function createEventManagerAdapter(input: {
       });
 
       elements.prevImageBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.navigateImage(-1));
+        runAsyncAndSyncToolbar(() => input.fileSystem.navigateImage(-1));
       });
       elements.nextImageBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.navigateImage(1));
+        runAsyncAndSyncToolbar(() => input.fileSystem.navigateImage(1));
       });
 
       elements.previewPrevBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.navigateImage(-1));
+        runAsyncAndSyncToolbar(() => input.fileSystem.navigateImage(-1));
       });
       elements.previewNextBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.navigateImage(1));
+        runAsyncAndSyncToolbar(() => input.fileSystem.navigateImage(1));
       });
 
       elements.imageSearchInput.addEventListener("input", renderLists);
@@ -175,6 +254,37 @@ export function createEventManagerAdapter(input: {
       });
       elements.zoomInput.addEventListener("change", () => {
         input.canvasController.raw.setZoomPercentage(elements.zoomInput.value);
+      });
+
+      elements.alignLeftBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionLeft();
+        syncToolbarActionState();
+      });
+      elements.alignRightBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionRight();
+        syncToolbarActionState();
+      });
+      elements.alignTopBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionTop();
+        syncToolbarActionState();
+      });
+      elements.alignBottomBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionBottom();
+        syncToolbarActionState();
+      });
+      elements.distributeHorizontalBtn.addEventListener("click", () => {
+        input.canvasController.raw.distributeSelectionHorizontally();
+        syncToolbarActionState();
+      });
+      elements.distributeVerticalBtn.addEventListener("click", () => {
+        input.canvasController.raw.distributeSelectionVertically();
+        syncToolbarActionState();
+      });
+      elements.undoBtn.addEventListener("click", () => {
+        runUndo();
+      });
+      elements.redoBtn.addEventListener("click", () => {
+        runRedo();
       });
 
       elements.previewBarHeader.addEventListener("click", () => {
@@ -245,6 +355,8 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
+        maybeStartGestureBaseline(event.target ?? null);
+
         input.canvasController.raw.startDrawing(pointer);
       });
 
@@ -285,6 +397,7 @@ export function createEventManagerAdapter(input: {
         }
         runAsync(() => input.canvasController.raw.finishDrawing().then(() => {
           input.uiManager.updateLabelList();
+          syncToolbarActionState();
         }));
       });
 
@@ -311,22 +424,29 @@ export function createEventManagerAdapter(input: {
       });
 
       rawCanvas.on?.("object:modified", () => {
+        finalizeGestureBaseline();
         input.uiManager.updateLabelList();
+        syncToolbarActionState();
       });
       rawCanvas.on?.("object:scaled", () => {
+        finalizeGestureBaseline();
         input.uiManager.updateLabelList();
+        syncToolbarActionState();
       });
       rawCanvas.on?.("selection:created", () => {
         input.canvasController.raw.highlightSelection();
         input.uiManager.updateLabelList();
+        syncToolbarActionState();
       });
       rawCanvas.on?.("selection:updated", () => {
         input.canvasController.raw.highlightSelection();
         input.uiManager.updateLabelList();
+        syncToolbarActionState();
       });
       rawCanvas.on?.("selection:cleared", () => {
         input.canvasController.raw.highlightSelection();
         input.uiManager.updateLabelList();
+        syncToolbarActionState();
       });
 
       rawCanvas.upperCanvasEl?.addEventListener("contextmenu", (event) => {
@@ -346,27 +466,27 @@ export function createEventManagerAdapter(input: {
 
           elements.ctxEditLabel.onclick = () => {
             if (rectTarget) {
-              runAsync(() => input.canvasController.raw.editLabel(rectTarget));
+              runAsync(() => input.canvasController.raw.editLabel(rectTarget).then(() => {
+                syncToolbarActionState();
+              }));
             }
             if (selectionTarget) {
-              runAsync(() => input.canvasController.raw.editMultipleLabels(selectionTarget));
+              runAsync(() => input.canvasController.raw.editMultipleLabels(selectionTarget).then(() => {
+                syncToolbarActionState();
+              }));
             }
             cleanup();
           };
           elements.ctxDeleteLabel.onclick = () => {
             if (rectTarget) {
-              input.canvasController.raw.removeObject(rectTarget);
+              rawCanvas.setActiveObject(rectTarget);
+              input.canvasController.raw.deleteSelection();
             }
             if (selectionTarget) {
-              selectionTarget.getObjects().forEach((object: FabricObjectLike) => {
-                if (isRectObject(object)) {
-                  input.canvasController.raw.removeObject(object);
-                }
-              });
-              rawCanvas.discardActiveObject();
+              rawCanvas.setActiveObject(selectionTarget);
+              input.canvasController.raw.deleteSelection();
             }
-            input.uiManager.updateLabelList();
-            input.canvasController.raw.renderAll();
+            syncToolbarActionState();
             cleanup();
           };
 
@@ -378,6 +498,11 @@ export function createEventManagerAdapter(input: {
       });
 
       syncViewControls();
+      syncToolbarActionState();
+
+      input.windowRef.addEventListener("easy-labeling:history-reset", () => {
+        syncToolbarActionState();
+      });
 
       input.windowRef.addEventListener("keydown", (event) => {
         if (elements.classFileViewerModal._element?.classList.contains("show")) {
@@ -392,15 +517,69 @@ export function createEventManagerAdapter(input: {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
           event.preventDefault();
           input.canvasController.raw.selectAllLabels();
+          syncToolbarActionState();
           return;
         }
 
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          if (event.shiftKey) {
+            runRedo();
+            return;
+          }
+
+          runUndo();
+          return;
+        }
+
+        if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "y") {
+          event.preventDefault();
+          runRedo();
+          return;
+        }
+
+        if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+          const key = event.key.toLowerCase();
+          switch (key) {
+            case "l":
+              event.preventDefault();
+              input.canvasController.raw.alignSelectionLeft();
+              syncToolbarActionState();
+              return;
+            case "r":
+              event.preventDefault();
+              input.canvasController.raw.alignSelectionRight();
+              syncToolbarActionState();
+              return;
+            case "t":
+              event.preventDefault();
+              input.canvasController.raw.alignSelectionTop();
+              syncToolbarActionState();
+              return;
+            case "d":
+              event.preventDefault();
+              input.canvasController.raw.alignSelectionBottom();
+              syncToolbarActionState();
+              return;
+            case "h":
+              event.preventDefault();
+              input.canvasController.raw.distributeSelectionHorizontally();
+              syncToolbarActionState();
+              return;
+            case "v":
+              event.preventDefault();
+              input.canvasController.raw.distributeSelectionVertically();
+              syncToolbarActionState();
+              return;
+          }
+        }
+
         if (event.key === "a" || event.key === "A") {
-          runAsync(() => input.fileSystem.navigateImage(-1));
+          runAsyncAndSyncToolbar(() => input.fileSystem.navigateImage(-1));
           return;
         }
         if (event.key === "d" || event.key === "D") {
-          runAsync(() => input.fileSystem.navigateImage(1));
+          runAsyncAndSyncToolbar(() => input.fileSystem.navigateImage(1));
           return;
         }
         if ((event.ctrlKey || event.metaKey) && (event.key === "s" || event.key === "S")) {
@@ -423,24 +602,30 @@ export function createEventManagerAdapter(input: {
           event.preventDefault();
           input.canvasController.raw.paste();
           input.uiManager.updateLabelList();
+          syncToolbarActionState();
           return;
         }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
           event.preventDefault();
           const activeObject = rawCanvas.getActiveObject();
           if (activeObject && isRectObject(activeObject)) {
-            runAsync(() => input.canvasController.raw.editLabel(activeObject));
+            runAsync(() => input.canvasController.raw.editLabel(activeObject).then(() => {
+              syncToolbarActionState();
+            }));
             return;
           }
           if (activeObject && isActiveSelectionObject(activeObject)) {
-            runAsync(() => input.canvasController.raw.editMultipleLabels(activeObject));
+            runAsync(() => input.canvasController.raw.editMultipleLabels(activeObject).then(() => {
+              syncToolbarActionState();
+            }));
             return;
           }
         }
 
         const activeObject = rawCanvas.getActiveObject();
-        if (activeObject && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        if (activeObject && input.state.view.currentMode === "edit" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
           event.preventDefault();
+          const baseline = input.canvasController.raw.captureHistoryBaseline();
           const step = event.shiftKey ? 10 : 1;
           switch (event.key) {
             case "ArrowUp":
@@ -470,32 +655,22 @@ export function createEventManagerAdapter(input: {
           }
           input.canvasController.raw.renderAll();
           input.uiManager.updateLabelList();
+          input.canvasController.raw.commitHistoryFromBaseline(baseline);
+          syncToolbarActionState();
           return;
         }
 
         if (event.key === "Delete" || event.key === "Backspace") {
           event.preventDefault();
-          const activeObjects = rawCanvas.getActiveObjects();
-          activeObjects.forEach((object) => {
-            if (isRectObject(object)) {
-              input.canvasController.raw.removeObject(object);
-            } else if (isActiveSelectionObject(object)) {
-              object.getObjects().forEach((child) => {
-                if (isRectObject(child)) {
-                  input.canvasController.raw.removeObject(child);
-                }
-              });
-            }
-          });
-          rawCanvas.discardActiveObject();
-          input.canvasController.raw.renderAll();
-          input.uiManager.updateLabelList();
+          input.canvasController.raw.deleteSelection();
+          syncToolbarActionState();
           return;
         }
 
         if (event.key === "Escape") {
           rawCanvas.discardActiveObject();
           input.canvasController.raw.renderAll();
+          syncToolbarActionState();
         }
       });
     }

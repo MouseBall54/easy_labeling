@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitialAppState } from "../../../src/app/state.js";
 import { createEventManagerAdapter } from "../../../src/bootstrap/event-manager-adapter.js";
 import { createRect } from "../features/canvas/test-fakes.js";
+import type { CanvasHistoryGestureBaseline } from "../../../src/features/canvas/history.js";
 
 class FakeClassList {
   private readonly classes = new Set<string>();
@@ -22,6 +23,7 @@ class FakeHtmlElement {
   public readonly listeners = new Map<string, Array<(event: unknown) => void>>();
   public readonly classList = new FakeClassList();
   public checked = false;
+  public disabled = false;
   public value = "";
   public textContent = "";
   public style = { display: "" };
@@ -96,6 +98,14 @@ function createElements() {
     zoomInBtn: new FakeHtmlElement(),
     zoomOutBtn: new FakeHtmlElement(),
     resetZoomBtn: new FakeHtmlElement(),
+    undoBtn: new FakeHtmlElement(),
+    redoBtn: new FakeHtmlElement(),
+    alignLeftBtn: new FakeHtmlElement(),
+    alignRightBtn: new FakeHtmlElement(),
+    alignTopBtn: new FakeHtmlElement(),
+    alignBottomBtn: new FakeHtmlElement(),
+    distributeHorizontalBtn: new FakeHtmlElement(),
+    distributeVerticalBtn: new FakeHtmlElement(),
     canvasContainer: new FakeHtmlElement(),
     zoomInput: new FakeInputElement(),
     mouseCoordsDisplay: new FakeHtmlElement(),
@@ -169,6 +179,14 @@ function createRawCanvas() {
 }
 
 function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
+  const baseline: CanvasHistoryGestureBaseline = {
+    before: [],
+    selectionBefore: {
+      annotationIds: [],
+      primaryAnnotationId: null
+    }
+  };
+
   return {
     canvas: rawCanvas,
     sortObjectsByLabel: vi.fn(),
@@ -186,11 +204,45 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     updateLabelText: vi.fn(),
     copy: vi.fn(),
     paste: vi.fn(),
+    alignSelectionLeft: vi.fn(),
+    alignSelectionRight: vi.fn(),
+    alignSelectionTop: vi.fn(),
+    alignSelectionBottom: vi.fn(),
+    distributeSelectionHorizontally: vi.fn(),
+    distributeSelectionVertically: vi.fn(),
     selectAllLabels: vi.fn(),
     editLabel: vi.fn(async () => {}),
     editMultipleLabels: vi.fn(async () => {}),
     removeObject: vi.fn(),
+    deleteSelection: vi.fn(),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    canUndo: vi.fn(() => false),
+    canRedo: vi.fn(() => false),
+    captureHistoryBaseline: vi.fn(() => baseline),
+    commitHistoryFromBaseline: vi.fn(),
+    clearHistory: vi.fn(),
     renderAll: rawCanvas.renderAll
+  };
+}
+
+function createActiveSelection(objects: unknown[]) {
+  return {
+    type: "activeSelection",
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    set: vi.fn(),
+    setCoords: vi.fn(),
+    setControlVisible: vi.fn(),
+    getCenterPoint: vi.fn(() => ({ x: 0, y: 0 })),
+    getScaledWidth: vi.fn(() => 0),
+    getScaledHeight: vi.fn(() => 0),
+    getBoundingRect: vi.fn(() => ({ left: 0, top: 0, width: 0, height: 0 })),
+    clone: vi.fn(),
+    getObjects: vi.fn(() => objects),
+    forEachObject: vi.fn()
   };
 }
 
@@ -419,5 +471,557 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawCanvas.selection).toBe(true);
     expect(rawCanvas.isDragging).toBe(false);
     expect(rawController.startDrawing).not.toHaveBeenCalled();
+    expect(rawController.captureHistoryBaseline).not.toHaveBeenCalled();
+    expect(rawController.commitHistoryFromBaseline).not.toHaveBeenCalled();
+  });
+
+  it("dispatches six arrange toolbar buttons to matching controller methods", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    elements.alignLeftBtn.dispatch("click", {});
+    elements.alignRightBtn.dispatch("click", {});
+    elements.alignTopBtn.dispatch("click", {});
+    elements.alignBottomBtn.dispatch("click", {});
+    elements.distributeHorizontalBtn.dispatch("click", {});
+    elements.distributeVerticalBtn.dispatch("click", {});
+
+    expect(rawController.alignSelectionLeft).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionRight).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionTop).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionBottom).toHaveBeenCalledTimes(1);
+    expect(rawController.distributeSelectionHorizontally).toHaveBeenCalledTimes(1);
+    expect(rawController.distributeSelectionVertically).toHaveBeenCalledTimes(1);
+  });
+
+  it("enables align at 2+ visible selected rects and distribute at 3+", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const selectionCreatedHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "selection:created")?.[1];
+    expect(selectionCreatedHandler).toBeTypeOf("function");
+
+    expect(elements.alignLeftBtn.disabled).toBe(true);
+    expect(elements.distributeHorizontalBtn.disabled).toBe(true);
+
+    rawCanvas.getActiveObject.mockReturnValue(createRect({ left: 1, top: 1, width: 2, height: 2 }));
+    selectionCreatedHandler?.({ e: {} });
+    expect(elements.alignLeftBtn.disabled).toBe(true);
+    expect(elements.distributeHorizontalBtn.disabled).toBe(true);
+
+    const rectA = createRect({ left: 1, top: 1, width: 2, height: 2 });
+    const rectB = createRect({ left: 3, top: 1, width: 2, height: 2 });
+    rawCanvas.getActiveObject.mockReturnValue(createActiveSelection([rectA, rectB]));
+    selectionCreatedHandler?.({ e: {} });
+    expect(elements.alignLeftBtn.disabled).toBe(false);
+    expect(elements.alignRightBtn.disabled).toBe(false);
+    expect(elements.alignTopBtn.disabled).toBe(false);
+    expect(elements.alignBottomBtn.disabled).toBe(false);
+    expect(elements.distributeHorizontalBtn.disabled).toBe(true);
+    expect(elements.distributeVerticalBtn.disabled).toBe(true);
+
+    const rectC = createRect({ left: 5, top: 1, width: 2, height: 2 });
+    rawCanvas.getActiveObject.mockReturnValue(createActiveSelection([rectA, rectB, rectC]));
+    selectionCreatedHandler?.({ e: {} });
+    expect(elements.distributeHorizontalBtn.disabled).toBe(false);
+    expect(elements.distributeVerticalBtn.disabled).toBe(false);
+
+    rectC.visible = false;
+    rawCanvas.getActiveObject.mockReturnValue(createActiveSelection([rectA, rectB, rectC]));
+    selectionCreatedHandler?.({ e: {} });
+    expect(elements.alignLeftBtn.disabled).toBe(false);
+    expect(elements.distributeHorizontalBtn.disabled).toBe(true);
+  });
+
+  it("routes Alt+Shift arrange shortcuts and suppresses them in editable targets", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const dispatchShortcut = (key: string): ReturnType<typeof vi.fn> => {
+      const preventDefault = vi.fn();
+      windowRef.keydownListener?.({
+        altKey: true,
+        shiftKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        key,
+        target: new FakeHtmlElement(),
+        preventDefault
+      });
+      return preventDefault;
+    };
+
+    expect(dispatchShortcut("L")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("R")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("T")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("D")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("H")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("V")).toHaveBeenCalledTimes(1);
+
+    expect(rawController.alignSelectionLeft).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionRight).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionTop).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionBottom).toHaveBeenCalledTimes(1);
+    expect(rawController.distributeSelectionHorizontally).toHaveBeenCalledTimes(1);
+    expect(rawController.distributeSelectionVertically).toHaveBeenCalledTimes(1);
+
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      altKey: true,
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      key: "L",
+      target: new FakeInputElement(),
+      preventDefault
+    });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(rawController.alignSelectionLeft).toHaveBeenCalledTimes(1);
+  });
+
+  it("wires undo/redo buttons and keyboard shortcuts with editable-focus guard", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+
+    let canUndo = true;
+    let canRedo = false;
+    rawController.canUndo.mockImplementation(() => canUndo);
+    rawController.canRedo.mockImplementation(() => canRedo);
+    rawController.undo.mockImplementation(() => {
+      canUndo = false;
+      canRedo = true;
+    });
+    rawController.redo.mockImplementation(() => {
+      canUndo = true;
+      canRedo = false;
+    });
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    expect(elements.undoBtn.disabled).toBe(false);
+    expect(elements.redoBtn.disabled).toBe(true);
+
+    elements.undoBtn.dispatch("click", {});
+    expect(rawController.undo).toHaveBeenCalledTimes(1);
+    expect(elements.undoBtn.disabled).toBe(true);
+    expect(elements.redoBtn.disabled).toBe(false);
+
+    elements.redoBtn.dispatch("click", {});
+    expect(rawController.redo).toHaveBeenCalledTimes(1);
+    expect(elements.undoBtn.disabled).toBe(false);
+    expect(elements.redoBtn.disabled).toBe(true);
+
+    const ctrlZPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "z",
+      target: new FakeHtmlElement(),
+      preventDefault: ctrlZPrevent
+    });
+    expect(ctrlZPrevent).toHaveBeenCalledTimes(1);
+    expect(rawController.undo).toHaveBeenCalledTimes(2);
+
+    const ctrlShiftZPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      key: "z",
+      target: new FakeHtmlElement(),
+      preventDefault: ctrlShiftZPrevent
+    });
+    expect(ctrlShiftZPrevent).toHaveBeenCalledTimes(1);
+    expect(rawController.redo).toHaveBeenCalledTimes(2);
+
+    const ctrlYPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "y",
+      target: new FakeHtmlElement(),
+      preventDefault: ctrlYPrevent
+    });
+    expect(ctrlYPrevent).toHaveBeenCalledTimes(1);
+    expect(rawController.redo).toHaveBeenCalledTimes(3);
+
+    const metaYPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      altKey: false,
+      key: "y",
+      target: new FakeHtmlElement(),
+      preventDefault: metaYPrevent
+    });
+    expect(metaYPrevent).not.toHaveBeenCalled();
+    expect(rawController.redo).toHaveBeenCalledTimes(3);
+
+    const editablePrevent = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "z",
+      target: new FakeInputElement(),
+      preventDefault: editablePrevent
+    });
+    expect(editablePrevent).not.toHaveBeenCalled();
+    expect(rawController.undo).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-syncs undo/redo disabled state after async image load/navigation operations", async () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+
+    let canUndo = true;
+    rawController.canUndo.mockImplementation(() => canUndo);
+    rawController.canRedo.mockImplementation(() => false);
+
+    const selectImageFolder = vi.fn(async () => {
+      canUndo = false;
+    });
+    const navigateImage = vi.fn(async () => {
+      canUndo = false;
+    });
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder,
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    expect(elements.undoBtn.disabled).toBe(false);
+
+    elements.selectImageFolderBtn.dispatch("click", {});
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(selectImageFolder).toHaveBeenCalledTimes(1);
+    expect(elements.undoBtn.disabled).toBe(true);
+
+    canUndo = true;
+    elements.nextImageBtn.dispatch("click", {});
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(navigateImage).toHaveBeenCalledTimes(1);
+    expect(elements.undoBtn.disabled).toBe(true);
+  });
+
+  it("captures one edit-gesture baseline and finalizes exactly once across modified/scaled callbacks", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 100, y: 200 });
+    const rawController = createRawController(rawCanvas);
+    const targetRect = createRect({ left: 1, top: 2, width: 3, height: 4, labelClass: "7" });
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    const objectModifiedHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "object:modified")?.[1];
+    const objectScaledHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "object:scaled")?.[1];
+
+    mouseDownHandler?.({
+      e: { altKey: false, ctrlKey: false, clientX: 10, clientY: 20 },
+      target: targetRect
+    });
+    objectModifiedHandler?.({ e: {} });
+    objectScaledHandler?.({ e: {} });
+
+    expect(rawController.captureHistoryBaseline).toHaveBeenCalledTimes(1);
+    expect(rawController.commitHistoryFromBaseline).toHaveBeenCalledTimes(1);
+    expect(rawController.startDrawing).toHaveBeenCalledTimes(1);
+  });
+
+  it("records one nudge history step per arrow-key keydown", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const rectA = createRect({ left: 10, top: 10, width: 10, height: 10, labelClass: "1" });
+    const rectB = createRect({ left: 30, top: 30, width: 10, height: 10, labelClass: "2" });
+    const activeSelection = createActiveSelection([rectA, rectB]);
+    rawCanvas.getActiveObject.mockReturnValue(activeSelection);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "ArrowRight",
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(rawController.captureHistoryBaseline).toHaveBeenCalledTimes(1);
+    expect(rawController.commitHistoryFromBaseline).toHaveBeenCalledTimes(1);
   });
 });

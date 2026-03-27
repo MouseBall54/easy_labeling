@@ -1,5 +1,6 @@
-import { isActiveSelectionObject, isRectObject } from "./fabric-types.js";
+import { assignFreshAnnotationId, isActiveSelectionObject, isRectObject } from "./fabric-types.js";
 function resetPastedRectStyling(rect, getColorForClass) {
+    assignFreshAnnotationId(rect);
     rect.originalYolo = null;
     const color = getColorForClass(rect.labelClass);
     rect.set({ fill: `${color}33`, stroke: color });
@@ -19,8 +20,9 @@ export function createClipboardManager(deps) {
         },
         paste() {
             if (!clipboard) {
-                return;
+                return [];
             }
+            const pastedRects = [];
             clipboard.clone((cloned) => {
                 deps.canvas.discardActiveObject();
                 const imageSize = deps.getCurrentImageSize();
@@ -46,6 +48,7 @@ export function createClipboardManager(deps) {
                         deps.canvas.add(obj);
                         deps.drawLabelText(obj);
                         newObjects.push(obj);
+                        pastedRects.push(obj);
                     });
                 }
                 else {
@@ -60,6 +63,7 @@ export function createClipboardManager(deps) {
                     deps.canvas.add(clonedObject);
                     deps.drawLabelText(clonedObject);
                     newObjects.push(clonedObject);
+                    pastedRects.push(clonedObject);
                 }
                 if (newObjects.length === 0) {
                     return;
@@ -69,6 +73,7 @@ export function createClipboardManager(deps) {
                 deps.canvas.requestRenderAll();
                 deps.updateLabelList();
             }, ["labelClass", "originalYolo"]);
+            return pastedRects;
         },
         hasClipboardData() {
             return clipboard !== null;

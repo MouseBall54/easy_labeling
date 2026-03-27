@@ -174,6 +174,7 @@ interface FileSystemWindowRuntime {
   clearTimeout: typeof window.clearTimeout;
   confirm: (message?: string) => boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
+  dispatchEvent?: (event: Event) => boolean;
 }
 
 export function createFileSystemAdapter(input: {
@@ -221,6 +222,7 @@ export function createFileSystemAdapter(input: {
       return;
     }
 
+    canvasController.raw.clearHistory();
     canvasController.raw.clear();
     canvasController.raw.setBackgroundImage(currentImage);
     if (pendingLoadedYolo && pendingLoadedYolo.trim()) {
@@ -233,6 +235,7 @@ export function createFileSystemAdapter(input: {
     uiManager.renderImageList();
     uiManager.renderPreviewList();
     uiManager.updateLabelList();
+    input.windowRef.dispatchEvent?.(new CustomEvent("easy-labeling:history-reset"));
   };
 
   const syncAfterImageLoad = async (fileHandle: FileHandleLike): Promise<void> => {
