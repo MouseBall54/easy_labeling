@@ -54,7 +54,6 @@ export interface UiDomElements {
   leftSplitter: HTMLElement;
   rightSplitter: HTMLElement;
   darkModeToggle: HTMLInputElement;
-  downloadClassesBtn: HTMLElement;
   sortLabelsAscBtn: HTMLElement;
   sortLabelsDescBtn: HTMLElement;
   viewClassFileBtn: HTMLElement;
@@ -158,7 +157,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     leftSplitter: requireById<HTMLElement>(documentRef, "left-splitter"),
     rightSplitter: requireById<HTMLElement>(documentRef, "right-splitter"),
     darkModeToggle: requireById<HTMLInputElement>(documentRef, "darkModeToggle"),
-    downloadClassesBtn: requireById<HTMLElement>(documentRef, "downloadClassesBtn"),
     sortLabelsAscBtn: requireById<HTMLElement>(documentRef, "sortLabelsAscBtn"),
     sortLabelsDescBtn: requireById<HTMLElement>(documentRef, "sortLabelsDescBtn"),
     viewClassFileBtn: requireById<HTMLElement>(documentRef, "viewClassFileBtn"),

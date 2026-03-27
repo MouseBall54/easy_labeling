@@ -963,6 +963,87 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.startDrawing).toHaveBeenCalledTimes(1);
   });
 
+  it("clamps mouse-wheel zoom change to at most 50% per event", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const updateZoomDisplay = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        updateZoomDisplay
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const wheelHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:wheel")?.[1];
+    expect(wheelHandler).toBeTypeOf("function");
+
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    rawCanvas.getZoom.mockReturnValue(1);
+    wheelHandler?.({
+      e: {
+        deltaY: -5000,
+        offsetX: 10,
+        offsetY: 20,
+        preventDefault,
+        stopPropagation
+      }
+    });
+
+    expect(rawCanvas.zoomToPoint).toHaveBeenCalledWith({ x: 10, y: 20 }, 1.5);
+
+    rawCanvas.getZoom.mockReturnValue(1);
+    wheelHandler?.({
+      e: {
+        deltaY: 5000,
+        offsetX: 30,
+        offsetY: 40,
+        preventDefault,
+        stopPropagation
+      }
+    });
+
+    expect(rawCanvas.zoomToPoint).toHaveBeenLastCalledWith({ x: 30, y: 40 }, 0.5);
+    expect(preventDefault).toHaveBeenCalledTimes(2);
+    expect(stopPropagation).toHaveBeenCalledTimes(2);
+    expect(updateZoomDisplay).toHaveBeenCalledTimes(2);
+  });
+
   it("records one nudge history step per arrow-key keydown", () => {
     const state = createInitialAppState();
     const elements = createElements();

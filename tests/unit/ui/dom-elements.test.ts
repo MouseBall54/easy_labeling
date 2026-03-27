@@ -51,7 +51,6 @@ const REQUIRED_IDS = [
   "left-splitter",
   "right-splitter",
   "darkModeToggle",
-  "downloadClassesBtn",
   "sortLabelsAscBtn",
   "sortLabelsDescBtn",
   "viewClassFileBtn",

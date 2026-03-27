@@ -60,7 +60,6 @@ export function getDOMElements(documentRef, bootstrapRef) {
         leftSplitter: requireById(documentRef, "left-splitter"),
         rightSplitter: requireById(documentRef, "right-splitter"),
         darkModeToggle: requireById(documentRef, "darkModeToggle"),
-        downloadClassesBtn: requireById(documentRef, "downloadClassesBtn"),
         sortLabelsAscBtn: requireById(documentRef, "sortLabelsAscBtn"),
         sortLabelsDescBtn: requireById(documentRef, "sortLabelsDescBtn"),
         viewClassFileBtn: requireById(documentRef, "viewClassFileBtn"),

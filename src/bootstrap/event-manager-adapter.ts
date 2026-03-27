@@ -139,10 +139,6 @@ export function createEventManagerAdapter(input: {
         runAsync(() => input.fileSystem.saveLabels(false));
       });
 
-      elements.downloadClassesBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.downloadClassTemplate());
-      });
-
       elements.sortLabelsAscBtn.addEventListener("click", () => {
         input.canvasController.raw.sortObjectsByLabel("asc");
         input.uiManager.updateLabelList();
@@ -404,7 +400,9 @@ export function createEventManagerAdapter(input: {
       rawCanvas.on?.("mouse:wheel", (event) => {
         const wheelEvent = event.e as WheelEvent;
         let zoom = rawCanvas.getZoom();
-        zoom *= 0.999 ** wheelEvent.deltaY;
+        const wheelFactor = 0.999 ** wheelEvent.deltaY;
+        const clampedWheelFactor = Math.min(1.5, Math.max(0.5, wheelFactor));
+        zoom *= clampedWheelFactor;
         if (zoom > 20) {
           zoom = 20;
         }

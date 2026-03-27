@@ -215,6 +215,39 @@ body {
     flex-shrink: 0;
 }
 
+.toolbar-left-cluster {
+    gap: 0.75rem;
+    min-width: 18rem;
+}
+
+.toolbar-left-cluster .app-brand {
+    margin-right: 0;
+}
+
+.history-controls .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toolbar-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+    display: block;
+}
+
+.arrange-panel-section .arrange-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.arrange-panel-section .arrange-controls-grid .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .main-container {
     flex-grow: 1;
     display: flex;
