@@ -248,6 +248,44 @@ export function createFileSystemAdapter(input: {
     applyCurrentImageToCanvas();
   };
 
+  const refreshClassFileStateFromAvailableFolder = async (): Promise<void> => {
+    const classFolder = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
+    const previousSelectionName = input.state.session.selectedClassFile?.name ?? null;
+
+    if (!classFolder) {
+      input.state.session.classFiles = [];
+      input.state.session.selectedClassFile = null;
+      input.state.session.classNames = new Map<string, string>();
+      if (connectedDeps) {
+        const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+        uiManager.renderClassFileSelect();
+        uiManager.updateLabelList();
+      }
+      return;
+    }
+
+    const files = (await listFileHandles(classFolder)).filter((file) => /\.(yaml|yml)$/i.test(file.name)) as FileHandle[];
+    input.state.session.classFiles = files;
+
+    const selectedFile =
+      files.find((file) => file.name === previousSelectionName) ??
+      files[0] ??
+      null;
+
+    if (selectedFile) {
+      await loadClassNamesIntoState(selectedFile, input.state);
+    } else {
+      input.state.session.selectedClassFile = null;
+      input.state.session.classNames = new Map<string, string>();
+    }
+
+    if (connectedDeps) {
+      const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+      uiManager.renderClassFileSelect();
+      uiManager.updateLabelList();
+    }
+  };
+
   const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
     decodeImage: async ({ fileHandle, tiffBuffer }) => loadDecodedImage(fileHandle as FileHandle, tiffBuffer),
     readCurrentLabelsAsYolo: () => {
@@ -323,6 +361,8 @@ export function createFileSystemAdapter(input: {
               applyCurrentImageToCanvas();
             }
 
+            await refreshClassFileStateFromAvailableFolder();
+
             if (!uiManager) {
               return;
             }
@@ -345,6 +385,7 @@ export function createFileSystemAdapter(input: {
           }
 
           input.state.session.labelFolderHandle = await picker();
+          await refreshClassFileStateFromAvailableFolder();
           if (connectedDeps) {
             const uiManager = connectedDeps.uiManager as RuntimeUiManager;
             uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
@@ -361,11 +402,7 @@ export function createFileSystemAdapter(input: {
 
           const folderHandle = await picker();
           input.state.session.classInfoFolderHandle = folderHandle;
-          const files = await listFileHandles(folderHandle as unknown as DirectoryHandleLike);
-          input.state.session.classFiles = files.filter((file) => /\.(yaml|yml)$/i.test(file.name)) as FileHandle[];
-          if (connectedDeps) {
-            (connectedDeps.uiManager as RuntimeUiManager).renderClassFileSelect();
-          }
+          await refreshClassFileStateFromAvailableFolder();
         });
       },
 
@@ -425,7 +462,20 @@ export function createFileSystemAdapter(input: {
       },
 
       async showClassFileContent(): Promise<void> {
-        if (!input.state.session.selectedClassFile || !connectedDeps) {
+        if (!connectedDeps) {
+          return;
+        }
+
+        if (!input.state.session.selectedClassFile) {
+          const firstClassFile = input.state.session.classFiles[0] ?? null;
+          if (!firstClassFile) {
+            (connectedDeps.uiManager as RuntimeUiManager).notify("Please select a class file first.");
+            return;
+          }
+          await this.loadClassNamesFromFile(firstClassFile);
+        }
+
+        if (!input.state.session.selectedClassFile) {
           return;
         }
 

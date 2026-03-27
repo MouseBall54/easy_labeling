@@ -154,6 +154,38 @@ export function createFileSystemAdapter(input) {
         await imageSessionService.loadImageAndLabels(fileHandle);
         applyCurrentImageToCanvas();
     };
+    const refreshClassFileStateFromAvailableFolder = async () => {
+        const classFolder = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle);
+        const previousSelectionName = input.state.session.selectedClassFile?.name ?? null;
+        if (!classFolder) {
+            input.state.session.classFiles = [];
+            input.state.session.selectedClassFile = null;
+            input.state.session.classNames = new Map();
+            if (connectedDeps) {
+                const uiManager = connectedDeps.uiManager;
+                uiManager.renderClassFileSelect();
+                uiManager.updateLabelList();
+            }
+            return;
+        }
+        const files = (await listFileHandles(classFolder)).filter((file) => /\.(yaml|yml)$/i.test(file.name));
+        input.state.session.classFiles = files;
+        const selectedFile = files.find((file) => file.name === previousSelectionName) ??
+            files[0] ??
+            null;
+        if (selectedFile) {
+            await loadClassNamesIntoState(selectedFile, input.state);
+        }
+        else {
+            input.state.session.selectedClassFile = null;
+            input.state.session.classNames = new Map();
+        }
+        if (connectedDeps) {
+            const uiManager = connectedDeps.uiManager;
+            uiManager.renderClassFileSelect();
+            uiManager.updateLabelList();
+        }
+    };
     const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
         decodeImage: async ({ fileHandle, tiffBuffer }) => loadDecodedImage(fileHandle, tiffBuffer),
         readCurrentLabelsAsYolo: () => {
@@ -222,6 +254,7 @@ export function createFileSystemAdapter(input) {
                     else {
                         applyCurrentImageToCanvas();
                     }
+                    await refreshClassFileStateFromAvailableFolder();
                     if (!uiManager) {
                         return;
                     }
@@ -242,6 +275,7 @@ export function createFileSystemAdapter(input) {
                     return;
                 }
                 input.state.session.labelFolderHandle = await picker();
+                await refreshClassFileStateFromAvailableFolder();
                 if (connectedDeps) {
                     const uiManager = connectedDeps.uiManager;
                     uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
@@ -256,11 +290,7 @@ export function createFileSystemAdapter(input) {
                 }
                 const folderHandle = await picker();
                 input.state.session.classInfoFolderHandle = folderHandle;
-                const files = await listFileHandles(folderHandle);
-                input.state.session.classFiles = files.filter((file) => /\.(yaml|yml)$/i.test(file.name));
-                if (connectedDeps) {
-                    connectedDeps.uiManager.renderClassFileSelect();
-                }
+                await refreshClassFileStateFromAvailableFolder();
             });
         },
         async saveLabels(isAuto = false) {
@@ -313,7 +343,18 @@ export function createFileSystemAdapter(input) {
             }
         },
         async showClassFileContent() {
-            if (!input.state.session.selectedClassFile || !connectedDeps) {
+            if (!connectedDeps) {
+                return;
+            }
+            if (!input.state.session.selectedClassFile) {
+                const firstClassFile = input.state.session.classFiles[0] ?? null;
+                if (!firstClassFile) {
+                    connectedDeps.uiManager.notify("Please select a class file first.");
+                    return;
+                }
+                await this.loadClassNamesFromFile(firstClassFile);
+            }
+            if (!input.state.session.selectedClassFile) {
                 return;
             }
             const rows = await readClassFileRowsForEditor(input.state.session.selectedClassFile);
