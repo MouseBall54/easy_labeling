@@ -202,6 +202,7 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     highlightSelection: vi.fn(),
     hideCrosshair: vi.fn(),
     updateLabelText: vi.fn(),
+    updateAllLabelTexts: vi.fn(),
     copy: vi.fn(),
     paste: vi.fn(),
     alignSelectionLeft: vi.fn(),

@@ -425,11 +425,13 @@ export function createEventManagerAdapter(input: {
 
       rawCanvas.on?.("object:modified", () => {
         finalizeGestureBaseline();
+        input.canvasController.raw.updateAllLabelTexts();
         input.uiManager.updateLabelList();
         syncToolbarActionState();
       });
       rawCanvas.on?.("object:scaled", () => {
         finalizeGestureBaseline();
+        input.canvasController.raw.updateAllLabelTexts();
         input.uiManager.updateLabelList();
         syncToolbarActionState();
       });

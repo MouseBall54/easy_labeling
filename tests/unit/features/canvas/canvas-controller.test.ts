@@ -205,8 +205,8 @@ describe("features/canvas/canvas-controller", () => {
 
     controller.updateLabelText(rect);
 
-    expect(rect._labelText?.left).toBe(10);
-    expect(rect._labelText?.top).toBe(16);
+    expect(rect._labelText?.left).toBe(140);
+    expect(rect._labelText?.top).toBe(246);
   });
 
   it("resets previous active selection before selecting all labels", () => {

@@ -287,6 +287,32 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
     return canvas.getActiveObjects().some((obj) => isRectObject(obj) && isRectHiddenByFilter(obj, hiddenLabelClasses));
   };
 
+  const getRectLabelAnchor = (rect: FabricRectLike): { left: number; top: number } => {
+    const bounds = rect.getBoundingRect(true);
+    let left = bounds.left;
+    let top = bounds.top;
+
+    if (rect.group) {
+      const groupLeft = rect.group.left;
+      const groupTop = rect.group.top;
+      const groupWidth = rect.group.width;
+      const groupHeight = rect.group.height;
+      const eps = 1e-8;
+
+      const sameXSpace = Math.abs(bounds.left - rect.left) <= eps;
+      const sameYSpace = Math.abs(bounds.top - rect.top) <= eps;
+
+      if (sameXSpace && Number.isFinite(groupLeft) && Number.isFinite(groupWidth)) {
+        left = rect.left + groupLeft + groupWidth / 2;
+      }
+      if (sameYSpace && Number.isFinite(groupTop) && Number.isFinite(groupHeight)) {
+        top = rect.top + groupTop + groupHeight / 2;
+      }
+    }
+
+    return { left, top };
+  };
+
   const applyEdgeAlignment = (edge: ArrangeEdge): void => {
     const activeObject = canvas.getActiveObject();
     const selectedRects = extractVisibleRectSelection(activeObject);
@@ -877,9 +903,10 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
       }
 
       const displayName = deps.getDisplayNameForClass(rect.labelClass);
+      const anchor = getRectLabelAnchor(rect);
       const text = new deps.fabric.Text(displayName, {
-        left: rect.left,
-        top: rect.top - 4,
+        left: anchor.left,
+        top: anchor.top - 4,
         originY: "bottom",
         fontSize: state.labelFontSize,
         fontFamily: "'Consolas', monospace",
@@ -902,14 +929,12 @@ export function createCanvasController(state: CanvasControllerState, deps: Canva
       }
 
       const displayName = deps.getDisplayNameForClass(rect.labelClass);
-      const bounds = rect.getBoundingRect(true);
-      const newLeft = bounds.left;
-      const newTop = bounds.top;
+      const anchor = getRectLabelAnchor(rect);
 
       rect._labelText.set({
         text: displayName,
-        left: newLeft,
-        top: newTop - 4,
+        left: anchor.left,
+        top: anchor.top - 4,
         originY: "bottom",
         fontSize: state.labelFontSize,
         fontFamily: "'Consolas', monospace",
