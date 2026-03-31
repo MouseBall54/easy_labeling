@@ -12,10 +12,10 @@ import {
   validateAndSaveClassRowsToFileHandle,
   type ReadClassNamesResult
 } from "../features/classes/class-file-service.js";
-import { imageFileNameToLabelFileName } from "../domain/files/image-names.js";
-import { isNotFoundError, listFileHandles, readTextFileByName } from "../platform/file-system-access.js";
+import { listFileHandles } from "../platform/file-system-access.js";
 import type { ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
+import type { AnnotationWorkflow } from "../domain/annotations/contracts.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
@@ -59,12 +59,12 @@ class LiveImageSessionState implements ImageSessionServiceState {
     this.appState.session.imageFiles = value as unknown as FileSystemFileHandle[];
   }
 
-  get imageLabelStatus() {
-    return this.appState.session.imageLabelStatus;
+  get imageWorkflowStatus() {
+    return this.appState.session.imageWorkflowStatus;
   }
 
-  set imageLabelStatus(value) {
-    this.appState.session.imageLabelStatus = value;
+  set imageWorkflowStatus(value) {
+    this.appState.session.imageWorkflowStatus = value;
   }
 
   get currentImageFile() {
@@ -97,6 +97,30 @@ class LiveImageSessionState implements ImageSessionServiceState {
 
   set isAutoSaveEnabled(value) {
     this.appState.view.isAutoSaveEnabled = value;
+  }
+
+  get workflow() {
+    return this.appState.session.workflow;
+  }
+
+  set workflow(value) {
+    this.appState.session.workflow = value;
+  }
+
+  get reviewTargetWorkflow() {
+    return this.appState.session.reviewTargetWorkflow;
+  }
+
+  set reviewTargetWorkflow(value) {
+    this.appState.session.reviewTargetWorkflow = value;
+  }
+
+  get reviewDocuments() {
+    return this.appState.session.reviewDocuments;
+  }
+
+  set reviewDocuments(value) {
+    this.appState.session.reviewDocuments = value;
   }
 
   get classFiles() {
@@ -184,6 +208,7 @@ export function createFileSystemAdapter(input: {
 }): RuntimeFileSystem {
   let connectedDeps: FileSystemDeps | null = null;
   let pendingLoadedYolo: string | null = null;
+  let pendingLoadedSegmentationSnapshot: import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null = null;
   let operationChain: Promise<void> = Promise.resolve();
 
   const enqueueOperation = async (operation: () => Promise<void>): Promise<void> => {
@@ -228,13 +253,16 @@ export function createFileSystemAdapter(input: {
     if (pendingLoadedYolo && pendingLoadedYolo.trim()) {
       canvasController.raw.addLabelsFromYolo(pendingLoadedYolo);
     }
+    canvasController.raw.loadSegmentationDocumentSnapshot?.(pendingLoadedSegmentationSnapshot);
     pendingLoadedYolo = null;
+    pendingLoadedSegmentationSnapshot = null;
     canvasController.raw.resetZoom();
     uiManager.updateCurrentImageName();
     uiManager.updateZoomDisplay(canvasController.raw.canvas.getZoom());
     uiManager.renderImageList();
     uiManager.renderPreviewList();
     uiManager.updateLabelList();
+    uiManager.setWorkflow?.(input.state.session.workflow);
     input.windowRef.dispatchEvent?.(new CustomEvent("easy-labeling:history-reset"));
   };
 
@@ -244,6 +272,7 @@ export function createFileSystemAdapter(input: {
     }
 
     pendingLoadedYolo = null;
+    pendingLoadedSegmentationSnapshot = null;
     await imageSessionService.loadImageAndLabels(fileHandle);
     applyCurrentImageToCanvas();
   };
@@ -294,11 +323,23 @@ export function createFileSystemAdapter(input: {
       }
       return (connectedDeps.canvasController as RuntimeCanvasController).raw.getLabelsAsYolo();
     },
+    readCurrentSegmentationSnapshot: () => {
+      if (!connectedDeps) {
+        return null;
+      }
+      return (connectedDeps.canvasController as RuntimeCanvasController).raw.getSegmentationDocumentSnapshot?.() ?? null;
+    },
     applyLoadedYolo: async (yoloData) => {
       if (!connectedDeps) {
         return;
       }
       pendingLoadedYolo = yoloData;
+    },
+    applyLoadedSegmentationSnapshot: async (snapshot) => {
+      if (!connectedDeps) {
+        return;
+      }
+      pendingLoadedSegmentationSnapshot = snapshot;
     },
     clearPendingSaveTimeout: (timeout) => {
       if (timeout) {
@@ -330,11 +371,12 @@ export function createFileSystemAdapter(input: {
             return;
           }
 
-          if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile && input.state.session.labelFolderHandle) {
+          if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
             await imageSessionService.saveLabels(true);
           }
 
           const imageFolderHandle = await picker();
+          pendingLoadedYolo = null;
           await imageSessionService.selectImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
             input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
               scope: "session-replacement",
@@ -342,24 +384,7 @@ export function createFileSystemAdapter(input: {
               persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
               resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
             });
-            if (input.state.session.currentImageFile) {
-              if (input.state.session.labelFolderHandle) {
-                try {
-                  pendingLoadedYolo = await readTextFileByName(
-                    input.state.session.labelFolderHandle as unknown as DirectoryHandleLike,
-                    imageFileNameToLabelFileName(input.state.session.currentImageFile.name)
-                  );
-                } catch (error: unknown) {
-                  if (!isNotFoundError(error)) {
-                    throw error;
-                  }
-                  pendingLoadedYolo = null;
-                }
-              }
-              applyCurrentImageToCanvas();
-            } else {
-              applyCurrentImageToCanvas();
-            }
+            applyCurrentImageToCanvas();
 
             await refreshClassFileStateFromAvailableFolder();
 
@@ -385,10 +410,13 @@ export function createFileSystemAdapter(input: {
           }
 
           input.state.session.labelFolderHandle = await picker();
+          await imageSessionService.refreshImageWorkflowStatus();
           await refreshClassFileStateFromAvailableFolder();
           if (connectedDeps) {
             const uiManager = connectedDeps.uiManager as RuntimeUiManager;
             uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
+            uiManager.renderImageList();
+            uiManager.renderPreviewList();
           }
         });
       },

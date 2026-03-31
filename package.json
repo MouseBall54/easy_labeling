@@ -4,7 +4,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "live-server",
+    "start": "CHOKIDAR_USEPOLLING=1 node --input-type=commonjs -e \"require('./node_modules/live-server').start({ root: '.', host: '127.0.0.1', port: 4173, open: false, logLevel: 0, watch: ['index.html', 'css', 'dist', 'privacy.html'], ignore: ['node_modules', '.git', '.sisyphus'] })\"",
     "test": "npm run test:unit",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

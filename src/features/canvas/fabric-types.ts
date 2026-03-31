@@ -30,6 +30,7 @@ export interface FabricObjectLike extends FabricSettable {
   strokeWidth?: number;
   strokeDashArray?: number[];
   shadow?: unknown;
+  opacity?: number;
   selectable?: boolean;
   hoverCursor?: string;
   visible?: boolean;

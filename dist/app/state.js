@@ -1,3 +1,4 @@
+import { createEmptyReviewDocument } from "../domain/annotations/review.js";
 export function createInitialAppState() {
     return {
         session: {
@@ -7,10 +8,16 @@ export function createInitialAppState() {
             imageFiles: [],
             classFiles: [],
             selectedClassFile: null,
-            imageLabelStatus: new Map(),
+            imageWorkflowStatus: new Map(),
             currentImageFile: null,
             currentImage: null,
-            classNames: new Map()
+            classNames: new Map(),
+            workflow: "detection",
+            reviewTargetWorkflow: "detection",
+            reviewDocuments: {
+                detection: createEmptyReviewDocument("detection"),
+                segmentation: createEmptyReviewDocument("segmentation")
+            }
         },
         view: {
             currentMode: "edit",

@@ -3,6 +3,7 @@ import type {
   DirectoryHandleLike,
   FileHandleLike,
   FileTextLike,
+  WritableFileContent,
   WritableFileLike
 } from "../types/files.js";
 
@@ -70,6 +71,23 @@ export async function writeTextFileByName(
   directoryHandle: DirectoryHandleLike,
   fileName: string,
   content: string
+): Promise<void> {
+  const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+
+export async function readBinaryFileByName(directoryHandle: DirectoryHandleLike, fileName: string): Promise<ArrayBuffer> {
+  const fileHandle = await directoryHandle.getFileHandle(fileName);
+  return readFileArrayBuffer(fileHandle);
+}
+
+export async function writeBinaryFileByName(
+  directoryHandle: DirectoryHandleLike,
+  fileName: string,
+  content: WritableFileContent
 ): Promise<void> {
   const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();

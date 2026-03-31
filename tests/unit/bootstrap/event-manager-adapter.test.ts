@@ -85,6 +85,9 @@ function createElements() {
     showLabeledCheckbox: new FakeInputElement(),
     showUnlabeledCheckbox: new FakeInputElement(),
     saveLabelsBtn: new FakeHtmlElement(),
+    detectionWorkflowTab: new FakeInputElement(),
+    segmentationWorkflowTab: new FakeInputElement(),
+    reviewWorkflowTab: new FakeInputElement(),
     autoSaveToggle: new FakeInputElement(),
     showLabelsOnCanvasToggle: new FakeInputElement(),
     labelFontSizeSlider: new FakeInputElement(),
@@ -144,6 +147,25 @@ function createElements() {
     labelClassModal: { _element: new FakeHtmlElement(), show: vi.fn(), hide: vi.fn() },
     labelClassInput: new FakeInputElement(),
     classSelectionContainer: new FakeHtmlElement(),
+    segmentationBrushModeBtn: new FakeHtmlElement(),
+    segmentationEraseModeBtn: new FakeHtmlElement(),
+    segmentationToolSizeLabel: new FakeHtmlElement(),
+    segmentationToolSizeSlider: new FakeInputElement(),
+    segmentationToolSizeValue: new FakeHtmlElement(),
+    segmentationToolSizePresets: new FakeHtmlElement(),
+    segmentationActiveClassSummary: new FakeHtmlElement(),
+    segmentationRelabelRegionBtn: new FakeHtmlElement(),
+    segmentationMaskVisibilityToggle: new FakeInputElement(),
+    segmentationMaskOpacitySlider: new FakeInputElement(),
+    segmentationMaskOpacityValue: new FakeHtmlElement(),
+    segmentationClassSummary: new FakeHtmlElement(),
+    reviewTargetSelect: new FakeInputElement(),
+    reviewStatusUntouched: new FakeInputElement(),
+    reviewStatusApproved: new FakeInputElement(),
+    reviewStatusNeedsFix: new FakeInputElement(),
+    reviewIssueChecklist: new FakeHtmlElement(),
+    reviewApproveBtn: new FakeHtmlElement(),
+    reviewNeedsFixBtn: new FakeHtmlElement(),
     saveLabelClassBtn: new FakeHtmlElement(),
     crosshairToggle: new FakeInputElement(),
     contextMenu: new FakeHtmlElement(),
@@ -199,6 +221,12 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     startDrawing: vi.fn(),
     continueDrawing: vi.fn(),
     finishDrawing: vi.fn(async () => {}),
+    setSegmentationBrushRadius: vi.fn(),
+    getSelectedSegmentationClass: vi.fn(() => null),
+    startSegmentationRegionMove: vi.fn(() => false),
+    continueSegmentationRegionMove: vi.fn(() => false),
+    finishSegmentationRegionMove: vi.fn(async () => false),
+    relabelSelectedSegmentationRegion: vi.fn(() => false),
     highlightSelection: vi.fn(),
     hideCrosshair: vi.fn(),
     updateLabelText: vi.fn(),
@@ -275,6 +303,79 @@ describe("bootstrap/event-manager-adapter", () => {
       writable: true,
       value: originalHTMLInputElement
     });
+  });
+
+  it("defaults workflow tabs to detection and switches the active workflow cleanly", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 0, y: 0 });
+    const rawController = createRawController(rawCanvas);
+    const setWorkflow = vi.fn((workflow: "detection" | "segmentation" | "review") => {
+      state.session.workflow = workflow;
+    });
+    const setCanvasWorkflow = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        setWorkflow: setCanvasWorkflow,
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    expect(state.session.workflow).toBe("detection");
+    expect(elements.detectionWorkflowTab.checked).toBe(true);
+    expect(elements.segmentationWorkflowTab.checked).toBe(false);
+    expect(elements.reviewWorkflowTab.checked).toBe(false);
+
+    elements.segmentationWorkflowTab.dispatch("change", {});
+    expect(setCanvasWorkflow).toHaveBeenCalledWith("segmentation");
+    expect(setWorkflow).toHaveBeenCalledWith("segmentation");
+    expect(state.session.workflow).toBe("segmentation");
+    expect(elements.detectionWorkflowTab.checked).toBe(false);
+    expect(elements.segmentationWorkflowTab.checked).toBe(true);
+    expect(elements.reviewWorkflowTab.checked).toBe(false);
+
+    elements.reviewWorkflowTab.dispatch("change", {});
+    expect(setCanvasWorkflow).toHaveBeenCalledWith("review");
+    expect(setWorkflow).toHaveBeenCalledWith("review");
+    expect(state.session.workflow).toBe("review");
+    expect(elements.detectionWorkflowTab.checked).toBe(false);
+    expect(elements.segmentationWorkflowTab.checked).toBe(false);
+    expect(elements.reviewWorkflowTab.checked).toBe(true);
+    expect(elements.editModeBtn.checked).toBe(true);
   });
 
   it("syncs the draw/edit radio UI when Ctrl+Q toggles the mode", () => {
@@ -532,6 +633,382 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.alignSelectionBottom).toHaveBeenCalledTimes(1);
     expect(rawController.distributeSelectionHorizontally).toHaveBeenCalledTimes(1);
     expect(rawController.distributeSelectionVertically).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses selection-box behavior while painting in segmentation workflow", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.currentMode = "draw";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 8, y: 9 });
+    const rawController = createRawController(rawCanvas);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    const mouseUpHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:up")?.[1];
+    expect(rawCanvas.selection).toBe(true);
+
+    mouseDownHandler?.({
+      e: { altKey: false, ctrlKey: false, clientX: 10, clientY: 20 }
+    });
+    expect(rawCanvas.selection).toBe(false);
+    expect(rawController.startDrawing).toHaveBeenCalledWith({ x: 8, y: 9 });
+
+    mouseUpHandler?.({ e: {} });
+    expect(rawCanvas.selection).toBe(false);
+  });
+
+  it("uses edit mode click to select segmentation region instead of starting a brush stroke", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.currentMode = "edit";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 12, y: 7 });
+    const rawController = {
+      ...createRawController(rawCanvas),
+      selectSegmentationRegionAtPoint: vi.fn(() => true),
+      clearSegmentationSelection: vi.fn()
+    };
+    const setWorkflow = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    mouseDownHandler?.({
+      e: { altKey: false, ctrlKey: false, clientX: 10, clientY: 20 }
+    });
+
+    expect(rawController.selectSegmentationRegionAtPoint).toHaveBeenCalledWith({ x: 12, y: 7 });
+    expect(rawController.startDrawing).not.toHaveBeenCalled();
+    expect(rawCanvas.selection).toBe(true);
+    expect(setWorkflow).toHaveBeenCalledWith("segmentation");
+  });
+
+  it("moves the selected segmentation region during edit-mode drag", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.currentMode = "edit";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = {
+      ...createRawController(rawCanvas),
+      startSegmentationRegionMove: vi.fn(() => true),
+      continueSegmentationRegionMove: vi.fn(() => true),
+      finishSegmentationRegionMove: vi.fn(async () => true)
+    };
+    const setWorkflow = vi.fn();
+
+    rawCanvas.getPointer
+      .mockReturnValueOnce({ x: 10, y: 10 })
+      .mockReturnValueOnce({ x: 13, y: 12 });
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    const mouseMoveHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:move")?.[1];
+    const mouseUpHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:up")?.[1];
+
+    mouseDownHandler?.({ e: { altKey: false, ctrlKey: false, clientX: 0, clientY: 0 } });
+    mouseMoveHandler?.({ e: { clientX: 0, clientY: 0 } });
+    mouseUpHandler?.({ e: {} });
+    await Promise.resolve();
+
+    expect(rawController.startSegmentationRegionMove).toHaveBeenCalledWith({ x: 10, y: 10 });
+    expect(rawController.continueSegmentationRegionMove).toHaveBeenCalledWith({ x: 13, y: 12 });
+    expect(rawController.finishSegmentationRegionMove).toHaveBeenCalledTimes(1);
+    expect(rawController.startDrawing).not.toHaveBeenCalled();
+  });
+
+  it("routes segmentation tool-size slider changes to brush radius updates", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    elements.segmentationToolSizeSlider.value = "14";
+    elements.segmentationToolSizeSlider.dispatch("input", { currentTarget: elements.segmentationToolSizeSlider });
+
+    expect(rawController.setSegmentationBrushRadius).toHaveBeenCalledWith(14);
+  });
+
+  it("uses double-click in segmentation edit mode to open region relabeling", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.currentMode = "edit";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 7, y: 8 });
+    const rawController = createRawController(rawCanvas);
+    const getSegmentationClassAtPoint = vi.fn(() => "3");
+    const relabelSegmentationRegionAtPoint = vi.fn(() => true);
+    const promptForLabelClass = vi.fn(async () => "5");
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        promptForLabelClass,
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: {
+          ...rawController,
+          getSegmentationClassAtPoint,
+          relabelSegmentationRegionAtPoint
+        }
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const doubleClickHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:dblclick")?.[1];
+    doubleClickHandler?.({ e: { clientX: 0, clientY: 0 } });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getSegmentationClassAtPoint).toHaveBeenCalledWith({ x: 7, y: 8 });
+    expect(promptForLabelClass).toHaveBeenCalledWith("3");
+    expect(relabelSegmentationRegionAtPoint).toHaveBeenCalledWith({ x: 7, y: 8 }, "5");
+  });
+
+  it("uses the selected segmentation region for the relabel button even when last mouse position is elsewhere", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.lastMousePosition = { x: 50, y: 60 };
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const promptForLabelClass = vi.fn(async () => "7");
+    const getSelectedSegmentationClass = vi.fn(() => "4");
+    const relabelSelectedSegmentationRegion = vi.fn(() => true);
+    const getSegmentationClassAtPoint = vi.fn(() => "2");
+    const relabelSegmentationRegionAtPoint = vi.fn(() => true);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        promptForLabelClass,
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: {
+          ...rawController,
+          getSelectedSegmentationClass,
+          relabelSelectedSegmentationRegion,
+          getSegmentationClassAtPoint,
+          relabelSegmentationRegionAtPoint
+        }
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    elements.segmentationRelabelRegionBtn.dispatch("click", {});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(promptForLabelClass).toHaveBeenCalledWith("4");
+    expect(relabelSelectedSegmentationRegion).toHaveBeenCalledWith("7");
+    expect(getSegmentationClassAtPoint).not.toHaveBeenCalled();
+    expect(relabelSegmentationRegionAtPoint).not.toHaveBeenCalled();
   });
 
   it("enables align at 2+ visible selected rects and distribute at 3+", () => {
@@ -1106,4 +1583,279 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.captureHistoryBaseline).toHaveBeenCalledTimes(1);
     expect(rawController.commitHistoryFromBaseline).toHaveBeenCalledTimes(1);
   });
+
+  it("routes Ctrl+B to pointer-based segmentation relabel when no region is selected", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.lastMousePosition = { x: 11, y: 13 };
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const getSegmentationClassAtPoint = vi.fn(() => "2");
+    const relabelSegmentationRegionAtPoint = vi.fn(() => true);
+    const promptForLabelClass = vi.fn(async () => "5");
+    const notify = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify,
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        promptForLabelClass,
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: {
+          ...rawController,
+          getSegmentationClassAtPoint,
+          relabelSegmentationRegionAtPoint
+        }
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      key: "b",
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(getSegmentationClassAtPoint).toHaveBeenCalledWith({ x: 11, y: 13 });
+    expect(promptForLabelClass).toHaveBeenCalledWith("2");
+    expect(relabelSegmentationRegionAtPoint).toHaveBeenCalledWith({ x: 11, y: 13 }, "5");
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("routes Ctrl+B to the selected segmentation region before falling back to pointer state", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.lastMousePosition = { x: 11, y: 13 };
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const getSelectedSegmentationClass = vi.fn(() => "6");
+    const relabelSelectedSegmentationRegion = vi.fn(() => true);
+    const getSegmentationClassAtPoint = vi.fn(() => "2");
+    const relabelSegmentationRegionAtPoint = vi.fn(() => true);
+    const promptForLabelClass = vi.fn(async () => "8");
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        promptForLabelClass,
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: {
+          ...rawController,
+          getSelectedSegmentationClass,
+          relabelSelectedSegmentationRegion,
+          getSegmentationClassAtPoint,
+          relabelSegmentationRegionAtPoint
+        }
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      key: "b",
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(promptForLabelClass).toHaveBeenCalledWith("6");
+    expect(relabelSelectedSegmentationRegion).toHaveBeenCalledWith("8");
+    expect(getSegmentationClassAtPoint).not.toHaveBeenCalled();
+    expect(relabelSegmentationRegionAtPoint).not.toHaveBeenCalled();
+  });
+
+  it("reloads detection annotations when review targets detection and persists approve action", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "review";
+    state.session.reviewTargetWorkflow = "detection";
+    state.session.reviewDocuments.detection.status = "untouched";
+    state.session.currentImageFile = { name: "scene-a.png" } as never;
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 0, y: 0 });
+    const rawController = createRawController(rawCanvas);
+    const loadImage = vi.fn(async () => {});
+    const saveLabels = vi.fn(async () => {});
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels,
+        loadImage,
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        setWorkflow: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    elements.reviewWorkflowTab.dispatch("change", {});
+    expect(loadImage).toHaveBeenCalledWith(state.session.currentImageFile);
+
+    elements.reviewApproveBtn.dispatch("click", {});
+    await Promise.resolve();
+    expect(state.session.reviewDocuments.detection.status).toBe("approved");
+    expect(saveLabels).toHaveBeenCalled();
+  });
+
+
+  it("reloads segmentation content when review targets segmentation and persists needs-fix action", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "review";
+    state.session.reviewTargetWorkflow = "segmentation";
+    state.session.reviewDocuments.segmentation.status = "untouched";
+    state.session.currentImageFile = { name: "scene-a.png" } as never;
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    rawCanvas.getPointer.mockReturnValue({ x: 0, y: 0 });
+    const rawController = createRawController(rawCanvas);
+    const loadImage = vi.fn(async () => {});
+    const saveLabels = vi.fn(async () => {});
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels,
+        loadImage,
+        downloadClassTemplate: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        setWorkflow: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    elements.reviewWorkflowTab.dispatch("change", {});
+    expect(loadImage).toHaveBeenCalledWith(state.session.currentImageFile);
+
+    elements.reviewNeedsFixBtn.dispatch("click", {});
+    await Promise.resolve();
+    expect(state.session.reviewDocuments.segmentation.status).toBe("needs-fix");
+    expect(saveLabels).toHaveBeenCalled();
+  });
+
 });

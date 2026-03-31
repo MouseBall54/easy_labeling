@@ -19,6 +19,12 @@ export interface UiDomElements {
   showLabeledCheckbox: HTMLInputElement;
   showUnlabeledCheckbox: HTMLInputElement;
   saveLabelsBtn: HTMLElement;
+  detectionWorkflowTab: HTMLInputElement;
+  segmentationWorkflowTab: HTMLInputElement;
+  reviewWorkflowTab: HTMLInputElement;
+  detectionWorkflowPanel: HTMLElement;
+  segmentationWorkflowPanel: HTMLElement;
+  reviewWorkflowPanel: HTMLElement;
   autoSaveToggle: HTMLInputElement;
   showLabelsOnCanvasToggle: HTMLInputElement;
   labelFontSizeSlider: HTMLInputElement;
@@ -77,6 +83,25 @@ export interface UiDomElements {
   labelClassModal: BootstrapModalLike;
   labelClassInput: HTMLInputElement;
   classSelectionContainer: HTMLElement;
+  segmentationBrushModeBtn: HTMLElement;
+  segmentationEraseModeBtn: HTMLElement;
+  segmentationToolSizeLabel: HTMLElement;
+  segmentationToolSizeSlider: HTMLInputElement;
+  segmentationToolSizeValue: HTMLElement;
+  segmentationToolSizePresets: HTMLElement;
+  segmentationActiveClassSummary: HTMLElement;
+  segmentationRelabelRegionBtn: HTMLElement;
+  segmentationMaskVisibilityToggle: HTMLInputElement;
+  segmentationMaskOpacitySlider: HTMLInputElement;
+  segmentationMaskOpacityValue: HTMLElement;
+  segmentationClassSummary: HTMLElement;
+  reviewTargetSelect: HTMLSelectElement;
+  reviewStatusUntouched: HTMLInputElement;
+  reviewStatusApproved: HTMLInputElement;
+  reviewStatusNeedsFix: HTMLInputElement;
+  reviewIssueChecklist: HTMLElement;
+  reviewApproveBtn: HTMLElement;
+  reviewNeedsFixBtn: HTMLElement;
   saveLabelClassBtn: HTMLElement;
   crosshairToggle: HTMLInputElement;
   contextMenu: HTMLElement;
@@ -122,6 +147,12 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     showLabeledCheckbox: requireById<HTMLInputElement>(documentRef, "showLabeled"),
     showUnlabeledCheckbox: requireById<HTMLInputElement>(documentRef, "showUnlabeled"),
     saveLabelsBtn: requireById<HTMLElement>(documentRef, "saveLabelsBtn"),
+    detectionWorkflowTab: requireById<HTMLInputElement>(documentRef, "detectionWorkflowTab"),
+    segmentationWorkflowTab: requireById<HTMLInputElement>(documentRef, "segmentationWorkflowTab"),
+    reviewWorkflowTab: requireById<HTMLInputElement>(documentRef, "reviewWorkflowTab"),
+    detectionWorkflowPanel: requireById<HTMLElement>(documentRef, "detectionWorkflowPanel"),
+    segmentationWorkflowPanel: requireById<HTMLElement>(documentRef, "segmentationWorkflowPanel"),
+    reviewWorkflowPanel: requireById<HTMLElement>(documentRef, "reviewWorkflowPanel"),
     autoSaveToggle: requireById<HTMLInputElement>(documentRef, "autoSaveToggle"),
     showLabelsOnCanvasToggle: requireById<HTMLInputElement>(documentRef, "showLabelsOnCanvasToggle"),
     labelFontSizeSlider: requireById<HTMLInputElement>(documentRef, "label-font-size"),
@@ -180,6 +211,25 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     labelClassModal: new bootstrapRef.Modal(labelClassModalElement),
     labelClassInput: requireById<HTMLInputElement>(documentRef, "labelClassInput"),
     classSelectionContainer: requireById<HTMLElement>(documentRef, "class-selection-container"),
+    segmentationBrushModeBtn: requireById<HTMLElement>(documentRef, "segmentationBrushModeBtn"),
+    segmentationEraseModeBtn: requireById<HTMLElement>(documentRef, "segmentationEraseModeBtn"),
+    segmentationToolSizeLabel: requireById<HTMLElement>(documentRef, "segmentationToolSizeLabel"),
+    segmentationToolSizeSlider: requireById<HTMLInputElement>(documentRef, "segmentationToolSizeSlider"),
+    segmentationToolSizeValue: requireById<HTMLElement>(documentRef, "segmentationToolSizeValue"),
+    segmentationToolSizePresets: requireById<HTMLElement>(documentRef, "segmentationToolSizePresets"),
+    segmentationActiveClassSummary: requireById<HTMLElement>(documentRef, "segmentationActiveClassSummary"),
+    segmentationRelabelRegionBtn: requireById<HTMLElement>(documentRef, "segmentationRelabelRegionBtn"),
+    segmentationMaskVisibilityToggle: requireById<HTMLInputElement>(documentRef, "segmentationMaskVisibilityToggle"),
+    segmentationMaskOpacitySlider: requireById<HTMLInputElement>(documentRef, "segmentationMaskOpacitySlider"),
+    segmentationMaskOpacityValue: requireById<HTMLElement>(documentRef, "segmentationMaskOpacityValue"),
+    segmentationClassSummary: requireById<HTMLElement>(documentRef, "segmentationClassSummary"),
+    reviewTargetSelect: requireById<HTMLSelectElement>(documentRef, "reviewTargetSelect"),
+    reviewStatusUntouched: requireById<HTMLInputElement>(documentRef, "reviewStatusUntouched"),
+    reviewStatusApproved: requireById<HTMLInputElement>(documentRef, "reviewStatusApproved"),
+    reviewStatusNeedsFix: requireById<HTMLInputElement>(documentRef, "reviewStatusNeedsFix"),
+    reviewIssueChecklist: requireById<HTMLElement>(documentRef, "reviewIssueChecklist"),
+    reviewApproveBtn: requireById<HTMLElement>(documentRef, "reviewApproveBtn"),
+    reviewNeedsFixBtn: requireById<HTMLElement>(documentRef, "reviewNeedsFixBtn"),
     saveLabelClassBtn: requireById<HTMLElement>(documentRef, "saveLabelClassBtn"),
     crosshairToggle: requireById<HTMLInputElement>(documentRef, "crosshairToggle"),
     contextMenu: requireById<HTMLElement>(documentRef, "context-menu"),

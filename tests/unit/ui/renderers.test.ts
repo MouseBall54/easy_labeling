@@ -8,6 +8,7 @@ import {
   renderImageList,
   renderLabelFilters,
   renderPreviewList,
+  renderWorkflowPanels,
   showLoadingOverlay
 } from "../../../src/ui/renderers.js";
 import type { FileHandle } from "../../../src/types/files.js";
@@ -16,6 +17,24 @@ import { FakeDocument, FakeElement } from "./test-dom.js";
 
 function fileHandle(name: string): FileHandle {
   return { name } as unknown as FileHandle;
+}
+
+function workflowStatus(input: Partial<{
+  detectionAnnotation: boolean;
+  segmentationAnnotation: boolean;
+  detectionReview: "untouched" | "approved" | "needs-fix";
+  segmentationReview: "untouched" | "approved" | "needs-fix";
+}> = {}) {
+  return {
+    detection: {
+      hasAnnotation: input.detectionAnnotation ?? false,
+      reviewStatus: input.detectionReview ?? "untouched"
+    },
+    segmentation: {
+      hasAnnotation: input.segmentationAnnotation ?? false,
+      reviewStatus: input.segmentationReview ?? "untouched"
+    }
+  };
 }
 
 describe("ui/renderers", () => {
@@ -41,19 +60,20 @@ describe("ui/renderers", () => {
     expect(selectElement.selectedIndex).toBe(-1);
   });
 
-  it("renders image list with legacy filtering and active item behavior", () => {
+  it("renders image list with workflow-aware filtering and active item behavior", () => {
     const imageListElement = new FakeElement("div");
     const files = [fileHandle("img10.jpg"), fileHandle("img2.jpg"), fileHandle("zebra.jpg")];
-    const status = new Map<string, boolean>([
-      ["img10.jpg", true],
-      ["img2.jpg", false],
-      ["zebra.jpg", true]
+    const status = new Map([
+      ["img10.jpg", workflowStatus({ detectionAnnotation: true })],
+      ["img2.jpg", workflowStatus({ detectionAnnotation: false })],
+      ["zebra.jpg", workflowStatus({ detectionAnnotation: true })]
     ]);
 
     const rendered = renderImageList({
       imageListElement: imageListElement as unknown as HTMLElement,
       imageFiles: files,
-      imageLabelStatus: status,
+      imageWorkflowStatus: status,
+      activeWorkflow: "detection",
       currentImageFile: fileHandle("img10.jpg"),
       searchTerm: "img",
       showLabeled: true,
@@ -67,9 +87,47 @@ describe("ui/renderers", () => {
     expect(imageListElement.children[0]?.dataset.testid).toBe("image-list-item-img10.jpg");
     expect(imageListElement.children[0]?.classList.contains("active")).toBe(true);
     expect(imageListElement.children[0]?.innerHTML.includes("bi-check-circle-fill")).toBe(true);
+    expect(imageListElement.children[0]?.dataset.status).toBe("detection-present");
   });
 
-  it("renders preview list structure and respects hidden-state", () => {
+  it("derives segmentation and review badges from the active workflow", () => {
+    const segmentationListElement = new FakeElement("div");
+    const reviewListElement = new FakeElement("div");
+    const files = [fileHandle("img1.jpg"), fileHandle("img2.jpg")];
+    const status = new Map([
+      ["img1.jpg", workflowStatus({ segmentationAnnotation: true })],
+      ["img2.jpg", workflowStatus({ detectionReview: "needs-fix" })]
+    ]);
+
+    const segmentationRendered = renderImageList({
+      imageListElement: segmentationListElement as unknown as HTMLElement,
+      imageFiles: files,
+      imageWorkflowStatus: status,
+      activeWorkflow: "segmentation",
+      currentImageFile: fileHandle("img1.jpg"),
+      searchTerm: "img",
+      showLabeled: true,
+      showUnlabeled: false
+    });
+    expect(segmentationRendered.map((file) => file.name)).toEqual(["img1.jpg"]);
+    expect(segmentationListElement.children[0]?.dataset.status).toBe("segmentation-present");
+
+    const reviewRendered = renderImageList({
+      imageListElement: reviewListElement as unknown as HTMLElement,
+      imageFiles: files,
+      imageWorkflowStatus: status,
+      activeWorkflow: "review",
+      reviewTargetWorkflow: "detection",
+      currentImageFile: fileHandle("img2.jpg"),
+      searchTerm: "img",
+      showLabeled: true,
+      showUnlabeled: false
+    });
+    expect(reviewRendered.map((file) => file.name)).toEqual(["img2.jpg"]);
+    expect(reviewListElement.children[0]?.dataset.status).toBe("review-detection-needs-fix");
+    expect(reviewListElement.children[0]?.innerHTML.includes("bi-exclamation-triangle-fill")).toBe(true);
+  });
+  it("renders preview list structure, review badges, and respects hidden-state", () => {
     const bottomPanelElement = new FakeElement("div");
     const previewListElement = new FakeElement("div");
     const previewListWrapperElement = new FakeElement("div");
@@ -82,12 +140,18 @@ describe("ui/renderers", () => {
       fileHandle("4.jpg"),
       fileHandle("5.jpg")
     ];
+    const statuses = new Map([
+      ["3.jpg", workflowStatus({ detectionReview: "approved" })]
+    ]);
 
     const hiddenResult = renderPreviewList({
       bottomPanelElement: bottomPanelElement as unknown as HTMLElement,
       previewListElement: previewListElement as unknown as HTMLElement,
       previewListWrapperElement: previewListWrapperElement as unknown as HTMLElement,
       imageFiles: files,
+      imageWorkflowStatus: statuses,
+      activeWorkflow: "review",
+      reviewTargetWorkflow: "detection",
       currentImageFile: fileHandle("3.jpg"),
       isPreviewBarHidden: true
     });
@@ -99,6 +163,9 @@ describe("ui/renderers", () => {
       previewListElement: previewListElement as unknown as HTMLElement,
       previewListWrapperElement: previewListWrapperElement as unknown as HTMLElement,
       imageFiles: files,
+      imageWorkflowStatus: statuses,
+      activeWorkflow: "review",
+      reviewTargetWorkflow: "detection",
       currentImageFile: fileHandle("3.jpg"),
       isPreviewBarHidden: false
     });
@@ -111,6 +178,8 @@ describe("ui/renderers", () => {
     expect(previewListElement.children[2]?.classList.contains("active")).toBe(true);
     expect(previewListElement.children[2]?.children[0]?.tagName).toBe("img");
     expect(previewListElement.children[2]?.children[0]?.alt).toBe("3.jpg");
+    expect(previewListElement.children[2]?.children[1]?.dataset.ui).toBe("preview-status-badge");
+    expect(previewListElement.children[2]?.children[1]?.dataset.status).toBe("review-detection-approved");
   });
 
   it("toggles loading overlay show class", () => {
@@ -218,4 +287,65 @@ describe("ui/renderers", () => {
 
     expect(unlabeledButton?.dataset.testid).toBe("filter-class-unlabeled");
   });
+
+  it("toggles workflow-specific panel visibility from the active workflow", () => {
+    const detectionPanel = new FakeElement("div");
+    const segmentationPanel = new FakeElement("div");
+    const reviewPanel = new FakeElement("div");
+
+    renderWorkflowPanels({
+      detectionPanelElement: detectionPanel as unknown as HTMLElement,
+      segmentationPanelElement: segmentationPanel as unknown as HTMLElement,
+      reviewPanelElement: reviewPanel as unknown as HTMLElement,
+      activeWorkflow: "segmentation",
+      reviewTargetWorkflow: "detection"
+    });
+
+    expect(detectionPanel.style.display).toBe("none");
+    expect(detectionPanel.dataset.workflowActive).toBe("false");
+    expect(segmentationPanel.style.display).toBe("");
+    expect(segmentationPanel.dataset.workflowActive).toBe("true");
+    expect(reviewPanel.style.display).toBe("none");
+    expect(reviewPanel.dataset.workflowActive).toBe("false");
+  });
+
+
+  it("shows detection panel alongside review panel when detection is the active review target", () => {
+    const detectionPanel = new FakeElement("div");
+    const segmentationPanel = new FakeElement("div");
+    const reviewPanel = new FakeElement("div");
+
+    renderWorkflowPanels({
+      detectionPanelElement: detectionPanel as unknown as HTMLElement,
+      segmentationPanelElement: segmentationPanel as unknown as HTMLElement,
+      reviewPanelElement: reviewPanel as unknown as HTMLElement,
+      activeWorkflow: "review",
+      reviewTargetWorkflow: "detection"
+    });
+
+    expect(detectionPanel.style.display).toBe("");
+    expect(detectionPanel.dataset.workflowActive).toBe("true");
+    expect(segmentationPanel.style.display).toBe("none");
+    expect(reviewPanel.style.display).toBe("");
+  });
+
+
+  it("shows segmentation panel alongside review panel when segmentation is the active review target", () => {
+    const detectionPanel = new FakeElement("div");
+    const segmentationPanel = new FakeElement("div");
+    const reviewPanel = new FakeElement("div");
+
+    renderWorkflowPanels({
+      detectionPanelElement: detectionPanel as unknown as HTMLElement,
+      segmentationPanelElement: segmentationPanel as unknown as HTMLElement,
+      reviewPanelElement: reviewPanel as unknown as HTMLElement,
+      activeWorkflow: "review",
+      reviewTargetWorkflow: "segmentation"
+    });
+
+    expect(detectionPanel.style.display).toBe("none");
+    expect(segmentationPanel.style.display).toBe("");
+    expect(reviewPanel.style.display).toBe("");
+  });
+
 });

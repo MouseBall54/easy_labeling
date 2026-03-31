@@ -1,11 +1,13 @@
 import type { CanvasController as AppCanvasController, CanvasControllerDeps } from "../app/contracts.js";
 import type { AppState } from "../app/state.js";
 import {
-  createCanvasController,
+  createCanvasControllerForWorkflow,
+  createCanvasShell,
   type CanvasController as FeatureCanvasController,
   type CanvasControllerState
 } from "../features/canvas/canvas-controller.js";
 import type { FabricRuntimeLike } from "../features/canvas/fabric-types.js";
+import type { WorkflowType } from "../types/labels.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
 class LiveCanvasControllerState implements CanvasControllerState {
@@ -97,7 +99,8 @@ export function createCanvasControllerAdapter(input: {
     return value;
   };
 
-  const featureController = createCanvasController(new LiveCanvasControllerState(input.state), {
+  const liveState = new LiveCanvasControllerState(input.state);
+  const controllerDeps = {
     fabric: input.fabricRef,
     getCanvasContainerSize: () => {
       const canvasContainer = input.documentRef.querySelector<HTMLElement>(".canvas-container");
@@ -109,7 +112,7 @@ export function createCanvasControllerAdapter(input: {
         height: canvasContainer.clientHeight
       };
     },
-    promptForLabelClass: async (defaultValue) => {
+    promptForLabelClass: async (defaultValue: string) => {
       if (uiManager) {
         return uiManager.promptForLabelClass(defaultValue);
       }
@@ -119,18 +122,39 @@ export function createCanvasControllerAdapter(input: {
       void connectedDeps;
     },
     updateZoomDisplay: () => {
-      uiManager?.updateZoomDisplay(featureController.canvas.getZoom());
+      getActiveController().renderAll();
+      uiManager?.updateZoomDisplay(getActiveController().canvas.getZoom());
     },
-    getDisplayNameForClass: (labelClass) => {
+    getDisplayNameForClass: (labelClass: string | undefined) => {
       return uiManager?.getDisplayNameForClass(labelClass) ?? String(labelClass ?? "");
     },
-    notify: (message, duration) => {
+    notify: (message: string, duration?: number) => {
       uiManager?.notify(message, duration);
     }
-  });
+  } satisfies Parameters<typeof createCanvasControllerForWorkflow>[2];
+
+  const sharedShell = createCanvasShell(liveState, controllerDeps);
+  const workflowControllers: Record<WorkflowType, FeatureCanvasController> = {
+    detection: createCanvasControllerForWorkflow("detection", liveState, controllerDeps, sharedShell),
+    segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell),
+    review: createCanvasControllerForWorkflow("review", liveState, controllerDeps, sharedShell)
+  };
+
+  const getResolvedWorkflow = (): WorkflowType => {
+    if (input.state.session.workflow === "review") {
+      return input.state.session.reviewTargetWorkflow;
+    }
+    return input.state.session.workflow;
+  };
+
+  const getActiveController = (): FeatureCanvasController => {
+    return workflowControllers[getResolvedWorkflow()] ?? workflowControllers.detection;
+  };
 
   return {
-    raw: featureController,
+    get raw() {
+      return getActiveController();
+    },
 
     connect(deps: CanvasControllerDeps): void {
       connectedDeps = deps;
@@ -138,7 +162,12 @@ export function createCanvasControllerAdapter(input: {
     },
 
     setMode(mode): void {
-      featureController.setMode(mode);
+      getActiveController().setMode(mode);
+    },
+
+    setWorkflow(workflow): void {
+      input.state.session.workflow = workflow;
+      getActiveController().setMode(input.state.view.currentMode);
     }
   };
 }

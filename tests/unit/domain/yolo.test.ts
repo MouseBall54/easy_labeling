@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createDetectionAnnotationCodec } from "../../../src/domain/annotations/detection.js";
 import { parseYoloRows, serializeRectsToYolo, type YoloRectLike } from "../../../src/domain/yolo/yolo.js";
 
 class FakeRect implements YoloRectLike {
@@ -81,4 +82,39 @@ describe("domain/yolo", () => {
     expect(Number.isNaN(rows[0].rectWidth)).toBe(true);
     expect(Number.isNaN(rows[0].rectHeight)).toBe(true);
   });
+
+  it("wraps legacy YOLO parsing/serialization in the detection annotation codec without changing txt output", () => {
+    const codec = createDetectionAnnotationCodec();
+    const rect = new FakeRect("7", { x: 333.333333333, y: 111.111111111 }, 20, 10);
+
+    const encoded = codec.encode({
+      imageBaseName: "scene-a",
+      rects: [rect],
+      imageWidth: 640,
+      imageHeight: 480
+    });
+
+    expect(encoded).toEqual([
+      {
+        path: "label/scene-a.txt",
+        content: "7 0.520833333332812 0.231481481481250 0.031250000000000 0.020833333333333\n"
+      }
+    ]);
+
+    const decoded = codec.decode({
+      imageBaseName: "scene-a",
+      yoloText: encoded[0]?.content as string,
+      imageWidth: 640,
+      imageHeight: 480
+    });
+
+    expect(decoded.workflow).toBe("detection");
+    expect(decoded.format).toBe("yolo-txt-v1");
+    expect(decoded.paths).toEqual({
+      primaryFilePath: "label/scene-a.txt",
+      sidecarFilePaths: []
+    });
+    expect(decoded.data.rows).toEqual(parseYoloRows("7 0.520833333332812 0.231481481481250 0.031250000000000 0.020833333333333\n", 640, 480));
+  });
+
 });

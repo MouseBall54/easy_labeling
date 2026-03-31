@@ -16,11 +16,24 @@ export function createEventManagerAdapter(input) {
                 }));
             };
             const syncViewControls = () => {
+                elements.detectionWorkflowTab.checked = input.state.session.workflow === "detection";
+                elements.segmentationWorkflowTab.checked = input.state.session.workflow === "segmentation";
+                elements.reviewWorkflowTab.checked = input.state.session.workflow === "review";
                 elements.drawModeBtn.checked = input.state.view.currentMode === "draw";
                 elements.editModeBtn.checked = input.state.view.currentMode === "edit";
                 elements.autoSaveToggle.checked = input.state.view.isAutoSaveEnabled;
                 elements.showLabelsOnCanvasToggle.checked = input.state.view.showLabelsOnCanvas;
                 elements.crosshairToggle.checked = input.state.view.isCrosshairVisible;
+            };
+            const setWorkflow = (workflow) => {
+                input.canvasController.setWorkflow?.(workflow);
+                if (typeof input.uiManager.setWorkflow === "function") {
+                    input.uiManager.setWorkflow(workflow);
+                }
+                else {
+                    input.state.session.workflow = workflow;
+                }
+                syncViewControls();
             };
             const getActiveVisibleRectSelectionCount = () => {
                 const activeObject = rawCanvas.getActiveObject();
@@ -47,6 +60,66 @@ export function createEventManagerAdapter(input) {
                 elements.undoBtn.disabled = undoDisabled;
                 elements.redoBtn.disabled = redoDisabled;
             };
+            const getResolvedWorkflow = () => {
+                if (input.state.session.workflow === "review") {
+                    return input.state.session.reviewTargetWorkflow;
+                }
+                return input.state.session.workflow;
+            };
+            const shouldEnableCanvasSelection = () => {
+                if (getResolvedWorkflow() !== "detection") {
+                    return false;
+                }
+                return input.state.view.currentMode === "edit";
+            };
+            const triggerSegmentationRelabelAtPoint = (pointer) => {
+                runAsync(async () => {
+                    if (getResolvedWorkflow() !== "segmentation") {
+                        return;
+                    }
+                    const sourceClass = input.canvasController.raw.getSegmentationClassAtPoint?.(pointer);
+                    if (!sourceClass) {
+                        input.uiManager.notify("Click on a labeled segmentation region first.");
+                        return;
+                    }
+                    const nextClass = await input.uiManager.promptForLabelClass(sourceClass);
+                    if (nextClass === sourceClass) {
+                        return;
+                    }
+                    const changed = input.canvasController.raw.relabelSegmentationRegionAtPoint?.(pointer, nextClass) ?? false;
+                    if (!changed) {
+                        input.uiManager.notify("Could not change class for the selected segmentation region.");
+                        return;
+                    }
+                    input.uiManager.setWorkflow?.(input.state.session.workflow);
+                    input.uiManager.updateLabelList();
+                    syncToolbarActionState();
+                });
+            };
+            const triggerSegmentationRelabel = () => {
+                runAsync(async () => {
+                    if (getResolvedWorkflow() !== "segmentation") {
+                        return;
+                    }
+                    const selectedClass = input.canvasController.raw.getSelectedSegmentationClass?.();
+                    if (selectedClass) {
+                        const nextClass = await input.uiManager.promptForLabelClass(selectedClass);
+                        if (nextClass === selectedClass) {
+                            return;
+                        }
+                        const changed = input.canvasController.raw.relabelSelectedSegmentationRegion?.(nextClass) ?? false;
+                        if (!changed) {
+                            input.uiManager.notify("Could not change class for the selected segmentation region.");
+                            return;
+                        }
+                        input.uiManager.setWorkflow?.(input.state.session.workflow);
+                        input.uiManager.updateLabelList();
+                        syncToolbarActionState();
+                        return;
+                    }
+                    triggerSegmentationRelabelAtPoint(input.state.view.lastMousePosition);
+                });
+            };
             const runUndo = () => {
                 input.canvasController.raw.undo();
                 syncToolbarActionState();
@@ -66,6 +139,25 @@ export function createEventManagerAdapter(input) {
                 input.uiManager.updateLabelList();
             };
             let pendingGestureBaseline = null;
+            let suppressSelectionForSegmentationStroke = false;
+            let isMovingSegmentationRegion = false;
+            const clearTemporarySelectionSuppression = () => {
+                if (!suppressSelectionForSegmentationStroke) {
+                    return;
+                }
+                rawCanvas.selection = shouldEnableCanvasSelection();
+                suppressSelectionForSegmentationStroke = false;
+            };
+            const finishSegmentationRegionMove = () => {
+                if (!isMovingSegmentationRegion) {
+                    return;
+                }
+                isMovingSegmentationRegion = false;
+                runAsync(() => input.canvasController.raw.finishSegmentationRegionMove?.().then(() => {
+                    input.uiManager.setWorkflow?.(input.state.session.workflow);
+                    syncToolbarActionState();
+                }) ?? Promise.resolve());
+            };
             const isRectOrSelectionTarget = (target) => {
                 if (!target || typeof target !== "object") {
                     return false;
@@ -183,6 +275,162 @@ export function createEventManagerAdapter(input) {
                 }
                 input.state.view.isAutoSaveEnabled = toggle.checked;
             });
+            elements.detectionWorkflowTab.addEventListener("change", () => {
+                setWorkflow("detection");
+                const currentImageFile = input.state.session.currentImageFile;
+                if (currentImageFile) {
+                    runAsyncAndSyncToolbar(() => input.fileSystem.loadImage(currentImageFile));
+                }
+            });
+            elements.segmentationWorkflowTab.addEventListener("change", () => {
+                setWorkflow("segmentation");
+                const currentImageFile = input.state.session.currentImageFile;
+                if (currentImageFile) {
+                    runAsyncAndSyncToolbar(() => input.fileSystem.loadImage(currentImageFile));
+                }
+            });
+            elements.reviewWorkflowTab.addEventListener("change", () => {
+                setWorkflow("review");
+                const currentImageFile = input.state.session.currentImageFile;
+                if (currentImageFile) {
+                    runAsyncAndSyncToolbar(() => input.fileSystem.loadImage(currentImageFile));
+                }
+            });
+            elements.reviewTargetSelect.addEventListener("change", (event) => {
+                const select = event.currentTarget;
+                if (!(select instanceof HTMLSelectElement)) {
+                    return;
+                }
+                input.state.session.reviewTargetWorkflow = select.value === "segmentation" ? "segmentation" : "detection";
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+                const currentImageFile = input.state.session.currentImageFile;
+                if (input.state.session.workflow === "review" && currentImageFile) {
+                    runAsyncAndSyncToolbar(() => input.fileSystem.loadImage(currentImageFile));
+                }
+            });
+            elements.reviewStatusUntouched.addEventListener("change", () => {
+                if (!elements.reviewStatusUntouched.checked) {
+                    return;
+                }
+                input.state.session.reviewDocuments[input.state.session.reviewTargetWorkflow].status = "untouched";
+            });
+            elements.reviewStatusApproved.addEventListener("change", () => {
+                if (!elements.reviewStatusApproved.checked) {
+                    return;
+                }
+                input.state.session.reviewDocuments[input.state.session.reviewTargetWorkflow].status = "approved";
+            });
+            elements.reviewStatusNeedsFix.addEventListener("change", () => {
+                if (!elements.reviewStatusNeedsFix.checked) {
+                    return;
+                }
+                input.state.session.reviewDocuments[input.state.session.reviewTargetWorkflow].status = "needs-fix";
+            });
+            elements.reviewIssueChecklist.addEventListener("change", (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+                    return;
+                }
+                const issueKey = target.value || target.id;
+                input.state.session.reviewDocuments[input.state.session.reviewTargetWorkflow].issueFlags[issueKey] = target.checked;
+            });
+            elements.reviewApproveBtn.addEventListener("click", () => {
+                input.state.session.reviewDocuments[input.state.session.reviewTargetWorkflow].status = "approved";
+                elements.reviewStatusApproved.checked = true;
+                runAsyncAndSyncToolbar(() => input.fileSystem.saveLabels(false));
+            });
+            elements.reviewNeedsFixBtn.addEventListener("click", () => {
+                input.state.session.reviewDocuments[input.state.session.reviewTargetWorkflow].status = "needs-fix";
+                elements.reviewStatusNeedsFix.checked = true;
+                runAsyncAndSyncToolbar(() => input.fileSystem.saveLabels(false));
+            });
+            elements.segmentationBrushModeBtn.addEventListener("click", () => {
+                input.canvasController.raw.setSegmentationTool?.("brush");
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationEraseModeBtn.addEventListener("click", () => {
+                input.canvasController.raw.setSegmentationTool?.("erase");
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationToolSizeSlider.addEventListener("input", (event) => {
+                const slider = event.currentTarget;
+                if (!(slider instanceof HTMLInputElement)) {
+                    return;
+                }
+                input.canvasController.raw.setSegmentationBrushRadius?.(Number.parseInt(slider.value, 10));
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationToolSizePresets.addEventListener("click", (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+                const button = target.closest('[data-ui="segmentation-tool-size-preset"]');
+                const nextSize = Number.parseInt(button?.dataset.size ?? "", 10);
+                if (!button || Number.isNaN(nextSize)) {
+                    return;
+                }
+                input.canvasController.raw.setSegmentationBrushRadius?.(nextSize);
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationActiveClassSummary.addEventListener("click", () => {
+                runAsync(async () => {
+                    const summary = input.canvasController.raw.getSegmentationSummary?.();
+                    const currentClass = summary?.activeClassId ?? "1";
+                    const nextClass = await input.uiManager.promptForLabelClass(currentClass);
+                    input.canvasController.raw.setSegmentationActiveClass?.(nextClass);
+                    input.uiManager.setWorkflow?.(input.state.session.workflow);
+                });
+            });
+            elements.segmentationRelabelRegionBtn.addEventListener("click", () => {
+                triggerSegmentationRelabel();
+            });
+            elements.segmentationMaskVisibilityToggle.addEventListener("change", (event) => {
+                const toggle = event.currentTarget;
+                if (!(toggle instanceof HTMLInputElement)) {
+                    return;
+                }
+                input.canvasController.raw.setSegmentationOverlayVisibility?.(toggle.checked);
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationMaskOpacitySlider.addEventListener("input", (event) => {
+                const slider = event.currentTarget;
+                if (!(slider instanceof HTMLInputElement)) {
+                    return;
+                }
+                input.canvasController.raw.setSegmentationOverlayOpacity?.(Number.parseInt(slider.value, 10) / 100);
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationClassSummary.addEventListener("change", (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+                    return;
+                }
+                const classId = target.dataset.classId;
+                if (!classId) {
+                    return;
+                }
+                input.canvasController.raw.setSegmentationClassVisibility?.(classId, target.checked);
+                input.uiManager.setWorkflow?.(input.state.session.workflow);
+            });
+            elements.segmentationClassSummary.addEventListener("click", (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+                const allFilterButton = target.closest('[data-ui="segmentation-filter-all"]');
+                if (allFilterButton) {
+                    input.canvasController.raw.setSegmentationOnlyVisibleClass?.(null);
+                    input.uiManager.setWorkflow?.(input.state.session.workflow);
+                    return;
+                }
+                const classFilterButton = target.closest('[data-ui="segmentation-filter-class"]');
+                const classId = classFilterButton?.dataset.classId;
+                if (classFilterButton && classId) {
+                    input.canvasController.raw.setSegmentationOnlyVisibleClass?.(classId);
+                    input.uiManager.setWorkflow?.(input.state.session.workflow);
+                }
+            });
             elements.drawModeBtn.addEventListener("change", () => {
                 setMode("draw");
             });
@@ -282,6 +530,7 @@ export function createEventManagerAdapter(input) {
                 if (!pointer) {
                     return;
                 }
+                input.state.view.lastMousePosition = pointer;
                 const mouseEvent = event.e;
                 if (mouseEvent.altKey || mouseEvent.ctrlKey) {
                     rawCanvas.isDragging = true;
@@ -291,6 +540,24 @@ export function createEventManagerAdapter(input) {
                     return;
                 }
                 maybeStartGestureBaseline(event.target ?? null);
+                if (getResolvedWorkflow() === "segmentation") {
+                    if (input.state.view.currentMode === "edit") {
+                        const startedMove = input.canvasController.raw.startSegmentationRegionMove?.(pointer) ?? false;
+                        if (startedMove) {
+                            isMovingSegmentationRegion = true;
+                            rawCanvas.selection = false;
+                            return;
+                        }
+                        const selected = input.canvasController.raw.selectSegmentationRegionAtPoint?.(pointer) ?? false;
+                        if (!selected) {
+                            input.canvasController.raw.clearSegmentationSelection?.();
+                        }
+                        input.uiManager.setWorkflow?.(input.state.session.workflow);
+                        return;
+                    }
+                    suppressSelectionForSegmentationStroke = true;
+                    rawCanvas.selection = false;
+                }
                 input.canvasController.raw.startDrawing(pointer);
             });
             rawCanvas.on?.("mouse:move", (event) => {
@@ -309,6 +576,12 @@ export function createEventManagerAdapter(input) {
                     return;
                 }
                 input.state.view.lastMousePosition = pointer;
+                if (isMovingSegmentationRegion) {
+                    const moved = input.canvasController.raw.continueSegmentationRegionMove?.(pointer) ?? false;
+                    if (moved) {
+                        input.uiManager.setWorkflow?.(input.state.session.workflow);
+                    }
+                }
                 input.canvasController.raw.continueDrawing(pointer);
                 if (input.state.view.isCrosshairVisible) {
                     input.canvasController.raw.updateCrosshair(pointer);
@@ -320,16 +593,32 @@ export function createEventManagerAdapter(input) {
             rawCanvas.on?.("mouse:up", () => {
                 if (rawCanvas.isDragging) {
                     rawCanvas.isDragging = false;
-                    rawCanvas.selection = true;
+                    rawCanvas.selection = shouldEnableCanvasSelection();
                     rawCanvas.setViewportTransform([...rawCanvas.viewportTransform]);
                     rawCanvas.calcOffset?.();
                     rawCanvas.requestRenderAll();
                     return;
                 }
+                if (isMovingSegmentationRegion) {
+                    finishSegmentationRegionMove();
+                    return;
+                }
+                clearTemporarySelectionSuppression();
                 runAsync(() => input.canvasController.raw.finishDrawing().then(() => {
                     input.uiManager.updateLabelList();
                     syncToolbarActionState();
                 }));
+            });
+            rawCanvas.on?.("mouse:dblclick", (event) => {
+                if (getResolvedWorkflow() !== "segmentation" || input.state.view.currentMode !== "edit") {
+                    return;
+                }
+                const pointer = rawCanvas.getPointer?.(event.e);
+                if (!pointer) {
+                    return;
+                }
+                input.state.view.lastMousePosition = pointer;
+                triggerSegmentationRelabelAtPoint(pointer);
             });
             rawCanvas.on?.("mouse:wheel", (event) => {
                 const wheelEvent = event.e;
@@ -350,6 +639,7 @@ export function createEventManagerAdapter(input) {
                 input.uiManager.updateZoomDisplay(rawCanvas.getZoom());
             });
             rawCanvas.on?.("mouse:out", () => {
+                clearTemporarySelectionSuppression();
                 input.uiManager.hideMouseCoords();
                 input.canvasController.raw.hideCrosshair();
             });
@@ -427,6 +717,14 @@ export function createEventManagerAdapter(input) {
             syncToolbarActionState();
             input.windowRef.addEventListener("easy-labeling:history-reset", () => {
                 syncToolbarActionState();
+            });
+            input.windowRef.addEventListener("mouseup", () => {
+                clearTemporarySelectionSuppression();
+                finishSegmentationRegionMove();
+            });
+            input.windowRef.addEventListener("blur", () => {
+                clearTemporarySelectionSuppression();
+                finishSegmentationRegionMove();
             });
             input.windowRef.addEventListener("keydown", (event) => {
                 if (elements.classFileViewerModal._element?.classList.contains("show")) {
@@ -534,6 +832,10 @@ export function createEventManagerAdapter(input) {
                         runAsync(() => input.canvasController.raw.editMultipleLabels(activeObject).then(() => {
                             syncToolbarActionState();
                         }));
+                        return;
+                    }
+                    if (getResolvedWorkflow() === "segmentation") {
+                        triggerSegmentationRelabel();
                         return;
                     }
                 }

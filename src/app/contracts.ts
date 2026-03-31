@@ -1,5 +1,5 @@
 import type { BrowserRuntimeSnapshot } from "../types/runtime.js";
-import type { AppMode } from "../types/labels.js";
+import type { AppMode, WorkflowType } from "../types/labels.js";
 import type { AppState } from "./state.js";
 
 export interface CanvasControllerDeps {
@@ -20,12 +20,14 @@ export interface FileSystemDeps {
 export interface CanvasController {
   connect(deps: CanvasControllerDeps): void;
   setMode?(mode: AppMode): void;
+  setWorkflow?(workflow: WorkflowType): void;
 }
 
 export interface UIManager {
   connect(deps: UIManagerDeps): void;
   updateLabelFolderButton?(hasLabelFolder: boolean): void;
   togglePreviewBarVisibility?(hidden: boolean): void;
+  setWorkflow?(workflow: WorkflowType): void;
 }
 
 export interface FileSystem {

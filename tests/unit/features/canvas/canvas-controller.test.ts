@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createCanvasController, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
+import { createCanvasController, createCanvasControllerForWorkflow, createCanvasShell, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
 import { createCanvasHistoryService } from "../../../../src/features/canvas/history.js";
 import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
@@ -54,6 +54,43 @@ function getSelectionAnnotationIds(activeObject: unknown): string[] {
 }
 
 describe("features/canvas/canvas-controller", () => {
+
+  it("activates the detection adapter explicitly through workflow selection", () => {
+    const deps = createDeps();
+    const controller = createCanvasControllerForWorkflow("detection", createState(), deps);
+
+    controller.addLabelsFromYolo("3 0.250000000000000 0.400000000000000 0.200000000000000 0.500000000000000\n");
+
+    const rect = controller.getObjects("rect")[0];
+    expect(rect?.labelClass).toBe("3");
+    expect(controller.getLabelsAsYolo()).toBe("3 0.250000000000000 0.400000000000000 0.200000000000000 0.500000000000000\n");
+  });
+
+
+  it("uses shared shell selection mechanics without rect-only assumptions", () => {
+    const fabric = createFakeFabricRuntime();
+    const shell = createCanvasShell(createState(), createDeps({ fabric }));
+    const textA = new fabric.Text("A", { left: 10, top: 20 });
+    const textB = new fabric.Text("B", { left: 30, top: 40 });
+    shell.canvas.add(textA, textB);
+
+    shell.setActiveSelection([textA, textB], textB);
+
+    const activeObject = shell.getActiveObject();
+    expect(activeObject?.type).toBe("activeSelection");
+    if (activeObject && typeof activeObject === "object" && "getObjects" in activeObject && typeof activeObject.getObjects === "function") {
+      expect(activeObject.getObjects()).toEqual([textB, textA]);
+    }
+
+    shell.setMode("draw");
+    expect((shell.canvas as FakeCanvas).selection).toBe(false);
+    expect((shell.canvas as FakeCanvas).defaultCursor).toBe("crosshair");
+
+    shell.setMode("edit");
+    expect((shell.canvas as FakeCanvas).selection).toBe(true);
+    expect((shell.canvas as FakeCanvas).defaultCursor).toBe("default");
+  });
+
   it("keeps labelClass, originalYolo, and linked _labelText when importing YOLO rows", () => {
     const deps = createDeps();
     const controller = createCanvasController(createState(), deps);
@@ -993,4 +1030,30 @@ describe("features/canvas/canvas-controller", () => {
     expect((rect as { scaleX?: number }).scaleX).toBe(1.5);
     expect((rect as { scaleY?: number }).scaleY).toBe(1.25);
   });
+
+  it("shared shell handles generic selection mechanics without rect-specific assumptions", () => {
+    const fabric = createFakeFabricRuntime();
+    const shell = createCanvasShell(createState(), createDeps({ fabric }));
+    const textA = new fabric.Text("a", { left: 1, top: 2 });
+    const textB = new fabric.Text("b", { left: 3, top: 4 });
+    shell.canvas.add(textA, textB);
+
+    shell.setActiveSelection([textA, textB], textB);
+    const activeObject = shell.getActiveObject();
+
+    expect(activeObject?.type).toBe("activeSelection");
+    if (!activeObject || typeof activeObject !== "object" || typeof (activeObject as { getObjects?: unknown }).getObjects !== "function") {
+      return;
+    }
+
+    const ordered = (activeObject as unknown as { getObjects: () => unknown[] }).getObjects();
+    expect(ordered[0]).toBe(textB);
+    expect(ordered[1]).toBe(textA);
+
+    shell.setMode("draw");
+    expect((shell.canvas as FakeCanvas).selection).toBe(false);
+    shell.setMode("edit");
+    expect((shell.canvas as FakeCanvas).selection).toBe(true);
+  });
+
 });

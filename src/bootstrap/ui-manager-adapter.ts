@@ -1,8 +1,10 @@
 import type { UIManager, UIManagerDeps } from "../app/contracts.js";
 import type { AppState } from "../app/state.js";
 import type { FileHandle } from "../types/files.js";
+import type { WorkflowType } from "../types/labels.js";
 import { getDOMElements, type BootstrapLike, type UiDomElements } from "../ui/dom-elements.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { getReviewIssueDefinitions } from "../domain/annotations/review.js";
 import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
 import {
@@ -12,6 +14,7 @@ import {
   renderLabelFilters,
   renderPreviewList,
   renderSelectByClassDropdown,
+  renderWorkflowPanels,
   showLoadingOverlay,
   hideLoadingOverlay
 } from "../ui/renderers.js";
@@ -71,6 +74,7 @@ export interface RuntimeUiManager extends UIManager {
   getDisplayNameForClass(labelClass: string | undefined): string;
   updateLabelFolderButton(hasLabelFolder: boolean): void;
   togglePreviewBarVisibility(hidden: boolean): void;
+  setWorkflow(workflow: WorkflowType): void;
   promptForLabelClass(defaultValue: string): Promise<string>;
   notify(message: string, duration?: number): void;
   updateZoomDisplay(zoomLevel?: number): void;
@@ -129,6 +133,132 @@ export function createUiManagerAdapter(input: {
     }
   };
 
+  const syncSegmentationPanelState = (): void => {
+    const summary = getCanvasController()?.raw.getSegmentationSummary?.();
+    const activeClassId = summary?.activeClassId ?? "1";
+    const activeTool = summary?.activeTool ?? "brush";
+    const brushRadius = summary?.brushRadius ?? Number.parseInt(elements.segmentationToolSizeSlider.value, 10);
+    const overlayVisible = summary?.overlayVisible ?? elements.segmentationMaskVisibilityToggle.checked;
+    const overlayOpacity = summary?.overlayOpacity ?? (Number.parseInt(elements.segmentationMaskOpacitySlider.value, 10) / 100);
+    const visibleClassIds = summary?.visibleClassIds ?? [];
+
+    elements.segmentationActiveClassSummary.textContent = `Active Class: ${manager.getDisplayNameForClass(activeClassId)}`;
+    elements.segmentationBrushModeBtn.classList.toggle("active", activeTool === "brush");
+    elements.segmentationEraseModeBtn.classList.toggle("active", activeTool === "erase");
+    elements.segmentationToolSizeLabel.textContent = activeTool === "erase" ? "Erase Size" : "Brush Size";
+    elements.segmentationToolSizeSlider.value = `${brushRadius}`;
+    elements.segmentationToolSizeValue.textContent = `${brushRadius}px`;
+    elements.segmentationToolSizePresets.querySelectorAll<HTMLButtonElement>('[data-ui="segmentation-tool-size-preset"]').forEach((button) => {
+      const isActive = Number.parseInt(button.dataset.size ?? "", 10) === brushRadius;
+      button.classList.toggle("btn-secondary", isActive);
+      button.classList.toggle("active", isActive);
+      button.classList.toggle("btn-outline-secondary", !isActive);
+    });
+    elements.segmentationMaskVisibilityToggle.checked = overlayVisible;
+    elements.segmentationMaskOpacitySlider.value = `${Math.round(overlayOpacity * 100)}`;
+    elements.segmentationMaskOpacityValue.textContent = `${Math.round(overlayOpacity * 100)}`;
+    elements.segmentationClassSummary.innerHTML = "";
+    if (summary && summary.allClassIds.length > 0) {
+      const filterControls = input.documentRef.createElement("div");
+      filterControls.className = "mb-2";
+
+      const filterTitle = input.documentRef.createElement("div");
+      filterTitle.className = "mb-1 small text-muted";
+      filterTitle.textContent = "Class Filter";
+      filterControls.appendChild(filterTitle);
+
+      const allVisibleButton = input.documentRef.createElement("button");
+      allVisibleButton.type = "button";
+      allVisibleButton.className = `btn btn-sm me-1 mb-1 ${summary.hiddenClassIds.length === 0 ? "btn-primary" : "btn-outline-primary"}`;
+      allVisibleButton.textContent = "All";
+      allVisibleButton.dataset.ui = "segmentation-filter-all";
+      filterControls.appendChild(allVisibleButton);
+
+      summary.allClassIds.forEach((classId) => {
+        const filterButton = input.documentRef.createElement("button");
+        filterButton.type = "button";
+        const isOnlyVisible = summary.visibleClassIds.length === 1 && summary.visibleClassIds[0] === classId;
+        filterButton.className = `btn btn-sm me-1 mb-1 ${isOnlyVisible ? "btn-secondary active" : "btn-outline-secondary"}`;
+        filterButton.textContent = manager.getDisplayNameForClass(classId);
+        filterButton.dataset.ui = "segmentation-filter-class";
+        filterButton.dataset.classId = classId;
+        filterControls.appendChild(filterButton);
+      });
+
+      elements.segmentationClassSummary.appendChild(filterControls);
+
+      const title = input.documentRef.createElement("div");
+      title.className = "mb-2 small text-muted";
+      title.textContent = "Class Visibility";
+      elements.segmentationClassSummary.appendChild(title);
+
+      summary.allClassIds.forEach((classId) => {
+        const wrapper = input.documentRef.createElement("label");
+        wrapper.className = "form-check d-flex align-items-center justify-content-between gap-2 mb-1";
+        wrapper.dataset.classId = classId;
+        wrapper.dataset.ui = "segmentation-class-visibility-item";
+
+        const checkbox = input.documentRef.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "form-check-input";
+        checkbox.checked = !summary.hiddenClassIds.includes(classId);
+        checkbox.dataset.classId = classId;
+        checkbox.dataset.ui = "segmentation-class-visibility-toggle";
+
+        const label = input.documentRef.createElement("span");
+        label.className = `small ${classId === activeClassId ? "fw-bold" : ""}`;
+        label.textContent = manager.getDisplayNameForClass(classId);
+
+        wrapper.append(checkbox, label);
+        elements.segmentationClassSummary.appendChild(wrapper);
+      });
+    } else {
+      elements.segmentationClassSummary.textContent = visibleClassIds.length > 0
+        ? `Visible Classes: ${visibleClassIds.map((classId) => manager.getDisplayNameForClass(classId)).join(", ")}`
+        : "Visible Classes: none";
+    }
+  };
+
+  const syncReviewPanelState = (): void => {
+    const target = input.state.session.reviewTargetWorkflow;
+    const reviewDocument = input.state.session.reviewDocuments[target];
+    elements.reviewTargetSelect.value = target;
+    elements.reviewStatusUntouched.checked = reviewDocument.status === "untouched";
+    elements.reviewStatusApproved.checked = reviewDocument.status === "approved";
+    elements.reviewStatusNeedsFix.checked = reviewDocument.status === "needs-fix";
+    elements.reviewIssueChecklist.innerHTML = "";
+
+    getReviewIssueDefinitions(target).forEach((issue) => {
+      const wrapper = input.documentRef.createElement("div");
+      wrapper.className = "form-check";
+
+      const checkbox = input.documentRef.createElement("input");
+      checkbox.className = "form-check-input";
+      checkbox.type = "checkbox";
+      checkbox.value = issue.key;
+      checkbox.id = `reviewIssue-${target}-${issue.key}`;
+      checkbox.checked = reviewDocument.issueFlags[issue.key] === true;
+
+      const label = input.documentRef.createElement("label");
+      label.className = "form-check-label";
+      label.htmlFor = checkbox.id;
+      label.textContent = issue.label;
+
+      wrapper.append(checkbox, label);
+      elements.reviewIssueChecklist.appendChild(wrapper);
+    });
+  };
+
+  const syncWorkflowPanels = (): void => {
+    renderWorkflowPanels({
+      activeWorkflow: input.state.session.workflow,
+      reviewTargetWorkflow: input.state.session.reviewTargetWorkflow,
+      detectionPanelElement: elements.detectionWorkflowPanel,
+      segmentationPanelElement: elements.segmentationWorkflowPanel,
+      reviewPanelElement: elements.reviewWorkflowPanel
+    });
+  };
+
   const manager: RuntimeUiManager = {
     elements,
 
@@ -171,6 +301,18 @@ export function createUiManagerAdapter(input: {
 
       icon.classList.toggle("bi-chevron-down", !hidden);
       icon.classList.toggle("bi-chevron-up", hidden);
+    },
+
+    setWorkflow(workflow: WorkflowType): void {
+      input.state.session.workflow = workflow;
+      syncWorkflowPanels();
+      syncSegmentationPanelState();
+      syncReviewPanelState();
+      if (workflow === "detection" || (workflow === "review" && input.state.session.reviewTargetWorkflow === "detection")) {
+        manager.updateLabelList();
+      }
+      manager.renderImageList();
+      manager.renderPreviewList();
     },
 
     async promptForLabelClass(defaultValue: string): Promise<string> {
@@ -267,7 +409,9 @@ export function createUiManagerAdapter(input: {
       renderImageList({
         imageListElement: elements.imageList,
         imageFiles: input.state.session.imageFiles,
-        imageLabelStatus: input.state.session.imageLabelStatus,
+        imageWorkflowStatus: input.state.session.imageWorkflowStatus,
+        activeWorkflow: input.state.session.workflow,
+        reviewTargetWorkflow: input.state.session.reviewTargetWorkflow,
         currentImageFile: input.state.session.currentImageFile,
         searchTerm: elements.imageSearchInput.value,
         showLabeled: elements.showLabeledCheckbox.checked,
@@ -288,6 +432,9 @@ export function createUiManagerAdapter(input: {
         previewListElement: elements.previewList,
         previewListWrapperElement: elements.previewListWrapper,
         imageFiles: input.state.session.imageFiles,
+        imageWorkflowStatus: input.state.session.imageWorkflowStatus,
+        activeWorkflow: input.state.session.workflow,
+        reviewTargetWorkflow: input.state.session.reviewTargetWorkflow,
         currentImageFile: input.state.session.currentImageFile,
         isPreviewBarHidden: input.state.view.isPreviewBarHidden,
         onPreviewClick: (file) => {

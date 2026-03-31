@@ -40,6 +40,14 @@ interface TestApi {
     width: number;
     height: number;
   } | null;
+  getSegmentationSummary(): {
+    activeClassId: string;
+    activeTool: string;
+    overlayVisible: boolean;
+    overlayOpacity: number;
+    visibleClassIds: string[];
+  } | null;
+  getCanvasObjectCounts(): Record<string, number>;
   canUndo(): boolean;
   canRedo(): boolean;
   selectRectsByIndex(indices: number[]): void;
@@ -195,6 +203,14 @@ function bootstrapBrowserRuntime(): void {
         width: bounds.width,
         height: bounds.height
       };
+    },
+    getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
+    getCanvasObjectCounts: () => {
+      const counts = new Map<string, number>();
+      runtimeCanvasController.raw.getObjects().forEach((object) => {
+        counts.set(object.type, (counts.get(object.type) ?? 0) + 1);
+      });
+      return Object.fromEntries(counts.entries());
     },
     canUndo: () => runtimeCanvasController.raw.canUndo(),
     canRedo: () => runtimeCanvasController.raw.canRedo(),

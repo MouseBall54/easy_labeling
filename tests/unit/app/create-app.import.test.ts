@@ -54,4 +54,10 @@ describe("createApp import", () => {
       cleanups.reverse().forEach((cleanup) => cleanup());
     }
   });
+
+  it("defaults fresh app state to detection workflow", async () => {
+    const module = await import("../../../src/app/state.js");
+    expect(module.createInitialAppState().session.workflow).toBe("detection");
+  });
+
 });

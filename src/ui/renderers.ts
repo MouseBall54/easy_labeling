@@ -1,3 +1,5 @@
+import type { AnnotationWorkflow, ImageWorkflowStatus, ReviewStatus } from "../domain/annotations/contracts.js";
+import type { WorkflowType } from "../types/labels.js";
 import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 
@@ -6,7 +8,9 @@ export const CREATE_NEW_CLASS_FILE_VALUE = "__CREATE_NEW__";
 export interface ImageListRenderInput {
   imageListElement: HTMLElement;
   imageFiles: FileHandle[];
-  imageLabelStatus: Map<string, boolean>;
+  imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
+  activeWorkflow: WorkflowType;
+  reviewTargetWorkflow?: AnnotationWorkflow;
   currentImageFile: FileHandle | null;
   searchTerm: string;
   showLabeled: boolean;
@@ -19,6 +23,9 @@ export interface PreviewListRenderInput {
   previewListElement: HTMLElement;
   previewListWrapperElement: HTMLElement;
   imageFiles: FileHandle[];
+  imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
+  activeWorkflow: WorkflowType;
+  reviewTargetWorkflow?: AnnotationWorkflow;
   currentImageFile: FileHandle | null;
   isPreviewBarHidden: boolean;
   onPreviewClick?: (file: FileHandle) => void;
@@ -26,6 +33,26 @@ export interface PreviewListRenderInput {
 
 export interface LabelRectLike {
   labelClass: string;
+}
+
+
+export interface WorkflowPanelRenderInput {
+  detectionPanelElement: HTMLElement;
+  segmentationPanelElement: HTMLElement;
+  reviewPanelElement: HTMLElement;
+  activeWorkflow: WorkflowType;
+  reviewTargetWorkflow?: AnnotationWorkflow;
+}
+
+export function renderWorkflowPanels(input: WorkflowPanelRenderInput): void {
+  const showDetectionPanel = input.activeWorkflow === "detection" || (input.activeWorkflow === "review" && input.reviewTargetWorkflow === "detection");
+  const showSegmentationPanel = input.activeWorkflow === "segmentation" || (input.activeWorkflow === "review" && input.reviewTargetWorkflow === "segmentation");
+  input.detectionPanelElement.style.display = showDetectionPanel ? "" : "none";
+  input.detectionPanelElement.dataset.workflowActive = String(showDetectionPanel);
+  input.segmentationPanelElement.style.display = showSegmentationPanel ? "" : "none";
+  input.segmentationPanelElement.dataset.workflowActive = String(showSegmentationPanel);
+  input.reviewPanelElement.style.display = input.activeWorkflow === "review" ? "" : "none";
+  input.reviewPanelElement.dataset.workflowActive = String(input.activeWorkflow === "review");
 }
 
 export interface LabelFilterRenderInput {
@@ -42,6 +69,13 @@ export interface LabelFilterBindingInput {
   onSelectClass: (labelClass: string) => void;
 }
 
+interface WorkflowBadgeDescriptor {
+  iconClassName: string;
+  isPositive: boolean;
+  statusKey: string;
+  label: string;
+}
+
 export function showLoadingOverlay(loadingOverlayElement: HTMLElement): void {
   loadingOverlayElement.classList.add("show");
 }
@@ -54,16 +88,80 @@ function compareFileNames(a: FileHandle, b: FileHandle): number {
   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
 }
 
+function getDefaultWorkflowStatus(): ImageWorkflowStatus {
+  return {
+    detection: {
+      hasAnnotation: false,
+      reviewStatus: "untouched"
+    },
+    segmentation: {
+      hasAnnotation: false,
+      reviewStatus: "untouched"
+    }
+  };
+}
+
+function deriveReviewBadge(status: ImageWorkflowStatus, targetWorkflow: AnnotationWorkflow): WorkflowBadgeDescriptor {
+  const reviewStatus: ReviewStatus = status[targetWorkflow].reviewStatus;
+  if (reviewStatus === "needs-fix") {
+    return {
+      iconClassName: "bi bi-exclamation-triangle-fill text-warning",
+      isPositive: true,
+      statusKey: `review-${targetWorkflow}-needs-fix`,
+      label: `${targetWorkflow} review needs fix`
+    };
+  }
+
+  if (reviewStatus === "approved") {
+    return {
+      iconClassName: "bi bi-check-circle-fill text-success",
+      isPositive: true,
+      statusKey: `review-${targetWorkflow}-approved`,
+      label: `${targetWorkflow} review approved`
+    };
+  }
+
+  return {
+    iconClassName: "bi bi-x-circle-fill text-muted",
+    isPositive: false,
+    statusKey: `review-${targetWorkflow}-untouched`,
+    label: `${targetWorkflow} review untouched`
+  };
+}
+
+function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType, reviewTargetWorkflow: AnnotationWorkflow = "detection"): WorkflowBadgeDescriptor {
+  if (workflow === "review") {
+    return deriveReviewBadge(status, reviewTargetWorkflow);
+  }
+
+  const workflowStatus = workflow === "segmentation" ? status.segmentation : status.detection;
+  if (workflowStatus.hasAnnotation) {
+    return {
+      iconClassName: "bi bi-check-circle-fill text-success",
+      isPositive: true,
+      statusKey: `${workflow}-present`,
+      label: `${workflow} annotation present`
+    };
+  }
+
+  return {
+    iconClassName: "bi bi-x-circle-fill text-muted",
+    isPositive: false,
+    statusKey: `${workflow}-missing`,
+    label: `${workflow} annotation missing`
+  };
+}
+
 export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const normalizedSearchTerm = input.searchTerm.toLowerCase();
   const filteredFiles = [...input.imageFiles]
     .sort(compareFileNames)
     .filter((file) => {
-      const isLabeled = input.imageLabelStatus.get(file.name) ?? false;
-      if (!input.showLabeled && isLabeled) {
+      const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+      if (!input.showLabeled && badge.isPositive) {
         return false;
       }
-      if (!input.showUnlabeled && !isLabeled) {
+      if (!input.showUnlabeled && !badge.isPositive) {
         return false;
       }
 
@@ -74,16 +172,15 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const fragment = document.createDocumentFragment();
 
   for (const file of filteredFiles) {
-    const isLabeled = input.imageLabelStatus.get(file.name) ?? false;
-    const icon = isLabeled
-      ? '<i class="bi bi-check-circle-fill text-success me-2"></i>'
-      : '<i class="bi bi-x-circle-fill text-muted me-2"></i>';
+    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+    const icon = `<i class="${badge.iconClassName} me-2" data-ui="image-status-badge" data-status="${badge.statusKey}" aria-label="${badge.label}"></i>`;
     const item = document.createElement("a");
     item.href = "#";
     item.className = "list-group-item list-group-item-action d-flex align-items-center image-list-item";
     item.dataset.ui = "image-list-item";
     item.dataset.fileName = file.name;
     item.dataset.testid = `image-list-item-${file.name}`;
+    item.dataset.status = badge.statusKey;
     item.innerHTML = `${icon}<span>${file.name}</span>`;
 
     if (input.currentImageFile && file.name === input.currentImageFile.name) {
@@ -247,10 +344,12 @@ export function renderPreviewList(input: PreviewListRenderInput): FileHandle[] {
   const filesToPreview = input.imageFiles.slice(startIndex, endIndex + 1);
 
   for (const file of filesToPreview) {
+    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
     const item = document.createElement("div");
     item.className = "preview-item preview-list-item";
     item.dataset.ui = "preview-list-item";
     item.dataset.fileName = file.name;
+    item.dataset.status = badge.statusKey;
     if (file.name === input.currentImageFile.name) {
       item.classList.add("active");
     }
@@ -258,6 +357,14 @@ export function renderPreviewList(input: PreviewListRenderInput): FileHandle[] {
     const image = document.createElement("img");
     image.alt = file.name;
     item.appendChild(image);
+
+    const badgeElement = document.createElement("span");
+    badgeElement.className = "preview-status-badge position-absolute top-0 end-0 m-1";
+    badgeElement.dataset.ui = "preview-status-badge";
+    badgeElement.dataset.status = badge.statusKey;
+    badgeElement.innerHTML = `<i class="${badge.iconClassName}" aria-label="${badge.label}"></i>`;
+    item.appendChild(badgeElement);
+
     input.previewListElement.appendChild(item);
 
     if (input.onPreviewClick) {

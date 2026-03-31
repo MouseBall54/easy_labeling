@@ -15,6 +15,16 @@
         <div class="container-fluid">
             <div class="d-flex align-items-center toolbar-left-cluster" data-ui="toolbar-left-cluster">
                 <a class="navbar-brand app-brand mb-0" href="#" data-ui="app-brand"><i class="bi bi-bounding-box"></i> Easy Labeling</a>
+                <div class="btn-group btn-group-sm workflow-tabs" data-ui="workflow-tabs" role="group" aria-label="Workflow tabs">
+                    <input type="radio" class="btn-check" name="workflow" id="detectionWorkflowTab" autocomplete="off" checked>
+                    <label class="btn btn-outline-light" for="detectionWorkflowTab" data-ui="workflow-tab-detection">Detection</label>
+
+                    <input type="radio" class="btn-check" name="workflow" id="segmentationWorkflowTab" autocomplete="off">
+                    <label class="btn btn-outline-light" for="segmentationWorkflowTab" data-ui="workflow-tab-segmentation">Segmentation</label>
+
+                    <input type="radio" class="btn-check" name="workflow" id="reviewWorkflowTab" autocomplete="off">
+                    <label class="btn btn-outline-light" for="reviewWorkflowTab" data-ui="workflow-tab-review">Review</label>
+                </div>
                 <div class="btn-group history-controls" data-ui="history-controls" role="group" aria-label="History controls">
                     <button class="btn btn-outline-light btn-sm" type="button" id="undoBtn" data-ui="history-undo" title="Undo" aria-label="Undo" disabled>
                         <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -117,6 +127,7 @@
                 </div>
                 <div class="d-grid gap-2 save-actions" data-ui="save-actions">
                     <button id="saveLabelsBtn" type="button" class="btn btn-success" data-ui="save-labels" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
+                    <button id="downloadClassesBtn" type="button" class="btn btn-secondary mt-2" data-ui="download-class-template"><i class="bi bi-download"></i> Download Class Template</button>
                 </div>
         </div>
     </div>
@@ -166,85 +177,159 @@
                 </button>
             </div>
             <div class="panel-content right-panel-content" data-ui="right-panel-content">
-                <section class="panel-section label-filter-section" data-ui="label-filter-section">
-                    <h5 class="panel-section-title"><i class="bi bi-funnel"></i> Filters</h5>
-                <div id="label-filters" class="mb-2 label-filter-list" data-ui="label-filter-list">
-                    <!-- Filter buttons will be added here -->
+                <div id="detectionWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-detection">
+                    <section class="panel-section label-filter-section" data-ui="label-filter-section">
+                        <h5 class="panel-section-title"><i class="bi bi-funnel"></i> Filters</h5>
+                        <div id="label-filters" class="mb-2 label-filter-list" data-ui="label-filter-list">
+                            <!-- Filter buttons will be added here -->
+                        </div>
+                        <div class="form-check form-switch mb-2 label-visibility-toggle-group" data-ui="label-visibility-toggle-group">
+                            <input class="form-check-input" type="checkbox" id="showLabelsOnCanvasToggle" data-ui="show-labels-on-canvas-toggle" checked>
+                            <label class="form-check-label" for="showLabelsOnCanvasToggle">Show Class Labels</label>
+                        </div>
+                        <div class="mb-2 label-font-size-group" data-ui="label-font-size-group">
+                            <label for="label-font-size" class="form-label">Label Font Size (<span id="label-font-size-value">14</span>px)</label>
+                            <input type="range" class="form-range" min="8" max="48" value="14" id="label-font-size" data-ui="label-font-size-slider">
+                        </div>
+                    </section>
+                    <hr>
+                    <section class="panel-section arrange-panel-section" data-ui="arrange-controls">
+                        <h5 class="panel-section-title"><i class="bi bi-layout-three-columns"></i> Arrange</h5>
+                        <div class="arrange-controls-grid" role="group" aria-label="Arrange controls">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="alignLeftBtn" data-ui="arrange-align-left" title="Align Left" aria-label="Align Left" disabled>
+                                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path fill="currentColor" d="M4 4h2v16H4zM8 7h11v2H8zm0 4h8v2H8zm0 4h11v2H8z"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRightBtn" data-ui="arrange-align-right" title="Align Right" aria-label="Align Right" disabled>
+                                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path fill="currentColor" d="M18 4h2v16h-2zM5 7h11v2H5zm3 4h8v2H8zm-3 4h11v2H5z"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="alignTopBtn" data-ui="arrange-align-top" title="Align Top" aria-label="Align Top" disabled>
+                                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path fill="currentColor" d="M4 4h16v2H4zM7 8h2v11H7zm4 0h2v8h-2zm4 0h2v11h-2z"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="alignBottomBtn" data-ui="arrange-align-bottom" title="Align Bottom" aria-label="Align Bottom" disabled>
+                                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path fill="currentColor" d="M4 18h16v2H4zM7 5h2v11H7zm4 8h2V5h-2zm4-8h2v11h-2z"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeHorizontalBtn" data-ui="arrange-distribute-horizontal" title="Distribute Horizontally" aria-label="Distribute Horizontally" disabled>
+                                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path fill="currentColor" d="M4 4h2v16H4zm14 0h2v16h-2zM8 11h2v2H8zm3 0h2v2h-2zm3 0h2v2h-2z"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeVerticalBtn" data-ui="arrange-distribute-vertical" title="Distribute Vertically" aria-label="Distribute Vertically" disabled>
+                                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path fill="currentColor" d="M4 4h16v2H4zm0 14h16v2H4zM11 8h2v2h-2zm0 3h2v2h-2zm0 3h2v2h-2z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </section>
+                    <hr>
+                    <section class="panel-section label-list-section" data-ui="label-list-section">
+                        <div class="d-flex justify-content-between align-items-center mb-2 label-list-header" data-ui="label-list-header">
+                            <h5 class="mb-0 panel-section-title"><i class="bi bi-tags"></i> Labels</h5>
+                            <div class="btn-group btn-group-sm label-sort-controls" data-ui="label-sort-controls" role="group">
+                                <button id="sortLabelsAscBtn" type="button" class="btn btn-outline-secondary" data-ui="sort-labels-asc" title="Sort Ascending"><i class="bi bi-sort-numeric-down"></i></button>
+                                <button id="sortLabelsDescBtn" type="button" class="btn btn-outline-secondary" data-ui="sort-labels-desc" title="Sort Descending"><i class="bi bi-sort-numeric-up-alt"></i></button>
+                            </div>
+                        </div>
+                        <div class="input-group mb-2 select-by-class-group" data-ui="select-by-class-group">
+                            <select class="form-select" id="select-by-class-dropdown">
+                                <option selected value="">Select a class</option>
+                            </select>
+                            <button class="btn btn-outline-primary" type="button" id="select-by-class-btn" data-ui="select-by-class-submit">Select</button>
+                        </div>
+                        <div class="d-grid gap-2 mb-2 class-info-actions" data-ui="class-info-actions">
+                            <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary" data-ui="load-class-info-folder"><i class="bi bi-folder-symlink"></i> Load Class Info Folder</button>
+                        </div>
+                        <div class="input-group mb-2 class-file-select-group" data-ui="class-file-select-group">
+                            <label class="input-group-text" for="class-file-select">Class File</label>
+                            <select class="form-select" id="class-file-select">
+                                <option selected>Choose...</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file"><i class="bi bi-eye"></i></button>
+                        </div>
+                        <ul id="label-list" class="list-group label-list-panel" data-ui="label-list-panel">
+                            <!-- Labels will be added here -->
+                        </ul>
+                    </section>
                 </div>
-                <div class="form-check form-switch mb-2 label-visibility-toggle-group" data-ui="label-visibility-toggle-group">
-                    <input class="form-check-input" type="checkbox" id="showLabelsOnCanvasToggle" data-ui="show-labels-on-canvas-toggle" checked>
-                    <label class="form-check-label" for="showLabelsOnCanvasToggle">Show Class Labels</label>
+                <div id="segmentationWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-segmentation" style="display: none;">
+                     <section class="panel-section segmentation-tools-section" data-ui="segmentation-tools-section">
+                         <h5 class="panel-section-title"><i class="bi bi-brush"></i> Mask Tools</h5>
+                         <div class="btn-group w-100 mb-2" role="group" aria-label="Segmentation tools">
+                             <button id="segmentationBrushModeBtn" type="button" class="btn btn-outline-primary" data-ui="segmentation-tool-brush">Brush</button>
+                             <button id="segmentationEraseModeBtn" type="button" class="btn btn-outline-primary" data-ui="segmentation-tool-erase">Erase</button>
+                         </div>
+                         <div class="mb-2" data-ui="segmentation-tool-size-group">
+                             <div class="d-flex justify-content-between align-items-center mb-1">
+                                 <label for="segmentationToolSizeSlider" id="segmentationToolSizeLabel" class="form-label mb-0" data-ui="segmentation-tool-size-label">Brush Size</label>
+                                 <span id="segmentationToolSizeValue" class="small text-muted" data-ui="segmentation-tool-size-value">6px</span>
+                             </div>
+                             <input type="range" class="form-range" min="1" max="48" value="6" id="segmentationToolSizeSlider" data-ui="segmentation-tool-size-slider">
+                             <div id="segmentationToolSizePresets" class="btn-group btn-group-sm w-100" role="group" aria-label="Segmentation tool size presets" data-ui="segmentation-tool-size-presets">
+                                 <button type="button" class="btn btn-outline-secondary" data-ui="segmentation-tool-size-preset" data-size="3">3</button>
+                                 <button type="button" class="btn btn-outline-secondary" data-ui="segmentation-tool-size-preset" data-size="6">6</button>
+                                 <button type="button" class="btn btn-outline-secondary" data-ui="segmentation-tool-size-preset" data-size="12">12</button>
+                                 <button type="button" class="btn btn-outline-secondary" data-ui="segmentation-tool-size-preset" data-size="24">24</button>
+                             </div>
+                         </div>
+                         <p class="workflow-placeholder-note mb-0" data-ui="segmentation-tool-note">Use smaller sizes for edges and larger sizes for broad paint or cleanup.</p>
+                     </section>
+                    <hr>
+                    <section class="panel-section segmentation-summary-section" data-ui="segmentation-summary-section">
+                        <h5 class="panel-section-title"><i class="bi bi-palette"></i> Active Class</h5>
+                        <div id="segmentationActiveClassSummary" class="workflow-summary-card mb-2" data-ui="segmentation-active-class-summary">No active segmentation class selected yet.</div>
+                        <button id="segmentationRelabelRegionBtn" type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2" data-ui="segmentation-relabel-region">Change Class of Painted Region</button>
+                        <div class="form-check form-switch mb-2" data-ui="segmentation-mask-visibility-group">
+                            <input class="form-check-input" type="checkbox" id="segmentationMaskVisibilityToggle" data-ui="segmentation-mask-visibility-toggle" checked>
+                            <label class="form-check-label" for="segmentationMaskVisibilityToggle">Show Mask Overlay</label>
+                        </div>
+                        <div class="mb-2" data-ui="segmentation-mask-opacity-group">
+                            <label for="segmentationMaskOpacitySlider" class="form-label">Mask Opacity (<span id="segmentationMaskOpacityValue">60</span>%)</label>
+                            <input type="range" class="form-range" min="0" max="100" value="60" id="segmentationMaskOpacitySlider" data-ui="segmentation-mask-opacity-slider">
+                        </div>
+                        <div id="segmentationClassSummary" class="workflow-summary-card workflow-summary-card-muted" data-ui="segmentation-class-summary">Per-class visibility and mask summaries will appear here.</div>
+                    </section>
                 </div>
-                <div class="mb-2 label-font-size-group" data-ui="label-font-size-group">
-                    <label for="label-font-size" class="form-label">Label Font Size (<span id="label-font-size-value">14</span>px)</label>
-                    <input type="range" class="form-range" min="8" max="48" value="14" id="label-font-size" data-ui="label-font-size-slider">
+                <div id="reviewWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-review" style="display: none;">
+                    <section class="panel-section review-target-section" data-ui="review-target-section">
+                        <h5 class="panel-section-title"><i class="bi bi-clipboard-check"></i> Review Target</h5>
+                        <select id="reviewTargetSelect" class="form-select" data-ui="review-target-select">
+                            <option value="detection" selected>Detection</option>
+                            <option value="segmentation">Segmentation</option>
+                        </select>
+                    </section>
+                    <hr>
+                    <section class="panel-section review-status-section" data-ui="review-status-section">
+                        <h5 class="panel-section-title"><i class="bi bi-check2-square"></i> Review Status</h5>
+                        <div class="btn-group w-100" role="group" aria-label="Review status controls">
+                            <input type="radio" class="btn-check" name="review-status" id="reviewStatusUntouched" autocomplete="off" checked>
+                            <label class="btn btn-outline-secondary" for="reviewStatusUntouched" data-ui="review-status-untouched">Untouched</label>
+                            <input type="radio" class="btn-check" name="review-status" id="reviewStatusApproved" autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="reviewStatusApproved" data-ui="review-status-approved">Approved</label>
+                            <input type="radio" class="btn-check" name="review-status" id="reviewStatusNeedsFix" autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="reviewStatusNeedsFix" data-ui="review-status-needs-fix">Needs Fix</label>
+                        </div>
+                    </section>
+                    <hr>
+                    <section class="panel-section review-checklist-section" data-ui="review-checklist-section">
+                        <h5 class="panel-section-title"><i class="bi bi-list-check"></i> Checklist</h5>
+                        <div id="reviewIssueChecklist" class="workflow-checklist" data-ui="review-issue-checklist"></div>
+                    </section>
+                    <hr>
+                    <section class="panel-section review-actions-section" data-ui="review-actions-section">
+                        <h5 class="panel-section-title"><i class="bi bi-check2-circle"></i> Actions</h5>
+                        <div class="d-grid gap-2">
+                            <button id="reviewApproveBtn" type="button" class="btn btn-success" data-ui="review-approve-action">Approve Current Image</button>
+                            <button id="reviewNeedsFixBtn" type="button" class="btn btn-outline-danger" data-ui="review-needs-fix-action">Mark Needs Fix</button>
+                        </div>
+                    </section>
                 </div>
-                </section>
-                <hr>
-                <section class="panel-section arrange-panel-section" data-ui="arrange-controls">
-                    <h5 class="panel-section-title"><i class="bi bi-layout-three-columns"></i> Arrange</h5>
-                    <div class="arrange-controls-grid" role="group" aria-label="Arrange controls">
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignLeftBtn" data-ui="arrange-align-left" title="Align Left" aria-label="Align Left" disabled>
-                            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path fill="currentColor" d="M4 4h2v16H4zM8 7h11v2H8zm0 4h8v2H8zm0 4h11v2H8z"/>
-                            </svg>
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRightBtn" data-ui="arrange-align-right" title="Align Right" aria-label="Align Right" disabled>
-                            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path fill="currentColor" d="M18 4h2v16h-2zM5 7h11v2H5zm3 4h8v2H8zm-3 4h11v2H5z"/>
-                            </svg>
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignTopBtn" data-ui="arrange-align-top" title="Align Top" aria-label="Align Top" disabled>
-                            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path fill="currentColor" d="M4 4h16v2H4zM7 8h2v11H7zm4 0h2v8h-2zm4 0h2v11h-2z"/>
-                            </svg>
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignBottomBtn" data-ui="arrange-align-bottom" title="Align Bottom" aria-label="Align Bottom" disabled>
-                            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path fill="currentColor" d="M4 18h16v2H4zM7 5h2v11H7zm4 8h2V5h-2zm4-8h2v11h-2z"/>
-                            </svg>
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeHorizontalBtn" data-ui="arrange-distribute-horizontal" title="Distribute Horizontally" aria-label="Distribute Horizontally" disabled>
-                            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path fill="currentColor" d="M4 4h2v16H4zm14 0h2v16h-2zM8 11h2v2H8zm3 0h2v2h-2zm3 0h2v2h-2z"/>
-                            </svg>
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeVerticalBtn" data-ui="arrange-distribute-vertical" title="Distribute Vertically" aria-label="Distribute Vertically" disabled>
-                            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path fill="currentColor" d="M4 4h16v2H4zm0 14h16v2H4zM11 8h2v2h-2zm0 3h2v2h-2zm0 3h2v2h-2z"/>
-                            </svg>
-                        </button>
-                    </div>
-                </section>
-                <hr>
-                <section class="panel-section label-list-section" data-ui="label-list-section">
-                <div class="d-flex justify-content-between align-items-center mb-2 label-list-header" data-ui="label-list-header">
-                    <h5 class="mb-0 panel-section-title"><i class="bi bi-tags"></i> Labels</h5>
-                    <div class="btn-group btn-group-sm label-sort-controls" data-ui="label-sort-controls" role="group">
-                        <button id="sortLabelsAscBtn" type="button" class="btn btn-outline-secondary" data-ui="sort-labels-asc" title="Sort Ascending"><i class="bi bi-sort-numeric-down"></i></button>
-                        <button id="sortLabelsDescBtn" type="button" class="btn btn-outline-secondary" data-ui="sort-labels-desc" title="Sort Descending"><i class="bi bi-sort-numeric-up-alt"></i></button>
-                    </div>
-                </div>
-                <div class="input-group mb-2 select-by-class-group" data-ui="select-by-class-group">
-                    <select class="form-select" id="select-by-class-dropdown">
-                        <option selected value="">Select a class</option>
-                    </select>
-                    <button class="btn btn-outline-primary" type="button" id="select-by-class-btn" data-ui="select-by-class-submit">Select</button>
-                </div>
-                <div class="d-grid gap-2 mb-2 class-info-actions" data-ui="class-info-actions">
-                    <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary" data-ui="load-class-info-folder"><i class="bi bi-folder-symlink"></i> Load Class Info Folder</button>
-                </div>
-                <div class="input-group mb-2 class-file-select-group" data-ui="class-file-select-group">
-                    <label class="input-group-text" for="class-file-select">Class File</label>
-                    <select class="form-select" id="class-file-select">
-                        <option selected>Choose...</option>
-                    </select>
-                    <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file"><i class="bi bi-eye"></i></button>
-                </div>
-                <ul id="label-list" class="list-group label-list-panel" data-ui="label-list-panel">
-                    <!-- Labels will be added here -->
-                </ul>
-                </section>
             </div>
         </div>
     </div> <!-- This closes main-container -->

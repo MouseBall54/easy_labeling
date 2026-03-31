@@ -1,4 +1,4 @@
-import { createCanvasController } from "../features/canvas/canvas-controller.js";
+import { createCanvasControllerForWorkflow, createCanvasShell } from "../features/canvas/canvas-controller.js";
 class LiveCanvasControllerState {
     appState;
     constructor(appState) {
@@ -63,7 +63,8 @@ export function createCanvasControllerAdapter(input) {
         }
         return value;
     };
-    const featureController = createCanvasController(new LiveCanvasControllerState(input.state), {
+    const liveState = new LiveCanvasControllerState(input.state);
+    const controllerDeps = {
         fabric: input.fabricRef,
         getCanvasContainerSize: () => {
             const canvasContainer = input.documentRef.querySelector(".canvas-container");
@@ -85,7 +86,8 @@ export function createCanvasControllerAdapter(input) {
             void connectedDeps;
         },
         updateZoomDisplay: () => {
-            uiManager?.updateZoomDisplay(featureController.canvas.getZoom());
+            getActiveController().renderAll();
+            uiManager?.updateZoomDisplay(getActiveController().canvas.getZoom());
         },
         getDisplayNameForClass: (labelClass) => {
             return uiManager?.getDisplayNameForClass(labelClass) ?? String(labelClass ?? "");
@@ -93,15 +95,36 @@ export function createCanvasControllerAdapter(input) {
         notify: (message, duration) => {
             uiManager?.notify(message, duration);
         }
-    });
+    };
+    const sharedShell = createCanvasShell(liveState, controllerDeps);
+    const workflowControllers = {
+        detection: createCanvasControllerForWorkflow("detection", liveState, controllerDeps, sharedShell),
+        segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell),
+        review: createCanvasControllerForWorkflow("review", liveState, controllerDeps, sharedShell)
+    };
+    const getResolvedWorkflow = () => {
+        if (input.state.session.workflow === "review") {
+            return input.state.session.reviewTargetWorkflow;
+        }
+        return input.state.session.workflow;
+    };
+    const getActiveController = () => {
+        return workflowControllers[getResolvedWorkflow()] ?? workflowControllers.detection;
+    };
     return {
-        raw: featureController,
+        get raw() {
+            return getActiveController();
+        },
         connect(deps) {
             connectedDeps = deps;
             uiManager = deps.uiManager;
         },
         setMode(mode) {
-            featureController.setMode(mode);
+            getActiveController().setMode(mode);
+        },
+        setWorkflow(workflow) {
+            input.state.session.workflow = workflow;
+            getActiveController().setMode(input.state.view.currentMode);
         }
     };
 }

@@ -140,6 +140,14 @@ function bootstrapBrowserRuntime() {
                 height: bounds.height
             };
         },
+        getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
+        getCanvasObjectCounts: () => {
+            const counts = new Map();
+            runtimeCanvasController.raw.getObjects().forEach((object) => {
+                counts.set(object.type, (counts.get(object.type) ?? 0) + 1);
+            });
+            return Object.fromEntries(counts.entries());
+        },
         canUndo: () => runtimeCanvasController.raw.canUndo(),
         canRedo: () => runtimeCanvasController.raw.canRedo(),
         selectRectsByIndex: (indices) => {

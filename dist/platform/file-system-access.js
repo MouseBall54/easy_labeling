@@ -49,3 +49,13 @@ export async function writeTextFileByName(directoryHandle, fileName, content) {
     await writable.write(content);
     await writable.close();
 }
+export async function readBinaryFileByName(directoryHandle, fileName) {
+    const fileHandle = await directoryHandle.getFileHandle(fileName);
+    return readFileArrayBuffer(fileHandle);
+}
+export async function writeBinaryFileByName(directoryHandle, fileName, content) {
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+}

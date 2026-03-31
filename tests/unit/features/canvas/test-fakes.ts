@@ -1,6 +1,6 @@
 import type { FabricActiveSelectionLike, FabricAnimationOptions, FabricCanvasLike, FabricCircleLike, FabricImageLike, FabricLineLike, FabricObjectLike, FabricRectLike, FabricRuntimeLike, FabricTextLike, YoloMetadata } from "../../../../src/features/canvas/fabric-types.js";
 
-type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element";
+type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element" | "overlayPixels" | "overlayVisible" | "overlayOpacity";
 
 function cloneMetadata(metadata: YoloMetadata | null | undefined): YoloMetadata | null | undefined {
   if (metadata === null || metadata === undefined) {
@@ -24,6 +24,7 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
   public strokeWidth = 0;
   public strokeDashArray: number[] = [];
   public shadow: unknown = null;
+  public opacity = 1;
   public labelClass: string | undefined;
   public annotationId: string | undefined;
   public originalYolo: YoloMetadata | null | undefined;
@@ -90,6 +91,7 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
     target.strokeWidth = this.strokeWidth;
     target.strokeDashArray = [...this.strokeDashArray];
     target.shadow = this.shadow;
+    target.opacity = this.opacity;
     target.labelClass = this.labelClass;
     target.annotationId = this.annotationId;
     target.originalYolo = cloneMetadata(this.originalYolo);

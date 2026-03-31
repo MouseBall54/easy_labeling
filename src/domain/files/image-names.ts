@@ -6,8 +6,15 @@ export function compareNamedFilesByImageName(a: NamedFileLike, b: NamedFileLike)
   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
 }
 
+export function imageFileNameToBaseName(imageFileName: string): string {
+  return imageFileName.replace(/\.[^/.]+$/, "");
+}
+
 export function imageFileNameToLabelFileName(imageFileName: string): string {
-  return imageFileName.replace(/\.[^/.]+$/, ".txt");
+  if (!imageFileName.includes(".")) {
+    return imageFileName;
+  }
+  return `${imageFileNameToBaseName(imageFileName)}.txt`;
 }
 
 export function isSupportedImageFileName(fileName: string): boolean {

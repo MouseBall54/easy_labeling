@@ -13,6 +13,9 @@ const renderLabelFiltersMock = vi.fn((input: {
   input.labelFiltersElement.innerHTML = "";
 });
 const renderSelectByClassDropdownMock = vi.fn();
+const renderImageListMock = vi.fn((input: unknown) => { void input; return []; });
+const renderPreviewListMock = vi.fn((input: unknown) => { void input; return []; });
+const renderWorkflowPanelsMock = vi.fn((input: unknown) => { void input; });
 
 vi.mock("../../../src/ui/dom-elements.js", () => ({
   getDOMElements: (...args: unknown[]) => getDOMElementsMock(...args)
@@ -21,12 +24,13 @@ vi.mock("../../../src/ui/dom-elements.js", () => ({
 vi.mock("../../../src/ui/renderers.js", () => ({
   bindLabelFilterEvents: vi.fn(),
   renderClassFileSelect: vi.fn(),
-  renderImageList: vi.fn(),
+  renderImageList: (input: unknown) => renderImageListMock(input),
   renderLabelFilters: (input: unknown) => {
     renderLabelFiltersMock(input as { labelFiltersElement: FakeElement; rects: Array<{ labelClass: string }> });
   },
-  renderPreviewList: vi.fn(),
+  renderPreviewList: (input: unknown) => renderPreviewListMock(input),
   renderSelectByClassDropdown: (...args: unknown[]) => renderSelectByClassDropdownMock(...args),
+  renderWorkflowPanels: (input: unknown) => renderWorkflowPanelsMock(input),
   showLoadingOverlay: vi.fn(),
   hideLoadingOverlay: vi.fn()
 }));
@@ -153,6 +157,10 @@ class FakeElement {
   querySelector(_selector: string): FakeElement | null {
     return null;
   }
+
+  querySelectorAll(_selector: string): FakeElement[] {
+    return [];
+  }
 }
 
 class FakeDocument {
@@ -179,11 +187,51 @@ function flattenRows(parent: FakeElement): FakeElement[] {
   });
 }
 
-function createElements(): { labelList: FakeElement; labelFilters: FakeElement; selectByClassDropdown: FakeElement } {
+function createElements() {
+  const imageSearchInput = new FakeElement("input");
+  imageSearchInput.value = "";
+  const showLabeledCheckbox = new FakeElement("input");
+  showLabeledCheckbox.checked = true;
+  const showUnlabeledCheckbox = new FakeElement("input");
+  showUnlabeledCheckbox.checked = true;
+  const segmentationMaskVisibilityToggle = new FakeElement("input");
+  segmentationMaskVisibilityToggle.checked = true;
+  const segmentationMaskOpacitySlider = new FakeElement("input");
+  segmentationMaskOpacitySlider.value = "60";
+  const segmentationToolSizeSlider = new FakeElement("input");
+  segmentationToolSizeSlider.value = "6";
+
   return {
     labelList: new FakeElement("div"),
     labelFilters: new FakeElement("div"),
-    selectByClassDropdown: new FakeElement("select")
+    selectByClassDropdown: new FakeElement("select"),
+    detectionWorkflowPanel: new FakeElement("div"),
+    segmentationWorkflowPanel: new FakeElement("div"),
+    reviewWorkflowPanel: new FakeElement("div"),
+    imageList: new FakeElement("div"),
+    imageSearchInput,
+    showLabeledCheckbox,
+    showUnlabeledCheckbox,
+    bottomPanel: new FakeElement("div"),
+    previewList: new FakeElement("div"),
+    previewListWrapper: new FakeElement("div"),
+    segmentationActiveClassSummary: new FakeElement("div"),
+    segmentationRelabelRegionBtn: new FakeElement("button"),
+    segmentationBrushModeBtn: new FakeElement("button"),
+    segmentationEraseModeBtn: new FakeElement("button"),
+    segmentationToolSizeLabel: new FakeElement("label"),
+    segmentationToolSizeSlider,
+    segmentationToolSizeValue: new FakeElement("span"),
+    segmentationToolSizePresets: new FakeElement("div"),
+    segmentationMaskVisibilityToggle,
+    segmentationMaskOpacitySlider,
+    segmentationMaskOpacityValue: new FakeElement("span"),
+    segmentationClassSummary: new FakeElement("div"),
+    reviewTargetSelect: new FakeElement("select"),
+    reviewStatusUntouched: new FakeElement("input"),
+    reviewStatusApproved: new FakeElement("input"),
+    reviewStatusNeedsFix: new FakeElement("input"),
+    reviewIssueChecklist: new FakeElement("div")
   };
 }
 
@@ -231,6 +279,16 @@ function createManagerWithRects(input: {
         removeObject: () => {
           return;
         },
+        getSegmentationSummary: () => ({
+          activeClassId: "1",
+          activeTool: "brush",
+          brushRadius: 6,
+          overlayVisible: true,
+          overlayOpacity: 0.6,
+          visibleClassIds: [],
+          allClassIds: [],
+          hiddenClassIds: []
+        }),
         renderAll: () => {
           return;
         },
@@ -252,6 +310,9 @@ describe("bootstrap/ui-manager-adapter updateLabelList", () => {
     getDOMElementsMock.mockReset();
     renderLabelFiltersMock.mockClear();
     renderSelectByClassDropdownMock.mockClear();
+    renderImageListMock.mockClear();
+    renderPreviewListMock.mockClear();
+    renderWorkflowPanelsMock.mockClear();
   });
 
   it("renders only visible rows/groups while preserving hidden classes in filter controls", () => {
@@ -359,5 +420,47 @@ describe("bootstrap/ui-manager-adapter updateLabelList", () => {
     expect(secondDropdownCall?.[1]).toEqual([]);
     const summary = elements.labelFilters.children.find((child) => child.dataset.ui === "filter-summary");
     expect(summary?.textContent).toBe("Visible: 0 / Total: 3");
+  });
+});
+
+
+describe("bootstrap/ui-manager-adapter workflow panels", () => {
+  beforeEach(() => {
+    getDOMElementsMock.mockReset();
+    renderImageListMock.mockClear();
+    renderPreviewListMock.mockClear();
+    renderWorkflowPanelsMock.mockClear();
+  });
+
+  it("switches workflow-specific right-panel sections through renderer helpers", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    getDOMElementsMock.mockReturnValue(elements);
+
+    const manager = createUiManagerAdapter({
+      state,
+      documentRef: new FakeDocument() as unknown as Document,
+      bootstrapRef: {} as never,
+      windowRef: { prompt: () => null },
+      storage: {
+        getItem: () => null,
+        setItem: () => {
+          return;
+        }
+      }
+    });
+
+    manager.setWorkflow("review");
+
+    expect(state.session.workflow).toBe("review");
+    expect(renderWorkflowPanelsMock).toHaveBeenCalledWith({
+      detectionPanelElement: elements.detectionWorkflowPanel,
+      segmentationPanelElement: elements.segmentationWorkflowPanel,
+      reviewPanelElement: elements.reviewWorkflowPanel,
+      activeWorkflow: "review",
+      reviewTargetWorkflow: "detection"
+    });
+    expect(renderImageListMock).toHaveBeenCalledTimes(1);
+    expect(renderPreviewListMock).toHaveBeenCalledTimes(1);
   });
 });

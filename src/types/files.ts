@@ -12,8 +12,10 @@ export interface FileTextLike {
   arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
+export type WritableFileContent = string | ArrayBuffer;
+
 export interface WritableFileLike {
-  write(data: string): Promise<void>;
+  write(data: WritableFileContent): Promise<void>;
   close(): Promise<void>;
 }
 
