@@ -292,9 +292,6 @@ describe("bootstrap/file-system-adapter", () => {
         const newImageFolder = new MockDirectoryHandle("images-b");
         newImageFolder.withDirectory(new MockDirectoryHandle("label"));
         newImageFolder.withDirectory(new MockDirectoryHandle("mask"));
-        newImageFolder.withDirectory(new MockDirectoryHandle("review")
-          .withDirectory(new MockDirectoryHandle("detection"))
-          .withDirectory(new MockDirectoryHandle("segmentation")));
         const state = createInitialAppState();
         state.view.isAutoSaveEnabled = true;
         state.session.workflow = "segmentation";

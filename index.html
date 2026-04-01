@@ -22,8 +22,6 @@
                     <input type="radio" class="btn-check" name="workflow" id="segmentationWorkflowTab" autocomplete="off">
                     <label class="btn btn-outline-light" for="segmentationWorkflowTab" data-ui="workflow-tab-segmentation">Segmentation</label>
 
-                    <input type="radio" class="btn-check" name="workflow" id="reviewWorkflowTab" autocomplete="off">
-                    <label class="btn btn-outline-light" for="reviewWorkflowTab" data-ui="workflow-tab-review">Review</label>
                 </div>
                 <div class="btn-group history-controls" data-ui="history-controls" role="group" aria-label="History controls">
                     <button class="btn btn-outline-light btn-sm" type="button" id="undoBtn" data-ui="history-undo" title="Undo" aria-label="Undo" disabled>
@@ -294,40 +292,6 @@
                             <input type="range" class="form-range" min="0" max="100" value="60" id="segmentationMaskOpacitySlider" data-ui="segmentation-mask-opacity-slider">
                         </div>
                         <div id="segmentationClassSummary" class="workflow-summary-card workflow-summary-card-muted" data-ui="segmentation-class-summary">Per-class visibility and mask summaries will appear here.</div>
-                    </section>
-                </div>
-                <div id="reviewWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-review" style="display: none;">
-                    <section class="panel-section review-target-section" data-ui="review-target-section">
-                        <h5 class="panel-section-title"><i class="bi bi-clipboard-check"></i> Review Target</h5>
-                        <select id="reviewTargetSelect" class="form-select" data-ui="review-target-select">
-                            <option value="detection" selected>Detection</option>
-                            <option value="segmentation">Segmentation</option>
-                        </select>
-                    </section>
-                    <hr>
-                    <section class="panel-section review-status-section" data-ui="review-status-section">
-                        <h5 class="panel-section-title"><i class="bi bi-check2-square"></i> Review Status</h5>
-                        <div class="btn-group w-100" role="group" aria-label="Review status controls">
-                            <input type="radio" class="btn-check" name="review-status" id="reviewStatusUntouched" autocomplete="off" checked>
-                            <label class="btn btn-outline-secondary" for="reviewStatusUntouched" data-ui="review-status-untouched">Untouched</label>
-                            <input type="radio" class="btn-check" name="review-status" id="reviewStatusApproved" autocomplete="off">
-                            <label class="btn btn-outline-secondary" for="reviewStatusApproved" data-ui="review-status-approved">Approved</label>
-                            <input type="radio" class="btn-check" name="review-status" id="reviewStatusNeedsFix" autocomplete="off">
-                            <label class="btn btn-outline-secondary" for="reviewStatusNeedsFix" data-ui="review-status-needs-fix">Needs Fix</label>
-                        </div>
-                    </section>
-                    <hr>
-                    <section class="panel-section review-checklist-section" data-ui="review-checklist-section">
-                        <h5 class="panel-section-title"><i class="bi bi-list-check"></i> Checklist</h5>
-                        <div id="reviewIssueChecklist" class="workflow-checklist" data-ui="review-issue-checklist"></div>
-                    </section>
-                    <hr>
-                    <section class="panel-section review-actions-section" data-ui="review-actions-section">
-                        <h5 class="panel-section-title"><i class="bi bi-check2-circle"></i> Actions</h5>
-                        <div class="d-grid gap-2">
-                            <button id="reviewApproveBtn" type="button" class="btn btn-success" data-ui="review-approve-action">Approve Current Image</button>
-                            <button id="reviewNeedsFixBtn" type="button" class="btn btn-outline-danger" data-ui="review-needs-fix-action">Mark Needs Fix</button>
-                        </div>
                     </section>
                 </div>
             </div>

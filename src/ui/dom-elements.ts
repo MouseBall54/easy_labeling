@@ -21,10 +21,8 @@ export interface UiDomElements {
   saveLabelsBtn: HTMLElement;
   detectionWorkflowTab: HTMLInputElement;
   segmentationWorkflowTab: HTMLInputElement;
-  reviewWorkflowTab: HTMLInputElement;
   detectionWorkflowPanel: HTMLElement;
   segmentationWorkflowPanel: HTMLElement;
-  reviewWorkflowPanel: HTMLElement;
   autoSaveToggle: HTMLInputElement;
   showLabelsOnCanvasToggle: HTMLInputElement;
   labelFontSizeSlider: HTMLInputElement;
@@ -95,13 +93,6 @@ export interface UiDomElements {
   segmentationMaskOpacitySlider: HTMLInputElement;
   segmentationMaskOpacityValue: HTMLElement;
   segmentationClassSummary: HTMLElement;
-  reviewTargetSelect: HTMLSelectElement;
-  reviewStatusUntouched: HTMLInputElement;
-  reviewStatusApproved: HTMLInputElement;
-  reviewStatusNeedsFix: HTMLInputElement;
-  reviewIssueChecklist: HTMLElement;
-  reviewApproveBtn: HTMLElement;
-  reviewNeedsFixBtn: HTMLElement;
   saveLabelClassBtn: HTMLElement;
   crosshairToggle: HTMLInputElement;
   contextMenu: HTMLElement;
@@ -149,10 +140,8 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     saveLabelsBtn: requireById<HTMLElement>(documentRef, "saveLabelsBtn"),
     detectionWorkflowTab: requireById<HTMLInputElement>(documentRef, "detectionWorkflowTab"),
     segmentationWorkflowTab: requireById<HTMLInputElement>(documentRef, "segmentationWorkflowTab"),
-    reviewWorkflowTab: requireById<HTMLInputElement>(documentRef, "reviewWorkflowTab"),
     detectionWorkflowPanel: requireById<HTMLElement>(documentRef, "detectionWorkflowPanel"),
     segmentationWorkflowPanel: requireById<HTMLElement>(documentRef, "segmentationWorkflowPanel"),
-    reviewWorkflowPanel: requireById<HTMLElement>(documentRef, "reviewWorkflowPanel"),
     autoSaveToggle: requireById<HTMLInputElement>(documentRef, "autoSaveToggle"),
     showLabelsOnCanvasToggle: requireById<HTMLInputElement>(documentRef, "showLabelsOnCanvasToggle"),
     labelFontSizeSlider: requireById<HTMLInputElement>(documentRef, "label-font-size"),
@@ -223,13 +212,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationMaskOpacitySlider: requireById<HTMLInputElement>(documentRef, "segmentationMaskOpacitySlider"),
     segmentationMaskOpacityValue: requireById<HTMLElement>(documentRef, "segmentationMaskOpacityValue"),
     segmentationClassSummary: requireById<HTMLElement>(documentRef, "segmentationClassSummary"),
-    reviewTargetSelect: requireById<HTMLSelectElement>(documentRef, "reviewTargetSelect"),
-    reviewStatusUntouched: requireById<HTMLInputElement>(documentRef, "reviewStatusUntouched"),
-    reviewStatusApproved: requireById<HTMLInputElement>(documentRef, "reviewStatusApproved"),
-    reviewStatusNeedsFix: requireById<HTMLInputElement>(documentRef, "reviewStatusNeedsFix"),
-    reviewIssueChecklist: requireById<HTMLElement>(documentRef, "reviewIssueChecklist"),
-    reviewApproveBtn: requireById<HTMLElement>(documentRef, "reviewApproveBtn"),
-    reviewNeedsFixBtn: requireById<HTMLElement>(documentRef, "reviewNeedsFixBtn"),
     saveLabelClassBtn: requireById<HTMLElement>(documentRef, "saveLabelClassBtn"),
     crosshairToggle: requireById<HTMLInputElement>(documentRef, "crosshairToggle"),
     contextMenu: requireById<HTMLElement>(documentRef, "context-menu"),

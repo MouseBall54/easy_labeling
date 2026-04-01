@@ -1,6 +1,6 @@
 import type { WorkflowType } from "../../types/labels.js";
 
-export type AnnotationWorkflow = Exclude<WorkflowType, "review">;
+export type AnnotationWorkflow = WorkflowType;
 
 export const ANNOTATION_WORKFLOWS = ["detection", "segmentation"] as const satisfies readonly AnnotationWorkflow[];
 
@@ -34,29 +34,8 @@ export interface AnnotationCodec<
   encode(input: TWriteInput): SerializedAnnotationAsset[];
 }
 
-export const REVIEW_STATUS_VALUES = ["untouched", "approved", "needs-fix"] as const;
-
-export type ReviewStatus = typeof REVIEW_STATUS_VALUES[number];
-
-export interface ReviewDocument<TIssueKey extends string = string> {
-  workflow: AnnotationWorkflow;
-  format: "review-json-v1";
-  status: ReviewStatus;
-  note: string;
-  issueFlags: Partial<Record<TIssueKey, boolean>>;
-}
-
-export interface ReviewCodec<TDocument extends ReviewDocument = ReviewDocument> {
-  readonly workflow: AnnotationWorkflow;
-  resolvePath(imageBaseName: string): string;
-  decode(input: string): TDocument;
-  encode(document: TDocument): string;
-}
-
-
 export interface WorkflowAnnotationStatus {
   hasAnnotation: boolean;
-  reviewStatus: ReviewStatus;
 }
 
 export interface ImageWorkflowStatus {
@@ -67,12 +46,10 @@ export interface ImageWorkflowStatus {
 export function createEmptyImageWorkflowStatus(): ImageWorkflowStatus {
   return {
     detection: {
-      hasAnnotation: false,
-      reviewStatus: "untouched"
+      hasAnnotation: false
     },
     segmentation: {
-      hasAnnotation: false,
-      reviewStatus: "untouched"
+      hasAnnotation: false
     }
   };
 }

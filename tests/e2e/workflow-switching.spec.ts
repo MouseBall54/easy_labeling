@@ -100,39 +100,6 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
     );
     imageFolder.setEntry("label", labelFolder);
 
-    const reviewFolder = new MockDirectoryHandle("review");
-    const detectionReviewFolder = new MockDirectoryHandle("detection");
-    detectionReviewFolder.setEntry(
-      "scene-a.review.json",
-      new MockFileHandle(
-        "scene-a.review.json",
-        JSON.stringify({
-          workflow: "detection",
-          format: "review-json-v1",
-          status: "approved",
-          note: "ok",
-          issueFlags: {}
-        })
-      )
-    );
-    const segmentationReviewFolder = new MockDirectoryHandle("segmentation");
-    segmentationReviewFolder.setEntry(
-      "scene-a.review.json",
-      new MockFileHandle(
-        "scene-a.review.json",
-        JSON.stringify({
-          workflow: "segmentation",
-          format: "review-json-v1",
-          status: "needs-fix",
-          note: "mask fix pending",
-          issueFlags: { coverage: true }
-        })
-      )
-    );
-    reviewFolder.setEntry("detection", detectionReviewFolder);
-    reviewFolder.setEntry("segmentation", segmentationReviewFolder);
-    imageFolder.setEntry("review", reviewFolder);
-
     imageFolder.setEntry("mask", new MockDirectoryHandle("mask"));
 
     Object.defineProperty(window, "showDirectoryPicker", {
@@ -151,41 +118,15 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
 
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
-  await expect(page.locator('#reviewWorkflowPanel')).toBeHidden();
 
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
-  await expect(page.locator('#reviewWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Active Class');
-
-  await page.locator('label[for="reviewWorkflowTab"]').click();
-  await expect(page.locator('#reviewWorkflowPanel')).toBeVisible();
-  await expect(page.locator('#reviewTargetSelect')).toHaveValue('detection');
-  await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
-  await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
-  await expect(page.locator('#reviewStatusApproved')).toBeChecked();
-
-  await page.selectOption('#reviewTargetSelect', 'segmentation');
-  await expect(page.locator('#reviewWorkflowPanel')).toBeVisible();
-  await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
-  await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
-  await expect(page.locator('#reviewStatusNeedsFix')).toBeChecked();
-
-  await expect.poll(async () => {
-    return page.evaluate(() => {
-      const api = Reflect.get(window, '__easyLabelingTestApi');
-      return {
-        activeClassId: api?.getSegmentationSummary?.()?.activeClassId ?? null,
-        imageCount: api?.getCanvasObjectCounts?.().image ?? 0
-      };
-    });
-  }).toEqual({ activeClassId: '1', imageCount: 1 });
 
   await page.locator('label[for="detectionWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
-  await expect(page.locator('#reviewWorkflowPanel')).toBeHidden();
   await page.locator('[data-testid="image-list-item-scene-a.png"]').click();
   await expect.poll(async () => {
     return page.evaluate(() => Reflect.get(window, '__easyLabelingTestApi')?.getRectCount?.() ?? 0);

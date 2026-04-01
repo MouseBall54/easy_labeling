@@ -112,10 +112,15 @@ export function updateSegmentationOverlayObject(
   overlayObject: FabricImageLike,
   overlay: SegmentationOverlaySnapshot
 ): void {
+  const nextElement = createOverlayElement(overlay);
+  if (typeof overlayObject.setElement === "function") {
+    overlayObject.setElement(nextElement);
+  }
+
   overlayObject.set({
     width: overlay.width,
     height: overlay.height,
-    element: createOverlayElement(overlay),
+    element: nextElement,
     visible: overlay.visible,
     opacity: overlay.opacity,
     selectable: false,

@@ -61,18 +61,6 @@ class LiveImageSessionState {
     set workflow(value) {
         this.appState.session.workflow = value;
     }
-    get reviewTargetWorkflow() {
-        return this.appState.session.reviewTargetWorkflow;
-    }
-    set reviewTargetWorkflow(value) {
-        this.appState.session.reviewTargetWorkflow = value;
-    }
-    get reviewDocuments() {
-        return this.appState.session.reviewDocuments;
-    }
-    set reviewDocuments(value) {
-        this.appState.session.reviewDocuments = value;
-    }
     get classFiles() {
         return this.appState.session.classFiles;
     }

@@ -25,7 +25,3 @@ export function resolveAnnotationAssetPaths(workflow, imageBaseName) {
         sidecarFilePaths: convention.sidecarSuffixes.map((suffix) => `${convention.primaryDir}/${normalized}${suffix}`)
     };
 }
-export function resolveReviewDocumentPath(workflow, imageBaseName) {
-    const normalized = normalizeImageBaseName(imageBaseName);
-    return `review/${workflow}/${normalized}.review.json`;
-}

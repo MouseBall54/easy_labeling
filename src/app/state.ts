@@ -1,5 +1,4 @@
-import type { AnnotationWorkflow, ImageWorkflowStatus } from "../domain/annotations/contracts.js";
-import { createEmptyReviewDocument, type WorkflowReviewDocument } from "../domain/annotations/review.js";
+import type { ImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import type { DirectoryHandle, FileHandle } from "../types/files.js";
 import type { AppMode, CanvasPoint, LabelSortOrder, WorkflowType } from "../types/labels.js";
 
@@ -15,8 +14,6 @@ export interface AppSessionState {
   currentImage: HTMLImageElement | null;
   classNames: Map<string, string>;
   workflow: WorkflowType;
-  reviewTargetWorkflow: AnnotationWorkflow;
-  reviewDocuments: Record<AnnotationWorkflow, WorkflowReviewDocument>;
 }
 
 export interface AppViewState {
@@ -62,12 +59,7 @@ export function createInitialAppState(): AppState {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
-      workflow: "detection",
-      reviewTargetWorkflow: "detection",
-      reviewDocuments: {
-        detection: createEmptyReviewDocument("detection"),
-        segmentation: createEmptyReviewDocument("segmentation")
-      }
+      workflow: "detection"
     },
     view: {
       currentMode: "edit",

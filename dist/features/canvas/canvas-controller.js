@@ -10,7 +10,6 @@ export function createCanvasControllerForWorkflow(workflow, state, deps, sharedS
             return createDetectionCanvasWorkflow(state, deps, shell);
         case "segmentation":
             return createSegmentationCanvasWorkflow(state, deps, shell);
-        case "review":
         default:
             return createDetectionCanvasWorkflow(state, deps, shell);
     }

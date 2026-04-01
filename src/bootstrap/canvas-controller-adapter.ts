@@ -136,19 +136,11 @@ export function createCanvasControllerAdapter(input: {
   const sharedShell = createCanvasShell(liveState, controllerDeps);
   const workflowControllers: Record<WorkflowType, FeatureCanvasController> = {
     detection: createCanvasControllerForWorkflow("detection", liveState, controllerDeps, sharedShell),
-    segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell),
-    review: createCanvasControllerForWorkflow("review", liveState, controllerDeps, sharedShell)
-  };
-
-  const getResolvedWorkflow = (): WorkflowType => {
-    if (input.state.session.workflow === "review") {
-      return input.state.session.reviewTargetWorkflow;
-    }
-    return input.state.session.workflow;
+    segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell)
   };
 
   const getActiveController = (): FeatureCanvasController => {
-    return workflowControllers[getResolvedWorkflow()] ?? workflowControllers.detection;
+    return workflowControllers[input.state.session.workflow] ?? workflowControllers.detection;
   };
 
   return {

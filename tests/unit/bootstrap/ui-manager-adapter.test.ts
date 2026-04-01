@@ -207,7 +207,6 @@ function createElements() {
     selectByClassDropdown: new FakeElement("select"),
     detectionWorkflowPanel: new FakeElement("div"),
     segmentationWorkflowPanel: new FakeElement("div"),
-    reviewWorkflowPanel: new FakeElement("div"),
     imageList: new FakeElement("div"),
     imageSearchInput,
     showLabeledCheckbox,
@@ -226,12 +225,7 @@ function createElements() {
     segmentationMaskVisibilityToggle,
     segmentationMaskOpacitySlider,
     segmentationMaskOpacityValue: new FakeElement("span"),
-    segmentationClassSummary: new FakeElement("div"),
-    reviewTargetSelect: new FakeElement("select"),
-    reviewStatusUntouched: new FakeElement("input"),
-    reviewStatusApproved: new FakeElement("input"),
-    reviewStatusNeedsFix: new FakeElement("input"),
-    reviewIssueChecklist: new FakeElement("div")
+    segmentationClassSummary: new FakeElement("div")
   };
 }
 
@@ -450,15 +444,13 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
       }
     });
 
-    manager.setWorkflow("review");
+    manager.setWorkflow("segmentation");
 
-    expect(state.session.workflow).toBe("review");
+    expect(state.session.workflow).toBe("segmentation");
     expect(renderWorkflowPanelsMock).toHaveBeenCalledWith({
       detectionPanelElement: elements.detectionWorkflowPanel,
       segmentationPanelElement: elements.segmentationWorkflowPanel,
-      reviewPanelElement: elements.reviewWorkflowPanel,
-      activeWorkflow: "review",
-      reviewTargetWorkflow: "detection"
+      activeWorkflow: "segmentation"
     });
     expect(renderImageListMock).toHaveBeenCalledTimes(1);
     expect(renderPreviewListMock).toHaveBeenCalledTimes(1);

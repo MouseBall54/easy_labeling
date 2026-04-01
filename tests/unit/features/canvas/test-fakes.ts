@@ -242,6 +242,10 @@ class FakeFabricImage extends FakeFabricObject<"image"> implements FabricImageLi
     this.copyCommonTo(clone);
     return clone;
   }
+
+  setElement(element: unknown): void {
+    this.element = element;
+  }
 }
 
 class FakeActiveSelection extends FakeFabricObject<"activeSelection"> implements FabricActiveSelectionLike {

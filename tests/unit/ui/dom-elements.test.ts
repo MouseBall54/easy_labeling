@@ -19,10 +19,8 @@ const REQUIRED_IDS = [
   "saveLabelsBtn",
   "detectionWorkflowTab",
   "segmentationWorkflowTab",
-  "reviewWorkflowTab",
   "detectionWorkflowPanel",
   "segmentationWorkflowPanel",
-  "reviewWorkflowPanel",
   "autoSaveToggle",
   "showLabelsOnCanvasToggle",
   "label-font-size",
@@ -72,13 +70,6 @@ const REQUIRED_IDS = [
   "segmentationMaskOpacitySlider",
   "segmentationMaskOpacityValue",
   "segmentationClassSummary",
-  "reviewTargetSelect",
-  "reviewStatusUntouched",
-  "reviewStatusApproved",
-  "reviewStatusNeedsFix",
-  "reviewIssueChecklist",
-  "reviewApproveBtn",
-  "reviewNeedsFixBtn",
   "classFileViewerModal",
   "classFileEditorBody",
   "addClassRowBtn",
@@ -145,13 +136,10 @@ describe("ui/dom-elements", () => {
     expect(result.classFileSelect.id).toBe("class-file-select");
     expect(result.detectionWorkflowTab.id).toBe("detectionWorkflowTab");
     expect(result.segmentationWorkflowTab.id).toBe("segmentationWorkflowTab");
-    expect(result.reviewWorkflowTab.id).toBe("reviewWorkflowTab");
     expect(result.detectionWorkflowPanel.id).toBe("detectionWorkflowPanel");
     expect(result.segmentationWorkflowPanel.id).toBe("segmentationWorkflowPanel");
-    expect(result.reviewWorkflowPanel.id).toBe("reviewWorkflowPanel");
     expect(result.canvasContainer.classList.contains("canvas-container")).toBe(true);
     expect(result.segmentationBrushModeBtn.id).toBe("segmentationBrushModeBtn");
-    expect(result.reviewTargetSelect.id).toBe("reviewTargetSelect");
     expect(result.loadingOverlay.id).toBe("loading-overlay");
     expect(FakeModal.createdElements).toEqual(["classFileViewerModal", "labelClassModal"]);
   });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFakeFabricRuntime } from "../canvas/test-fakes.js";
 import { createSegmentationDocument } from "../../../../src/features/segmentation/document.js";
@@ -43,5 +43,22 @@ describe("features/segmentation/overlay", () => {
 
     expect(overlayObject.visible).toBe(false);
     expect(overlayObject.opacity).toBe(0.3);
+  });
+
+  it("uses setElement when available to refresh fabric image source safely", () => {
+    const fabric = createFakeFabricRuntime();
+    const document = createSegmentationDocument({ width: 2, height: 2, activeClassId: "5" });
+    document.applyStroke({ points: [{ x: 0, y: 0 }] });
+
+    const initial = createSegmentationOverlaySnapshot(document, () => "#abcdef");
+    const overlayObject = createSegmentationOverlayObject(fabric, initial);
+    const setElementSpy = vi.fn();
+    overlayObject.setElement = setElementSpy;
+
+    document.setOverlayOpacity(0.4);
+    const updated = createSegmentationOverlaySnapshot(document, () => "#abcdef");
+    updateSegmentationOverlayObject(overlayObject, updated);
+
+    expect(setElementSpy).toHaveBeenCalledTimes(1);
   });
 });

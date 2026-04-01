@@ -10,7 +10,6 @@ import type {
   UIManager
 } from "../../../src/app/contracts.js";
 import type { AppState } from "../../../src/app/state.js";
-import { createEmptyReviewDocument } from "../../../src/domain/annotations/review.js";
 
 function createFactorySpies() {
   const createState = vi.fn((): AppState => ({
@@ -25,12 +24,7 @@ function createFactorySpies() {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
-      workflow: "detection",
-      reviewTargetWorkflow: "detection",
-      reviewDocuments: {
-        detection: createEmptyReviewDocument("detection"),
-        segmentation: createEmptyReviewDocument("segmentation")
-      }
+      workflow: "detection"
     },
     view: {
       currentMode: "edit",

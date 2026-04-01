@@ -1,14 +1,12 @@
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 export const CREATE_NEW_CLASS_FILE_VALUE = "__CREATE_NEW__";
 export function renderWorkflowPanels(input) {
-    const showDetectionPanel = input.activeWorkflow === "detection" || (input.activeWorkflow === "review" && input.reviewTargetWorkflow === "detection");
-    const showSegmentationPanel = input.activeWorkflow === "segmentation" || (input.activeWorkflow === "review" && input.reviewTargetWorkflow === "segmentation");
+    const showDetectionPanel = input.activeWorkflow === "detection";
+    const showSegmentationPanel = input.activeWorkflow === "segmentation";
     input.detectionPanelElement.style.display = showDetectionPanel ? "" : "none";
     input.detectionPanelElement.dataset.workflowActive = String(showDetectionPanel);
     input.segmentationPanelElement.style.display = showSegmentationPanel ? "" : "none";
     input.segmentationPanelElement.dataset.workflowActive = String(showSegmentationPanel);
-    input.reviewPanelElement.style.display = input.activeWorkflow === "review" ? "" : "none";
-    input.reviewPanelElement.dataset.workflowActive = String(input.activeWorkflow === "review");
 }
 export function showLoadingOverlay(loadingOverlayElement) {
     loadingOverlayElement.classList.add("show");
@@ -22,44 +20,14 @@ function compareFileNames(a, b) {
 function getDefaultWorkflowStatus() {
     return {
         detection: {
-            hasAnnotation: false,
-            reviewStatus: "untouched"
+            hasAnnotation: false
         },
         segmentation: {
-            hasAnnotation: false,
-            reviewStatus: "untouched"
+            hasAnnotation: false
         }
     };
 }
-function deriveReviewBadge(status, targetWorkflow) {
-    const reviewStatus = status[targetWorkflow].reviewStatus;
-    if (reviewStatus === "needs-fix") {
-        return {
-            iconClassName: "bi bi-exclamation-triangle-fill text-warning",
-            isPositive: true,
-            statusKey: `review-${targetWorkflow}-needs-fix`,
-            label: `${targetWorkflow} review needs fix`
-        };
-    }
-    if (reviewStatus === "approved") {
-        return {
-            iconClassName: "bi bi-check-circle-fill text-success",
-            isPositive: true,
-            statusKey: `review-${targetWorkflow}-approved`,
-            label: `${targetWorkflow} review approved`
-        };
-    }
-    return {
-        iconClassName: "bi bi-x-circle-fill text-muted",
-        isPositive: false,
-        statusKey: `review-${targetWorkflow}-untouched`,
-        label: `${targetWorkflow} review untouched`
-    };
-}
-function deriveWorkflowBadge(status, workflow, reviewTargetWorkflow = "detection") {
-    if (workflow === "review") {
-        return deriveReviewBadge(status, reviewTargetWorkflow);
-    }
+function deriveWorkflowBadge(status, workflow) {
     const workflowStatus = workflow === "segmentation" ? status.segmentation : status.detection;
     if (workflowStatus.hasAnnotation) {
         return {
@@ -81,7 +49,7 @@ export function renderImageList(input) {
     const filteredFiles = [...input.imageFiles]
         .sort(compareFileNames)
         .filter((file) => {
-        const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+        const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
         if (!input.showLabeled && badge.isPositive) {
             return false;
         }
@@ -93,7 +61,7 @@ export function renderImageList(input) {
     input.imageListElement.innerHTML = "";
     const fragment = document.createDocumentFragment();
     for (const file of filteredFiles) {
-        const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+        const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
         const icon = `<i class="${badge.iconClassName} me-2" data-ui="image-status-badge" data-status="${badge.statusKey}" aria-label="${badge.label}"></i>`;
         const item = document.createElement("a");
         item.href = "#";
@@ -230,7 +198,7 @@ export function renderPreviewList(input) {
     }
     const filesToPreview = input.imageFiles.slice(startIndex, endIndex + 1);
     for (const file of filesToPreview) {
-        const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+        const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
         const item = document.createElement("div");
         item.className = "preview-item preview-list-item";
         item.dataset.ui = "preview-list-item";

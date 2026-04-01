@@ -35,8 +35,3 @@ export function resolveAnnotationAssetPaths(workflow: AnnotationWorkflow, imageB
     sidecarFilePaths: convention.sidecarSuffixes.map((suffix) => `${convention.primaryDir}/${normalized}${suffix}`)
   };
 }
-
-export function resolveReviewDocumentPath(workflow: AnnotationWorkflow, imageBaseName: string): string {
-  const normalized = normalizeImageBaseName(imageBaseName);
-  return `review/${workflow}/${normalized}.review.json`;
-}

@@ -1,4 +1,4 @@
-import type { AnnotationWorkflow, ImageWorkflowStatus, ReviewStatus } from "../domain/annotations/contracts.js";
+import type { ImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import type { WorkflowType } from "../types/labels.js";
 import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
@@ -10,7 +10,6 @@ export interface ImageListRenderInput {
   imageFiles: FileHandle[];
   imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
   activeWorkflow: WorkflowType;
-  reviewTargetWorkflow?: AnnotationWorkflow;
   currentImageFile: FileHandle | null;
   searchTerm: string;
   showLabeled: boolean;
@@ -25,7 +24,6 @@ export interface PreviewListRenderInput {
   imageFiles: FileHandle[];
   imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
   activeWorkflow: WorkflowType;
-  reviewTargetWorkflow?: AnnotationWorkflow;
   currentImageFile: FileHandle | null;
   isPreviewBarHidden: boolean;
   onPreviewClick?: (file: FileHandle) => void;
@@ -39,20 +37,16 @@ export interface LabelRectLike {
 export interface WorkflowPanelRenderInput {
   detectionPanelElement: HTMLElement;
   segmentationPanelElement: HTMLElement;
-  reviewPanelElement: HTMLElement;
   activeWorkflow: WorkflowType;
-  reviewTargetWorkflow?: AnnotationWorkflow;
 }
 
 export function renderWorkflowPanels(input: WorkflowPanelRenderInput): void {
-  const showDetectionPanel = input.activeWorkflow === "detection" || (input.activeWorkflow === "review" && input.reviewTargetWorkflow === "detection");
-  const showSegmentationPanel = input.activeWorkflow === "segmentation" || (input.activeWorkflow === "review" && input.reviewTargetWorkflow === "segmentation");
+  const showDetectionPanel = input.activeWorkflow === "detection";
+  const showSegmentationPanel = input.activeWorkflow === "segmentation";
   input.detectionPanelElement.style.display = showDetectionPanel ? "" : "none";
   input.detectionPanelElement.dataset.workflowActive = String(showDetectionPanel);
   input.segmentationPanelElement.style.display = showSegmentationPanel ? "" : "none";
   input.segmentationPanelElement.dataset.workflowActive = String(showSegmentationPanel);
-  input.reviewPanelElement.style.display = input.activeWorkflow === "review" ? "" : "none";
-  input.reviewPanelElement.dataset.workflowActive = String(input.activeWorkflow === "review");
 }
 
 export interface LabelFilterRenderInput {
@@ -91,49 +85,14 @@ function compareFileNames(a: FileHandle, b: FileHandle): number {
 function getDefaultWorkflowStatus(): ImageWorkflowStatus {
   return {
     detection: {
-      hasAnnotation: false,
-      reviewStatus: "untouched"
+      hasAnnotation: false
     },
     segmentation: {
-      hasAnnotation: false,
-      reviewStatus: "untouched"
+      hasAnnotation: false
     }
   };
 }
-
-function deriveReviewBadge(status: ImageWorkflowStatus, targetWorkflow: AnnotationWorkflow): WorkflowBadgeDescriptor {
-  const reviewStatus: ReviewStatus = status[targetWorkflow].reviewStatus;
-  if (reviewStatus === "needs-fix") {
-    return {
-      iconClassName: "bi bi-exclamation-triangle-fill text-warning",
-      isPositive: true,
-      statusKey: `review-${targetWorkflow}-needs-fix`,
-      label: `${targetWorkflow} review needs fix`
-    };
-  }
-
-  if (reviewStatus === "approved") {
-    return {
-      iconClassName: "bi bi-check-circle-fill text-success",
-      isPositive: true,
-      statusKey: `review-${targetWorkflow}-approved`,
-      label: `${targetWorkflow} review approved`
-    };
-  }
-
-  return {
-    iconClassName: "bi bi-x-circle-fill text-muted",
-    isPositive: false,
-    statusKey: `review-${targetWorkflow}-untouched`,
-    label: `${targetWorkflow} review untouched`
-  };
-}
-
-function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType, reviewTargetWorkflow: AnnotationWorkflow = "detection"): WorkflowBadgeDescriptor {
-  if (workflow === "review") {
-    return deriveReviewBadge(status, reviewTargetWorkflow);
-  }
-
+function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType): WorkflowBadgeDescriptor {
   const workflowStatus = workflow === "segmentation" ? status.segmentation : status.detection;
   if (workflowStatus.hasAnnotation) {
     return {
@@ -157,7 +116,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const filteredFiles = [...input.imageFiles]
     .sort(compareFileNames)
     .filter((file) => {
-      const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+      const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
       if (!input.showLabeled && badge.isPositive) {
         return false;
       }
@@ -172,7 +131,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const fragment = document.createDocumentFragment();
 
   for (const file of filteredFiles) {
-    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
     const icon = `<i class="${badge.iconClassName} me-2" data-ui="image-status-badge" data-status="${badge.statusKey}" aria-label="${badge.label}"></i>`;
     const item = document.createElement("a");
     item.href = "#";
@@ -344,7 +303,7 @@ export function renderPreviewList(input: PreviewListRenderInput): FileHandle[] {
   const filesToPreview = input.imageFiles.slice(startIndex, endIndex + 1);
 
   for (const file of filesToPreview) {
-    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow, input.reviewTargetWorkflow);
+    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
     const item = document.createElement("div");
     item.className = "preview-item preview-list-item";
     item.dataset.ui = "preview-list-item";

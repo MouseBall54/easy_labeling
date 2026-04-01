@@ -15,7 +15,6 @@ import {
 import { listFileHandles } from "../platform/file-system-access.js";
 import type { ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
-import type { AnnotationWorkflow } from "../domain/annotations/contracts.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
@@ -105,22 +104,6 @@ class LiveImageSessionState implements ImageSessionServiceState {
 
   set workflow(value) {
     this.appState.session.workflow = value;
-  }
-
-  get reviewTargetWorkflow() {
-    return this.appState.session.reviewTargetWorkflow;
-  }
-
-  set reviewTargetWorkflow(value) {
-    this.appState.session.reviewTargetWorkflow = value;
-  }
-
-  get reviewDocuments() {
-    return this.appState.session.reviewDocuments;
-  }
-
-  set reviewDocuments(value) {
-    this.appState.session.reviewDocuments = value;
   }
 
   get classFiles() {

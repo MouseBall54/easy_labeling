@@ -1,5 +1,5 @@
 import { createSegmentationDocument } from "./document.js";
-import { createSegmentationOverlayObject, createSegmentationOverlaySnapshot } from "./overlay.js";
+import { createSegmentationOverlayObject, createSegmentationOverlaySnapshot, updateSegmentationOverlayObject } from "./overlay.js";
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
 function createEmptySummary() {
     return {
@@ -25,6 +25,8 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
     let moveBaseline = null;
     let moveRegionBaseline = null;
     let movePointerStart = null;
+    let moveLastDeltaX = null;
+    let moveLastDeltaY = null;
     const resetDocumentForCurrentImage = () => {
         if (!state.currentImage) {
             document = null;
@@ -63,6 +65,8 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
         moveBaseline = null;
         moveRegionBaseline = null;
         movePointerStart = null;
+        moveLastDeltaX = null;
+        moveLastDeltaY = null;
         if (selectionOverlayObject) {
             canvas.remove(selectionOverlayObject);
             selectionOverlayObject = null;
@@ -108,12 +112,12 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
             opacity: 1,
             visible: true
         };
-        if (selectionOverlayObject) {
-            canvas.remove(selectionOverlayObject);
-            selectionOverlayObject = null;
+        if (!selectionOverlayObject) {
+            selectionOverlayObject = createSegmentationOverlayObject(deps.fabric, selectionOverlay);
+            canvas.add(selectionOverlayObject);
+            return;
         }
-        selectionOverlayObject = createSegmentationOverlayObject(deps.fabric, selectionOverlay);
-        canvas.add(selectionOverlayObject);
+        updateSegmentationOverlayObject(selectionOverlayObject, selectionOverlay);
     };
     const ensureDocument = () => {
         if (!state.currentImage) {
@@ -134,12 +138,13 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
             return;
         }
         const overlay = createSegmentationOverlaySnapshot(doc, getColorForClass);
-        if (overlayObject) {
-            canvas.remove(overlayObject);
-            overlayObject = null;
+        if (!overlayObject) {
+            overlayObject = createSegmentationOverlayObject(deps.fabric, overlay);
+            canvas.add(overlayObject);
         }
-        overlayObject = createSegmentationOverlayObject(deps.fabric, overlay);
-        canvas.add(overlayObject);
+        else {
+            updateSegmentationOverlayObject(overlayObject, overlay);
+        }
         redrawSelectionOverlay();
         canvas.requestRenderAll();
     };
@@ -162,6 +167,8 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
             moveBaseline = null;
             moveRegionBaseline = null;
             movePointerStart = null;
+            moveLastDeltaX = null;
+            moveLastDeltaY = null;
         },
         setBackgroundImage(image) {
             shell.setBackgroundImage(image);
@@ -446,6 +453,8 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
             moveBaseline = doc.cloneSnapshot();
             moveRegionBaseline = selectedRegion;
             movePointerStart = pointer;
+            moveLastDeltaX = null;
+            moveLastDeltaY = null;
             return true;
         },
         continueSegmentationRegionMove(pointer) {
@@ -453,11 +462,18 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
             if (!doc || !moveBaseline || !moveRegionBaseline || !movePointerStart) {
                 return false;
             }
+            const roundedDeltaX = Math.round(pointer.x - movePointerStart.x);
+            const roundedDeltaY = Math.round(pointer.y - movePointerStart.y);
+            if (roundedDeltaX === moveLastDeltaX && roundedDeltaY === moveLastDeltaY) {
+                return false;
+            }
             doc.restoreSnapshot(moveBaseline);
-            const movedRegion = doc.moveRegion(moveRegionBaseline, pointer.x - movePointerStart.x, pointer.y - movePointerStart.y, { recordHistory: false });
+            const movedRegion = doc.moveRegion(moveRegionBaseline, roundedDeltaX, roundedDeltaY, { recordHistory: false });
             if (!movedRegion) {
                 return false;
             }
+            moveLastDeltaX = roundedDeltaX;
+            moveLastDeltaY = roundedDeltaY;
             selectedRegion = movedRegion;
             redrawOverlay();
             return true;
@@ -471,6 +487,8 @@ export function createSegmentationCanvasWorkflow(state, deps, shell) {
             moveBaseline = null;
             moveRegionBaseline = null;
             movePointerStart = null;
+            moveLastDeltaX = null;
+            moveLastDeltaY = null;
             redrawOverlay();
             return changed;
         },

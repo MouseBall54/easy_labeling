@@ -1,6 +1,6 @@
 export type AppMode = "draw" | "edit";
 
-export type WorkflowType = "detection" | "segmentation" | "review";
+export type WorkflowType = "detection" | "segmentation";
 
 export type LabelSortOrder = "asc" | "desc";
 

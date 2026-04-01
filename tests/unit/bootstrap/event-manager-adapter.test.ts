@@ -87,7 +87,6 @@ function createElements() {
     saveLabelsBtn: new FakeHtmlElement(),
     detectionWorkflowTab: new FakeInputElement(),
     segmentationWorkflowTab: new FakeInputElement(),
-    reviewWorkflowTab: new FakeInputElement(),
     autoSaveToggle: new FakeInputElement(),
     showLabelsOnCanvasToggle: new FakeInputElement(),
     labelFontSizeSlider: new FakeInputElement(),
@@ -159,13 +158,6 @@ function createElements() {
     segmentationMaskOpacitySlider: new FakeInputElement(),
     segmentationMaskOpacityValue: new FakeHtmlElement(),
     segmentationClassSummary: new FakeHtmlElement(),
-    reviewTargetSelect: new FakeInputElement(),
-    reviewStatusUntouched: new FakeInputElement(),
-    reviewStatusApproved: new FakeInputElement(),
-    reviewStatusNeedsFix: new FakeInputElement(),
-    reviewIssueChecklist: new FakeHtmlElement(),
-    reviewApproveBtn: new FakeHtmlElement(),
-    reviewNeedsFixBtn: new FakeHtmlElement(),
     saveLabelClassBtn: new FakeHtmlElement(),
     crosshairToggle: new FakeInputElement(),
     contextMenu: new FakeHtmlElement(),
@@ -312,7 +304,7 @@ describe("bootstrap/event-manager-adapter", () => {
     const rawCanvas = createRawCanvas();
     rawCanvas.getPointer.mockReturnValue({ x: 0, y: 0 });
     const rawController = createRawController(rawCanvas);
-    const setWorkflow = vi.fn((workflow: "detection" | "segmentation" | "review") => {
+    const setWorkflow = vi.fn((workflow: "detection" | "segmentation") => {
       state.session.workflow = workflow;
     });
     const setCanvasWorkflow = vi.fn();
@@ -358,7 +350,6 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(state.session.workflow).toBe("detection");
     expect(elements.detectionWorkflowTab.checked).toBe(true);
     expect(elements.segmentationWorkflowTab.checked).toBe(false);
-    expect(elements.reviewWorkflowTab.checked).toBe(false);
 
     elements.segmentationWorkflowTab.dispatch("change", {});
     expect(setCanvasWorkflow).toHaveBeenCalledWith("segmentation");
@@ -366,15 +357,6 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(state.session.workflow).toBe("segmentation");
     expect(elements.detectionWorkflowTab.checked).toBe(false);
     expect(elements.segmentationWorkflowTab.checked).toBe(true);
-    expect(elements.reviewWorkflowTab.checked).toBe(false);
-
-    elements.reviewWorkflowTab.dispatch("change", {});
-    expect(setCanvasWorkflow).toHaveBeenCalledWith("review");
-    expect(setWorkflow).toHaveBeenCalledWith("review");
-    expect(state.session.workflow).toBe("review");
-    expect(elements.detectionWorkflowTab.checked).toBe(false);
-    expect(elements.segmentationWorkflowTab.checked).toBe(false);
-    expect(elements.reviewWorkflowTab.checked).toBe(true);
     expect(elements.editModeBtn.checked).toBe(true);
   });
 
@@ -1731,131 +1713,6 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(relabelSelectedSegmentationRegion).toHaveBeenCalledWith("8");
     expect(getSegmentationClassAtPoint).not.toHaveBeenCalled();
     expect(relabelSegmentationRegionAtPoint).not.toHaveBeenCalled();
-  });
-
-  it("reloads detection annotations when review targets detection and persists approve action", async () => {
-    const state = createInitialAppState();
-    state.session.workflow = "review";
-    state.session.reviewTargetWorkflow = "detection";
-    state.session.reviewDocuments.detection.status = "untouched";
-    state.session.currentImageFile = { name: "scene-a.png" } as never;
-    const elements = createElements();
-    const windowRef = new FakeWindow();
-    const rawCanvas = createRawCanvas();
-    rawCanvas.getPointer.mockReturnValue({ x: 0, y: 0 });
-    const rawController = createRawController(rawCanvas);
-    const loadImage = vi.fn(async () => {});
-    const saveLabels = vi.fn(async () => {});
-
-    const eventManager = createEventManagerAdapter({
-      state,
-      uiManager: {
-        elements,
-        notify: vi.fn(),
-        renderImageList: vi.fn(),
-        renderPreviewList: vi.fn(),
-        updateLabelList: vi.fn(),
-        updateMouseCoords: vi.fn(),
-        hideMouseCoords: vi.fn(),
-        togglePreviewBarVisibility: vi.fn(),
-        togglePanel: vi.fn(),
-        applyDarkMode: vi.fn(),
-        setWorkflow: vi.fn()
-      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
-      fileSystem: {
-        selectImageFolder: vi.fn(async () => {}),
-        selectLabelFolder: vi.fn(async () => {}),
-        selectClassInfoFolder: vi.fn(async () => {}),
-        saveLabels,
-        loadImage,
-        downloadClassTemplate: vi.fn(async () => {}),
-        showClassFileContent: vi.fn(async () => {}),
-        saveClassFileContent: vi.fn(async () => {}),
-        addNewClassRow: vi.fn(),
-        createNewClassFile: vi.fn(async () => {}),
-        loadClassNamesFromFile: vi.fn(async () => {}),
-        navigateImage: vi.fn(async () => {})
-      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
-      canvasController: {
-        setMode: vi.fn(),
-        setWorkflow: vi.fn(),
-        raw: rawController
-      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
-      windowRef
-    });
-
-    eventManager.bindEventListeners();
-
-    elements.reviewWorkflowTab.dispatch("change", {});
-    expect(loadImage).toHaveBeenCalledWith(state.session.currentImageFile);
-
-    elements.reviewApproveBtn.dispatch("click", {});
-    await Promise.resolve();
-    expect(state.session.reviewDocuments.detection.status).toBe("approved");
-    expect(saveLabels).toHaveBeenCalled();
-  });
-
-
-  it("reloads segmentation content when review targets segmentation and persists needs-fix action", async () => {
-    const state = createInitialAppState();
-    state.session.workflow = "review";
-    state.session.reviewTargetWorkflow = "segmentation";
-    state.session.reviewDocuments.segmentation.status = "untouched";
-    state.session.currentImageFile = { name: "scene-a.png" } as never;
-    const elements = createElements();
-    const windowRef = new FakeWindow();
-    const rawCanvas = createRawCanvas();
-    rawCanvas.getPointer.mockReturnValue({ x: 0, y: 0 });
-    const rawController = createRawController(rawCanvas);
-    const loadImage = vi.fn(async () => {});
-    const saveLabels = vi.fn(async () => {});
-
-    const eventManager = createEventManagerAdapter({
-      state,
-      uiManager: {
-        elements,
-        notify: vi.fn(),
-        renderImageList: vi.fn(),
-        renderPreviewList: vi.fn(),
-        updateLabelList: vi.fn(),
-        updateMouseCoords: vi.fn(),
-        hideMouseCoords: vi.fn(),
-        togglePreviewBarVisibility: vi.fn(),
-        togglePanel: vi.fn(),
-        applyDarkMode: vi.fn(),
-        setWorkflow: vi.fn()
-      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
-      fileSystem: {
-        selectImageFolder: vi.fn(async () => {}),
-        selectLabelFolder: vi.fn(async () => {}),
-        selectClassInfoFolder: vi.fn(async () => {}),
-        saveLabels,
-        loadImage,
-        downloadClassTemplate: vi.fn(async () => {}),
-        showClassFileContent: vi.fn(async () => {}),
-        saveClassFileContent: vi.fn(async () => {}),
-        addNewClassRow: vi.fn(),
-        createNewClassFile: vi.fn(async () => {}),
-        loadClassNamesFromFile: vi.fn(async () => {}),
-        navigateImage: vi.fn(async () => {})
-      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
-      canvasController: {
-        setMode: vi.fn(),
-        setWorkflow: vi.fn(),
-        raw: rawController
-      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
-      windowRef
-    });
-
-    eventManager.bindEventListeners();
-
-    elements.reviewWorkflowTab.dispatch("change", {});
-    expect(loadImage).toHaveBeenCalledWith(state.session.currentImageFile);
-
-    elements.reviewNeedsFixBtn.dispatch("click", {});
-    await Promise.resolve();
-    expect(state.session.reviewDocuments.segmentation.status).toBe("needs-fix");
-    expect(saveLabels).toHaveBeenCalled();
   });
 
 });

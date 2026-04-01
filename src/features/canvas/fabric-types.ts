@@ -153,6 +153,7 @@ export interface FabricCanvasLike {
 
 export interface FabricImageLike extends FabricObjectLike {
   type: "image";
+  setElement?(element: unknown): void;
 }
 
 export interface FabricRuntimeLike {

@@ -4,7 +4,6 @@ import type { FileHandle } from "../types/files.js";
 import type { WorkflowType } from "../types/labels.js";
 import { getDOMElements, type BootstrapLike, type UiDomElements } from "../ui/dom-elements.js";
 import { getColorForClass } from "../features/canvas/colors.js";
-import { getReviewIssueDefinitions } from "../domain/annotations/review.js";
 import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
 import {
@@ -219,43 +218,11 @@ export function createUiManagerAdapter(input: {
     }
   };
 
-  const syncReviewPanelState = (): void => {
-    const target = input.state.session.reviewTargetWorkflow;
-    const reviewDocument = input.state.session.reviewDocuments[target];
-    elements.reviewTargetSelect.value = target;
-    elements.reviewStatusUntouched.checked = reviewDocument.status === "untouched";
-    elements.reviewStatusApproved.checked = reviewDocument.status === "approved";
-    elements.reviewStatusNeedsFix.checked = reviewDocument.status === "needs-fix";
-    elements.reviewIssueChecklist.innerHTML = "";
-
-    getReviewIssueDefinitions(target).forEach((issue) => {
-      const wrapper = input.documentRef.createElement("div");
-      wrapper.className = "form-check";
-
-      const checkbox = input.documentRef.createElement("input");
-      checkbox.className = "form-check-input";
-      checkbox.type = "checkbox";
-      checkbox.value = issue.key;
-      checkbox.id = `reviewIssue-${target}-${issue.key}`;
-      checkbox.checked = reviewDocument.issueFlags[issue.key] === true;
-
-      const label = input.documentRef.createElement("label");
-      label.className = "form-check-label";
-      label.htmlFor = checkbox.id;
-      label.textContent = issue.label;
-
-      wrapper.append(checkbox, label);
-      elements.reviewIssueChecklist.appendChild(wrapper);
-    });
-  };
-
   const syncWorkflowPanels = (): void => {
     renderWorkflowPanels({
       activeWorkflow: input.state.session.workflow,
-      reviewTargetWorkflow: input.state.session.reviewTargetWorkflow,
       detectionPanelElement: elements.detectionWorkflowPanel,
-      segmentationPanelElement: elements.segmentationWorkflowPanel,
-      reviewPanelElement: elements.reviewWorkflowPanel
+      segmentationPanelElement: elements.segmentationWorkflowPanel
     });
   };
 
@@ -307,8 +274,7 @@ export function createUiManagerAdapter(input: {
       input.state.session.workflow = workflow;
       syncWorkflowPanels();
       syncSegmentationPanelState();
-      syncReviewPanelState();
-      if (workflow === "detection" || (workflow === "review" && input.state.session.reviewTargetWorkflow === "detection")) {
+      if (workflow === "detection") {
         manager.updateLabelList();
       }
       manager.renderImageList();
@@ -411,7 +377,6 @@ export function createUiManagerAdapter(input: {
         imageFiles: input.state.session.imageFiles,
         imageWorkflowStatus: input.state.session.imageWorkflowStatus,
         activeWorkflow: input.state.session.workflow,
-        reviewTargetWorkflow: input.state.session.reviewTargetWorkflow,
         currentImageFile: input.state.session.currentImageFile,
         searchTerm: elements.imageSearchInput.value,
         showLabeled: elements.showLabeledCheckbox.checked,
@@ -434,7 +399,6 @@ export function createUiManagerAdapter(input: {
         imageFiles: input.state.session.imageFiles,
         imageWorkflowStatus: input.state.session.imageWorkflowStatus,
         activeWorkflow: input.state.session.workflow,
-        reviewTargetWorkflow: input.state.session.reviewTargetWorkflow,
         currentImageFile: input.state.session.currentImageFile,
         isPreviewBarHidden: input.state.view.isPreviewBarHidden,
         onPreviewClick: (file) => {
