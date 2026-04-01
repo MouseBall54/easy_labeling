@@ -1,124 +1,129 @@
 # Easy Labeling
 
-"Easy Labeling" is a web-based image annotation tool designed for creating object detection datasets. It allows users to load images from their local file system, draw bounding boxes around objects, assign class labels, and save the annotations in the YOLO text format.
+Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 도구입니다.  
+현재는 단일 Detection 도구가 아니라, 아래 2개 워크플로우를 지원합니다.
 
-The application is a pure client-side tool that runs in modern web browsers (like Chrome and Edge) and uses the File System Access API to interact with local files directly, eliminating the need for file uploads.
+- **Detection**: YOLO Bounding Box 작업
+- **Segmentation**: 브러시 기반 마스크 작업
 
-## How to Use
+> 기본 문서 언어는 한국어입니다.
 
-**No installation required!**
+## 바로 사용하기
 
-Simply open the application in your web browser by visiting the following URL:
+- 서비스 URL: **https://mouseball54.github.io/easy_labeling/**
+- 별도 설치 없이 브라우저에서 실행 가능
+- 권장 브라우저: **Desktop Chrome / Edge** (File System Access API 필요)
 
-**[https://mouseball54.github.io/easy_labeling/](https://mouseball54.github.io/easy_labeling/)**
+---
 
-### Basic Usage Guide
+## 핵심 동작 방식
 
-1.  **Load Folders**:
-    -   Click **Load Image Folder** and select your image directory.
-    -   Click **Load Label Folder** to select your annotations folder. (This may be found automatically if it's a subfolder named `label`).
-    -   (Optional) Click **Load Class Info Folder** and select a folder with `.yaml` files for class names.
-2.  **Annotate**:
-    -   Select an image from the list on the left.
-    -   Switch to **Draw Mode** (`Ctrl+Q` or `Right-Click` on the canvas) and drag to create a box. Enter a class ID when prompted.
-    -   Switch to **Edit Mode** (`Ctrl+Q` or `Right-Click` on the canvas) to select, move, resize, or delete boxes.
-3.  **Navigate & Save**:
-    -   Use the `A` and `D` keys to cycle through images.
-    -   Enable **Auto Save** for convenience or press `Ctrl+S` to save manually.
+### 1) 로컬 폴더 기반 작업
 
-## Key Features
+- 이미지 폴더를 기준으로 작업하며, 파일 업로드 서버가 없습니다.
+- 브라우저에서 로컬 폴더를 직접 선택해 읽기/쓰기 합니다.
+- 자동 저장(Auto Save) 또는 수동 저장(Ctrl+S) 지원
 
-### 1. File and Folder Management
+### 2) 2개 워크플로우 탭
 
--   **Local-First Approach**: Works directly with your local folders.
-    -   **Load Image Folder**: Load images from your computer. The tool supports `.jpg`, `.png`, `.gif`, and `.tiff`/`.tif` formats.
-    -   **Load Label Folder**: Specify a folder to save YOLO `.txt` annotation files. If a subfolder named `label` exists in the image folder, it's loaded automatically. If it doesn't exist, the application will offer to create it for you.
--   **Class Definition Files**:
-    -   **Load Class Info Folder**: Load class definitions from `.yaml` or `.yml` files. This allows you to see descriptive names (e.g., "person", "car") instead of just numeric IDs.
-    -   **Class File Switcher**: A dropdown menu appears if multiple `.yaml` files are found, letting you switch between them.
-    -   **Class File Creator/Editor**: Create new `.yaml` class files or edit existing ones directly within the application. A modal editor allows you to add, modify, or delete class ID and name pairs.
-    -   **Download Template**: Download a `custom-classes.yaml` template to get started.
--   **Auto-Save**: Toggle the "Auto Save" feature to automatically save labels for the previous image when you navigate to a new one, preventing data loss.
--   **Manual Save**: Save the current labels at any time with the "Save Labels" button (`Ctrl+S`).
+- 상단 탭에서 `Detection / Segmentation` 전환
 
-### 2. Annotation Canvas & Tools
+### 3) 공통 편의 기능
 
--   **Dual Annotation Modes**:
-    -   **Edit Mode** (Default, `Ctrl+Q`): Select, move, resize, and delete bounding boxes.
-    -   **Draw Mode** (`Ctrl+Q`): Create new bounding boxes by clicking and dragging.
--   **Zoom & Pan**:
-    -   **Zoom**: Use the zoom buttons or the **mouse wheel**. You can also enter a specific zoom percentage.
-    -   **Pan**: Hold `Alt` or `Ctrl` and drag the mouse to pan the image.
-    -   **Reset Zoom**: Fit the image perfectly to the canvas view.
--   **Coordinate Navigation**:
-    -   **Go to Coordinates**: Instantly jump to a specific `(X, Y)` coordinate on the image.
-    -   **Live Coordinate Display**: The coordinate inputs in the top bar update in real-time to show your mouse's current position on the image.
--   **Crosshair**: Toggle a full-canvas crosshair to help with precise alignment.
--   **Clipboard**:
-    -   **Copy**: Copy selected boxes (`Ctrl+C`).
-    -   **Paste**: Paste copied boxes at the cursor's location (`Ctrl+V`).
--   **Labeling**:
-    -   When creating a box, a modal appears to enter the class ID. You can type an ID or click a pre-defined class button.
-    -   Change a box's label by double-clicking it, pressing `Ctrl+B`, or using the context menu.
+- 이미지 검색/상태 필터(라벨 있음/없음)
+- 하단 이미지 미리보기 바(토글/이전/다음)
+- 확대/축소, 팬(Alt/Ctrl+드래그), 좌표 이동
+- 패널 접기/펼치기 및 분할선 리사이즈
+- 다크 모드, 크로스헤어
 
-### 3. Bounding Box & Label Interaction
+---
 
--   **On-Canvas Labels**:
-    -   Class information (ID and name) is displayed directly above each box.
-    -   **Toggle Visibility**: Show or hide these on-canvas labels.
-    -   **Adjust Font Size**: Use the slider to make the labels larger or smaller.
--   **Advanced Selection**:
-    -   **Select All**: Select all boxes on the image (`Ctrl+A`).
-    -   **Select by Class**: Use the dropdown in the right panel to select all boxes of a specific class.
-    -   **Group Selection**: Click the checkmark icon in a label group header to select all boxes of that class.
--   **Pixel-Perfect Movement**:
-    -   Move selected boxes by 1 pixel using the **Arrow Keys**.
-    -   Move by 10 pixels with `Shift` + **Arrow Keys**.
--   **Deletion**:
-    -   Delete selected boxes using the `Delete` or `Backspace` key.
-    -   Delete individual boxes from the label list or via the context menu.
--   **Context Menu**: 
-    -   **On a Bounding Box**: **Right-click** a box to open a menu to change its label or delete it.
-    -   **On Canvas**: **Right-click** on any empty area of the canvas to quickly switch between **Edit Mode** and **Draw Mode**.
+## 워크플로우별 기능
 
-### 4. UI and Workflow
+## Detection
 
--   **Resizable & Collapsible Panels**: Drag the splitters to resize the left and right panels, or click the collapse buttons (`<<` / `>>`) to hide them completely for a larger workspace.
--   **Image List Filtering**:
-    -   **Search**: Filter the image list by filename.
-    -   **Status Filter**: Show only labeled, only unlabeled, or all images.
--   **Image Preview Bar**:
-    -   A scrollable thumbnail bar at the bottom shows previews of nearby images for quick navigation.
-    -   This bar can be hidden and shown to save space.
--   **Label List (Right Panel)**:
-    -   Displays a list of all annotations, grouped by class.
-    -   **Synced Selection**: Selections on the canvas and in the list are synchronized.
-    -   **Sorting**: Sort the label groups by class ID (ascending/descending).
-    -   **Multi-select**: Click and drag to select a range of items in the list.
--   **Label Filtering (Right Panel)**:
-    -   Filter the visible boxes on the canvas by class. Click the "All" button or individual class buttons to toggle visibility.
--   **Dark Mode**: A toggle switch to enable dark mode. Your preference is saved locally.
+- YOLO Bounding Box 생성/수정/삭제
+- 클래스 변경(`Ctrl+B`, 더블클릭, 컨텍스트 메뉴)
+- 다중 선택, 클래스별 선택, 그룹 선택
+- 클래스별 가시성 필터
+- 복사/붙여넣기(`Ctrl+C`, `Ctrl+V`)
+- 화살표 키 이동(1px), `Shift+화살표`(10px)
+- 정렬/분배 도구(좌/우/상/하 정렬, 가로/세로 분배)
+- Undo/Redo
 
-## Controls (Keyboard & Mouse)
+### Detection 저장 형식
 
-| Action                      | Control (Keyboard / Mouse)     |
-| --------------------------- | ------------------------------ |
-| **Navigation**              |                                |
-| Next/Previous Image         | `D` / `A`                      |
-| Pan Image                   | `Alt` + `Drag` or `Ctrl` + `Drag`|
-| Zoom In/Out                 | `Mouse Wheel`                  |
-| **Mode & Saving**           |                                |
-| Switch Draw/Edit Mode       | `Ctrl + Q` or `Right-Click` on Canvas |
-| Save Labels                 | `Ctrl + S`                     |
-| **Selection & Clipboard**   |                                |
-| Select All Boxes            | `Ctrl + A`                     |
-| Copy Selection              | `Ctrl + C`                     |
-| Paste Selection             | `Ctrl + V`                     |
-| **Box Manipulation**        |                                |
-| Change Label(s)             | `Ctrl + B` or `Double-Click` on Box |
-| Open Context Menu           | `Right-Click` on Box           |
-| Delete Selection            | `Delete` or `Backspace`        |
-| Move 1px                    | `Arrow Keys`                   |
-| Move 10px                   | `Shift` + `Arrow Keys`         |
-| **General**                 |                                |
-| Discard Selection           | `Escape`                       |
+- `label/<image>.txt` (YOLO)
+
+## Segmentation
+
+- 브러시/지우개 기반 마스크 편집
+- 브러시/지우개 크기 슬라이더 + 프리셋
+- 마스크 오버레이 표시/숨김 + 투명도
+- 클래스 필터(All/클래스별 단독 표시) + 클래스 가시성 토글
+- Edit 모드에서 연결 영역(connected region) 선택
+- 선택 영역 드래그 이동
+- 선택 영역 클래스 변경
+  - 버튼(`Change Class of Painted Region`)
+  - 더블클릭(Edit 모드)
+  - `Ctrl+B`
+- Undo/Redo
+
+### Segmentation 저장 형식
+
+- `mask/<image>.png`
+- `mask/<image>.seg.json`
+
+### Segmentation 제한 사항(현재)
+
+- Detection 전용 박스 기능(예: 박스 리스트 기반 다중 편집/정렬/복붙)은 동일하게 제공되지 않습니다.
+- Segmentation 삭제는 `Delete` 키 중심이 아니라 **지우개 도구** 중심입니다.
+
+## 클래스 파일(YAML) 기능
+
+- 클래스 정보 폴더 로드(`.yaml`/`.yml`)
+- 클래스 파일 선택 전환
+- 클래스 파일 생성 / 편집 모달 지원
+- 클래스 템플릿 다운로드 지원
+
+---
+
+## 키보드/마우스 단축키
+
+## 공통
+
+- 이전/다음 이미지: `A` / `D`
+- 저장: `Ctrl+S` (`Cmd+S`)
+- 모드 전환(Draw/Edit): `Ctrl+Q` (`Cmd+Q`)
+- Undo/Redo: `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Shift+Z` (`Cmd` 대응)
+- 확대/축소: 마우스 휠
+- 팬: `Alt + Drag` 또는 `Ctrl + Drag`
+- 선택 해제: `Esc`
+
+## Detection 중심
+
+- 전체 선택: `Ctrl+A` (`Cmd+A`)
+- 복사/붙여넣기: `Ctrl+C` / `Ctrl+V`
+- 클래스 변경: `Ctrl+B` 또는 더블클릭
+- 삭제: `Delete` / `Backspace`
+- 이동: 화살표(1px), `Shift+화살표`(10px)
+- 정렬/분배: `Alt+Shift+L/R/T/D/H/V`
+
+## Segmentation 중심
+
+- 클래스 변경: `Ctrl+B` 또는 더블클릭(Edit 모드)
+- 영역 이동: Edit 모드에서 영역 선택 후 드래그
+
+---
+
+## 디렉터리/배포 참고
+
+- GitHub Pages 운영 가이드: [`GITHUB_PAGES_GUIDELINES.md`](./GITHUB_PAGES_GUIDELINES.md)
+- GitHub Actions Pages 배포 워크플로우: `.github/workflows/deploy-pages.yml`
+
+---
+
+## 주의 사항
+
+- 모바일 및 일부 브라우저에서는 File System Access API 제한으로 기능이 제한될 수 있습니다.
+- 본 프로젝트는 로컬 파일 기반 툴이므로, 브라우저 권한 허용 및 지원 브라우저 사용이 중요합니다.

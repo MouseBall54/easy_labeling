@@ -1,0 +1,72 @@
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+function visitBrushCircle(width, height, centerX, centerY, radius, visit) {
+    const pixelCenterX = Math.round(centerX);
+    const pixelCenterY = Math.round(centerY);
+    const pixelRadius = Math.max(1, Math.round(radius));
+    const minX = clamp(pixelCenterX - pixelRadius, 0, width - 1);
+    const maxX = clamp(pixelCenterX + pixelRadius, 0, width - 1);
+    const minY = clamp(pixelCenterY - pixelRadius, 0, height - 1);
+    const maxY = clamp(pixelCenterY + pixelRadius, 0, height - 1);
+    const radiusSquared = pixelRadius * pixelRadius;
+    for (let y = minY; y <= maxY; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+            const deltaX = x - pixelCenterX;
+            const deltaY = y - pixelCenterY;
+            if ((deltaX * deltaX) + (deltaY * deltaY) <= radiusSquared) {
+                visit((y * width) + x);
+            }
+        }
+    }
+}
+function rasterizeStroke(width, height, points, radius, visit) {
+    if (points.length === 0) {
+        return;
+    }
+    const safeRadius = Math.max(1, radius);
+    let previousPoint = points[0];
+    if (previousPoint) {
+        visitBrushCircle(width, height, previousPoint.x, previousPoint.y, safeRadius, visit);
+    }
+    for (let index = 1; index < points.length; index += 1) {
+        const nextPoint = points[index];
+        if (!previousPoint || !nextPoint) {
+            previousPoint = nextPoint ?? previousPoint;
+            continue;
+        }
+        const deltaX = nextPoint.x - previousPoint.x;
+        const deltaY = nextPoint.y - previousPoint.y;
+        const distance = Math.hypot(deltaX, deltaY);
+        const steps = Math.max(1, Math.ceil(distance / Math.max(1, safeRadius / 2)));
+        for (let step = 1; step <= steps; step += 1) {
+            const progress = step / steps;
+            const x = previousPoint.x + (deltaX * progress);
+            const y = previousPoint.y + (deltaY * progress);
+            visitBrushCircle(width, height, x, y, safeRadius, visit);
+        }
+        previousPoint = nextPoint;
+    }
+}
+export function applyBrushStroke(mask, width, height, points, radius, classId) {
+    let mutated = false;
+    rasterizeStroke(width, height, points, radius, (index) => {
+        if (mask[index] === classId) {
+            return;
+        }
+        mask[index] = classId;
+        mutated = true;
+    });
+    return mutated;
+}
+export function applyEraseStroke(mask, width, height, points, radius) {
+    let mutated = false;
+    rasterizeStroke(width, height, points, radius, (index) => {
+        if (mask[index] === 0) {
+            return;
+        }
+        mask[index] = 0;
+        mutated = true;
+    });
+    return mutated;
+}

@@ -215,6 +215,39 @@ body {
     flex-shrink: 0;
 }
 
+.toolbar-left-cluster {
+    gap: 0.75rem;
+    min-width: 18rem;
+}
+
+.toolbar-left-cluster .app-brand {
+    margin-right: 0;
+}
+
+.history-controls .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toolbar-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+    display: block;
+}
+
+.arrange-panel-section .arrange-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.arrange-panel-section .arrange-controls-grid .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .main-container {
     flex-grow: 1;
     display: flex;
@@ -362,12 +395,30 @@ canvas {
 }
 
 /* Make the image and label lists scrollable */
+#image-filter-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: stretch;
+    position: relative;
+    z-index: 1;
+}
+
+#image-filter-container .btn {
+    flex: 1 1 0;
+}
+
 #image-list {
+    flex: 1 1 auto;
+    min-height: 8rem;
     max-height: 35vh; /* Adjust this value as needed */
     overflow-y: auto;
     border: 1px solid var(--list-group-item-border);
     border-radius: .25rem;
     background-color: var(--list-group-item-bg);
+    margin-top: 0.5rem;
+    position: relative;
+    z-index: 2;
 }
 
 #label-list-container {
@@ -384,6 +435,16 @@ canvas {
     border-radius: .25rem;
     margin-bottom: 0; /* Remove default margin */
     background-color: var(--list-group-item-bg);
+}
+
+[data-ui="filter-summary"] {
+    white-space: nowrap;
+}
+
+.label-list-empty {
+    border: none;
+    background-color: transparent;
+    cursor: default;
 }
 
 /* Label Grouping Styles */
@@ -504,7 +565,7 @@ canvas {
 #bottom-splitter {
     height: 5px;
     background-color: var(--panel-border-color);
-    cursor: default;
+    cursor: ns-resize;
 }
 
 #preview-bar-container {
@@ -632,10 +693,36 @@ canvas {
     transition: visibility 0s linear 0s, opacity 0.3s ease;
 }
 
-.footer {
-    flex-shrink: 0;
-}
-
 .bg-panel {
     background-color: var(--panel-bg-color) !important;
+}
+
+
+.workflow-panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.workflow-summary-card {
+    padding: 0.75rem;
+    border: 1px solid var(--panel-border-color);
+    border-radius: 0.5rem;
+    background-color: rgba(var(--panel-bg-color-rgb), 0.55);
+    font-family: 'Consolas', monospace;
+}
+
+.workflow-summary-card-muted {
+    color: var(--text-color);
+    opacity: 0.8;
+}
+
+.workflow-placeholder-note {
+    color: var(--text-color);
+    opacity: 0.75;
+    font-size: 0.9rem;
+}
+
+.workflow-checklist .form-check + .form-check {
+    margin-top: 0.5rem;
 }

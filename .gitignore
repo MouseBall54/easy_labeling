@@ -4,3 +4,6 @@
 GEMINI.md
 # YoYo AI version control directory
 .yoyo/
+node_modules/
+test-results/
+.sisyphus/
