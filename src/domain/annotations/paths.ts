@@ -15,7 +15,7 @@ export const ANNOTATION_PATH_CONVENTIONS: Record<AnnotationWorkflow, AnnotationP
   segmentation: {
     primaryDir: "mask",
     primaryExtension: ".png",
-    sidecarSuffixes: [".seg.json"]
+    sidecarSuffixes: []
   }
 };
 

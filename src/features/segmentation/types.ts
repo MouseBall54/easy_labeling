@@ -43,10 +43,19 @@ export interface SegmentationRegionBounds {
   bottom: number;
 }
 
+export interface SegmentationMutationResult {
+  mutated: boolean;
+  dirtyBounds: SegmentationRegionBounds | null;
+}
+
 export interface SegmentationRegionSelection {
   classId: string;
   pixelCount: number;
   pixelIndices: Uint32Array;
   bounds: SegmentationRegionBounds;
   seedPoint: CanvasPoint;
+}
+
+export interface SegmentationRegionMoveResult extends SegmentationMutationResult {
+  region: SegmentationRegionSelection;
 }

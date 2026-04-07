@@ -1,4 +1,5 @@
 import type { CanvasPoint } from "../../types/labels.js";
+import type { SegmentationMutationResult, SegmentationRegionBounds } from "./types.js";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -10,7 +11,7 @@ function visitBrushCircle(
   centerX: number,
   centerY: number,
   radius: number,
-  visit: (index: number) => void
+  visit: (index: number, x: number, y: number) => void
 ): void {
   const pixelCenterX = Math.round(centerX);
   const pixelCenterY = Math.round(centerY);
@@ -26,7 +27,7 @@ function visitBrushCircle(
       const deltaX = x - pixelCenterX;
       const deltaY = y - pixelCenterY;
       if ((deltaX * deltaX) + (deltaY * deltaY) <= radiusSquared) {
-        visit((y * width) + x);
+        visit((y * width) + x, x, y);
       }
     }
   }
@@ -37,7 +38,7 @@ function rasterizeStroke(
   height: number,
   points: readonly CanvasPoint[],
   radius: number,
-  visit: (index: number) => void
+  visit: (index: number, x: number, y: number) => void
 ): void {
   if (points.length === 0) {
     return;
@@ -79,16 +80,29 @@ export function applyBrushStroke(
   points: readonly CanvasPoint[],
   radius: number,
   classId: number
-): boolean {
+): SegmentationMutationResult {
   let mutated = false;
+  let minX = width - 1;
+  let minY = height - 1;
+  let maxX = 0;
+  let maxY = 0;
   rasterizeStroke(width, height, points, radius, (index) => {
     if (mask[index] === classId) {
       return;
     }
     mask[index] = classId;
     mutated = true;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
   });
-  return mutated;
+  const dirtyBounds: SegmentationRegionBounds | null = mutated
+    ? { left: minX, top: minY, right: maxX, bottom: maxY }
+    : null;
+  return { mutated, dirtyBounds };
 }
 
 export function applyEraseStroke(
@@ -97,14 +111,27 @@ export function applyEraseStroke(
   height: number,
   points: readonly CanvasPoint[],
   radius: number
-): boolean {
+): SegmentationMutationResult {
   let mutated = false;
+  let minX = width - 1;
+  let minY = height - 1;
+  let maxX = 0;
+  let maxY = 0;
   rasterizeStroke(width, height, points, radius, (index) => {
     if (mask[index] === 0) {
       return;
     }
     mask[index] = 0;
     mutated = true;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
   });
-  return mutated;
+  const dirtyBounds: SegmentationRegionBounds | null = mutated
+    ? { left: minX, top: minY, right: maxX, bottom: maxY }
+    : null;
+  return { mutated, dirtyBounds };
 }

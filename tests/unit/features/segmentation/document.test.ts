@@ -6,9 +6,10 @@ describe("features/segmentation/document", () => {
   it("paints the active class and supports document-level undo/redo", () => {
     const document = createSegmentationDocument({ width: 12, height: 12, activeClassId: "3", brushRadius: 1 });
 
-    const mutated = document.applyStroke({ points: [{ x: 5, y: 5 }] });
+    const mutation = document.applyStroke({ points: [{ x: 5, y: 5 }] });
 
-    expect(mutated).toBe(true);
+    expect(mutation.mutated).toBe(true);
+    expect(mutation.dirtyBounds).not.toBeNull();
     expect(document.getPixel(5, 5)).toBe(3);
     expect(document.canUndo()).toBe(true);
     expect(document.canRedo()).toBe(false);
@@ -70,8 +71,9 @@ describe("features/segmentation/document", () => {
     const document = createSegmentationDocument({ width: 12, height: 12, activeClassId: "3", brushRadius: 1 });
     document.applyStroke({ points: [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 5, y: 3 }] });
 
-    const changed = document.relabelConnectedRegionAtPoint({ x: 4, y: 3 }, "8");
-    expect(changed).toBe(true);
+    const mutation = document.relabelConnectedRegionAtPoint({ x: 4, y: 3 }, "8");
+    expect(mutation.mutated).toBe(true);
+    expect(mutation.dirtyBounds).not.toBeNull();
     expect(document.getClassAtPoint({ x: 4, y: 3 })).toBe("8");
     expect(document.canUndo()).toBe(true);
 
@@ -100,9 +102,11 @@ describe("features/segmentation/document", () => {
 
     const region = document.getConnectedRegionAtPoint({ x: 2, y: 2 });
     expect(region).not.toBeNull();
-    const movedRegion = document.moveRegion(region!, 2, 1);
+    const moved = document.moveRegion(region!, 2, 1);
 
-    expect(movedRegion?.seedPoint).toEqual({ x: 4, y: 3 });
+    expect(moved?.mutated).toBe(true);
+    expect(moved?.dirtyBounds).not.toBeNull();
+    expect(moved?.region.seedPoint).toEqual({ x: 4, y: 3 });
     expect(document.getClassAtPoint({ x: 2, y: 2 })).toBeNull();
     expect(document.getClassAtPoint({ x: 4, y: 3 })).toBe("6");
 

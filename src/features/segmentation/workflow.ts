@@ -1,18 +1,20 @@
 import type { CanvasPoint } from "../../types/labels.js";
 import { createSegmentationDocument, type SegmentationDocument } from "./document.js";
 import {
-  createSegmentationOverlayObject,
-  createSegmentationOverlaySnapshot,
-  updateSegmentationOverlayObject
+  createSegmentationMaskOverlayLayer,
+  createSegmentationSelectionOverlayLayer,
+  type SegmentationMaskOverlayLayer,
+  type SegmentationSelectionOverlayLayer
 } from "./overlay.js";
 import type {
   SegmentationDocumentSnapshot,
+  SegmentationRegionBounds,
   SegmentationRegionSelection,
   SegmentationSummary,
   SegmentationTool
 } from "./types.js";
 import type { CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "../canvas/canvas-controller-types.js";
-import type { FabricActiveSelectionLike, FabricImageLike, FabricRectLike } from "../canvas/fabric-types.js";
+import type { FabricActiveSelectionLike, FabricRectLike } from "../canvas/fabric-types.js";
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
 
 function createEmptySummary(): SegmentationSummary {
@@ -28,6 +30,33 @@ function createEmptySummary(): SegmentationSummary {
   };
 }
 
+function cloneBounds(bounds: SegmentationRegionBounds): SegmentationRegionBounds {
+  return {
+    left: bounds.left,
+    top: bounds.top,
+    right: bounds.right,
+    bottom: bounds.bottom
+  };
+}
+
+function mergeBounds(
+  left: SegmentationRegionBounds | null,
+  right: SegmentationRegionBounds | null
+): SegmentationRegionBounds | null {
+  if (!left) {
+    return right ? cloneBounds(right) : null;
+  }
+  if (!right) {
+    return cloneBounds(left);
+  }
+  return {
+    left: Math.min(left.left, right.left),
+    top: Math.min(left.top, right.top),
+    right: Math.max(left.right, right.right),
+    bottom: Math.max(left.bottom, right.bottom)
+  };
+}
+
 export function createSegmentationCanvasWorkflow(
   state: CanvasControllerState,
   deps: CanvasControllerDeps,
@@ -37,8 +66,8 @@ export function createSegmentationCanvasWorkflow(
   const getColorForClass = deps.getColorForClass ?? defaultGetColorForClass;
 
   let document: SegmentationDocument | null = null;
-  let overlayObject: FabricImageLike | null = null;
-  let selectionOverlayObject: FabricImageLike | null = null;
+  let maskOverlayLayer: SegmentationMaskOverlayLayer | null = null;
+  let selectionOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
   let strokeBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let strokePoints: CanvasPoint[] = [];
   let selectedRegion: SegmentationRegionSelection | null = null;
@@ -47,18 +76,68 @@ export function createSegmentationCanvasWorkflow(
   let movePointerStart: CanvasPoint | null = null;
   let moveLastDeltaX: number | null = null;
   let moveLastDeltaY: number | null = null;
+  let pendingMaskDirtyBounds: SegmentationRegionBounds | null = null;
+  let hasPendingMaskDirtyBounds = false;
+  let pendingMaskForceFull = false;
+  let pendingSelectionForceFull = false;
+  let overlayRenderScheduled = false;
+  let overlayRenderRequestId: number | null = null;
+
+  const clearPendingOverlayRenderState = (): void => {
+    pendingMaskDirtyBounds = null;
+    hasPendingMaskDirtyBounds = false;
+    pendingMaskForceFull = false;
+    pendingSelectionForceFull = false;
+  };
+
+  const cancelPendingOverlayRender = (): void => {
+    if (overlayRenderRequestId !== null && typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(overlayRenderRequestId);
+    }
+    overlayRenderRequestId = null;
+    overlayRenderScheduled = false;
+  };
+
+  const removeMaskOverlayLayer = (): void => {
+    if (!maskOverlayLayer) {
+      return;
+    }
+    canvas.remove(maskOverlayLayer.object);
+    maskOverlayLayer = null;
+  };
+
+  const removeSelectionOverlayLayer = (): void => {
+    if (!selectionOverlayLayer) {
+      return;
+    }
+    canvas.remove(selectionOverlayLayer.object);
+    selectionOverlayLayer = null;
+  };
+
+  const ensureMaskOverlayLayer = (): SegmentationMaskOverlayLayer => {
+    if (!maskOverlayLayer) {
+      maskOverlayLayer = createSegmentationMaskOverlayLayer(deps.fabric);
+      canvas.add(maskOverlayLayer.object);
+    }
+    return maskOverlayLayer;
+  };
+
+  const ensureSelectionOverlayLayer = (): SegmentationSelectionOverlayLayer => {
+    if (!selectionOverlayLayer) {
+      selectionOverlayLayer = createSegmentationSelectionOverlayLayer(deps.fabric);
+      canvas.add(selectionOverlayLayer.object);
+    }
+    return selectionOverlayLayer;
+  };
 
   const resetDocumentForCurrentImage = (): void => {
+    cancelPendingOverlayRender();
+    clearPendingOverlayRenderState();
+
     if (!state.currentImage) {
       document = null;
-      if (overlayObject) {
-        canvas.remove(overlayObject);
-        overlayObject = null;
-      }
-      if (selectionOverlayObject) {
-        canvas.remove(selectionOverlayObject);
-        selectionOverlayObject = null;
-      }
+      removeMaskOverlayLayer();
+      removeSelectionOverlayLayer();
       selectedRegion = null;
       return;
     }
@@ -72,15 +151,16 @@ export function createSegmentationCanvasWorkflow(
       overlayVisible: document?.overlayVisible ?? true,
       overlayOpacity: document?.overlayOpacity ?? 0.6
     });
-    if (overlayObject) {
-      canvas.remove(overlayObject);
-      overlayObject = null;
-    }
-    if (selectionOverlayObject) {
-      canvas.remove(selectionOverlayObject);
-      selectionOverlayObject = null;
-    }
+    removeMaskOverlayLayer();
+    removeSelectionOverlayLayer();
+    strokeBaseline = null;
+    strokePoints = [];
     selectedRegion = null;
+    moveBaseline = null;
+    moveRegionBaseline = null;
+    movePointerStart = null;
+    moveLastDeltaX = null;
+    moveLastDeltaY = null;
   };
 
   const clearSelection = (): void => {
@@ -90,63 +170,6 @@ export function createSegmentationCanvasWorkflow(
     movePointerStart = null;
     moveLastDeltaX = null;
     moveLastDeltaY = null;
-    if (selectionOverlayObject) {
-      canvas.remove(selectionOverlayObject);
-      selectionOverlayObject = null;
-    }
-  };
-
-  const redrawSelectionOverlay = (): void => {
-    const doc = ensureDocument();
-    if (!doc) {
-      clearSelection();
-      return;
-    }
-
-    if (!selectedRegion || selectedRegion.pixelCount === 0) {
-      if (selectionOverlayObject) {
-        canvas.remove(selectionOverlayObject);
-        selectionOverlayObject = null;
-      }
-      return;
-    }
-
-    const pixels = new Uint8ClampedArray(doc.width * doc.height * 4);
-    const { r, g, b } = (() => {
-      const colorHex = getColorForClass(selectedRegion.classId);
-      const normalized = colorHex.replace("#", "");
-      const source = normalized.length === 3
-        ? normalized.split("").map((char) => `${char}${char}`).join("")
-        : normalized.padEnd(6, "0").slice(0, 6);
-      return {
-        r: Number.parseInt(source.slice(0, 2), 16),
-        g: Number.parseInt(source.slice(2, 4), 16),
-        b: Number.parseInt(source.slice(4, 6), 16)
-      };
-    })();
-
-    for (const index of selectedRegion.pixelIndices) {
-      const channelOffset = index * 4;
-      pixels[channelOffset] = Math.min(255, r + 40);
-      pixels[channelOffset + 1] = Math.min(255, g + 40);
-      pixels[channelOffset + 2] = Math.min(255, b + 40);
-      pixels[channelOffset + 3] = 220;
-    }
-
-    const selectionOverlay = {
-      width: doc.width,
-      height: doc.height,
-      pixels,
-      opacity: 1,
-      visible: true
-    };
-
-    if (!selectionOverlayObject) {
-      selectionOverlayObject = createSegmentationOverlayObject(deps.fabric, selectionOverlay);
-      canvas.add(selectionOverlayObject);
-      return;
-    }
-    updateSegmentationOverlayObject(selectionOverlayObject, selectionOverlay);
   };
 
   const ensureDocument = (): SegmentationDocument | null => {
@@ -159,25 +182,89 @@ export function createSegmentationCanvasWorkflow(
     return document;
   };
 
-  const redrawOverlay = (): void => {
+  const flushOverlayRender = (): void => {
+    cancelPendingOverlayRender();
+
     const doc = ensureDocument();
     if (!doc) {
-      if (overlayObject) {
-        canvas.remove(overlayObject);
-        overlayObject = null;
-      }
+      clearPendingOverlayRenderState();
+      removeMaskOverlayLayer();
+      removeSelectionOverlayLayer();
       return;
     }
 
-    const overlay = createSegmentationOverlaySnapshot(doc, getColorForClass);
-    if (!overlayObject) {
-      overlayObject = createSegmentationOverlayObject(deps.fabric, overlay);
-      canvas.add(overlayObject);
+    const maskDirtyBounds = pendingMaskDirtyBounds ? cloneBounds(pendingMaskDirtyBounds) : null;
+    const hasMaskDirtyBounds = hasPendingMaskDirtyBounds;
+    const forceMaskFull = pendingMaskForceFull;
+    const forceSelectionFull = pendingSelectionForceFull;
+    clearPendingOverlayRenderState();
+
+    const maskLayer = ensureMaskOverlayLayer();
+    if (forceMaskFull) {
+      maskLayer.sync(doc, getColorForClass, { forceFull: true });
     } else {
-      updateSegmentationOverlayObject(overlayObject, overlay);
+      maskLayer.sync(
+        doc,
+        getColorForClass,
+        hasMaskDirtyBounds ? { dirtyBounds: maskDirtyBounds } : { dirtyBounds: null }
+      );
     }
-    redrawSelectionOverlay();
+
+    if (selectedRegion || selectionOverlayLayer) {
+      const selectionLayer = ensureSelectionOverlayLayer();
+      selectionLayer.sync(
+        {
+          width: doc.width,
+          height: doc.height,
+          selection: selectedRegion,
+          getColorForClass
+        },
+        forceSelectionFull ? { forceFull: true } : undefined
+      );
+    }
+
     canvas.requestRenderAll();
+  };
+
+  const requestOverlayRender = (options?: {
+    maskDirtyBounds?: SegmentationRegionBounds | null;
+    forceMaskFull?: boolean;
+    forceSelectionFull?: boolean;
+    immediate?: boolean;
+  }): void => {
+    if (options?.forceMaskFull) {
+      pendingMaskForceFull = true;
+      pendingMaskDirtyBounds = null;
+      hasPendingMaskDirtyBounds = true;
+    } else if (Object.prototype.hasOwnProperty.call(options ?? {}, "maskDirtyBounds")) {
+      const nextBounds = options?.maskDirtyBounds ?? null;
+      if (nextBounds) {
+        pendingMaskDirtyBounds = mergeBounds(pendingMaskDirtyBounds, nextBounds);
+      }
+      if (!hasPendingMaskDirtyBounds || nextBounds) {
+        hasPendingMaskDirtyBounds = true;
+      }
+    }
+
+    if (options?.forceSelectionFull) {
+      pendingSelectionForceFull = true;
+    }
+
+    if (options?.immediate || typeof globalThis.requestAnimationFrame !== "function") {
+      flushOverlayRender();
+      return;
+    }
+
+    if (overlayRenderScheduled) {
+      return;
+    }
+
+    overlayRenderScheduled = true;
+    overlayRenderRequestId = globalThis.requestAnimationFrame(() => {
+      overlayRenderRequestId = null;
+      overlayRenderScheduled = false;
+      flushOverlayRender();
+    });
   };
 
   const controller: CanvasController = {
@@ -192,10 +279,12 @@ export function createSegmentationCanvasWorkflow(
     },
 
     clear(): void {
+      cancelPendingOverlayRender();
+      clearPendingOverlayRenderState();
       shell.clear();
       document = null;
-      overlayObject = null;
-      selectionOverlayObject = null;
+      removeMaskOverlayLayer();
+      removeSelectionOverlayLayer();
       strokeBaseline = null;
       strokePoints = [];
       selectedRegion = null;
@@ -209,14 +298,18 @@ export function createSegmentationCanvasWorkflow(
     setBackgroundImage(image: unknown): void {
       shell.setBackgroundImage(image);
       resetDocumentForCurrentImage();
-      redrawOverlay();
+      requestOverlayRender({
+        forceMaskFull: true,
+        forceSelectionFull: true,
+        immediate: true
+      });
     },
 
     setMode(mode): void {
       shell.setMode(mode);
       if (mode === "draw") {
         clearSelection();
-        shell.renderAll();
+        requestOverlayRender({ maskDirtyBounds: null });
       }
     },
 
@@ -243,8 +336,8 @@ export function createSegmentationCanvasWorkflow(
       clearSelection();
       strokeBaseline = doc.cloneSnapshot();
       strokePoints = [pointer];
-      doc.applyStroke({ points: [pointer] }, { recordHistory: false });
-      redrawOverlay();
+      const mutation = doc.applyStroke({ points: [pointer] }, { recordHistory: false });
+      requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
     },
 
     continueDrawing(pointer: CanvasPoint): void {
@@ -255,8 +348,10 @@ export function createSegmentationCanvasWorkflow(
       const lastPoint = strokePoints.at(-1);
       const points = lastPoint ? [lastPoint, pointer] : [pointer];
       strokePoints.push(pointer);
-      doc.applyStroke({ points }, { recordHistory: false });
-      redrawOverlay();
+      const mutation = doc.applyStroke({ points }, { recordHistory: false });
+      if (mutation.mutated) {
+        requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
+      }
     },
 
     async finishDrawing(): Promise<void> {
@@ -267,7 +362,7 @@ export function createSegmentationCanvasWorkflow(
       doc.pushHistoryFromSnapshot(strokeBaseline);
       strokeBaseline = null;
       strokePoints = [];
-      redrawOverlay();
+      requestOverlayRender({ maskDirtyBounds: null });
     },
 
     removeObject(_object: FabricRectLike): void {
@@ -416,7 +511,11 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       clearSelection();
-      redrawOverlay();
+      requestOverlayRender({
+        forceMaskFull: true,
+        forceSelectionFull: true,
+        immediate: true
+      });
     },
 
     redo(): void {
@@ -425,7 +524,11 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       clearSelection();
-      redrawOverlay();
+      requestOverlayRender({
+        forceMaskFull: true,
+        forceSelectionFull: true,
+        immediate: true
+      });
     },
 
     canUndo(): boolean {
@@ -467,7 +570,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.setOverlayVisible(visible);
-      redrawOverlay();
+      requestOverlayRender({ maskDirtyBounds: null });
     },
 
     setSegmentationOverlayOpacity(opacity: number): void {
@@ -476,7 +579,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.setOverlayOpacity(opacity);
-      redrawOverlay();
+      requestOverlayRender({ maskDirtyBounds: null });
     },
 
     setSegmentationClassVisibility(classId: string, visible: boolean): void {
@@ -485,7 +588,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.setClassVisibility(classId, visible);
-      redrawOverlay();
+      requestOverlayRender({ forceMaskFull: true });
     },
 
     setSegmentationOnlyVisibleClass(classId: string | null): void {
@@ -494,7 +597,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.setOnlyVisibleClass(classId);
-      redrawOverlay();
+      requestOverlayRender({ forceMaskFull: true });
     },
 
     getSegmentationClassAtPoint(pointer: CanvasPoint): string | null {
@@ -518,19 +621,19 @@ export function createSegmentationCanvasWorkflow(
       const region = doc.getConnectedRegionAtPoint(pointer);
       if (!region) {
         clearSelection();
-        shell.renderAll();
+        requestOverlayRender({ maskDirtyBounds: null });
         return false;
       }
 
       selectedRegion = region;
       doc.setActiveClass(region.classId);
-      redrawOverlay();
+      requestOverlayRender({ maskDirtyBounds: null });
       return true;
     },
 
     clearSegmentationSelection(): void {
       clearSelection();
-      shell.renderAll();
+      requestOverlayRender({ maskDirtyBounds: null });
     },
 
     startSegmentationRegionMove(pointer: CanvasPoint): boolean {
@@ -567,21 +670,24 @@ export function createSegmentationCanvasWorkflow(
         return false;
       }
 
+      const previousRegionBounds = selectedRegion ? cloneBounds(selectedRegion.bounds) : null;
       doc.restoreSnapshot(moveBaseline);
-      const movedRegion = doc.moveRegion(
+      const moveResult = doc.moveRegion(
         moveRegionBaseline,
         roundedDeltaX,
         roundedDeltaY,
         { recordHistory: false }
       );
-      if (!movedRegion) {
+      if (!moveResult || !moveResult.mutated) {
         return false;
       }
 
       moveLastDeltaX = roundedDeltaX;
       moveLastDeltaY = roundedDeltaY;
-      selectedRegion = movedRegion;
-      redrawOverlay();
+      selectedRegion = moveResult.region;
+      requestOverlayRender({
+        maskDirtyBounds: mergeBounds(moveResult.dirtyBounds, previousRegionBounds)
+      });
       return true;
     },
 
@@ -597,7 +703,7 @@ export function createSegmentationCanvasWorkflow(
       movePointerStart = null;
       moveLastDeltaX = null;
       moveLastDeltaY = null;
-      redrawOverlay();
+      requestOverlayRender({ maskDirtyBounds: null });
       return changed;
     },
 
@@ -613,12 +719,12 @@ export function createSegmentationCanvasWorkflow(
       if (!doc) {
         return false;
       }
-      const changed = doc.relabelConnectedRegionAtPoint(pointer, classId);
-      if (changed) {
+      const mutation = doc.relabelConnectedRegionAtPoint(pointer, classId);
+      if (mutation.mutated) {
         selectedRegion = doc.getConnectedRegionAtPoint(pointer);
-        redrawOverlay();
+        requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
       }
-      return changed;
+      return mutation.mutated;
     },
 
     getSegmentationSummary(): SegmentationSummary {
@@ -633,7 +739,11 @@ export function createSegmentationCanvasWorkflow(
       if (!snapshot) {
         resetDocumentForCurrentImage();
         ensureDocument()?.clearHistory();
-        redrawOverlay();
+        requestOverlayRender({
+          forceMaskFull: true,
+          forceSelectionFull: true,
+          immediate: true
+        });
         return;
       }
       const doc = ensureDocument();
@@ -643,7 +753,11 @@ export function createSegmentationCanvasWorkflow(
       doc.restoreSnapshot(snapshot);
       doc.clearHistory();
       clearSelection();
-      redrawOverlay();
+      requestOverlayRender({
+        forceMaskFull: true,
+        forceSelectionFull: true,
+        immediate: true
+      });
     }
   };
 

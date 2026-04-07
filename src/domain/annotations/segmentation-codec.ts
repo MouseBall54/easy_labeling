@@ -3,7 +3,7 @@ import { resolveAnnotationAssetPaths } from "./paths.js";
 import type { SegmentationDocumentSnapshot, SegmentationTool } from "../../features/segmentation/types.js";
 
 export interface SegmentationAnnotationMetadata {
-  format: "segmentation-raster-v1";
+  format?: string;
   activeClassId: string;
   activeTool: SegmentationTool;
   overlayVisible: boolean;
@@ -14,13 +14,13 @@ export interface SegmentationAnnotationMetadata {
 
 export interface SegmentationAnnotationData {
   pngBytes: Uint8Array;
-  metadata: SegmentationAnnotationMetadata;
   snapshot: SegmentationDocumentSnapshot;
+  legacyMetadata: SegmentationAnnotationMetadata | null;
 }
 
 export interface SegmentationAnnotationDocument extends AnnotationDocument<SegmentationAnnotationData> {
   workflow: "segmentation";
-  format: "segmentation-raster-v1";
+  format: "segmentation-semantic-mask-v2";
 }
 
 export interface SegmentationAnnotationReadInput {
@@ -152,8 +152,8 @@ function inflateStoredZlib(data: Uint8Array): Uint8Array {
   return concatBytes(chunks);
 }
 
-function encodeMaskPixels(snapshot: SegmentationDocumentSnapshot): Uint8Array {
-  const rowStride = (snapshot.width * 4) + 1;
+function encodeSemanticMaskPixels16(snapshot: SegmentationDocumentSnapshot): Uint8Array {
+  const rowStride = (snapshot.width * 2) + 1;
   const bytes = new Uint8Array(rowStride * snapshot.height);
   let offset = 0;
   for (let y = 0; y < snapshot.height; y += 1) {
@@ -163,15 +163,57 @@ function encodeMaskPixels(snapshot: SegmentationDocumentSnapshot): Uint8Array {
       const classId = snapshot.mask[(y * snapshot.width) + x] ?? 0;
       bytes[offset] = (classId >>> 8) & 0xff;
       bytes[offset + 1] = classId & 0xff;
-      bytes[offset + 2] = 0;
-      bytes[offset + 3] = classId === 0 ? 0 : 255;
-      offset += 4;
+      offset += 2;
     }
   }
   return bytes;
 }
 
-function decodeMaskPixels(width: number, height: number, bytes: Uint8Array): Uint16Array {
+function decodeSemanticMaskPixels16(width: number, height: number, bytes: Uint8Array): Uint16Array {
+  const expectedLength = ((width * 2) + 1) * height;
+  if (bytes.length !== expectedLength) {
+    throw new Error("segmentation png dimensions do not match payload");
+  }
+  const mask = new Uint16Array(width * height);
+  let offset = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filterType = bytes[offset] ?? 0;
+    if (filterType !== 0) {
+      throw new Error("unsupported png filter type");
+    }
+    offset += 1;
+    for (let x = 0; x < width; x += 1) {
+      const high = bytes[offset] ?? 0;
+      const low = bytes[offset + 1] ?? 0;
+      mask[(y * width) + x] = (high << 8) | low;
+      offset += 2;
+    }
+  }
+  return mask;
+}
+
+function decodeSemanticMaskPixels8(width: number, height: number, bytes: Uint8Array): Uint16Array {
+  const expectedLength = (width + 1) * height;
+  if (bytes.length !== expectedLength) {
+    throw new Error("segmentation png dimensions do not match payload");
+  }
+  const mask = new Uint16Array(width * height);
+  let offset = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filterType = bytes[offset] ?? 0;
+    if (filterType !== 0) {
+      throw new Error("unsupported png filter type");
+    }
+    offset += 1;
+    for (let x = 0; x < width; x += 1) {
+      mask[(y * width) + x] = bytes[offset] ?? 0;
+      offset += 1;
+    }
+  }
+  return mask;
+}
+
+function decodeLegacyRgbaMaskPixels8(width: number, height: number, bytes: Uint8Array): Uint16Array {
   const expectedLength = ((width * 4) + 1) * height;
   if (bytes.length !== expectedLength) {
     throw new Error("segmentation png dimensions do not match payload");
@@ -195,18 +237,6 @@ function decodeMaskPixels(width: number, height: number, bytes: Uint8Array): Uin
   return mask;
 }
 
-function createMetadata(snapshot: SegmentationDocumentSnapshot): SegmentationAnnotationMetadata {
-  return {
-    format: "segmentation-raster-v1",
-    activeClassId: snapshot.activeClassId,
-    activeTool: snapshot.activeTool,
-    overlayVisible: snapshot.overlayVisible,
-    overlayOpacity: snapshot.overlayOpacity,
-    hiddenClassIds: [...snapshot.hiddenClassIds].sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" })),
-    brushRadius: snapshot.brushRadius
-  };
-}
-
 function normalizeMetadata(input: string | null | undefined): SegmentationAnnotationMetadata | null {
   if (!input) {
     return null;
@@ -217,7 +247,7 @@ function normalizeMetadata(input: string | null | undefined): SegmentationAnnota
       return null;
     }
     return {
-      format: "segmentation-raster-v1",
+      format: typeof parsed.format === "string" ? parsed.format : undefined,
       activeClassId: typeof parsed.activeClassId === "string" && parsed.activeClassId.trim().length > 0 ? parsed.activeClassId : "1",
       activeTool: parsed.activeTool === "erase" ? "erase" : "brush",
       overlayVisible: typeof parsed.overlayVisible === "boolean" ? parsed.overlayVisible : true,
@@ -239,12 +269,12 @@ export function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot
   const ihdr = new Uint8Array(13);
   ihdr.set(writeUint32(snapshot.width), 0);
   ihdr.set(writeUint32(snapshot.height), 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
+  ihdr[8] = 16;
+  ihdr[9] = 0;
   ihdr[10] = 0;
   ihdr[11] = 0;
   ihdr[12] = 0;
-  const pixelBytes = encodeMaskPixels(snapshot);
+  const pixelBytes = encodeSemanticMaskPixels16(snapshot);
   const idat = createStoredZlib(pixelBytes);
   return concatBytes([
     signature,
@@ -254,7 +284,7 @@ export function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot
   ]);
 }
 
-export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { width: number; height: number; mask: Uint16Array } {
+export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { width: number; height: number; mask: Uint16Array; isLegacyRgba: boolean } {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const signature = [137, 80, 78, 71, 13, 10, 26, 10];
   signature.forEach((value, index) => {
@@ -265,6 +295,11 @@ export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { wi
 
   let width = 0;
   let height = 0;
+  let bitDepth = -1;
+  let colorType = -1;
+  let compressionMethod = -1;
+  let filterMethod = -1;
+  let interlaceMethod = -1;
   const idatChunks: Uint8Array[] = [];
   let offset = 8;
   while (offset < bytes.length) {
@@ -275,6 +310,11 @@ export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { wi
     if (type === "IHDR") {
       width = readUint32(data, 0) >>> 0;
       height = readUint32(data, 4) >>> 0;
+      bitDepth = data[8] ?? -1;
+      colorType = data[9] ?? -1;
+      compressionMethod = data[10] ?? -1;
+      filterMethod = data[11] ?? -1;
+      interlaceMethod = data[12] ?? -1;
     } else if (type === "IDAT") {
       idatChunks.push(data);
     } else if (type === "IEND") {
@@ -284,11 +324,48 @@ export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { wi
   if (width <= 0 || height <= 0) {
     throw new Error("invalid segmentation png dimensions");
   }
+  if (compressionMethod !== 0 || filterMethod !== 0 || interlaceMethod !== 0) {
+    throw new Error("unsupported segmentation png encoding");
+  }
   const inflated = inflateStoredZlib(concatBytes(idatChunks));
+  if (colorType === 0 && bitDepth === 16) {
+    return {
+      width,
+      height,
+      mask: decodeSemanticMaskPixels16(width, height, inflated),
+      isLegacyRgba: false
+    };
+  }
+  if (colorType === 0 && bitDepth === 8) {
+    return {
+      width,
+      height,
+      mask: decodeSemanticMaskPixels8(width, height, inflated),
+      isLegacyRgba: false
+    };
+  }
+  if (colorType === 6 && bitDepth === 8) {
+    return {
+      width,
+      height,
+      mask: decodeLegacyRgbaMaskPixels8(width, height, inflated),
+      isLegacyRgba: true
+    };
+  }
+  throw new Error("unsupported segmentation png color format");
+}
+
+function createDefaultViewState(): Pick<
+  SegmentationDocumentSnapshot,
+  "activeClassId" | "activeTool" | "overlayVisible" | "overlayOpacity" | "hiddenClassIds" | "brushRadius"
+> {
   return {
-    width,
-    height,
-    mask: decodeMaskPixels(width, height, inflated)
+    activeClassId: "1",
+    activeTool: "brush",
+    overlayVisible: true,
+    overlayOpacity: 0.6,
+    hiddenClassIds: new Set<string>(),
+    brushRadius: 6
   };
 }
 
@@ -307,49 +384,39 @@ export function createSegmentationAnnotationCodec(): AnnotationCodec<
     decode(input: SegmentationAnnotationReadInput): SegmentationAnnotationDocument {
       const paths = resolveAnnotationAssetPaths("segmentation", input.imageBaseName);
       const decoded = decodeSegmentationMaskPng(input.pngBytes);
-      const metadata = normalizeMetadata(input.metadataText) ?? {
-        format: "segmentation-raster-v1",
-        activeClassId: "1",
-        activeTool: "brush",
-        overlayVisible: true,
-        overlayOpacity: 0.6,
-        hiddenClassIds: [],
-        brushRadius: 6
-      };
+      const metadata = decoded.isLegacyRgba
+        ? normalizeMetadata(input.metadataText)
+        : null;
+      const defaults = createDefaultViewState();
       const snapshot: SegmentationDocumentSnapshot = {
         width: decoded.width,
         height: decoded.height,
         mask: decoded.mask,
-        activeClassId: metadata.activeClassId,
-        activeTool: metadata.activeTool,
-        overlayVisible: metadata.overlayVisible,
-        overlayOpacity: metadata.overlayOpacity,
-        hiddenClassIds: new Set(metadata.hiddenClassIds),
-        brushRadius: metadata.brushRadius
+        activeClassId: metadata?.activeClassId ?? defaults.activeClassId,
+        activeTool: metadata?.activeTool ?? defaults.activeTool,
+        overlayVisible: metadata?.overlayVisible ?? defaults.overlayVisible,
+        overlayOpacity: metadata?.overlayOpacity ?? defaults.overlayOpacity,
+        hiddenClassIds: new Set(metadata?.hiddenClassIds ?? defaults.hiddenClassIds),
+        brushRadius: metadata?.brushRadius ?? defaults.brushRadius
       };
       return {
         workflow: "segmentation",
-        format: "segmentation-raster-v1",
+        format: "segmentation-semantic-mask-v2",
         paths,
         data: {
           pngBytes: input.pngBytes instanceof Uint8Array ? new Uint8Array(input.pngBytes) : new Uint8Array(input.pngBytes),
-          metadata,
-          snapshot
+          snapshot,
+          legacyMetadata: decoded.isLegacyRgba ? metadata : null
         }
       };
     },
 
     encode(input: SegmentationAnnotationWriteInput) {
       const paths = resolveAnnotationAssetPaths("segmentation", input.imageBaseName);
-      const metadata = createMetadata(input.snapshot);
       return [
         {
           path: paths.primaryFilePath,
           content: toArrayBuffer(encodeSegmentationMaskPng(input.snapshot))
-        },
-        {
-          path: paths.sidecarFilePaths[0] ?? `${paths.primaryFilePath}.seg.json`,
-          content: JSON.stringify(metadata, null, 2)
         }
       ];
     }

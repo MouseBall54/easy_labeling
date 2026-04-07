@@ -1,12 +1,110 @@
 import type { FabricImageLike, FabricRuntimeLike } from "../canvas/fabric-types.js";
 import type { SegmentationDocument } from "./document.js";
+import type { SegmentationRegionBounds, SegmentationRegionSelection } from "./types.js";
 
-export interface SegmentationOverlaySnapshot {
+interface OverlayFallbackElement {
+  width: number;
+  height: number;
+  overlayPixels: Uint8ClampedArray;
+  overlayVisible: boolean;
+  overlayOpacity: number;
+}
+
+interface OverlayBufferState {
   width: number;
   height: number;
   pixels: Uint8ClampedArray;
-  opacity: number;
-  visible: boolean;
+  imageData: ImageData | null;
+  context: CanvasRenderingContext2D | null;
+  element: HTMLCanvasElement | OverlayFallbackElement;
+}
+
+interface CachedColor {
+  hex: string;
+  r: number;
+  g: number;
+  b: number;
+}
+
+export interface SegmentationOverlayUpdateOptions {
+  dirtyBounds?: SegmentationRegionBounds | null;
+  forceFull?: boolean;
+}
+
+export interface SegmentationMaskOverlayLayer {
+  readonly object: FabricImageLike;
+  sync(
+    document: SegmentationDocument,
+    getColorForClass: (classId: string) => string,
+    options?: SegmentationOverlayUpdateOptions
+  ): void;
+}
+
+export interface SegmentationSelectionOverlayLayer {
+  readonly object: FabricImageLike;
+  sync(input: {
+    width: number;
+    height: number;
+    selection: SegmentationRegionSelection | null;
+    getColorForClass: (classId: string) => string;
+  }, options?: SegmentationOverlayUpdateOptions): void;
+}
+
+function createFullBounds(width: number, height: number): SegmentationRegionBounds | null {
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return {
+    left: 0,
+    top: 0,
+    right: width - 1,
+    bottom: height - 1
+  };
+}
+
+function cloneBounds(bounds: SegmentationRegionBounds): SegmentationRegionBounds {
+  return {
+    left: bounds.left,
+    top: bounds.top,
+    right: bounds.right,
+    bottom: bounds.bottom
+  };
+}
+
+function mergeBounds(
+  left: SegmentationRegionBounds | null,
+  right: SegmentationRegionBounds | null
+): SegmentationRegionBounds | null {
+  if (!left) {
+    return right ? cloneBounds(right) : null;
+  }
+  if (!right) {
+    return cloneBounds(left);
+  }
+  return {
+    left: Math.min(left.left, right.left),
+    top: Math.min(left.top, right.top),
+    right: Math.max(left.right, right.right),
+    bottom: Math.max(left.bottom, right.bottom)
+  };
+}
+
+function clampBounds(
+  bounds: SegmentationRegionBounds,
+  width: number,
+  height: number
+): SegmentationRegionBounds | null {
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  const left = Math.max(0, Math.min(width - 1, Math.floor(bounds.left)));
+  const top = Math.max(0, Math.min(height - 1, Math.floor(bounds.top)));
+  const right = Math.max(0, Math.min(width - 1, Math.ceil(bounds.right)));
+  const bottom = Math.max(0, Math.min(height - 1, Math.ceil(bounds.bottom)));
+  if (right < left || bottom < top) {
+    return null;
+  }
+  return { left, top, right, bottom };
 }
 
 function parseHexChannel(value: string): number {
@@ -25,106 +123,319 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   };
 }
 
-export function createSegmentationOverlaySnapshot(
-  document: SegmentationDocument,
-  getColorForClass: (classId: string) => string
-): SegmentationOverlaySnapshot {
-  const pixels = new Uint8ClampedArray(document.width * document.height * 4);
-  const alpha = Math.round(document.overlayOpacity * 255);
-  const visibleClassIds = new Set(document.getVisibleClassIds());
-
-  for (let index = 0; index < document.mask.length; index += 1) {
-    const classId = document.mask[index] ?? 0;
-    const channelOffset = index * 4;
-    if (!document.overlayVisible || classId === 0) {
-      continue;
-    }
-
-    const classKey = String(classId);
-    if (!visibleClassIds.has(classKey)) {
-      continue;
-    }
-
-    const { r, g, b } = hexToRgb(getColorForClass(classKey));
-    pixels[channelOffset] = r;
-    pixels[channelOffset + 1] = g;
-    pixels[channelOffset + 2] = b;
-    pixels[channelOffset + 3] = alpha;
-  }
-
+function createFallbackElement(width: number, height: number): OverlayFallbackElement {
   return {
-    width: document.width,
-    height: document.height,
-    pixels,
-    opacity: document.overlayOpacity,
-    visible: document.overlayVisible
+    width,
+    height,
+    overlayPixels: new Uint8ClampedArray(width * height * 4),
+    overlayVisible: true,
+    overlayOpacity: 1
   };
 }
 
-function createOverlayElement(overlay: SegmentationOverlaySnapshot): unknown {
+function createOverlayBufferState(width: number, height: number): OverlayBufferState {
   if (typeof document === "undefined") {
+    const element = createFallbackElement(width, height);
     return {
-      width: overlay.width,
-      height: overlay.height,
-      overlayPixels: overlay.pixels,
-      overlayVisible: overlay.visible,
-      overlayOpacity: overlay.opacity
+      width,
+      height,
+      pixels: element.overlayPixels,
+      imageData: null,
+      context: null,
+      element
     };
   }
 
   const canvas = document.createElement("canvas");
-  canvas.width = overlay.width;
-  canvas.height = overlay.height;
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) {
-    return canvas;
+    const fallback = createFallbackElement(width, height);
+    return {
+      width,
+      height,
+      pixels: fallback.overlayPixels,
+      imageData: null,
+      context: null,
+      element: fallback
+    };
   }
 
-  const imageData = new ImageData(new Uint8ClampedArray(overlay.pixels), overlay.width, overlay.height);
-  context.putImageData(imageData, 0, 0);
-  return canvas;
+  const imageData = context.createImageData(width, height);
+  return {
+    width,
+    height,
+    pixels: imageData.data,
+    imageData,
+    context,
+    element: canvas
+  };
 }
 
-export function createSegmentationOverlayObject(
-  fabric: FabricRuntimeLike,
-  overlay: SegmentationOverlaySnapshot
-): FabricImageLike {
-  const object = new fabric.Image(createOverlayElement(overlay), {
-    left: 0,
-    top: 0,
-    width: overlay.width,
-    height: overlay.height,
-    selectable: false,
-    hoverCursor: "default"
-  });
+function resizeOverlayBufferState(state: OverlayBufferState, width: number, height: number): boolean {
+  if (state.width === width && state.height === height) {
+    return false;
+  }
 
-  object.set({
-    visible: overlay.visible,
-    opacity: overlay.opacity,
-    selectable: false,
-    hoverCursor: "default"
-  });
+  state.width = width;
+  state.height = height;
 
-  return object;
+  if ("overlayPixels" in state.element) {
+    state.element.width = width;
+    state.element.height = height;
+    state.element.overlayPixels = new Uint8ClampedArray(width * height * 4);
+    state.pixels = state.element.overlayPixels;
+    state.context = null;
+    state.imageData = null;
+    return true;
+  }
+
+  state.element.width = width;
+  state.element.height = height;
+  const context = state.element.getContext("2d");
+  state.context = context;
+  state.imageData = context ? context.createImageData(width, height) : null;
+  state.pixels = state.imageData ? state.imageData.data : new Uint8ClampedArray(width * height * 4);
+  return true;
 }
 
-export function updateSegmentationOverlayObject(
+function commitOverlayBuffer(state: OverlayBufferState, dirtyBounds: SegmentationRegionBounds | null): void {
+  if (state.context && state.imageData) {
+    if (!dirtyBounds) {
+      state.context.putImageData(state.imageData, 0, 0);
+      return;
+    }
+    const dirtyWidth = dirtyBounds.right - dirtyBounds.left + 1;
+    const dirtyHeight = dirtyBounds.bottom - dirtyBounds.top + 1;
+    state.context.putImageData(
+      state.imageData,
+      0,
+      0,
+      dirtyBounds.left,
+      dirtyBounds.top,
+      dirtyWidth,
+      dirtyHeight
+    );
+    return;
+  }
+
+  if ("overlayPixels" in state.element) {
+    state.element.overlayPixels = state.pixels;
+  }
+}
+
+function updateOverlayObjectState(
   overlayObject: FabricImageLike,
-  overlay: SegmentationOverlaySnapshot
+  width: number,
+  height: number,
+  visible: boolean,
+  opacity: number
 ): void {
-  const nextElement = createOverlayElement(overlay);
-  if (typeof overlayObject.setElement === "function") {
-    overlayObject.setElement(nextElement);
-  }
-
   overlayObject.set({
-    width: overlay.width,
-    height: overlay.height,
-    element: nextElement,
-    visible: overlay.visible,
-    opacity: overlay.opacity,
+    width,
+    height,
+    visible,
+    opacity,
     selectable: false,
     hoverCursor: "default"
   });
   overlayObject.setCoords();
+}
+
+function createOverlayObject(
+  fabric: FabricRuntimeLike,
+  state: OverlayBufferState,
+  visible: boolean,
+  opacity: number
+): FabricImageLike {
+  const object = new fabric.Image(state.element, {
+    left: 0,
+    top: 0,
+    width: state.width,
+    height: state.height,
+    selectable: false,
+    hoverCursor: "default"
+  });
+  updateOverlayObjectState(object, state.width, state.height, visible, opacity);
+  return object;
+}
+
+function resolveCachedColor(
+  cache: Map<string, CachedColor>,
+  classId: string,
+  getColorForClass: (classId: string) => string
+): { r: number; g: number; b: number } {
+  const nextHex = getColorForClass(classId);
+  const cached = cache.get(classId);
+  if (cached && cached.hex === nextHex) {
+    return cached;
+  }
+
+  const rgb = hexToRgb(nextHex);
+  cache.set(classId, {
+    hex: nextHex,
+    ...rgb
+  });
+  return rgb;
+}
+
+function clearPixelAtIndex(pixels: Uint8ClampedArray, index: number): void {
+  const offset = index * 4;
+  pixels[offset] = 0;
+  pixels[offset + 1] = 0;
+  pixels[offset + 2] = 0;
+  pixels[offset + 3] = 0;
+}
+
+function writePixelAtIndex(
+  pixels: Uint8ClampedArray,
+  index: number,
+  color: { r: number; g: number; b: number },
+  alpha: number
+): void {
+  const offset = index * 4;
+  pixels[offset] = color.r;
+  pixels[offset + 1] = color.g;
+  pixels[offset + 2] = color.b;
+  pixels[offset + 3] = alpha;
+}
+
+export function createSegmentationMaskOverlayLayer(fabric: FabricRuntimeLike): SegmentationMaskOverlayLayer {
+  const state = createOverlayBufferState(1, 1);
+  const overlayObject = createOverlayObject(fabric, state, false, 1);
+  const colorCache = new Map<string, CachedColor>();
+
+  return {
+    object: overlayObject,
+
+    sync(document, getColorForClass, options) {
+      const resized = resizeOverlayBufferState(state, document.width, document.height);
+      const fullBounds = createFullBounds(document.width, document.height);
+      const hasDirtyBoundsOption = Object.prototype.hasOwnProperty.call(options ?? {}, "dirtyBounds");
+      const forceFull = Boolean(options?.forceFull) || resized || !hasDirtyBoundsOption;
+      const dirtyBounds = forceFull
+        ? fullBounds
+        : options?.dirtyBounds
+          ? clampBounds(options.dirtyBounds, document.width, document.height)
+          : null;
+
+      if (dirtyBounds) {
+        const visibleClassIds = new Set(document.getVisibleClassIds());
+        if (forceFull) {
+          for (let index = 0; index < document.mask.length; index += 1) {
+            const classId = document.mask[index] ?? 0;
+            if (classId === 0) {
+              clearPixelAtIndex(state.pixels, index);
+              continue;
+            }
+            const classKey = String(classId);
+            if (!visibleClassIds.has(classKey)) {
+              clearPixelAtIndex(state.pixels, index);
+              continue;
+            }
+            const color = resolveCachedColor(colorCache, classKey, getColorForClass);
+            writePixelAtIndex(state.pixels, index, color, 255);
+          }
+        } else {
+          for (let y = dirtyBounds.top; y <= dirtyBounds.bottom; y += 1) {
+            for (let x = dirtyBounds.left; x <= dirtyBounds.right; x += 1) {
+              const index = (y * document.width) + x;
+              const classId = document.mask[index] ?? 0;
+              if (classId === 0) {
+                clearPixelAtIndex(state.pixels, index);
+                continue;
+              }
+              const classKey = String(classId);
+              if (!visibleClassIds.has(classKey)) {
+                clearPixelAtIndex(state.pixels, index);
+                continue;
+              }
+              const color = resolveCachedColor(colorCache, classKey, getColorForClass);
+              writePixelAtIndex(state.pixels, index, color, 255);
+            }
+          }
+        }
+
+        commitOverlayBuffer(state, forceFull ? null : dirtyBounds);
+      }
+
+      if ("overlayVisible" in state.element) {
+        state.element.overlayVisible = document.overlayVisible;
+        state.element.overlayOpacity = document.overlayOpacity;
+      }
+      updateOverlayObjectState(
+        overlayObject,
+        document.width,
+        document.height,
+        document.overlayVisible,
+        document.overlayOpacity
+      );
+    }
+  };
+}
+
+export function createSegmentationSelectionOverlayLayer(fabric: FabricRuntimeLike): SegmentationSelectionOverlayLayer {
+  const state = createOverlayBufferState(1, 1);
+  const overlayObject = createOverlayObject(fabric, state, false, 1);
+  let previousSelectionIndices: Uint32Array | null = null;
+  let previousSelectionBounds: SegmentationRegionBounds | null = null;
+
+  return {
+    object: overlayObject,
+
+    sync(input, options) {
+      const resized = resizeOverlayBufferState(state, input.width, input.height);
+      const fullBounds = createFullBounds(input.width, input.height);
+      const forceFull = Boolean(options?.forceFull) || resized;
+
+      let dirtyBounds = forceFull ? fullBounds : null;
+
+      if (forceFull) {
+        state.pixels.fill(0);
+      } else if (previousSelectionIndices && previousSelectionBounds) {
+        for (const index of previousSelectionIndices) {
+          if (index >= input.width * input.height) {
+            continue;
+          }
+          clearPixelAtIndex(state.pixels, index);
+        }
+        dirtyBounds = mergeBounds(dirtyBounds, previousSelectionBounds);
+      }
+
+      if (input.selection) {
+        const baseColor = hexToRgb(input.getColorForClass(input.selection.classId));
+        const color = {
+          r: Math.min(255, baseColor.r + 40),
+          g: Math.min(255, baseColor.g + 40),
+          b: Math.min(255, baseColor.b + 40)
+        };
+        for (const index of input.selection.pixelIndices) {
+          if (index >= input.width * input.height) {
+            continue;
+          }
+          writePixelAtIndex(state.pixels, index, color, 220);
+        }
+        dirtyBounds = mergeBounds(dirtyBounds, input.selection.bounds);
+        previousSelectionIndices = input.selection.pixelIndices;
+        previousSelectionBounds = cloneBounds(input.selection.bounds);
+      } else {
+        previousSelectionIndices = null;
+        previousSelectionBounds = null;
+      }
+
+      const clampedDirtyBounds = dirtyBounds
+        ? clampBounds(dirtyBounds, input.width, input.height)
+        : null;
+      if (clampedDirtyBounds) {
+        commitOverlayBuffer(state, forceFull ? null : clampedDirtyBounds);
+      }
+
+      if ("overlayVisible" in state.element) {
+        state.element.overlayVisible = Boolean(input.selection);
+        state.element.overlayOpacity = 1;
+      }
+      updateOverlayObjectState(overlayObject, input.width, input.height, Boolean(input.selection), 1);
+    }
+  };
 }

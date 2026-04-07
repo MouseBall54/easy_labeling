@@ -2,6 +2,9 @@ import type { CanvasPoint } from "../../types/labels.js";
 import { applyBrushStroke, applyEraseStroke } from "./tools.js";
 import type {
   SegmentationDocumentSnapshot,
+  SegmentationMutationResult,
+  SegmentationRegionBounds,
+  SegmentationRegionMoveResult,
   SegmentationRegionSelection,
   SegmentationStrokeInput,
   SegmentationSummary,
@@ -24,7 +27,7 @@ export interface SegmentationDocument {
   readonly overlayOpacity: number;
   cloneSnapshot(): SegmentationDocumentSnapshot;
   restoreSnapshot(snapshot: SegmentationDocumentSnapshot): void;
-  applyStroke(input: SegmentationStrokeInput, options?: { recordHistory?: boolean }): boolean;
+  applyStroke(input: SegmentationStrokeInput, options?: { recordHistory?: boolean }): SegmentationMutationResult;
   pushHistoryFromSnapshot(before: SegmentationDocumentSnapshot): boolean;
   setActiveClass(classId: string): void;
   setActiveTool(tool: SegmentationTool): void;
@@ -39,8 +42,8 @@ export interface SegmentationDocument {
   getPixel(x: number, y: number): number;
   getClassAtPoint(point: CanvasPoint): string | null;
   getConnectedRegionAtPoint(point: CanvasPoint): SegmentationRegionSelection | null;
-  moveRegion(region: SegmentationRegionSelection, deltaX: number, deltaY: number, options?: { recordHistory?: boolean }): SegmentationRegionSelection | null;
-  relabelConnectedRegionAtPoint(point: CanvasPoint, nextClassId: string, options?: { recordHistory?: boolean }): boolean;
+  moveRegion(region: SegmentationRegionSelection, deltaX: number, deltaY: number, options?: { recordHistory?: boolean }): SegmentationRegionMoveResult | null;
+  relabelConnectedRegionAtPoint(point: CanvasPoint, nextClassId: string, options?: { recordHistory?: boolean }): SegmentationMutationResult;
   clearHistory(): void;
   canUndo(): boolean;
   canRedo(): boolean;
@@ -71,6 +74,33 @@ function normalizeBrushRadius(radius: number): number {
 function normalizePaintClassNumber(classId: string): number {
   const parsed = Number.parseInt(classId, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function cloneBounds(bounds: SegmentationRegionBounds): SegmentationRegionBounds {
+  return {
+    left: bounds.left,
+    top: bounds.top,
+    right: bounds.right,
+    bottom: bounds.bottom
+  };
+}
+
+function mergeBounds(
+  left: SegmentationRegionBounds | null,
+  right: SegmentationRegionBounds | null
+): SegmentationRegionBounds | null {
+  if (!left) {
+    return right ? cloneBounds(right) : null;
+  }
+  if (!right) {
+    return cloneBounds(left);
+  }
+  return {
+    left: Math.min(left.left, right.left),
+    top: Math.min(left.top, right.top),
+    right: Math.max(left.right, right.right),
+    bottom: Math.max(left.bottom, right.bottom)
+  };
 }
 
 function cloneSnapshot(snapshot: SegmentationDocumentSnapshot): SegmentationDocumentSnapshot {
@@ -198,25 +228,28 @@ export function createSegmentationDocument(input: {
       brushRadius = snapshot.brushRadius;
     },
 
-    applyStroke(inputStroke: SegmentationStrokeInput, options?: { recordHistory?: boolean }): boolean {
+    applyStroke(inputStroke: SegmentationStrokeInput, options?: { recordHistory?: boolean }): SegmentationMutationResult {
       const points = inputStroke.points;
       if (points.length === 0) {
-        return false;
+        return {
+          mutated: false,
+          dirtyBounds: null
+        };
       }
 
       const radius = normalizeBrushRadius(inputStroke.radius ?? brushRadius);
       const before = options?.recordHistory === false ? null : doc.cloneSnapshot();
       const normalizedClassId = normalizePaintClassNumber(activeClassId);
-      const mutated = activeTool === "erase"
+      const mutation = activeTool === "erase"
         ? applyEraseStroke(mask, width, height, points, radius)
         : applyBrushStroke(mask, width, height, points, radius, normalizedClassId);
 
-      if (!mutated || !before) {
-        return mutated;
+      if (!mutation.mutated || !before) {
+        return mutation;
       }
 
       doc.pushHistoryFromSnapshot(before);
-      return true;
+      return mutation;
     },
 
     pushHistoryFromSnapshot(before: SegmentationDocumentSnapshot): boolean {
@@ -377,7 +410,7 @@ export function createSegmentationDocument(input: {
       };
     },
 
-    moveRegion(region: SegmentationRegionSelection, deltaX: number, deltaY: number, options?: { recordHistory?: boolean }): SegmentationRegionSelection | null {
+    moveRegion(region: SegmentationRegionSelection, deltaX: number, deltaY: number, options?: { recordHistory?: boolean }): SegmentationRegionMoveResult | null {
       const sourceClass = normalizePaintClassNumber(region.classId);
       const normalizedDeltaX = Math.round(deltaX);
       const normalizedDeltaY = Math.round(deltaY);
@@ -386,7 +419,11 @@ export function createSegmentationDocument(input: {
       const before = options?.recordHistory === false ? null : doc.cloneSnapshot();
 
       if (clampedDeltaX === 0 && clampedDeltaY === 0) {
-        return region;
+        return {
+          mutated: false,
+          dirtyBounds: null,
+          region
+        };
       }
 
       for (const index of region.pixelIndices) {
@@ -411,11 +448,7 @@ export function createSegmentationDocument(input: {
         maxY = Math.max(maxY, y);
       });
 
-      if (before) {
-        doc.pushHistoryFromSnapshot(before);
-      }
-
-      return {
+      const movedRegion: SegmentationRegionSelection = {
         classId: region.classId,
         pixelCount: movedIndices.length,
         pixelIndices: movedIndices,
@@ -430,14 +463,28 @@ export function createSegmentationDocument(input: {
           y: region.seedPoint.y + clampedDeltaY
         }
       };
+      const dirtyBounds = mergeBounds(region.bounds, movedRegion.bounds);
+
+      if (before) {
+        doc.pushHistoryFromSnapshot(before);
+      }
+
+      return {
+        mutated: true,
+        dirtyBounds,
+        region: movedRegion
+      };
     },
 
-    relabelConnectedRegionAtPoint(point: CanvasPoint, nextClassId: string, options?: { recordHistory?: boolean }): boolean {
+    relabelConnectedRegionAtPoint(point: CanvasPoint, nextClassId: string, options?: { recordHistory?: boolean }): SegmentationMutationResult {
       const nextClass = normalizePaintClassNumber(nextClassId);
       const connectedRegion = doc.getConnectedRegionAtPoint(point);
       const sourceClass = connectedRegion ? Number.parseInt(connectedRegion.classId, 10) : 0;
       if (sourceClass <= 0 || sourceClass === nextClass) {
-        return false;
+        return {
+          mutated: false,
+          dirtyBounds: null
+        };
       }
 
       const before = options?.recordHistory === false ? null : doc.cloneSnapshot();
@@ -452,11 +499,17 @@ export function createSegmentationDocument(input: {
       }
 
       if (mutated === 0 || !before) {
-        return mutated > 0;
+        return {
+          mutated: mutated > 0,
+          dirtyBounds: mutated > 0 && connectedRegion ? cloneBounds(connectedRegion.bounds) : null
+        };
       }
 
       doc.pushHistoryFromSnapshot(before);
-      return true;
+      return {
+        mutated: true,
+        dirtyBounds: connectedRegion ? cloneBounds(connectedRegion.bounds) : null
+      };
     },
 
     clearHistory(): void {

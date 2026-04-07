@@ -246,7 +246,7 @@ describe("bootstrap/file-system-adapter", () => {
     expect(deps.uiManager.renderPreviewList).toHaveBeenCalledTimes(2);
   });
 
-  it("writes segmentation png and metadata instead of detection txt when segmentation workflow is active", async () => {
+  it("writes only a segmentation mask png instead of detection txt when segmentation workflow is active", async () => {
     const imageFolder = new MockDirectoryHandle("images");
     const state = createInitialAppState();
     state.session.currentImageFile = new MockFileHandle("1.jpg", "") as never;
@@ -276,9 +276,8 @@ describe("bootstrap/file-system-adapter", () => {
 
     const maskDir = await imageFolder.getDirectoryHandle("mask", { create: false }) as MockDirectoryHandle;
     const pngHandle = await maskDir.getFileHandle("1.png") as MockFileHandle;
-    const jsonHandle = await maskDir.getFileHandle("1.seg.json") as MockFileHandle;
     expect(await pngHandle.getFile().then((file) => file.arrayBuffer?.())).toBeInstanceOf(ArrayBuffer);
-    expect(await jsonHandle.getFile().then((file) => file.text())).toContain('"activeClassId": "5"');
+    await expect(maskDir.getFileHandle("1.seg.json")).rejects.toThrow("File not found");
     expect(deps.canvasController.raw.getLabelsAsYolo).not.toHaveBeenCalled();
   });
 

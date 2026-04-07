@@ -236,7 +236,7 @@ export function createImageSessionService(
     async refreshImageWorkflowStatus(): Promise<void> {
       const detectionAnnotationFileNames = await listFileNames(state.labelFolderHandle, (fileName) => fileName.endsWith(".txt"));
       const segmentationAnnotationPaths = await listRelativeFilePaths(state.imageFolderHandle, ["mask"], (fileName) => {
-        return fileName.endsWith(".png") || fileName.endsWith(".seg.json");
+        return fileName.endsWith(".png");
       });
 
       state.imageWorkflowStatus.clear();
