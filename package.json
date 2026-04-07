@@ -4,7 +4,11 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "CHOKIDAR_USEPOLLING=1 node --input-type=commonjs -e \"require('./node_modules/live-server').start({ root: '.', host: '127.0.0.1', port: 4173, open: false, logLevel: 0, watch: ['index.html', 'css', 'dist', 'privacy.html'], ignore: ['node_modules', '.git', '.sisyphus'] })\"",
+    "prestart": "npm run build",
+    "start": "npm run serve",
+    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --quiet --watch=index.html,css,dist,privacy.html --ignore=node_modules,.git,.sisyphus",
+    "build:watch": "tsc -p tsconfig.build.json --watch",
+    "dev": "concurrently -k \"npm:build:watch\" \"npm:serve\"",
     "test": "npm run test:unit",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -18,6 +22,8 @@
   "devDependencies": {
     "@playwright/test": "^1.53.0",
     "@types/node": "^24.0.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
     "live-server": "^1.2.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

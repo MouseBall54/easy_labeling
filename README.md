@@ -14,6 +14,13 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 - 별도 설치 없이 브라우저에서 실행 가능
 - 권장 브라우저: **Desktop Chrome / Edge** (File System Access API 필요)
 
+## 로컬 실행
+
+- 의존성 설치: `npm install`
+- 일반 실행: `npm start`
+- 개발 모드(빌드 watch + 로컬 서버): `npm run dev`
+- 접속 주소: `http://127.0.0.1:4173`
+
 ---
 
 ## 핵심 동작 방식
