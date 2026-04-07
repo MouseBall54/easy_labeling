@@ -6,7 +6,7 @@
   "scripts": {
     "prestart": "npm run build",
     "start": "npm run serve",
-    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --quiet --watch=index.html,css,dist,privacy.html --ignore=node_modules,.git,.sisyphus",
+    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --watch=index.html,css,dist,privacy.html --ignore=node_modules,.git,.sisyphus",
     "build:watch": "tsc -p tsconfig.build.json --watch",
     "dev": "concurrently -k \"npm:build:watch\" \"npm:serve\"",
     "test": "npm run test:unit",
