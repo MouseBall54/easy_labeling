@@ -172,7 +172,6 @@ export interface RuntimeFileSystem extends FileSystem {
   saveClassFileContent(): Promise<void>;
   addNewClassRow(): void;
   createNewClassFile(): Promise<void>;
-  downloadClassTemplate(): Promise<void>;
   readonly imageSessionService: ImageSessionService;
 }
 
@@ -556,18 +555,6 @@ export function createFileSystemAdapter(input: {
         input.state.session.classFiles = [...input.state.session.classFiles, result.fileHandle as FileHandle];
         (connectedDeps.uiManager as RuntimeUiManager).renderClassFileSelect();
         await this.loadClassNamesFromFile(result.fileHandle);
-      }
-
-      ,
-
-      async downloadClassTemplate(): Promise<void> {
-        const blob = new Blob(["# YAML Class file. Format: id: name\n0: class1\n1: class2"], { type: "text/plain" });
-        const url = input.windowRef.URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = "classes.yaml";
-        anchor.click();
-        input.windowRef.URL.revokeObjectURL(url);
       }
     };
 
