@@ -95,6 +95,7 @@ export interface CanvasController {
   copy(): void;
   paste(): void;
   deleteSelection(): void;
+  setSelectedLabelClass?(classId: string): boolean;
   alignSelectionLeft(): void;
   alignSelectionRight(): void;
   alignSelectionTop(): void;
@@ -111,12 +112,15 @@ export interface CanvasController {
   setSegmentationTool?(tool: SegmentationTool): void;
   setSegmentationBrushRadius?(radius: number): void;
   setSegmentationActiveClass?(classId: string): void;
+  setSegmentationAutoFillClosedRegionEnabled?(enabled: boolean): void;
+  getSegmentationAutoFillClosedRegionEnabled?(): boolean;
   setSegmentationOverlayVisibility?(visible: boolean): void;
   setSegmentationOverlayOpacity?(opacity: number): void;
   setSegmentationClassVisibility?(classId: string, visible: boolean): void;
   setSegmentationOnlyVisibleClass?(classId: string | null): void;
   getSegmentationClassAtPoint?(pointer: CanvasPoint): string | null;
   getSelectedSegmentationClass?(): string | null;
+  deleteSelectedSegmentationRegion?(): boolean;
   selectSegmentationRegionAtPoint?(pointer: CanvasPoint): boolean;
   clearSegmentationSelection?(): void;
   startSegmentationRegionMove?(pointer: CanvasPoint): boolean;

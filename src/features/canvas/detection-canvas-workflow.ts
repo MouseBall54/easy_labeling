@@ -885,6 +885,61 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       deleteRects(rectsToDelete);
     },
 
+    setSelectedLabelClass(classId: string): boolean {
+      const activeObjects = canvas.getActiveObjects();
+      const selectedRects: FabricRectLike[] = [];
+
+      activeObjects.forEach((object) => {
+        if (isRectObject(object)) {
+          selectedRects.push(object);
+          return;
+        }
+
+        if (isActiveSelectionObject(object)) {
+          object.getObjects().forEach((child) => {
+            if (isRectObject(child)) {
+              selectedRects.push(child);
+            }
+          });
+        }
+      });
+
+      const uniqueRects = [...new Set(selectedRects)];
+      if (uniqueRects.length === 0) {
+        return false;
+      }
+
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      let changed = false;
+
+      uniqueRects.forEach((rect) => {
+        if (rect.labelClass === classId) {
+          return;
+        }
+        rect.set("labelClass", classId);
+        const color = colorForClass(classId);
+        rect.set({ fill: `${color}33`, stroke: color });
+        rect.originalYolo = null;
+        this.updateLabelText(rect);
+        changed = true;
+      });
+
+      if (!changed) {
+        return false;
+      }
+
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+      return true;
+    },
+
     alignSelectionLeft(): void {
       applyEdgeAlignment("left");
     },

@@ -219,6 +219,45 @@ describe("features/canvas/canvas-controller", () => {
     expect(rectB.originalYolo).toBeNull();
   });
 
+  it("changes selected label classes through numeric shortcut API and supports undo/redo", () => {
+    const history = createCanvasHistoryService();
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(
+      createState(),
+      createDeps({
+        fabric,
+        historyService: history,
+        getColorForClass: (labelClass) => `cls-${labelClass ?? "0"}`
+      })
+    );
+
+    const rectA = createRect({ left: 5, top: 6, width: 10, height: 12, labelClass: "1" });
+    const rectB = createRect({ left: 25, top: 16, width: 9, height: 10, labelClass: "2" });
+    controller.canvas.add(rectA, rectB);
+    controller.drawLabelText(rectA);
+    controller.drawLabelText(rectB);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection([rectA, rectB], { canvas: controller.canvas }));
+
+    expect(controller.setSelectedLabelClass?.("0")).toBe(true);
+    expect(rectA.labelClass).toBe("0");
+    expect(rectB.labelClass).toBe("0");
+    expect(rectA.originalYolo).toBeNull();
+    expect(rectB.originalYolo).toBeNull();
+    expect(history.getPastEntries()).toHaveLength(1);
+
+    controller.undo();
+    expect(rectA.labelClass).toBe("1");
+    expect(rectB.labelClass).toBe("2");
+
+    controller.redo();
+    expect(rectA.labelClass).toBe("0");
+    expect(rectB.labelClass).toBe("0");
+
+    controller.canvas.discardActiveObject();
+    expect(controller.setSelectedLabelClass?.("7")).toBe(false);
+    expect(history.getPastEntries()).toHaveLength(1);
+  });
+
   it("recalculates Fabric offsets after viewport and size changes", () => {
     const controller = createCanvasController(createState(), createDeps());
     const canvas = controller.canvas as FakeCanvas;
