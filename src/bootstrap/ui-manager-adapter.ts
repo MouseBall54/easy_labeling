@@ -133,13 +133,15 @@ export function createUiManagerAdapter(input: {
   };
 
   const syncSegmentationPanelState = (): void => {
-    const summary = getCanvasController()?.raw.getSegmentationSummary?.();
+    const canvasController = getCanvasController();
+    const summary = canvasController?.raw.getSegmentationSummary?.();
     const activeClassId = summary?.activeClassId ?? "1";
     const activeTool = summary?.activeTool ?? "brush";
     const brushRadius = summary?.brushRadius ?? Number.parseInt(elements.segmentationToolSizeSlider.value, 10);
     const overlayVisible = summary?.overlayVisible ?? elements.segmentationMaskVisibilityToggle.checked;
     const overlayOpacity = summary?.overlayOpacity ?? (Number.parseInt(elements.segmentationMaskOpacitySlider.value, 10) / 100);
     const visibleClassIds = summary?.visibleClassIds ?? [];
+    const autoFillClosedRegionEnabled = canvasController?.raw.getSegmentationAutoFillClosedRegionEnabled?.() ?? false;
 
     elements.segmentationActiveClassSummary.textContent = `Active Class: ${manager.getDisplayNameForClass(activeClassId)}`;
     elements.segmentationBrushModeBtn.classList.toggle("active", activeTool === "brush");
@@ -153,6 +155,7 @@ export function createUiManagerAdapter(input: {
       button.classList.toggle("active", isActive);
       button.classList.toggle("btn-outline-secondary", !isActive);
     });
+    elements.segmentationAutoFillClosedRegionToggle.checked = autoFillClosedRegionEnabled;
     elements.segmentationMaskVisibilityToggle.checked = overlayVisible;
     elements.segmentationMaskOpacitySlider.value = `${Math.round(overlayOpacity * 100)}`;
     elements.segmentationMaskOpacityValue.textContent = `${Math.round(overlayOpacity * 100)}`;

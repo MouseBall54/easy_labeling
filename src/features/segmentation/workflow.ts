@@ -1,5 +1,6 @@
 import type { CanvasPoint } from "../../types/labels.js";
 import { createSegmentationDocument, type SegmentationDocument } from "./document.js";
+import { applyClosedRegionAutoFillFromStroke } from "./tools.js";
 import {
   createSegmentationMaskOverlayLayer,
   createSegmentationSelectionOverlayLayer,
@@ -70,7 +71,9 @@ export function createSegmentationCanvasWorkflow(
   let selectionOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
   let strokeBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let strokePoints: CanvasPoint[] = [];
+  let strokeDirtyBounds: SegmentationRegionBounds | null = null;
   let selectedRegion: SegmentationRegionSelection | null = null;
+  let autoFillClosedRegionEnabled = false;
   let moveBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let moveRegionBaseline: SegmentationRegionSelection | null = null;
   let movePointerStart: CanvasPoint | null = null;
@@ -155,6 +158,7 @@ export function createSegmentationCanvasWorkflow(
     removeSelectionOverlayLayer();
     strokeBaseline = null;
     strokePoints = [];
+    strokeDirtyBounds = null;
     selectedRegion = null;
     moveBaseline = null;
     moveRegionBaseline = null;
@@ -287,6 +291,7 @@ export function createSegmentationCanvasWorkflow(
       removeSelectionOverlayLayer();
       strokeBaseline = null;
       strokePoints = [];
+      strokeDirtyBounds = null;
       selectedRegion = null;
       moveBaseline = null;
       moveRegionBaseline = null;
@@ -337,6 +342,7 @@ export function createSegmentationCanvasWorkflow(
       strokeBaseline = doc.cloneSnapshot();
       strokePoints = [pointer];
       const mutation = doc.applyStroke({ points: [pointer] }, { recordHistory: false });
+      strokeDirtyBounds = mutation.dirtyBounds;
       requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
     },
 
@@ -350,6 +356,7 @@ export function createSegmentationCanvasWorkflow(
       strokePoints.push(pointer);
       const mutation = doc.applyStroke({ points }, { recordHistory: false });
       if (mutation.mutated) {
+        strokeDirtyBounds = mergeBounds(strokeDirtyBounds, mutation.dirtyBounds);
         requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
       }
     },
@@ -359,10 +366,28 @@ export function createSegmentationCanvasWorkflow(
       if (!doc || !strokeBaseline) {
         return;
       }
+
+      let autoFillDirtyBounds: SegmentationRegionBounds | null = null;
+      if (autoFillClosedRegionEnabled && doc.activeTool === "brush") {
+        const currentClass = Number.parseInt(doc.activeClassId, 10);
+        const autoFillMutation = applyClosedRegionAutoFillFromStroke({
+          beforeMask: strokeBaseline.mask,
+          afterMask: doc.mask,
+          width: doc.width,
+          height: doc.height,
+          points: strokePoints,
+          brushRadius: doc.brushRadius,
+          classId: Number.isInteger(currentClass) && currentClass > 0 ? currentClass : 1
+        });
+        autoFillDirtyBounds = autoFillMutation.dirtyBounds;
+      }
+
       doc.pushHistoryFromSnapshot(strokeBaseline);
+      const finalDirtyBounds = mergeBounds(strokeDirtyBounds, autoFillDirtyBounds);
       strokeBaseline = null;
       strokePoints = [];
-      requestOverlayRender({ maskDirtyBounds: null });
+      strokeDirtyBounds = null;
+      requestOverlayRender({ maskDirtyBounds: finalDirtyBounds });
     },
 
     removeObject(_object: FabricRectLike): void {
@@ -564,6 +589,14 @@ export function createSegmentationCanvasWorkflow(
       shell.renderAll();
     },
 
+    setSegmentationAutoFillClosedRegionEnabled(enabled: boolean): void {
+      autoFillClosedRegionEnabled = enabled;
+    },
+
+    getSegmentationAutoFillClosedRegionEnabled(): boolean {
+      return autoFillClosedRegionEnabled;
+    },
+
     setSegmentationOverlayVisibility(visible: boolean): void {
       const doc = ensureDocument();
       if (!doc) {
@@ -610,6 +643,39 @@ export function createSegmentationCanvasWorkflow(
 
     getSelectedSegmentationClass(): string | null {
       return selectedRegion?.classId ?? null;
+    },
+
+    deleteSelectedSegmentationRegion(): boolean {
+      const doc = ensureDocument();
+      if (!doc || !selectedRegion) {
+        return false;
+      }
+
+      const sourceClass = Number.parseInt(selectedRegion.classId, 10);
+      if (!Number.isInteger(sourceClass) || sourceClass <= 0) {
+        return false;
+      }
+
+      const before = doc.cloneSnapshot();
+      let mutated = false;
+
+      for (const index of selectedRegion.pixelIndices) {
+        if (doc.mask[index] !== sourceClass) {
+          continue;
+        }
+        doc.mask[index] = 0;
+        mutated = true;
+      }
+
+      if (!mutated) {
+        return false;
+      }
+
+      doc.pushHistoryFromSnapshot(before);
+      const deletedBounds = cloneBounds(selectedRegion.bounds);
+      clearSelection();
+      requestOverlayRender({ maskDirtyBounds: deletedBounds });
+      return true;
     },
 
     selectSegmentationRegionAtPoint(pointer: CanvasPoint): boolean {

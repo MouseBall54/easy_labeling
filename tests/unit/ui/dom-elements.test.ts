@@ -66,6 +66,7 @@ const REQUIRED_IDS = [
   "segmentationToolSizePresets",
   "segmentationActiveClassSummary",
   "segmentationRelabelRegionBtn",
+  "segmentationAutoFillClosedRegionToggle",
   "segmentationMaskVisibilityToggle",
   "segmentationMaskOpacitySlider",
   "segmentationMaskOpacityValue",
@@ -74,7 +75,6 @@ const REQUIRED_IDS = [
   "classFileEditorBody",
   "addClassRowBtn",
   "saveClassFileBtn",
-  "preview-bar",
   "preview-prev-btn",
   "preview-next-btn",
   "preview-list-wrapper",
@@ -119,7 +119,6 @@ class FakeModal implements BootstrapModalLike {
 
 function createHtmlFragment(): string {
   const nodes = REQUIRED_IDS.map((id) => `<div id="${id}"></div>`);
-  nodes.push('<div class="canvas-container"></div>');
   return nodes.join("\n");
 }
 
@@ -138,7 +137,6 @@ describe("ui/dom-elements", () => {
     expect(result.segmentationWorkflowTab.id).toBe("segmentationWorkflowTab");
     expect(result.detectionWorkflowPanel.id).toBe("detectionWorkflowPanel");
     expect(result.segmentationWorkflowPanel.id).toBe("segmentationWorkflowPanel");
-    expect(result.canvasContainer.classList.contains("canvas-container")).toBe(true);
     expect(result.segmentationBrushModeBtn.id).toBe("segmentationBrushModeBtn");
     expect(result.loadingOverlay.id).toBe("loading-overlay");
     expect(FakeModal.createdElements).toEqual(["classFileViewerModal", "labelClassModal"]);

@@ -125,7 +125,6 @@
                 </div>
                 <div class="d-grid gap-2 save-actions" data-ui="save-actions">
                     <button id="saveLabelsBtn" type="button" class="btn btn-success" data-ui="save-labels" title="Save (Ctrl+S)"><i class="bi bi-save"></i> Save Labels</button>
-                    <button id="downloadClassesBtn" type="button" class="btn btn-secondary mt-2" data-ui="download-class-template"><i class="bi bi-download"></i> Download Class Template</button>
                 </div>
         </div>
     </div>
@@ -283,6 +282,10 @@
                         <h5 class="panel-section-title"><i class="bi bi-palette"></i> Active Class</h5>
                         <div id="segmentationActiveClassSummary" class="workflow-summary-card mb-2" data-ui="segmentation-active-class-summary">No active segmentation class selected yet.</div>
                         <button id="segmentationRelabelRegionBtn" type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2" data-ui="segmentation-relabel-region">Change Class of Painted Region</button>
+                        <div class="form-check form-switch mb-2" data-ui="segmentation-auto-fill-closed-region-group">
+                            <input class="form-check-input" type="checkbox" id="segmentationAutoFillClosedRegionToggle" data-ui="segmentation-auto-fill-closed-region-toggle">
+                            <label class="form-check-label" for="segmentationAutoFillClosedRegionToggle">Auto Fill Closed Regions</label>
+                        </div>
                         <div class="form-check form-switch mb-2" data-ui="segmentation-mask-visibility-group">
                             <input class="form-check-input" type="checkbox" id="segmentationMaskVisibilityToggle" data-ui="segmentation-mask-visibility-toggle" checked>
                             <label class="form-check-label" for="segmentationMaskVisibilityToggle">Show Mask Overlay</label>

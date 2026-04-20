@@ -44,7 +44,6 @@ export interface UiDomElements {
   alignBottomBtn: HTMLElement;
   distributeHorizontalBtn: HTMLElement;
   distributeVerticalBtn: HTMLElement;
-  canvasContainer: HTMLElement;
   zoomInput: HTMLInputElement;
   mouseCoordsDisplay: HTMLElement;
   coordXInput: HTMLInputElement;
@@ -65,7 +64,6 @@ export interface UiDomElements {
   classFileEditorBody: HTMLElement;
   addClassRowBtn: HTMLElement;
   saveClassFileBtn: HTMLElement;
-  previewBar: HTMLElement;
   previewPrevBtn: HTMLElement;
   previewNextBtn: HTMLElement;
   previewListWrapper: HTMLElement;
@@ -89,6 +87,7 @@ export interface UiDomElements {
   segmentationToolSizePresets: HTMLElement;
   segmentationActiveClassSummary: HTMLElement;
   segmentationRelabelRegionBtn: HTMLElement;
+  segmentationAutoFillClosedRegionToggle: HTMLInputElement;
   segmentationMaskVisibilityToggle: HTMLInputElement;
   segmentationMaskOpacitySlider: HTMLInputElement;
   segmentationMaskOpacityValue: HTMLElement;
@@ -110,15 +109,6 @@ function requireById<T extends HTMLElement>(documentRef: Document, id: string): 
   const element = documentRef.getElementById(id);
   if (!element) {
     throw new Error(`Missing required DOM element: #${id}`);
-  }
-
-  return element as T;
-}
-
-function requireBySelector<T extends HTMLElement>(documentRef: Document, selector: string): T {
-  const element = documentRef.querySelector(selector);
-  if (!element) {
-    throw new Error(`Missing required DOM element: ${selector}`);
   }
 
   return element as T;
@@ -163,7 +153,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     alignBottomBtn: requireById<HTMLElement>(documentRef, "alignBottomBtn"),
     distributeHorizontalBtn: requireById<HTMLElement>(documentRef, "distributeHorizontalBtn"),
     distributeVerticalBtn: requireById<HTMLElement>(documentRef, "distributeVerticalBtn"),
-    canvasContainer: requireBySelector<HTMLElement>(documentRef, ".canvas-container"),
     zoomInput: requireById<HTMLInputElement>(documentRef, "zoom-input"),
     mouseCoordsDisplay: requireById<HTMLElement>(documentRef, "mouse-coords"),
     coordXInput: requireById<HTMLInputElement>(documentRef, "coordX"),
@@ -184,7 +173,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     classFileEditorBody: requireById<HTMLElement>(documentRef, "classFileEditorBody"),
     addClassRowBtn: requireById<HTMLElement>(documentRef, "addClassRowBtn"),
     saveClassFileBtn: requireById<HTMLElement>(documentRef, "saveClassFileBtn"),
-    previewBar: requireById<HTMLElement>(documentRef, "preview-bar"),
     previewPrevBtn: requireById<HTMLElement>(documentRef, "preview-prev-btn"),
     previewNextBtn: requireById<HTMLElement>(documentRef, "preview-next-btn"),
     previewListWrapper: requireById<HTMLElement>(documentRef, "preview-list-wrapper"),
@@ -208,6 +196,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationToolSizePresets: requireById<HTMLElement>(documentRef, "segmentationToolSizePresets"),
     segmentationActiveClassSummary: requireById<HTMLElement>(documentRef, "segmentationActiveClassSummary"),
     segmentationRelabelRegionBtn: requireById<HTMLElement>(documentRef, "segmentationRelabelRegionBtn"),
+    segmentationAutoFillClosedRegionToggle: requireById<HTMLInputElement>(documentRef, "segmentationAutoFillClosedRegionToggle"),
     segmentationMaskVisibilityToggle: requireById<HTMLInputElement>(documentRef, "segmentationMaskVisibilityToggle"),
     segmentationMaskOpacitySlider: requireById<HTMLInputElement>(documentRef, "segmentationMaskOpacitySlider"),
     segmentationMaskOpacityValue: requireById<HTMLElement>(documentRef, "segmentationMaskOpacityValue"),

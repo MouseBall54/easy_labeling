@@ -30,6 +30,40 @@ function createDeps(overrides: Partial<CanvasControllerDeps> = {}): CanvasContro
   };
 }
 
+async function drawStroke(
+  controller: ReturnType<typeof createCanvasControllerForWorkflow>,
+  points: Array<{ x: number; y: number }>
+): Promise<void> {
+  const firstPoint = points[0];
+  if (!firstPoint) {
+    return;
+  }
+  controller.startDrawing(firstPoint);
+  points.slice(1).forEach((point) => {
+    controller.continueDrawing(point);
+  });
+  await controller.finishDrawing();
+}
+
+function createClosedSquarePoints(): Array<{ x: number; y: number }> {
+  return [
+    { x: 5, y: 5 },
+    { x: 14, y: 5 },
+    { x: 14, y: 14 },
+    { x: 5, y: 14 },
+    { x: 5, y: 5 }
+  ];
+}
+
+function createOpenSquarePoints(): Array<{ x: number; y: number }> {
+  return [
+    { x: 5, y: 5 },
+    { x: 14, y: 5 },
+    { x: 14, y: 14 },
+    { x: 5, y: 14 }
+  ];
+}
+
 describe("features/segmentation/workflow", () => {
   it("activates segmentation explicitly and paints/erases through the document-backed workflow", async () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
@@ -165,11 +199,121 @@ describe("features/segmentation/workflow", () => {
     expect(controller.getSelectedSegmentationClass?.()).toBeNull();
   });
 
+  it("deletes the selected segmentation region to background and supports undo", async () => {
+    const state = createState({ currentMode: "draw" });
+    const controller = createCanvasControllerForWorkflow("segmentation", state, createDeps());
+    controller.setBackgroundImage({ width: 16, height: 16 });
+
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("4");
+    controller.startDrawing({ x: 5, y: 5 });
+    await controller.finishDrawing();
+
+    state.currentMode = "edit";
+    expect(controller.selectSegmentationRegionAtPoint?.({ x: 5, y: 5 })).toBe(true);
+    expect(controller.deleteSelectedSegmentationRegion?.()).toBe(true);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBeNull();
+    expect(controller.getSelectedSegmentationClass?.()).toBeNull();
+
+    controller.undo();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("4");
+  });
+
   it("updates segmentation brush radius from the tool-size control API", () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState(), createDeps());
     controller.setBackgroundImage({ width: 16, height: 16 });
 
     controller.setSegmentationBrushRadius?.(12);
     expect(controller.getSegmentationSummary?.()?.brushRadius).toBe(12);
+  });
+
+  it("defaults closed-region auto fill to off and keeps interiors unfilled", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    expect(controller.getSegmentationAutoFillClosedRegionEnabled?.()).toBe(false);
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, createClosedSquarePoints());
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBeNull();
+  });
+
+  it("fills a closed region on stroke end when auto fill is enabled", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationAutoFillClosedRegionEnabled?.(true);
+    expect(controller.getSegmentationAutoFillClosedRegionEnabled?.()).toBe(true);
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, createClosedSquarePoints());
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+  });
+
+  it("does not fill for open strokes even when auto fill is enabled", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationAutoFillClosedRegionEnabled?.(true);
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, createOpenSquarePoints());
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBeNull();
+  });
+
+  it("fills closed interiors over existing classes when auto fill is enabled", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("2");
+    await drawStroke(controller, [{ x: 10, y: 10 }]);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("2");
+
+    controller.setSegmentationAutoFillClosedRegionEnabled?.(true);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, createClosedSquarePoints());
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+  });
+
+  it("does not run closed-region auto fill while erase tool is active", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, [{ x: 10, y: 10 }]);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+
+    controller.setSegmentationAutoFillClosedRegionEnabled?.(true);
+    controller.setSegmentationTool?.("erase");
+    await drawStroke(controller, createClosedSquarePoints());
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+  });
+
+  it("stores stroke and auto fill as a single undo/redo history step", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationAutoFillClosedRegionEnabled?.(true);
+    controller.setSegmentationBrushRadius?.(1);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, createClosedSquarePoints());
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+    expect(controller.canUndo()).toBe(true);
+
+    controller.undo();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBeNull();
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+
+    controller.redo();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
   });
 });

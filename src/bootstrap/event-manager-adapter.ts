@@ -386,6 +386,14 @@ export function createEventManagerAdapter(input: {
       elements.segmentationRelabelRegionBtn.addEventListener("click", () => {
         triggerSegmentationRelabel();
       });
+      elements.segmentationAutoFillClosedRegionToggle.addEventListener("change", (event) => {
+        const toggle = event.currentTarget;
+        if (!(toggle instanceof HTMLInputElement)) {
+          return;
+        }
+        input.canvasController.raw.setSegmentationAutoFillClosedRegionEnabled?.(toggle.checked);
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+      });
       elements.segmentationMaskVisibilityToggle.addEventListener("change", (event) => {
         const toggle = event.currentTarget;
         if (!(toggle instanceof HTMLInputElement)) {
@@ -888,6 +896,29 @@ export function createEventManagerAdapter(input: {
           }
         }
 
+        if (/^[0-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          if (input.state.session.workflow === "segmentation") {
+            if (event.key === "0") {
+              input.canvasController.raw.setSegmentationTool?.("erase");
+            } else {
+              input.canvasController.raw.setSegmentationActiveClass?.(event.key);
+              input.canvasController.raw.setSegmentationTool?.("brush");
+            }
+            input.uiManager.setWorkflow?.(input.state.session.workflow);
+            syncToolbarActionState();
+            return;
+          }
+
+          if (input.state.session.workflow === "detection") {
+            const changed = input.canvasController.raw.setSelectedLabelClass?.(event.key) ?? false;
+            if (changed) {
+              syncToolbarActionState();
+            }
+            return;
+          }
+        }
+
         const activeObject = rawCanvas.getActiveObject();
         if (activeObject && input.state.view.currentMode === "edit" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
           event.preventDefault();
@@ -928,7 +959,15 @@ export function createEventManagerAdapter(input: {
 
         if (event.key === "Delete" || event.key === "Backspace") {
           event.preventDefault();
-          input.canvasController.raw.deleteSelection();
+          if (input.state.session.workflow === "segmentation" && input.state.view.currentMode === "edit") {
+            const changed = input.canvasController.raw.deleteSelectedSegmentationRegion?.() ?? false;
+            if (changed) {
+              input.uiManager.setWorkflow?.(input.state.session.workflow);
+              input.uiManager.updateLabelList();
+            }
+          } else {
+            input.canvasController.raw.deleteSelection();
+          }
           syncToolbarActionState();
           return;
         }

@@ -225,7 +225,8 @@ function createElements() {
     segmentationMaskVisibilityToggle,
     segmentationMaskOpacitySlider,
     segmentationMaskOpacityValue: new FakeElement("span"),
-    segmentationClassSummary: new FakeElement("div")
+    segmentationClassSummary: new FakeElement("div"),
+    segmentationAutoFillClosedRegionToggle: new FakeElement("input")
   };
 }
 
@@ -283,6 +284,7 @@ function createManagerWithRects(input: {
           allClassIds: [],
           hiddenClassIds: []
         }),
+        getSegmentationAutoFillClosedRegionEnabled: () => false,
         renderAll: () => {
           return;
         },
@@ -454,5 +456,45 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     });
     expect(renderImageListMock).toHaveBeenCalledTimes(1);
     expect(renderPreviewListMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("syncs segmentation auto-fill toggle from controller getter", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    getDOMElementsMock.mockReturnValue(elements);
+
+    const manager = createUiManagerAdapter({
+      state,
+      documentRef: new FakeDocument() as unknown as Document,
+      bootstrapRef: {} as never,
+      windowRef: { prompt: () => null },
+      storage: {
+        getItem: () => null,
+        setItem: () => {
+          return;
+        }
+      }
+    });
+
+    manager.connect({
+      canvasController: {
+        raw: {
+          getSegmentationSummary: () => ({
+            activeClassId: "1",
+            activeTool: "brush",
+            brushRadius: 6,
+            overlayVisible: true,
+            overlayOpacity: 0.6,
+            visibleClassIds: [],
+            allClassIds: [],
+            hiddenClassIds: []
+          }),
+          getSegmentationAutoFillClosedRegionEnabled: () => true
+        }
+      }
+    } as never);
+
+    manager.setWorkflow("segmentation");
+    expect(elements.segmentationAutoFillClosedRegionToggle.checked).toBe(true);
   });
 });

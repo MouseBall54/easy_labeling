@@ -122,7 +122,6 @@ function createElements() {
     leftSplitter: new FakeHtmlElement(),
     rightSplitter: new FakeHtmlElement(),
     darkModeToggle: new FakeInputElement(),
-    downloadClassesBtn: new FakeHtmlElement(),
     sortLabelsAscBtn: new FakeHtmlElement(),
     sortLabelsDescBtn: new FakeHtmlElement(),
     viewClassFileBtn: new FakeHtmlElement(),
@@ -154,6 +153,7 @@ function createElements() {
     segmentationToolSizePresets: new FakeHtmlElement(),
     segmentationActiveClassSummary: new FakeHtmlElement(),
     segmentationRelabelRegionBtn: new FakeHtmlElement(),
+    segmentationAutoFillClosedRegionToggle: new FakeInputElement(),
     segmentationMaskVisibilityToggle: new FakeInputElement(),
     segmentationMaskOpacitySlider: new FakeInputElement(),
     segmentationMaskOpacityValue: new FakeHtmlElement(),
@@ -213,8 +213,13 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     startDrawing: vi.fn(),
     continueDrawing: vi.fn(),
     finishDrawing: vi.fn(async () => {}),
+    setSegmentationTool: vi.fn(),
+    setSegmentationActiveClass: vi.fn(),
+    setSegmentationAutoFillClosedRegionEnabled: vi.fn(),
+    getSegmentationAutoFillClosedRegionEnabled: vi.fn(() => false),
     setSegmentationBrushRadius: vi.fn(),
     getSelectedSegmentationClass: vi.fn(() => null),
+    deleteSelectedSegmentationRegion: vi.fn(() => false),
     startSegmentationRegionMove: vi.fn(() => false),
     continueSegmentationRegionMove: vi.fn(() => false),
     finishSegmentationRegionMove: vi.fn(async () => false),
@@ -236,6 +241,7 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     editMultipleLabels: vi.fn(async () => {}),
     removeObject: vi.fn(),
     deleteSelection: vi.fn(),
+    setSelectedLabelClass: vi.fn(() => false),
     undo: vi.fn(),
     redo: vi.fn(),
     canUndo: vi.fn(() => false),
@@ -329,7 +335,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -390,7 +395,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -456,7 +460,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -515,7 +518,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -585,7 +587,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -646,7 +647,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -712,7 +712,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -779,7 +778,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -839,7 +837,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -895,7 +892,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -961,7 +957,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1019,7 +1014,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1097,7 +1091,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1196,7 +1189,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1329,7 +1321,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1389,7 +1380,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1450,7 +1440,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1533,7 +1522,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1564,6 +1552,323 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(rawController.captureHistoryBaseline).toHaveBeenCalledTimes(1);
     expect(rawController.commitHistoryFromBaseline).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes Delete/Backspace to segmentation region deletion in segmentation edit mode", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.currentMode = "edit";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    rawController.deleteSelectedSegmentationRegion
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    const setWorkflow = vi.fn();
+    const updateLabelList = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList,
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const deletePrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "Delete",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: deletePrevent
+    });
+
+    const backspacePrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "Backspace",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: backspacePrevent
+    });
+
+    expect(deletePrevent).toHaveBeenCalledTimes(1);
+    expect(backspacePrevent).toHaveBeenCalledTimes(1);
+    expect(rawController.deleteSelectedSegmentationRegion).toHaveBeenCalledTimes(2);
+    expect(rawController.deleteSelection).not.toHaveBeenCalled();
+    expect(setWorkflow).toHaveBeenCalledTimes(1);
+    expect(setWorkflow).toHaveBeenCalledWith("segmentation");
+    expect(updateLabelList).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes numeric shortcuts to segmentation tool/class controls", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const setWorkflow = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const zeroPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "0",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: zeroPrevent
+    });
+
+    const fourPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "4",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: fourPrevent
+    });
+
+    const ctrlPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "5",
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: ctrlPrevent
+    });
+
+    expect(zeroPrevent).toHaveBeenCalledTimes(1);
+    expect(fourPrevent).toHaveBeenCalledTimes(1);
+    expect(ctrlPrevent).not.toHaveBeenCalled();
+    expect(rawController.setSegmentationTool).toHaveBeenNthCalledWith(1, "erase");
+    expect(rawController.setSegmentationActiveClass).toHaveBeenCalledWith("4");
+    expect(rawController.setSegmentationTool).toHaveBeenNthCalledWith(2, "brush");
+    expect(rawController.setSelectedLabelClass).not.toHaveBeenCalled();
+    expect(setWorkflow).toHaveBeenCalledTimes(2);
+  });
+
+  it("routes numeric shortcuts to detection selected-label class changes", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "detection";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    rawController.setSelectedLabelClass
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow: vi.fn()
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const sevenPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "7",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: sevenPrevent
+    });
+
+    const twoPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "2",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: twoPrevent
+    });
+
+    const altPrevent = vi.fn();
+    windowRef.keydownListener?.({
+      key: "3",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: true,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault: altPrevent
+    });
+
+    expect(sevenPrevent).toHaveBeenCalledTimes(1);
+    expect(twoPrevent).toHaveBeenCalledTimes(1);
+    expect(altPrevent).not.toHaveBeenCalled();
+    expect(rawController.setSelectedLabelClass).toHaveBeenNthCalledWith(1, "7");
+    expect(rawController.setSelectedLabelClass).toHaveBeenNthCalledWith(2, "2");
+    expect(rawController.setSegmentationTool).not.toHaveBeenCalled();
+  });
+
+  it("wires segmentation auto-fill toggle to controller state and workflow refresh", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const setWorkflow = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: {
+        elements,
+        notify: vi.fn(),
+        renderImageList: vi.fn(),
+        renderPreviewList: vi.fn(),
+        updateLabelList: vi.fn(),
+        updateMouseCoords: vi.fn(),
+        hideMouseCoords: vi.fn(),
+        togglePreviewBarVisibility: vi.fn(),
+        togglePanel: vi.fn(),
+        applyDarkMode: vi.fn(),
+        setWorkflow
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {
+        selectImageFolder: vi.fn(async () => {}),
+        selectLabelFolder: vi.fn(async () => {}),
+        selectClassInfoFolder: vi.fn(async () => {}),
+        saveLabels: vi.fn(async () => {}),
+        showClassFileContent: vi.fn(async () => {}),
+        saveClassFileContent: vi.fn(async () => {}),
+        addNewClassRow: vi.fn(),
+        createNewClassFile: vi.fn(async () => {}),
+        loadClassNamesFromFile: vi.fn(async () => {}),
+        navigateImage: vi.fn(async () => {})
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    elements.segmentationAutoFillClosedRegionToggle.checked = true;
+    elements.segmentationAutoFillClosedRegionToggle.dispatch("change", {
+      currentTarget: elements.segmentationAutoFillClosedRegionToggle
+    });
+
+    elements.segmentationAutoFillClosedRegionToggle.checked = false;
+    elements.segmentationAutoFillClosedRegionToggle.dispatch("change", {
+      currentTarget: elements.segmentationAutoFillClosedRegionToggle
+    });
+
+    expect(rawController.setSegmentationAutoFillClosedRegionEnabled).toHaveBeenNthCalledWith(1, true);
+    expect(rawController.setSegmentationAutoFillClosedRegionEnabled).toHaveBeenNthCalledWith(2, false);
+    expect(setWorkflow).toHaveBeenCalledTimes(2);
+    expect(setWorkflow).toHaveBeenCalledWith("segmentation");
   });
 
   it("routes Ctrl+B to pointer-based segmentation relabel when no region is selected", async () => {
@@ -1600,7 +1905,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
@@ -1674,7 +1978,6 @@ describe("bootstrap/event-manager-adapter", () => {
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
-        downloadClassTemplate: vi.fn(async () => {}),
         showClassFileContent: vi.fn(async () => {}),
         saveClassFileContent: vi.fn(async () => {}),
         addNewClassRow: vi.fn(),
