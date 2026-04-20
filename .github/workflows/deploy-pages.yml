@@ -42,7 +42,7 @@ jobs:
       - name: Prepare static site artifact
         run: |
           mkdir -p _site
-          cp -r index.html privacy.html privacy_ko.html css dist _site/
+          cp -r index.html privacy.html privacy_ko.html css dist vendor _site/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

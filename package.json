@@ -2,18 +2,22 @@
   "name": "easy_labeling",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "electron/main.cjs",
   "scripts": {
+    "prebuild": "node scripts/copy-offline-assets.mjs",
     "prestart": "npm run build",
     "start": "npm run serve",
-    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --watch=index.html,css,dist,privacy.html --ignore=node_modules,.git,.sisyphus",
+    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --watch=index.html,css,dist,vendor,privacy.html --ignore=node_modules,.git,.sisyphus",
     "build:watch": "tsc -p tsconfig.build.json --watch",
     "dev": "concurrently -k \"npm:build:watch\" \"npm:serve\"",
     "test": "npm run test:unit",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test --project=chromium"
+    "test:e2e": "playwright test --project=chromium",
+    "electron:dev": "npm run build && electron .",
+    "electron:pack": "npm run build && electron-builder --win --x64 --dir",
+    "electron:dist:win": "npm run build && electron-builder --win nsis --x64"
   },
   "keywords": [],
   "author": "",
@@ -24,8 +28,48 @@
     "@types/node": "^24.0.0",
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
     "live-server": "^1.2.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
+    "fabric": "^5.3.0",
+    "tiff.js": "^1.0.0"
+  },
+  "build": {
+    "appId": "com.easylabeling.desktop",
+    "productName": "Easy Labeling",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "index.html",
+      "privacy.html",
+      "privacy_ko.html",
+      "css/**/*",
+      "dist/**/*",
+      "vendor/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -21,6 +21,16 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 - 개발 모드(빌드 watch + 로컬 서버): `npm run dev`
 - 접속 주소: `http://127.0.0.1:4173`
 
+## Windows 설치형 앱(Electron)
+
+- Electron 개발 실행: `npm run electron:dev`
+- Windows 실행 파일 디렉터리(설치 없이): `npm run electron:pack`
+- Windows 설치파일(NSIS `.exe`): `npm run electron:dist:win`
+- 설치파일 출력 경로: `release/`
+
+> 현재 설정은 `x64` 타깃, 무서명(Unsigned) 빌드입니다.
+> 브라우저 `showDirectoryPicker`는 Electron preload 폴리필로 동작합니다.
+
 ---
 
 ## 핵심 동작 방식
