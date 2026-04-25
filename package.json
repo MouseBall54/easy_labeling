@@ -7,7 +7,7 @@
     "prebuild": "node scripts/copy-offline-assets.mjs",
     "prestart": "npm run build",
     "start": "npm run serve",
-    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --watch=index.html,css,dist,vendor,privacy.html --ignore=node_modules,.git,.sisyphus",
+    "serve": "cross-env CHOKIDAR_USEPOLLING=1 live-server --host=127.0.0.1 --port=4173 --no-browser --watch=index.html,assets,css,dist,vendor,privacy.html --ignore=node_modules,.git,.sisyphus",
     "build:watch": "tsc -p tsconfig.build.json --watch",
     "dev": "concurrently -k \"npm:build:watch\" \"npm:serve\"",
     "test": "npm run test:unit",
@@ -50,6 +50,7 @@
       "index.html",
       "privacy.html",
       "privacy_ko.html",
+      "assets/**/*",
       "css/**/*",
       "dist/**/*",
       "vendor/**/*",
@@ -57,6 +58,7 @@
       "package.json"
     ],
     "win": {
+      "icon": "assets/icons/easy-labeling.ico",
       "signAndEditExecutable": false,
       "target": [
         {

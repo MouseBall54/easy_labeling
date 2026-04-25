@@ -10,6 +10,7 @@ function createMainWindow() {
     minWidth: 1080,
     minHeight: 720,
     autoHideMenuBar: true,
+    icon: path.resolve(__dirname, "..", "assets", "icons", "easy-labeling.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,

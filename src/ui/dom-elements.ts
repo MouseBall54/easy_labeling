@@ -87,6 +87,7 @@ export interface UiDomElements {
   segmentationToolSizePresets: HTMLElement;
   segmentationActiveClassSummary: HTMLElement;
   segmentationRelabelRegionBtn: HTMLElement;
+  segmentationAutoFillClosedRegionGroup: HTMLElement;
   segmentationAutoFillClosedRegionToggle: HTMLInputElement;
   segmentationMaskVisibilityToggle: HTMLInputElement;
   segmentationMaskOpacitySlider: HTMLInputElement;
@@ -196,6 +197,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationToolSizePresets: requireById<HTMLElement>(documentRef, "segmentationToolSizePresets"),
     segmentationActiveClassSummary: requireById<HTMLElement>(documentRef, "segmentationActiveClassSummary"),
     segmentationRelabelRegionBtn: requireById<HTMLElement>(documentRef, "segmentationRelabelRegionBtn"),
+    segmentationAutoFillClosedRegionGroup: requireById<HTMLElement>(documentRef, "segmentationAutoFillClosedRegionGroup"),
     segmentationAutoFillClosedRegionToggle: requireById<HTMLInputElement>(documentRef, "segmentationAutoFillClosedRegionToggle"),
     segmentationMaskVisibilityToggle: requireById<HTMLInputElement>(documentRef, "segmentationMaskVisibilityToggle"),
     segmentationMaskOpacitySlider: requireById<HTMLInputElement>(documentRef, "segmentationMaskOpacitySlider"),

@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Easy Labeling</title>
+    <link rel="icon" type="image/png" href="assets/icons/easy-labeling.png">
+    <link rel="shortcut icon" href="assets/icons/easy-labeling.ico">
     <!-- Offline vendor styles -->
     <link href="vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="vendor/bootstrap-icons/font/bootstrap-icons.min.css">
@@ -14,7 +16,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark app-navbar" data-ui="app-navbar">
         <div class="container-fluid">
             <div class="d-flex align-items-center toolbar-left-cluster" data-ui="toolbar-left-cluster">
-                <a class="navbar-brand app-brand mb-0" href="#" data-ui="app-brand"><i class="bi bi-bounding-box"></i> Easy Labeling</a>
+                <a class="navbar-brand app-brand mb-0" href="#" data-ui="app-brand"><img class="app-brand-icon" src="assets/icons/easy-labeling.png" alt="" aria-hidden="true"> Easy Labeling</a>
                 <div class="btn-group btn-group-sm workflow-tabs" data-ui="workflow-tabs" role="group" aria-label="Workflow tabs">
                     <input type="radio" class="btn-check" name="workflow" id="detectionWorkflowTab" autocomplete="off" checked>
                     <label class="btn btn-outline-light" for="detectionWorkflowTab" data-ui="workflow-tab-detection">Detection</label>
@@ -25,14 +27,10 @@
                 </div>
                 <div class="btn-group history-controls" data-ui="history-controls" role="group" aria-label="History controls">
                     <button class="btn btn-outline-light btn-sm" type="button" id="undoBtn" data-ui="history-undo" title="Undo" aria-label="Undo" disabled>
-                        <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                            <path fill="currentColor" d="M12 5a7 7 0 0 1 7 7h2a9 9 0 0 0-9-9V1L7 6l5 5V8a4 4 0 0 1 4 4h2a6 6 0 0 0-6-6h-1.17L12 4.83V5z"/>
-                        </svg>
+                        <i class="bi bi-arrow-counterclockwise history-icon" aria-hidden="true"></i>
                     </button>
                     <button class="btn btn-outline-light btn-sm" type="button" id="redoBtn" data-ui="history-redo" title="Redo" aria-label="Redo" disabled>
-                        <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                            <path fill="currentColor" d="M12 5v-.17L13.17 6H12a6 6 0 0 0-6 6h2a4 4 0 0 1 4-4v3l5-5-5-5v2a9 9 0 0 0-9 9h2a7 7 0 0 1 7-7z"/>
-                        </svg>
+                        <i class="bi bi-arrow-clockwise history-icon" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
@@ -98,6 +96,10 @@
                 <div class="form-check form-switch mt-2 crosshair-toggle-group" data-ui="crosshair-toggle-group">
                     <input class="form-check-input" type="checkbox" id="crosshairToggle" data-ui="crosshair-toggle">
                     <label class="form-check-label" for="crosshairToggle">Show Crosshair</label>
+                </div>
+                <div id="segmentationAutoFillClosedRegionGroup" class="form-check form-switch mt-2 segmentation-mode-option" data-ui="segmentation-auto-fill-closed-region-group" hidden>
+                    <input class="form-check-input" type="checkbox" id="segmentationAutoFillClosedRegionToggle" data-ui="segmentation-auto-fill-closed-region-toggle">
+                    <label class="form-check-label" for="segmentationAutoFillClosedRegionToggle">Auto Fill Closed Regions</label>
                 </div>
                 </section>
                 <hr>
@@ -282,10 +284,6 @@
                         <h5 class="panel-section-title"><i class="bi bi-palette"></i> Active Class</h5>
                         <div id="segmentationActiveClassSummary" class="workflow-summary-card mb-2" data-ui="segmentation-active-class-summary">No active segmentation class selected yet.</div>
                         <button id="segmentationRelabelRegionBtn" type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2" data-ui="segmentation-relabel-region">Change Class of Painted Region</button>
-                        <div class="form-check form-switch mb-2" data-ui="segmentation-auto-fill-closed-region-group">
-                            <input class="form-check-input" type="checkbox" id="segmentationAutoFillClosedRegionToggle" data-ui="segmentation-auto-fill-closed-region-toggle">
-                            <label class="form-check-label" for="segmentationAutoFillClosedRegionToggle">Auto Fill Closed Regions</label>
-                        </div>
                         <div class="form-check form-switch mb-2" data-ui="segmentation-mask-visibility-group">
                             <input class="form-check-input" type="checkbox" id="segmentationMaskVisibilityToggle" data-ui="segmentation-mask-visibility-toggle" checked>
                             <label class="form-check-label" for="segmentationMaskVisibilityToggle">Show Mask Overlay</label>

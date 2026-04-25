@@ -222,11 +222,13 @@ export function createUiManagerAdapter(input: {
   };
 
   const syncWorkflowPanels = (): void => {
+    const showSegmentationControls = input.state.session.workflow === "segmentation";
     renderWorkflowPanels({
       activeWorkflow: input.state.session.workflow,
       detectionPanelElement: elements.detectionWorkflowPanel,
       segmentationPanelElement: elements.segmentationWorkflowPanel
     });
+    elements.segmentationAutoFillClosedRegionGroup.hidden = !showSegmentationControls;
   };
 
   const manager: RuntimeUiManager = {
