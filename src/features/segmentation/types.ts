@@ -31,6 +31,8 @@ export interface SegmentationSummary {
   brushRadius: number;
   overlayVisible: boolean;
   overlayOpacity: number;
+  edgeHighlightVisible: boolean;
+  edgeHighlightIntensity: number;
   visibleClassIds: string[];
   allClassIds: string[];
   hiddenClassIds: string[];

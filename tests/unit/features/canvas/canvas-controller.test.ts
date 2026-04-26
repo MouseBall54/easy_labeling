@@ -129,7 +129,7 @@ describe("features/canvas/canvas-controller", () => {
     expect(rect.strokeDashArray).toEqual([]);
   });
 
-  it("wraps DOM images in a Fabric image before setting the canvas background", () => {
+  it("wraps DOM images in a non-evented base Fabric image layer", () => {
     const fabric = createFakeFabricRuntime();
     const controller = createCanvasController(
       createState(),
@@ -140,10 +140,32 @@ describe("features/canvas/canvas-controller", () => {
     controller.setBackgroundImage(domImage);
 
     const canvas = controller.canvas as FakeCanvas;
-    expect(canvas.backgroundImage).toBeInstanceOf(fabric.Image);
-    expect((canvas.backgroundImage as { element: unknown }).element).toBe(domImage);
+    const imageObjects = canvas.getObjects("image");
+    expect(canvas.backgroundImage).toBeUndefined();
+    expect(imageObjects).toHaveLength(1);
+    expect(imageObjects[0]).toBeInstanceOf(fabric.Image);
+    expect((imageObjects[0] as unknown as { element: unknown }).element).toBe(domImage);
+    expect((imageObjects[0] as unknown as { _isBaseImage?: boolean })._isBaseImage).toBe(true);
+    expect(imageObjects[0]?.selectable).toBe(false);
+    expect(imageObjects[0]?.evented).toBe(false);
     expect(canvas.width).toBe(640);
     expect(canvas.height).toBe(480);
+  });
+
+  it("replaces the previous base image layer when a new image is loaded", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const canvas = controller.canvas as FakeCanvas;
+
+    controller.setBackgroundImage({ width: 200, height: 100 });
+    const firstImage = canvas.getObjects("image")[0];
+    controller.setBackgroundImage({ width: 300, height: 150 });
+
+    const imageObjects = canvas.getObjects("image").filter((object) => {
+      return (object as unknown as { _isBaseImage?: boolean })._isBaseImage;
+    });
+    expect(imageObjects).toHaveLength(1);
+    expect(imageObjects[0]).not.toBe(firstImage);
+    expect(canvas.getObjects()[0]).toBe(imageObjects[0]);
   });
 
   it("discards tiny rectangles and accepts larger draw rectangles via prompt-injected label", async () => {
@@ -863,7 +885,7 @@ describe("features/canvas/canvas-controller", () => {
     expect(history.getPastEntries()).toHaveLength(2);
   });
 
-  it("records single history entries for paste and delete commands", () => {
+  it("records single history entries for paste and delete commands", async () => {
     const history = createCanvasHistoryService();
     const fabric = createFakeFabricRuntime();
     const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
@@ -873,8 +895,8 @@ describe("features/canvas/canvas-controller", () => {
     controller.canvas.add(source);
     controller.canvas.setActiveObject(source);
 
-    controller.copy();
-    controller.paste();
+    await controller.copy();
+    await controller.paste();
     expect(history.getPastEntries()).toHaveLength(1);
     expect(controller.getObjects("rect")).toHaveLength(2);
     expect(history.getPastEntries()[0]?.before).toHaveLength(1);

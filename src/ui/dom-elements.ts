@@ -92,6 +92,9 @@ export interface UiDomElements {
   segmentationMaskVisibilityToggle: HTMLInputElement;
   segmentationMaskOpacitySlider: HTMLInputElement;
   segmentationMaskOpacityValue: HTMLElement;
+  segmentationEdgeHighlightToggle: HTMLInputElement;
+  segmentationEdgeGlowSlider: HTMLInputElement;
+  segmentationEdgeGlowValue: HTMLElement;
   segmentationClassSummary: HTMLElement;
   saveLabelClassBtn: HTMLElement;
   crosshairToggle: HTMLInputElement;
@@ -202,6 +205,9 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationMaskVisibilityToggle: requireById<HTMLInputElement>(documentRef, "segmentationMaskVisibilityToggle"),
     segmentationMaskOpacitySlider: requireById<HTMLInputElement>(documentRef, "segmentationMaskOpacitySlider"),
     segmentationMaskOpacityValue: requireById<HTMLElement>(documentRef, "segmentationMaskOpacityValue"),
+    segmentationEdgeHighlightToggle: requireById<HTMLInputElement>(documentRef, "segmentationEdgeHighlightToggle"),
+    segmentationEdgeGlowSlider: requireById<HTMLInputElement>(documentRef, "segmentationEdgeGlowSlider"),
+    segmentationEdgeGlowValue: requireById<HTMLElement>(documentRef, "segmentationEdgeGlowValue"),
     segmentationClassSummary: requireById<HTMLElement>(documentRef, "segmentationClassSummary"),
     saveLabelClassBtn: requireById<HTMLElement>(documentRef, "saveLabelClassBtn"),
     crosshairToggle: requireById<HTMLInputElement>(documentRef, "crosshairToggle"),

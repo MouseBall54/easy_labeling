@@ -33,7 +33,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: "CHOKIDAR_USEPOLLING=1 node --input-type=commonjs -e \"require('./node_modules/live-server').start({ root: '.', host: '127.0.0.1', port: 4173, open: false, logLevel: 0, watch: ['index.html', 'css', 'dist', 'privacy.html'], ignore: ['node_modules', '.git', '.sisyphus'] })\"",
+    command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
     timeout: 120_000,
     reuseExistingServer: true

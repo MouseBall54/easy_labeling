@@ -241,8 +241,17 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
   const redoneLeftSpan =
     Math.max(...redoneSelected.map((geometry) => geometry.left)) - Math.min(...redoneSelected.map((geometry) => geometry.left));
   expect(redoneLeftSpan).toBeLessThan(0.001);
-  const redoneMinLeft = Math.min(...redoneSelected.map((geometry) => geometry.left));
-  const redoneMaxRight = Math.max(...redoneSelected.map((geometry) => geometry.right));
+
+  await page.locator('[data-ui="history-undo"]').click();
+  await expect.poll(async () => (await readSnapshot(page)).canRedo).toBe(true);
+
+  const distributionSourceSnapshot = await readSnapshot(page);
+  expect(distributionSourceSnapshot.selectedRectIds).toHaveLength(3);
+  const distributionSourceSelected = distributionSourceSnapshot.selectedRectIds
+    .map((annotationId) => distributionSourceSnapshot.geometries.find((geometry) => geometry.annotationId === annotationId))
+    .filter((geometry): geometry is RectGeometrySnapshot => geometry != null);
+  const sourceMinLeft = Math.min(...distributionSourceSelected.map((geometry) => geometry.left));
+  const sourceMaxRight = Math.max(...distributionSourceSelected.map((geometry) => geometry.right));
 
   await page.locator('[data-ui="arrange-distribute-horizontal"]').click();
   const distributedSnapshot = await readSnapshot(page);
@@ -253,12 +262,12 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
 
   expect(distributedSelected).toHaveLength(3);
   const [first, middle, last] = distributedSelected;
-  expect(first.left).toBeCloseTo(redoneMinLeft, 4);
-  expect(last.right).toBeCloseTo(redoneMaxRight, 4);
+  expect(first.left).toBeCloseTo(sourceMinLeft, 4);
+  expect(last.right).toBeCloseTo(sourceMaxRight, 4);
   const leftGap = middle.left - first.right;
   const rightGap = last.left - middle.right;
   expect(leftGap).toBeCloseTo(rightGap, 4);
-  expect(middle.left).toBeGreaterThan(targetLeft);
+  expect(middle.left).toBeGreaterThan(sourceMinLeft);
 
   await page.locator("body").click();
   await page.keyboard.press("Delete");

@@ -41,9 +41,19 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
   };
 
   const history = deps.historyService ?? createCanvasHistoryService();
+  let baseImageObject: FabricObjectLike | null = null;
 
   const syncCanvasOffset = (): void => {
     canvas.calcOffset?.();
+  };
+
+  const addBaseImageObject = (imageObject: FabricObjectLike): void => {
+    if (typeof canvas.insertAt === "function") {
+      canvas.insertAt(0, imageObject);
+      return;
+    }
+
+    canvas.add(imageObject);
   };
 
   const shell: CanvasShell = {
@@ -104,19 +114,37 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
 
     clear(): void {
       canvas.clear();
+      baseImageObject = null;
       crosshairState.crosshairX = null;
       crosshairState.crosshairY = null;
     },
 
     setBackgroundImage(image: unknown): void {
       const containerSize = deps.getCanvasContainerSize();
-      canvas.setWidth(containerSize.width);
-      canvas.setHeight(containerSize.height);
-      const backgroundImage = new deps.fabric.Image(image, {
-        originX: "left",
-        originY: "top"
+      canvas.setDimensions({
+        width: containerSize.width,
+        height: containerSize.height
       });
-      canvas.setBackgroundImage(backgroundImage, this.renderAll.bind(this));
+      if (baseImageObject) {
+        canvas.remove(baseImageObject);
+        baseImageObject = null;
+      }
+      canvas.backgroundImage = undefined;
+      const baseImage = new deps.fabric.Image(image, {
+        left: 0,
+        top: 0,
+        width: state.currentImage?.width,
+        height: state.currentImage?.height,
+        originX: "left",
+        originY: "top",
+        selectable: false,
+        evented: false,
+        hoverCursor: "default"
+      });
+      baseImage._isBaseImage = true;
+      baseImageObject = baseImage;
+      addBaseImageObject(baseImage);
+      this.renderAll();
       syncCanvasOffset();
     },
 
@@ -170,8 +198,10 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
 
     resizeCanvas(): void {
       const container = deps.getCanvasContainerSize();
-      canvas.setWidth(container.width);
-      canvas.setHeight(container.height);
+      canvas.setDimensions({
+        width: container.width,
+        height: container.height
+      });
       syncCanvasOffset();
     },
 

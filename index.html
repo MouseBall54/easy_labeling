@@ -292,6 +292,14 @@
                             <label for="segmentationMaskOpacitySlider" class="form-label">Mask Opacity (<span id="segmentationMaskOpacityValue">60</span>%)</label>
                             <input type="range" class="form-range" min="0" max="100" value="60" id="segmentationMaskOpacitySlider" data-ui="segmentation-mask-opacity-slider">
                         </div>
+                        <div class="form-check form-switch mb-2" data-ui="segmentation-edge-highlight-group">
+                            <input class="form-check-input" type="checkbox" id="segmentationEdgeHighlightToggle" data-ui="segmentation-edge-highlight-toggle" checked>
+                            <label class="form-check-label" for="segmentationEdgeHighlightToggle">Edge Highlight</label>
+                        </div>
+                        <div class="mb-2" data-ui="segmentation-edge-glow-group">
+                            <label for="segmentationEdgeGlowSlider" class="form-label">Edge Glow (<span id="segmentationEdgeGlowValue">70</span>%)</label>
+                            <input type="range" class="form-range" min="0" max="100" value="70" id="segmentationEdgeGlowSlider" data-ui="segmentation-edge-glow-slider">
+                        </div>
                         <div id="segmentationClassSummary" class="workflow-summary-card workflow-summary-card-muted" data-ui="segmentation-class-summary">Per-class visibility and mask summaries will appear here.</div>
                     </section>
                 </div>

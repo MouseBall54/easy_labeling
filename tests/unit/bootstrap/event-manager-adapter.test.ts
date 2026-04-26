@@ -157,6 +157,9 @@ function createElements() {
     segmentationMaskVisibilityToggle: new FakeInputElement(),
     segmentationMaskOpacitySlider: new FakeInputElement(),
     segmentationMaskOpacityValue: new FakeHtmlElement(),
+    segmentationEdgeHighlightToggle: new FakeInputElement(),
+    segmentationEdgeGlowSlider: new FakeInputElement(),
+    segmentationEdgeGlowValue: new FakeHtmlElement(),
     segmentationClassSummary: new FakeHtmlElement(),
     saveLabelClassBtn: new FakeHtmlElement(),
     crosshairToggle: new FakeInputElement(),
@@ -174,6 +177,7 @@ function createRawCanvas() {
     lastPosX: 0,
     lastPosY: 0,
     viewportTransform: [1, 0, 0, 1, 0, 0] as [number, number, number, number, number, number],
+    backgroundImage: null as unknown,
     upperCanvasEl: new FakeHtmlElement(),
     on: vi.fn(),
     getPointer: vi.fn(),
@@ -218,6 +222,8 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     setSegmentationAutoFillClosedRegionEnabled: vi.fn(),
     getSegmentationAutoFillClosedRegionEnabled: vi.fn(() => false),
     setSegmentationBrushRadius: vi.fn(),
+    setSegmentationEdgeHighlightVisible: vi.fn(),
+    setSegmentationEdgeHighlightIntensity: vi.fn(),
     getSelectedSegmentationClass: vi.fn(() => null),
     deleteSelectedSegmentationRegion: vi.fn(() => false),
     startSegmentationRegionMove: vi.fn(() => false),
@@ -271,6 +277,37 @@ function createActiveSelection(objects: unknown[]) {
     getObjects: vi.fn(() => objects),
     forEachObject: vi.fn()
   };
+}
+
+function createNoopUiManager(elements: ReturnType<typeof createElements>, overrides: Record<string, unknown> = {}) {
+  return {
+    elements,
+    notify: vi.fn(),
+    renderImageList: vi.fn(),
+    renderPreviewList: vi.fn(),
+    updateLabelList: vi.fn(),
+    updateMouseCoords: vi.fn(),
+    hideMouseCoords: vi.fn(),
+    togglePreviewBarVisibility: vi.fn(),
+    togglePanel: vi.fn(),
+    applyDarkMode: vi.fn(),
+    ...overrides
+  } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"];
+}
+
+function createNoopFileSystem() {
+  return {
+    selectImageFolder: vi.fn(async () => {}),
+    selectLabelFolder: vi.fn(async () => {}),
+    selectClassInfoFolder: vi.fn(async () => {}),
+    saveLabels: vi.fn(async () => {}),
+    showClassFileContent: vi.fn(async () => {}),
+    saveClassFileContent: vi.fn(async () => {}),
+    addNewClassRow: vi.fn(),
+    createNewClassFile: vi.fn(async () => {}),
+    loadClassNamesFromFile: vi.fn(async () => {}),
+    navigateImage: vi.fn(async () => {})
+  } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"];
 }
 
 describe("bootstrap/event-manager-adapter", () => {
@@ -807,6 +844,73 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.continueSegmentationRegionMove).toHaveBeenCalledWith({ x: 13, y: 12 });
     expect(rawController.finishSegmentationRegionMove).toHaveBeenCalledTimes(1);
     expect(rawController.startDrawing).not.toHaveBeenCalled();
+  });
+
+  it("passes segmentation scene points through as image pixels", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.session.currentImage = { width: 800, height: 400 } as HTMLImageElement;
+    state.view.currentMode = "draw";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    (rawCanvas as unknown as { getScenePoint: ReturnType<typeof vi.fn> }).getScenePoint = vi.fn(() => ({ x: 400, y: 200 }));
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    mouseDownHandler?.({
+      e: { altKey: false, ctrlKey: false, clientX: 0, clientY: 0 }
+    });
+
+    expect(rawController.startDrawing).toHaveBeenCalledWith({ x: 400, y: 200 });
+    expect(state.view.lastMousePosition).toEqual({ x: 400, y: 200 });
+  });
+
+  it("ignores segmentation pointer events outside the displayed image", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.session.currentImage = { width: 800, height: 400 } as HTMLImageElement;
+    state.view.currentMode = "draw";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    (rawCanvas as unknown as { getScenePoint: ReturnType<typeof vi.fn> }).getScenePoint = vi.fn(() => ({ x: 800, y: 120 }));
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    mouseDownHandler?.({
+      e: { altKey: false, ctrlKey: false, clientX: 0, clientY: 0 }
+    });
+
+    expect(rawController.startDrawing).not.toHaveBeenCalled();
+    expect(rawCanvas.selection).toBe(true);
+    expect(state.view.lastMousePosition).toEqual({ x: 0, y: 0 });
   });
 
   it("routes segmentation tool-size slider changes to brush radius updates", () => {

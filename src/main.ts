@@ -13,7 +13,7 @@ import {
   type CdnRuntimeGlobals
 } from "./bootstrap/runtime.js";
 import { createUiManagerAdapter, type RuntimeUiManager } from "./bootstrap/ui-manager-adapter.js";
-import { ensureAnnotationId } from "./features/canvas/fabric-types.js";
+import { ensureAnnotationId, isActiveSelectionObject, isRectObject } from "./features/canvas/fabric-types.js";
 import { normalizeFilterClassKey } from "./ui/filter-state.js";
 
 export type { CdnRuntimeGlobals };
@@ -47,7 +47,22 @@ interface TestApi {
     overlayOpacity: number;
     visibleClassIds: string[];
   } | null;
+  getSegmentationMaskBounds(): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  } | null;
+  getSegmentationClassAtPoint(x: number, y: number): string | null;
+  getSegmentationOverlayPixel(x: number, y: number): number[] | null;
   getCanvasObjectCounts(): Record<string, number>;
+  getCanvasLayerCounts(): {
+    baseImages: number;
+    segmentationOverlays: number;
+    otherImages: number;
+  };
   canUndo(): boolean;
   canRedo(): boolean;
   selectRectsByIndex(indices: number[]): void;
@@ -186,14 +201,14 @@ function bootstrapBrowserRuntime(): void {
       if (Array.isArray(activeObject._objects) && activeObject._objects.length > 0) {
         return activeObject._objects.map((rect) => ensureAnnotationId(rect as Parameters<typeof ensureAnnotationId>[0]));
       }
-      if (activeObject.type === "rect") {
+      if (isRectObject(activeObject as Parameters<typeof isRectObject>[0])) {
         return [ensureAnnotationId(activeObject as Parameters<typeof ensureAnnotationId>[0])];
       }
       return [...testSelectionIds];
     },
     getActiveSelectionBounds: () => {
       const activeObject = runtimeCanvasController.raw.canvas.getActiveObject();
-      if (!activeObject || activeObject.type !== "activeSelection") {
+      if (!activeObject || !isActiveSelectionObject(activeObject)) {
         return null;
       }
       const bounds = activeObject.getBoundingRect(true);
@@ -205,12 +220,108 @@ function bootstrapBrowserRuntime(): void {
       };
     },
     getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
+    getSegmentationMaskBounds: () => {
+      const snapshot = runtimeCanvasController.raw.getSegmentationDocumentSnapshot?.();
+      if (!snapshot) {
+        return null;
+      }
+      let left = snapshot.width;
+      let top = snapshot.height;
+      let right = -1;
+      let bottom = -1;
+      for (let index = 0; index < snapshot.mask.length; index += 1) {
+        if (snapshot.mask[index] === 0) {
+          continue;
+        }
+        const x = index % snapshot.width;
+        const y = Math.floor(index / snapshot.width);
+        left = Math.min(left, x);
+        top = Math.min(top, y);
+        right = Math.max(right, x);
+        bottom = Math.max(bottom, y);
+      }
+      if (right < left || bottom < top) {
+        return null;
+      }
+      return {
+        left,
+        top,
+        right,
+        bottom,
+        width: right - left + 1,
+        height: bottom - top + 1
+      };
+    },
+    getSegmentationClassAtPoint: (x: number, y: number) => {
+      return runtimeCanvasController.raw.getSegmentationClassAtPoint?.({ x, y }) ?? null;
+    },
+    getSegmentationOverlayPixel: (x: number, y: number) => {
+      const imageObjects = runtimeCanvasController.raw.getObjects("image") as Array<{
+        _isSegmentationOverlay?: boolean;
+        element?: unknown;
+        _element?: unknown;
+        _originalElement?: unknown;
+        getElement?: () => unknown;
+      }>;
+      const overlayObject = imageObjects.find((object) => object._isSegmentationOverlay);
+      const overlayElement = overlayObject?.element ??
+        overlayObject?.getElement?.() ??
+        overlayObject?._element ??
+        overlayObject?._originalElement;
+      if (x < 0 || y < 0) {
+        return null;
+      }
+      const pixelX = Math.round(x);
+      const pixelY = Math.round(y);
+      if (overlayElement instanceof HTMLCanvasElement) {
+        if (pixelX >= overlayElement.width || pixelY >= overlayElement.height) {
+          return null;
+        }
+        const pixel = overlayElement.getContext("2d")?.getImageData(pixelX, pixelY, 1, 1).data;
+        return pixel ? Array.from(pixel) : null;
+      }
+      if (
+        overlayElement &&
+        typeof overlayElement === "object" &&
+        "overlayPixels" in overlayElement &&
+        "width" in overlayElement &&
+        "height" in overlayElement
+      ) {
+        const fallback = overlayElement as { overlayPixels: Uint8ClampedArray; width: number; height: number };
+        if (pixelX >= fallback.width || pixelY >= fallback.height) {
+          return null;
+        }
+        const offset = ((pixelY * fallback.width) + pixelX) * 4;
+        return Array.from(fallback.overlayPixels.slice(offset, offset + 4));
+      }
+      return null;
+    },
     getCanvasObjectCounts: () => {
       const counts = new Map<string, number>();
+      const incrementType = (type: string | undefined): void => {
+        if (!type) {
+          return;
+        }
+        const key = type.toLowerCase();
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      };
       runtimeCanvasController.raw.getObjects().forEach((object) => {
-        counts.set(object.type, (counts.get(object.type) ?? 0) + 1);
+        incrementType(object.type);
       });
+      const backgroundImage = runtimeCanvasController.raw.canvas.backgroundImage as { type?: string } | undefined;
+      incrementType(backgroundImage?.type);
       return Object.fromEntries(counts.entries());
+    },
+    getCanvasLayerCounts: () => {
+      const imageObjects = runtimeCanvasController.raw.getObjects("image") as Array<{
+        _isBaseImage?: boolean;
+        _isSegmentationOverlay?: boolean;
+      }>;
+      return {
+        baseImages: imageObjects.filter((object) => object._isBaseImage).length,
+        segmentationOverlays: imageObjects.filter((object) => object._isSegmentationOverlay).length,
+        otherImages: imageObjects.filter((object) => !object._isBaseImage && !object._isSegmentationOverlay).length
+      };
     },
     canUndo: () => runtimeCanvasController.raw.canUndo(),
     canRedo: () => runtimeCanvasController.raw.canRedo(),

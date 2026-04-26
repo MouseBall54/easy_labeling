@@ -46,10 +46,33 @@ describe("features/segmentation/document", () => {
       brushRadius: 6,
       overlayVisible: false,
       overlayOpacity: 0.25,
+      edgeHighlightVisible: true,
+      edgeHighlightIntensity: 0.7,
       visibleClassIds: [],
       allClassIds: ["7"],
       hiddenClassIds: ["7"]
     });
+  });
+
+  it("normalizes edge highlight view settings without changing mask history snapshots", () => {
+    const document = createSegmentationDocument({
+      width: 8,
+      height: 8,
+      activeClassId: "4",
+      edgeHighlightVisible: false,
+      edgeHighlightIntensity: 2
+    });
+
+    expect(document.getSummary().edgeHighlightVisible).toBe(false);
+    expect(document.getSummary().edgeHighlightIntensity).toBe(1);
+
+    const before = document.cloneSnapshot();
+    document.setEdgeHighlightVisible(true);
+    document.setEdgeHighlightIntensity(-1);
+
+    expect(document.getSummary().edgeHighlightVisible).toBe(true);
+    expect(document.getSummary().edgeHighlightIntensity).toBe(0);
+    expect(document.cloneSnapshot()).toEqual(before);
   });
 
   it("supports showing only one segmentation class or all classes", () => {

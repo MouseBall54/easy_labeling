@@ -1,0 +1,5 @@
+{
+  "name": "jsdom",
+  "version": "26.1.0",
+  "main": "index.js"
+}

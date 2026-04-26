@@ -140,6 +140,8 @@ export function createUiManagerAdapter(input: {
     const brushRadius = summary?.brushRadius ?? Number.parseInt(elements.segmentationToolSizeSlider.value, 10);
     const overlayVisible = summary?.overlayVisible ?? elements.segmentationMaskVisibilityToggle.checked;
     const overlayOpacity = summary?.overlayOpacity ?? (Number.parseInt(elements.segmentationMaskOpacitySlider.value, 10) / 100);
+    const edgeHighlightVisible = summary?.edgeHighlightVisible ?? elements.segmentationEdgeHighlightToggle.checked;
+    const edgeHighlightIntensity = summary?.edgeHighlightIntensity ?? (Number.parseInt(elements.segmentationEdgeGlowSlider.value, 10) / 100);
     const visibleClassIds = summary?.visibleClassIds ?? [];
     const autoFillClosedRegionEnabled = canvasController?.raw.getSegmentationAutoFillClosedRegionEnabled?.() ?? false;
 
@@ -159,6 +161,9 @@ export function createUiManagerAdapter(input: {
     elements.segmentationMaskVisibilityToggle.checked = overlayVisible;
     elements.segmentationMaskOpacitySlider.value = `${Math.round(overlayOpacity * 100)}`;
     elements.segmentationMaskOpacityValue.textContent = `${Math.round(overlayOpacity * 100)}`;
+    elements.segmentationEdgeHighlightToggle.checked = edgeHighlightVisible;
+    elements.segmentationEdgeGlowSlider.value = `${Math.round(edgeHighlightIntensity * 100)}`;
+    elements.segmentationEdgeGlowValue.textContent = `${Math.round(edgeHighlightIntensity * 100)}`;
     elements.segmentationClassSummary.innerHTML = "";
     if (summary && summary.allClassIds.length > 0) {
       const filterControls = input.documentRef.createElement("div");
@@ -437,7 +442,7 @@ export function createUiManagerAdapter(input: {
         return;
       }
 
-      const rects = canvasController.raw.getObjects("rect").filter((rect) => rect.type === "rect");
+      const rects = canvasController.raw.getObjects("rect").filter(isRectObject);
       const visibleRects = rects.filter((rect) => {
         const classKey = normalizeFilterClassKey(rect.labelClass);
         return !input.state.view.hiddenLabelClasses.has(classKey);

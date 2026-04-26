@@ -25,6 +25,8 @@ export interface SegmentationDocument {
   readonly activeTool: SegmentationTool;
   readonly overlayVisible: boolean;
   readonly overlayOpacity: number;
+  readonly edgeHighlightVisible: boolean;
+  readonly edgeHighlightIntensity: number;
   cloneSnapshot(): SegmentationDocumentSnapshot;
   restoreSnapshot(snapshot: SegmentationDocumentSnapshot): void;
   applyStroke(input: SegmentationStrokeInput, options?: { recordHistory?: boolean }): SegmentationMutationResult;
@@ -34,6 +36,8 @@ export interface SegmentationDocument {
   setBrushRadius(radius: number): void;
   setOverlayVisible(visible: boolean): void;
   setOverlayOpacity(opacity: number): void;
+  setEdgeHighlightVisible(visible: boolean): void;
+  setEdgeHighlightIntensity(intensity: number): void;
   setClassVisibility(classId: string, visible: boolean): void;
   setOnlyVisibleClass(classId: string | null): void;
   getVisibleClassIds(): string[];
@@ -54,6 +58,13 @@ export interface SegmentationDocument {
 
 function clampOpacity(opacity: number): number {
   return Math.min(1, Math.max(0, opacity));
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0.7;
+  }
+  return Math.min(1, Math.max(0, value));
 }
 
 function normalizeClassId(classId: string): string {
@@ -154,6 +165,8 @@ export function createSegmentationDocument(input: {
   activeTool?: SegmentationTool;
   overlayVisible?: boolean;
   overlayOpacity?: number;
+  edgeHighlightVisible?: boolean;
+  edgeHighlightIntensity?: number;
   brushRadius?: number;
   hiddenClassIds?: Iterable<string>;
 }): SegmentationDocument {
@@ -164,6 +177,8 @@ export function createSegmentationDocument(input: {
   let activeTool: SegmentationTool = input.activeTool ?? "brush";
   let overlayVisible = input.overlayVisible ?? true;
   let overlayOpacity = clampOpacity(input.overlayOpacity ?? 0.6);
+  let edgeHighlightVisible = input.edgeHighlightVisible ?? true;
+  let edgeHighlightIntensity = clampPercent(input.edgeHighlightIntensity ?? 0.7);
   let brushRadius = normalizeBrushRadius(input.brushRadius ?? 6);
   let hiddenClassIds = new Set<string>(input.hiddenClassIds ?? []);
   const past: SegmentationHistoryEntry[] = [];
@@ -200,6 +215,14 @@ export function createSegmentationDocument(input: {
 
     get overlayOpacity() {
       return overlayOpacity;
+    },
+
+    get edgeHighlightVisible() {
+      return edgeHighlightVisible;
+    },
+
+    get edgeHighlightIntensity() {
+      return edgeHighlightIntensity;
     },
 
     cloneSnapshot(): SegmentationDocumentSnapshot {
@@ -284,6 +307,14 @@ export function createSegmentationDocument(input: {
 
     setOverlayOpacity(opacity: number): void {
       overlayOpacity = clampOpacity(opacity);
+    },
+
+    setEdgeHighlightVisible(visible: boolean): void {
+      edgeHighlightVisible = visible;
+    },
+
+    setEdgeHighlightIntensity(intensity: number): void {
+      edgeHighlightIntensity = clampPercent(intensity);
     },
 
     setClassVisibility(classId: string, visible: boolean): void {
@@ -558,6 +589,8 @@ export function createSegmentationDocument(input: {
         brushRadius,
         overlayVisible,
         overlayOpacity,
+        edgeHighlightVisible,
+        edgeHighlightIntensity,
         visibleClassIds: doc.getVisibleClassIds(),
         allClassIds: doc.getAllClassIds(),
         hiddenClassIds: doc.getHiddenClassIds()

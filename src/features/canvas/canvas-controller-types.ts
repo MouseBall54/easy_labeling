@@ -92,8 +92,8 @@ export interface CanvasController {
   toggleCrosshair(visible: boolean): void;
   updateCrosshair(pointer: CanvasPoint): void;
   hideCrosshair(): void;
-  copy(): void;
-  paste(): void;
+  copy(): Promise<void>;
+  paste(): Promise<void>;
   deleteSelection(): void;
   setSelectedLabelClass?(classId: string): boolean;
   alignSelectionLeft(): void;
@@ -116,6 +116,8 @@ export interface CanvasController {
   getSegmentationAutoFillClosedRegionEnabled?(): boolean;
   setSegmentationOverlayVisibility?(visible: boolean): void;
   setSegmentationOverlayOpacity?(opacity: number): void;
+  setSegmentationEdgeHighlightVisible?(visible: boolean): void;
+  setSegmentationEdgeHighlightIntensity?(intensity: number): void;
   setSegmentationClassVisibility?(classId: string, visible: boolean): void;
   setSegmentationOnlyVisibleClass?(classId: string | null): void;
   getSegmentationClassAtPoint?(pointer: CanvasPoint): string | null;

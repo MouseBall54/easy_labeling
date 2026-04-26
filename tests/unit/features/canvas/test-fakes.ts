@@ -1,6 +1,6 @@
 import type { FabricActiveSelectionLike, FabricAnimationOptions, FabricCanvasLike, FabricCircleLike, FabricImageLike, FabricLineLike, FabricObjectLike, FabricRectLike, FabricRuntimeLike, FabricTextLike, YoloMetadata } from "../../../../src/features/canvas/fabric-types.js";
 
-type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element" | "overlayPixels" | "overlayVisible" | "overlayOpacity";
+type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element" | "overlayPixels" | "overlayVisible" | "overlayOpacity" | "_isBaseImage" | "_isSegmentationOverlay";
 
 function cloneMetadata(metadata: YoloMetadata | null | undefined): YoloMetadata | null | undefined {
   if (metadata === null || metadata === undefined) {
@@ -17,8 +17,11 @@ function cloneMetadata(metadata: YoloMetadata | null | undefined): YoloMetadata 
 
 abstract class FakeFabricObject<TType extends string> implements FabricObjectLike {
   public selectable = true;
+  public evented = true;
   public hoverCursor = "move";
   public visible = true;
+  public originX = "left";
+  public originY = "top";
   public fill: string | undefined;
   public stroke: string | undefined;
   public strokeWidth = 0;
@@ -78,14 +81,21 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
     };
   }
 
-  clone(callback: (cloned: FabricObjectLike) => void): void {
-    callback(this.cloneSelf());
+  async clone(): Promise<FabricObjectLike> {
+    return this.cloneSelf();
+  }
+
+  cloneForTest(): FabricObjectLike {
+    return this.cloneSelf();
   }
 
   protected copyCommonTo(target: FakeFabricObject<string>): void {
     target.selectable = this.selectable;
+    target.evented = this.evented;
     target.hoverCursor = this.hoverCursor;
     target.visible = this.visible;
+    target.originX = this.originX;
+    target.originY = this.originY;
     target.fill = this.fill;
     target.stroke = this.stroke;
     target.strokeWidth = this.strokeWidth;
@@ -226,10 +236,17 @@ class FakeFabricCircle extends FakeFabricObject<"circle"> implements FabricCircl
 
 class FakeFabricImage extends FakeFabricObject<"image"> implements FabricImageLike {
   public element: unknown;
+  public _isBaseImage = false;
+  public _isSegmentationOverlay = false;
 
   constructor(element: unknown, options: Record<string, unknown> = {}) {
     super("image", Number(options.left ?? 0), Number(options.top ?? 0), Number(options.width ?? 0), Number(options.height ?? 0));
     this.element = element;
+    this.selectable = Boolean(options.selectable ?? true);
+    this.evented = Boolean(options.evented ?? true);
+    this.hoverCursor = String(options.hoverCursor ?? "move");
+    this.originX = String(options.originX ?? "left");
+    this.originY = String(options.originY ?? "top");
   }
 
   protected cloneSelf(): FabricObjectLike {
@@ -286,7 +303,7 @@ class FakeActiveSelection extends FakeFabricObject<"activeSelection"> implements
   }
 
   protected cloneSelf(): FabricObjectLike {
-    const clonedObjects = this.objects.map((obj) => cloneFabricObject(obj));
+    const clonedObjects = this.objects.map((obj) => cloneFabricObjectSync(obj));
     const clone = new FakeActiveSelection(clonedObjects, { canvas: new FakeCanvas("canvas", { width: 1, height: 1, backgroundColor: "#eee" }) });
     this.copyCommonTo(clone);
     return clone;
@@ -328,6 +345,10 @@ export class FakeCanvas implements FabricCanvasLike {
 
   add(...objects: FabricObjectLike[]): void {
     this.objects.push(...objects);
+  }
+
+  insertAt(index: number, ...objects: FabricObjectLike[]): void {
+    this.objects.splice(index, 0, ...objects);
   }
 
   remove(object: FabricObjectLike): void {
@@ -382,17 +403,9 @@ export class FakeCanvas implements FabricCanvasLike {
     this.calcOffsetCalls += 1;
   }
 
-  setWidth(width: number): void {
-    this.width = width;
-  }
-
-  setHeight(height: number): void {
-    this.height = height;
-  }
-
-  setBackgroundImage(image: unknown, callback: () => void): void {
-    this.backgroundImage = image;
-    callback();
+  setDimensions(dimensions: { width: number; height: number }): void {
+    this.width = dimensions.width;
+    this.height = dimensions.height;
   }
 
   getCenter(): { left: number; top: number } {
@@ -442,16 +455,12 @@ export class FakeCanvas implements FabricCanvasLike {
   }
 }
 
-function cloneFabricObject<T extends FabricObjectLike>(object: T): T {
-  let cloned: FabricObjectLike | null = null;
-  object.clone((value) => {
-    cloned = value;
-  });
-  if (!cloned) {
-    throw new Error("failed to clone object");
+function cloneFabricObjectSync<T extends FabricObjectLike>(object: T): T {
+  if (!(object instanceof FakeFabricObject)) {
+    throw new Error("fake fabric object expected");
   }
 
-  return cloned as T;
+  return object.cloneForTest() as T;
 }
 
 export function createFakeFabricRuntime(): FabricRuntimeLike {
@@ -469,11 +478,6 @@ export function createFakeFabricRuntime(): FabricRuntimeLike {
     util: {
       ease: {
         easeOutQuad: (value: number): number => value
-      },
-      object: {
-        clone<T extends FabricObjectLike>(object: T): T {
-          return cloneFabricObject(object);
-        }
       }
     },
     Object: {

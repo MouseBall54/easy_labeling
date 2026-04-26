@@ -81,12 +81,16 @@ describe("features/segmentation/workflow", () => {
       brushRadius: 6,
       overlayVisible: true,
       overlayOpacity: 0.6,
+      edgeHighlightVisible: true,
+      edgeHighlightIntensity: 0.7,
       visibleClassIds: ["4"],
       allClassIds: ["4"],
       hiddenClassIds: []
     });
     expect(controller.canUndo()).toBe(true);
-    expect(controller.getObjects("image")).toHaveLength(1);
+    expect(controller.getObjects("image").filter((object) => {
+      return (object as { _isSegmentationOverlay?: boolean })._isSegmentationOverlay;
+    })).toHaveLength(1);
 
     controller.setSegmentationTool?.("erase");
     controller.startDrawing({ x: 5, y: 5 });
@@ -103,11 +107,16 @@ describe("features/segmentation/workflow", () => {
 
     controller.setSegmentationOverlayVisibility?.(false);
     controller.setSegmentationOverlayOpacity?.(0.2);
+    controller.setSegmentationEdgeHighlightVisible?.(false);
+    controller.setSegmentationEdgeHighlightIntensity?.(0.3);
     expect(controller.getSegmentationSummary?.()?.overlayVisible).toBe(false);
     expect(controller.getSegmentationSummary?.()?.overlayOpacity).toBe(0.2);
+    expect(controller.getSegmentationSummary?.()?.edgeHighlightVisible).toBe(false);
+    expect(controller.getSegmentationSummary?.()?.edgeHighlightIntensity).toBe(0.3);
 
     controller.undo();
     expect(controller.getSegmentationSummary?.()?.visibleClassIds).toEqual([]);
+    expect(controller.getSegmentationSummary?.()?.edgeHighlightVisible).toBe(false);
     expect(controller.canRedo()).toBe(true);
 
     controller.redo();
