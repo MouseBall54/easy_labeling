@@ -7,6 +7,58 @@ import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
+type CanvasPointLike = { x: number; y: number };
+type ViewportTransform = [number, number, number, number, number, number];
+
+function isFinitePoint(point: CanvasPointLike | null | undefined): point is CanvasPointLike {
+  return Number.isFinite(point?.x) && Number.isFinite(point?.y);
+}
+
+function hasEventOffset(event: MouseEvent | WheelEvent): event is MouseEvent | WheelEvent & {
+  offsetX: number;
+  offsetY: number;
+} {
+  return Number.isFinite((event as { offsetX?: unknown }).offsetX) &&
+    Number.isFinite((event as { offsetY?: unknown }).offsetY);
+}
+
+function invertViewportPoint(point: CanvasPointLike, transform: ViewportTransform): CanvasPointLike | null {
+  const [scaleX, skewY, skewX, scaleY, translateX, translateY] = transform;
+  const determinant = (scaleX * scaleY) - (skewX * skewY);
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < Number.EPSILON) {
+    return null;
+  }
+
+  const translatedX = point.x - translateX;
+  const translatedY = point.y - translateY;
+  return {
+    x: ((scaleY * translatedX) - (skewX * translatedY)) / determinant,
+    y: ((scaleX * translatedY) - (skewY * translatedX)) / determinant
+  };
+}
+
+function resolveImagePixelPoint(input: {
+  scenePoint: CanvasPointLike;
+  currentImage: { width: number; height: number } | null;
+}): CanvasPointLike | null {
+  const { currentImage, scenePoint } = input;
+  if (!currentImage) {
+    return scenePoint;
+  }
+
+  const imageWidth = currentImage.width;
+  const imageHeight = currentImage.height;
+  if (imageWidth <= 0 || imageHeight <= 0) {
+    return null;
+  }
+
+  if (scenePoint.x < 0 || scenePoint.y < 0 || scenePoint.x >= imageWidth || scenePoint.y >= imageHeight) {
+    return null;
+  }
+
+  return scenePoint;
+}
+
 export function createEventManagerAdapter(input: {
   state: AppState;
   uiManager: RuntimeUiManager;
@@ -86,6 +138,41 @@ export function createEventManagerAdapter(input: {
           return false;
         }
         return input.state.view.currentMode === "edit";
+      };
+
+      const getScenePointer = (event: MouseEvent | WheelEvent): CanvasPointLike | null => {
+        const scenePoint = rawCanvas.getScenePoint?.(event);
+        if (isFinitePoint(scenePoint)) {
+          return scenePoint;
+        }
+
+        const viewportPoint = rawCanvas.getViewportPoint?.(event) ??
+          (hasEventOffset(event) ? { x: event.offsetX, y: event.offsetY } : null);
+        const invertedViewportPoint = isFinitePoint(viewportPoint)
+          ? invertViewportPoint(viewportPoint, rawCanvas.viewportTransform)
+          : null;
+        if (isFinitePoint(invertedViewportPoint)) {
+          return invertedViewportPoint;
+        }
+
+        const legacyPointer = rawCanvas.getPointer?.(event);
+        return isFinitePoint(legacyPointer) ? legacyPointer : null;
+      };
+
+      const getCanvasPointer = (event: MouseEvent | WheelEvent): CanvasPointLike | null => {
+        const scenePoint = getScenePointer(event);
+        if (!scenePoint) {
+          return null;
+        }
+
+        if (input.state.session.workflow !== "segmentation") {
+          return scenePoint;
+        }
+
+        return resolveImagePixelPoint({
+          scenePoint,
+          currentImage: input.state.session.currentImage
+        });
       };
 
       const triggerSegmentationRelabelAtPoint = (pointer: { x: number; y: number }): void => {
@@ -196,8 +283,8 @@ export function createEventManagerAdapter(input: {
           return false;
         }
 
-        const fabricLikeObject = target as { type?: string };
-        return fabricLikeObject.type === "rect" || fabricLikeObject.type === "activeSelection";
+        return isRectObject(target as Parameters<typeof isRectObject>[0]) ||
+          isActiveSelectionObject(target as Parameters<typeof isActiveSelectionObject>[0]);
       };
 
       const maybeStartGestureBaseline = (target: unknown): void => {
@@ -549,7 +636,7 @@ export function createEventManagerAdapter(input: {
       });
 
       rawCanvas.on?.("mouse:down", (event) => {
-        const pointer = rawCanvas.getPointer?.(event.e);
+        const pointer = getCanvasPointer(event.e);
         if (!pointer) {
           return;
         }
@@ -589,7 +676,7 @@ export function createEventManagerAdapter(input: {
       });
 
       rawCanvas.on?.("mouse:move", (event) => {
-        const pointer = rawCanvas.getPointer?.(event.e);
+        const pointer = getCanvasPointer(event.e);
         const mouseEvent = event.e as MouseEvent;
         if (rawCanvas.isDragging) {
           const vpt = rawCanvas.viewportTransform;
@@ -649,7 +736,7 @@ export function createEventManagerAdapter(input: {
         if (input.state.session.workflow !== "segmentation" || input.state.view.currentMode !== "edit") {
           return;
         }
-        const pointer = rawCanvas.getPointer?.(event.e);
+        const pointer = getCanvasPointer(event.e);
         if (!pointer) {
           return;
         }
@@ -713,7 +800,7 @@ export function createEventManagerAdapter(input: {
       rawCanvas.upperCanvasEl?.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         const target = rawCanvas.findTarget?.(event, false) ?? null;
-        if (target && (target.type === "rect" || target.type === "activeSelection")) {
+        if (target && (isRectObject(target) || isActiveSelectionObject(target))) {
           const rectTarget = isRectObject(target) ? target : null;
           const selectionTarget = isActiveSelectionObject(target) ? target : null;
           elements.contextMenu.style.left = `${(event as MouseEvent).clientX}px`;
@@ -865,14 +952,15 @@ export function createEventManagerAdapter(input: {
 
         if ((event.ctrlKey || event.metaKey) && (event.key === "c" || event.key === "C")) {
           event.preventDefault();
-          input.canvasController.raw.copy();
+          runAsync(() => input.canvasController.raw.copy());
           return;
         }
         if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
           event.preventDefault();
-          input.canvasController.raw.paste();
-          input.uiManager.updateLabelList();
-          syncToolbarActionState();
+          runAsync(() => input.canvasController.raw.paste().then(() => {
+            input.uiManager.updateLabelList();
+            syncToolbarActionState();
+          }));
           return;
         }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {

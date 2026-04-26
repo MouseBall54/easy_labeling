@@ -44,6 +44,10 @@ describe("features/segmentation/overlay", () => {
     const initialElement = overlayObject.element;
     const initialPixels = (overlayObject.element as { overlayPixels: Uint8ClampedArray }).overlayPixels;
     expect(overlayObject.type).toBe("image");
+    expect(overlayObject.originX).toBe("left");
+    expect(overlayObject.originY).toBe("top");
+    expect(overlayObject.selectable).toBe(false);
+    expect(overlayObject.evented).toBe(false);
     expect(overlayObject.visible).toBe(true);
     expect(overlayObject.opacity).toBe(0.6);
     expect(Array.from(initialPixels.slice(0, 4))).toEqual([171, 205, 239, 255]);

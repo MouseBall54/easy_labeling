@@ -237,7 +237,10 @@ function updateOverlayObjectState(
     height,
     visible,
     opacity,
+    originX: "left",
+    originY: "top",
     selectable: false,
+    evented: false,
     hoverCursor: "default"
   });
   overlayObject.setCoords();
@@ -254,9 +257,13 @@ function createOverlayObject(
     top: 0,
     width: state.width,
     height: state.height,
+    originX: "left",
+    originY: "top",
     selectable: false,
+    evented: false,
     hoverCursor: "default"
   });
+  object._isSegmentationOverlay = true;
   updateOverlayObjectState(object, state.width, state.height, visible, opacity);
   return object;
 }

@@ -86,7 +86,9 @@ describe("features/segmentation/workflow", () => {
       hiddenClassIds: []
     });
     expect(controller.canUndo()).toBe(true);
-    expect(controller.getObjects("image")).toHaveLength(1);
+    expect(controller.getObjects("image").filter((object) => {
+      return (object as { _isSegmentationOverlay?: boolean })._isSegmentationOverlay;
+    })).toHaveLength(1);
 
     controller.setSegmentationTool?.("erase");
     controller.startDrawing({ x: 5, y: 5 });

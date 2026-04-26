@@ -478,11 +478,11 @@ export function createSegmentationCanvasWorkflow(
       shell.hideCrosshair();
     },
 
-    copy(): void {
+    async copy(): Promise<void> {
       return;
     },
 
-    paste(): void {
+    async paste(): Promise<void> {
       return;
     },
 
