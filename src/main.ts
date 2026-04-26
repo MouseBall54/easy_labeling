@@ -56,6 +56,7 @@ interface TestApi {
     height: number;
   } | null;
   getSegmentationClassAtPoint(x: number, y: number): string | null;
+  getSegmentationOverlayPixel(x: number, y: number): number[] | null;
   getCanvasObjectCounts(): Record<string, number>;
   getCanvasLayerCounts(): {
     baseImages: number;
@@ -253,6 +254,47 @@ function bootstrapBrowserRuntime(): void {
     },
     getSegmentationClassAtPoint: (x: number, y: number) => {
       return runtimeCanvasController.raw.getSegmentationClassAtPoint?.({ x, y }) ?? null;
+    },
+    getSegmentationOverlayPixel: (x: number, y: number) => {
+      const imageObjects = runtimeCanvasController.raw.getObjects("image") as Array<{
+        _isSegmentationOverlay?: boolean;
+        element?: unknown;
+        _element?: unknown;
+        _originalElement?: unknown;
+        getElement?: () => unknown;
+      }>;
+      const overlayObject = imageObjects.find((object) => object._isSegmentationOverlay);
+      const overlayElement = overlayObject?.element ??
+        overlayObject?.getElement?.() ??
+        overlayObject?._element ??
+        overlayObject?._originalElement;
+      if (x < 0 || y < 0) {
+        return null;
+      }
+      const pixelX = Math.round(x);
+      const pixelY = Math.round(y);
+      if (overlayElement instanceof HTMLCanvasElement) {
+        if (pixelX >= overlayElement.width || pixelY >= overlayElement.height) {
+          return null;
+        }
+        const pixel = overlayElement.getContext("2d")?.getImageData(pixelX, pixelY, 1, 1).data;
+        return pixel ? Array.from(pixel) : null;
+      }
+      if (
+        overlayElement &&
+        typeof overlayElement === "object" &&
+        "overlayPixels" in overlayElement &&
+        "width" in overlayElement &&
+        "height" in overlayElement
+      ) {
+        const fallback = overlayElement as { overlayPixels: Uint8ClampedArray; width: number; height: number };
+        if (pixelX >= fallback.width || pixelY >= fallback.height) {
+          return null;
+        }
+        const offset = ((pixelY * fallback.width) + pixelX) * 4;
+        return Array.from(fallback.overlayPixels.slice(offset, offset + 4));
+      }
+      return null;
     },
     getCanvasObjectCounts: () => {
       const counts = new Map<string, number>();

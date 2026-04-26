@@ -25,6 +25,8 @@ function createEmptySummary(): SegmentationSummary {
     brushRadius: 6,
     overlayVisible: true,
     overlayOpacity: 0.6,
+    edgeHighlightVisible: true,
+    edgeHighlightIntensity: 0.7,
     visibleClassIds: [],
     allClassIds: [],
     hiddenClassIds: []
@@ -152,7 +154,9 @@ export function createSegmentationCanvasWorkflow(
       activeTool: document?.activeTool ?? "brush",
       brushRadius: document?.brushRadius ?? 6,
       overlayVisible: document?.overlayVisible ?? true,
-      overlayOpacity: document?.overlayOpacity ?? 0.6
+      overlayOpacity: document?.overlayOpacity ?? 0.6,
+      edgeHighlightVisible: document?.edgeHighlightVisible ?? true,
+      edgeHighlightIntensity: document?.edgeHighlightIntensity ?? 0.7
     });
     removeMaskOverlayLayer();
     removeSelectionOverlayLayer();
@@ -613,6 +617,24 @@ export function createSegmentationCanvasWorkflow(
       }
       doc.setOverlayOpacity(opacity);
       requestOverlayRender({ maskDirtyBounds: null });
+    },
+
+    setSegmentationEdgeHighlightVisible(visible: boolean): void {
+      const doc = ensureDocument();
+      if (!doc) {
+        return;
+      }
+      doc.setEdgeHighlightVisible(visible);
+      requestOverlayRender({ forceMaskFull: true });
+    },
+
+    setSegmentationEdgeHighlightIntensity(intensity: number): void {
+      const doc = ensureDocument();
+      if (!doc) {
+        return;
+      }
+      doc.setEdgeHighlightIntensity(intensity);
+      requestOverlayRender({ forceMaskFull: true });
     },
 
     setSegmentationClassVisibility(classId: string, visible: boolean): void {

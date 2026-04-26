@@ -497,6 +497,22 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.setSegmentationOverlayOpacity?.(Number.parseInt(slider.value, 10) / 100);
         input.uiManager.setWorkflow?.(input.state.session.workflow);
       });
+      elements.segmentationEdgeHighlightToggle.addEventListener("change", (event) => {
+        const toggle = event.currentTarget;
+        if (!(toggle instanceof HTMLInputElement)) {
+          return;
+        }
+        input.canvasController.raw.setSegmentationEdgeHighlightVisible?.(toggle.checked);
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+      });
+      elements.segmentationEdgeGlowSlider.addEventListener("input", (event) => {
+        const slider = event.currentTarget;
+        if (!(slider instanceof HTMLInputElement)) {
+          return;
+        }
+        input.canvasController.raw.setSegmentationEdgeHighlightIntensity?.(Number.parseInt(slider.value, 10) / 100);
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+      });
 
       elements.segmentationClassSummary.addEventListener("change", (event) => {
         const target = event.target;

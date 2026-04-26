@@ -116,6 +116,8 @@ export interface CanvasController {
   getSegmentationAutoFillClosedRegionEnabled?(): boolean;
   setSegmentationOverlayVisibility?(visible: boolean): void;
   setSegmentationOverlayOpacity?(opacity: number): void;
+  setSegmentationEdgeHighlightVisible?(visible: boolean): void;
+  setSegmentationEdgeHighlightIntensity?(intensity: number): void;
   setSegmentationClassVisibility?(classId: string, visible: boolean): void;
   setSegmentationOnlyVisibleClass?(classId: string | null): void;
   getSegmentationClassAtPoint?(pointer: CanvasPoint): string | null;

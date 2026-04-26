@@ -198,6 +198,10 @@ function createElements() {
   segmentationMaskVisibilityToggle.checked = true;
   const segmentationMaskOpacitySlider = new FakeElement("input");
   segmentationMaskOpacitySlider.value = "60";
+  const segmentationEdgeHighlightToggle = new FakeElement("input");
+  segmentationEdgeHighlightToggle.checked = true;
+  const segmentationEdgeGlowSlider = new FakeElement("input");
+  segmentationEdgeGlowSlider.value = "70";
   const segmentationToolSizeSlider = new FakeElement("input");
   segmentationToolSizeSlider.value = "6";
 
@@ -225,6 +229,9 @@ function createElements() {
     segmentationMaskVisibilityToggle,
     segmentationMaskOpacitySlider,
     segmentationMaskOpacityValue: new FakeElement("span"),
+    segmentationEdgeHighlightToggle,
+    segmentationEdgeGlowSlider,
+    segmentationEdgeGlowValue: new FakeElement("span"),
     segmentationClassSummary: new FakeElement("div"),
     segmentationAutoFillClosedRegionGroup: new FakeElement("div"),
     segmentationAutoFillClosedRegionToggle: new FakeElement("input")
@@ -281,6 +288,8 @@ function createManagerWithRects(input: {
           brushRadius: 6,
           overlayVisible: true,
           overlayOpacity: 0.6,
+          edgeHighlightVisible: true,
+          edgeHighlightIntensity: 0.7,
           visibleClassIds: [],
           allClassIds: [],
           hiddenClassIds: []
@@ -486,6 +495,8 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
             brushRadius: 6,
             overlayVisible: true,
             overlayOpacity: 0.6,
+            edgeHighlightVisible: false,
+            edgeHighlightIntensity: 0.35,
             visibleClassIds: [],
             allClassIds: [],
             hiddenClassIds: []
@@ -497,5 +508,8 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
 
     manager.setWorkflow("segmentation");
     expect(elements.segmentationAutoFillClosedRegionToggle.checked).toBe(true);
+    expect(elements.segmentationEdgeHighlightToggle.checked).toBe(false);
+    expect(elements.segmentationEdgeGlowSlider.value).toBe("35");
+    expect(elements.segmentationEdgeGlowValue.textContent).toBe("35");
   });
 });

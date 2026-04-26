@@ -211,6 +211,85 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     return bounds.left <= 400 && bounds.right >= 400 && bounds.top <= 200 && bounds.bottom >= 200;
   })).toBe(true);
 
+  const edgeOnSample = await page.evaluate(() => {
+    const api = Reflect.get(window, '__easyLabelingTestApi') as {
+      getSegmentationMaskBounds?: () => {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+      } | null;
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+      getSegmentationOverlayPixel?: (x: number, y: number) => number[] | null;
+    } | undefined;
+    const bounds = api?.getSegmentationMaskBounds?.() ?? null;
+    if (!bounds) {
+      return null;
+    }
+    let sample = null as { x: number; y: number } | null;
+    for (let y = bounds.top; y <= bounds.bottom && !sample; y += 1) {
+      for (let x = bounds.left; x <= bounds.right; x += 1) {
+        if (api?.getSegmentationClassAtPoint?.(x, y) && !api?.getSegmentationClassAtPoint?.(x - 1, y)) {
+          sample = { x, y };
+          break;
+        }
+      }
+    }
+    if (!sample) {
+      return null;
+    }
+    return {
+      edge: api?.getSegmentationOverlayPixel?.(sample.x, sample.y) ?? null,
+      halo: api?.getSegmentationOverlayPixel?.(sample.x - 1, sample.y) ?? null
+    };
+  });
+  expect(edgeOnSample?.edge?.[3]).toBe(255);
+  expect(edgeOnSample?.halo?.[3] ?? 0).toBeGreaterThan(0);
+
+  await page.locator('#segmentationEdgeHighlightToggle').uncheck();
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, '__easyLabelingTestApi') as {
+      getSegmentationSummary?: () => { edgeHighlightVisible?: boolean } | null;
+    } | undefined;
+    return api?.getSegmentationSummary?.()?.edgeHighlightVisible ?? true;
+  })).toBe(false);
+
+  const edgeOffSample = await page.evaluate(() => {
+    const api = Reflect.get(window, '__easyLabelingTestApi') as {
+      getSegmentationMaskBounds?: () => {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+      } | null;
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+      getSegmentationOverlayPixel?: (x: number, y: number) => number[] | null;
+    } | undefined;
+    const bounds = api?.getSegmentationMaskBounds?.() ?? null;
+    if (!bounds) {
+      return null;
+    }
+    let sample = null as { x: number; y: number } | null;
+    for (let y = bounds.top; y <= bounds.bottom && !sample; y += 1) {
+      for (let x = bounds.left; x <= bounds.right; x += 1) {
+        if (api?.getSegmentationClassAtPoint?.(x, y) && !api?.getSegmentationClassAtPoint?.(x - 1, y)) {
+          sample = { x, y };
+          break;
+        }
+      }
+    }
+    if (!sample) {
+      return null;
+    }
+    return {
+      edge: api?.getSegmentationOverlayPixel?.(sample.x, sample.y) ?? null,
+      halo: api?.getSegmentationOverlayPixel?.(sample.x - 1, sample.y) ?? null
+    };
+  });
+  const colorTotal = (pixel: number[] | null | undefined): number => pixel ? (pixel[0] + pixel[1] + pixel[2]) : 0;
+  expect(colorTotal(edgeOnSample?.edge)).toBeGreaterThan(colorTotal(edgeOffSample?.edge) + 20);
+  expect(edgeOffSample?.halo?.[3] ?? 0).toBe(0);
+
   const centerPixelAfter = await sampleLowerCanvasPixel(imageCenter);
   const topLeftPixelAfter = await sampleLowerCanvasPixel(imageTopLeftSample);
   expect(colorDistance(centerPixelBefore, centerPixelAfter)).toBeGreaterThan(30);
