@@ -11,16 +11,28 @@ const fileCopies = [
     to: path.join(rootDir, "vendor", "bootstrap", "css", "bootstrap.min.css")
   },
   {
+    from: path.join(rootDir, "node_modules", "bootstrap", "dist", "css", "bootstrap.min.css.map"),
+    to: path.join(rootDir, "vendor", "bootstrap", "css", "bootstrap.min.css.map")
+  },
+  {
     from: path.join(rootDir, "node_modules", "bootstrap", "dist", "js", "bootstrap.bundle.min.js"),
     to: path.join(rootDir, "vendor", "bootstrap", "js", "bootstrap.bundle.min.js")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "bootstrap", "dist", "js", "bootstrap.bundle.min.js.map"),
+    to: path.join(rootDir, "vendor", "bootstrap", "js", "bootstrap.bundle.min.js.map")
   },
   {
     from: path.join(rootDir, "node_modules", "bootstrap-icons", "font", "bootstrap-icons.min.css"),
     to: path.join(rootDir, "vendor", "bootstrap-icons", "font", "bootstrap-icons.min.css")
   },
   {
-    from: path.join(rootDir, "node_modules", "fabric", "dist", "fabric.min.js"),
+    from: path.join(rootDir, "node_modules", "fabric", "dist", "index.min.js"),
     to: path.join(rootDir, "vendor", "fabric", "fabric.min.js")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "fabric", "dist", "index.min.js.map"),
+    to: path.join(rootDir, "vendor", "fabric", "index.min.js.map")
   },
   {
     from: path.join(rootDir, "node_modules", "tiff.js", "tiff.min.js"),
