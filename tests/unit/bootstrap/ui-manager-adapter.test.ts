@@ -226,6 +226,7 @@ function createElements() {
     segmentationMaskOpacitySlider,
     segmentationMaskOpacityValue: new FakeElement("span"),
     segmentationClassSummary: new FakeElement("div"),
+    segmentationAutoFillClosedRegionGroup: new FakeElement("div"),
     segmentationAutoFillClosedRegionToggle: new FakeElement("input")
   };
 }

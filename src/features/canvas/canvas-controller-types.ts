@@ -92,8 +92,8 @@ export interface CanvasController {
   toggleCrosshair(visible: boolean): void;
   updateCrosshair(pointer: CanvasPoint): void;
   hideCrosshair(): void;
-  copy(): void;
-  paste(): void;
+  copy(): Promise<void>;
+  paste(): Promise<void>;
   deleteSelection(): void;
   setSelectedLabelClass?(classId: string): boolean;
   alignSelectionLeft(): void;

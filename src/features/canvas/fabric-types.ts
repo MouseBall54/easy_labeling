@@ -32,8 +32,13 @@ export interface FabricObjectLike extends FabricSettable {
   shadow?: unknown;
   opacity?: number;
   selectable?: boolean;
+  evented?: boolean;
   hoverCursor?: string;
   visible?: boolean;
+  scaleX?: number;
+  scaleY?: number;
+  originX?: string;
+  originY?: string;
   labelClass?: string;
   originalYolo?: YoloMetadata | null;
   _labelText?: FabricTextLike | null;
@@ -43,7 +48,7 @@ export interface FabricObjectLike extends FabricSettable {
   getScaledWidth(): number;
   getScaledHeight(): number;
   getBoundingRect(absolute?: boolean): { left: number; top: number; width: number; height: number };
-  clone(callback: (cloned: FabricObjectLike) => void, propertiesToInclude?: string[]): void;
+  clone(propertiesToInclude?: string[]): Promise<FabricObjectLike>;
   group?: {
     left: number;
     top: number;
@@ -126,6 +131,7 @@ export interface FabricCanvasLike {
     addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
   };
   add(...objects: FabricObjectLike[]): void;
+  insertAt?(index: number, ...objects: FabricObjectLike[]): void;
   remove(object: FabricObjectLike): void;
   clear(): void;
   getObjects(type?: string): FabricObjectLike[];
@@ -136,9 +142,8 @@ export interface FabricCanvasLike {
   renderAll(): void;
   requestRenderAll(): void;
   calcOffset?(): void;
-  setWidth(width: number): void;
-  setHeight(height: number): void;
-  setBackgroundImage(image: unknown, callback: () => void): void;
+  setDimensions(dimensions: { width: number; height: number }): void;
+  backgroundImage?: unknown;
   getCenter(): { left: number; top: number };
   zoomToPoint(point: { x: number; y: number }, zoom: number): void;
   getZoom(): number;
@@ -147,12 +152,17 @@ export interface FabricCanvasLike {
   getHeight(): number;
   setViewportTransform(transform: [number, number, number, number, number, number]): void;
   on?(eventName: string, handler: (event: { e: MouseEvent | WheelEvent; target?: FabricObjectLike | null }) => void): void;
+  getScenePoint?(event: MouseEvent | WheelEvent): { x: number; y: number };
+  getViewportPoint?(event: MouseEvent | WheelEvent): { x: number; y: number };
   getPointer?(event: MouseEvent | WheelEvent): { x: number; y: number };
   findTarget?(event: Event, skipGroup?: boolean): FabricObjectLike | null;
 }
 
 export interface FabricImageLike extends FabricObjectLike {
   type: "image";
+  element?: unknown;
+  _isBaseImage?: boolean;
+  _isSegmentationOverlay?: boolean;
   setElement?(element: unknown): void;
 }
 
@@ -177,9 +187,6 @@ export interface FabricRuntimeLike {
     ease: {
       easeOutQuad: (value: number) => number;
     };
-    object: {
-      clone<T extends FabricObjectLike>(object: T): T;
-    };
   };
   Object: {
     prototype: {
@@ -193,10 +200,14 @@ export interface CanvasImageLike {
   height: number;
 }
 
+function normalizeFabricType(object: { type?: string }): string {
+  return object.type?.toLowerCase() ?? "";
+}
+
 export function isRectObject(object: FabricObjectLike): object is FabricRectLike {
-  return object.type === "rect";
+  return normalizeFabricType(object) === "rect";
 }
 
 export function isActiveSelectionObject(object: FabricObjectLike): object is FabricActiveSelectionLike {
-  return object.type === "activeSelection";
+  return normalizeFabricType(object) === "activeselection";
 }

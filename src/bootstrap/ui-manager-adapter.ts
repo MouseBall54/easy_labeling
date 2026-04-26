@@ -437,7 +437,7 @@ export function createUiManagerAdapter(input: {
         return;
       }
 
-      const rects = canvasController.raw.getObjects("rect").filter((rect) => rect.type === "rect");
+      const rects = canvasController.raw.getObjects("rect").filter(isRectObject);
       const visibleRects = rects.filter((rect) => {
         const classKey = normalizeFilterClassKey(rect.labelClass);
         return !input.state.view.hiddenLabelClasses.has(classKey);

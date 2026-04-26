@@ -66,6 +66,7 @@ const REQUIRED_IDS = [
   "segmentationToolSizePresets",
   "segmentationActiveClassSummary",
   "segmentationRelabelRegionBtn",
+  "segmentationAutoFillClosedRegionGroup",
   "segmentationAutoFillClosedRegionToggle",
   "segmentationMaskVisibilityToggle",
   "segmentationMaskOpacitySlider",

@@ -4,7 +4,7 @@ import { createClipboardManager } from "../../../../src/features/canvas/clipboar
 import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
 describe("features/canvas/clipboard", () => {
-  it("copy/paste keeps labelClass, clears originalYolo, and re-centers near last mouse", () => {
+  it("copy/paste keeps labelClass, clears originalYolo, and re-centers near last mouse", async () => {
     const fabric = createFakeFabricRuntime();
     const canvas = new FakeCanvas("canvas", { width: 800, height: 600, backgroundColor: "#eee" });
     const drawLabelText = vi.fn();
@@ -33,8 +33,8 @@ describe("features/canvas/clipboard", () => {
     canvas.add(source);
     canvas.setActiveObject(source);
 
-    clipboard.copy();
-    clipboard.paste();
+    await clipboard.copy();
+    await clipboard.paste();
 
     const pastedRects = canvas.getObjects("rect");
     expect(pastedRects).toHaveLength(2);
@@ -51,12 +51,12 @@ describe("features/canvas/clipboard", () => {
     expect(updateLabelList).toHaveBeenCalledTimes(1);
 
     lastMouse = { x: -20, y: 1000 };
-    clipboard.paste();
+    await clipboard.paste();
     const clampedPaste = canvas.getObjects("rect")[2];
     expect(clampedPaste.getCenterPoint()).toEqual({ x: 0, y: 100 });
   });
 
-  it("pastes active selection with relative offsets and resets originalYolo on each rect", () => {
+  it("pastes active selection with relative offsets and resets originalYolo on each rect", async () => {
     const fabric = createFakeFabricRuntime();
     const canvas = new FakeCanvas("canvas", { width: 800, height: 600, backgroundColor: "#eee" });
     const drawLabelText = vi.fn();
@@ -91,8 +91,8 @@ describe("features/canvas/clipboard", () => {
     const selection = new fabric.ActiveSelection([rectA, rectB], { canvas });
     canvas.setActiveObject(selection);
 
-    clipboard.copy();
-    clipboard.paste();
+    await clipboard.copy();
+    await clipboard.paste();
 
     const pasted = canvas.getObjects("rect").slice(2);
     expect(pasted).toHaveLength(2);

@@ -344,11 +344,13 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       }
 
       const isEditMode = state.currentMode === "edit";
-      const rect = new deps.fabric.Rect({
-        left: snapshot.left,
-        top: snapshot.top,
-        width: snapshot.width,
-        height: snapshot.height,
+        const rect = new deps.fabric.Rect({
+          left: snapshot.left,
+          top: snapshot.top,
+          originX: "left",
+          originY: "top",
+          width: snapshot.width,
+          height: snapshot.height,
         scaleX: snapshot.scaleX,
         scaleY: snapshot.scaleY,
         fill: `${color}33`,
@@ -430,6 +432,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         const rect = new deps.fabric.Rect({
           left: row.rectLeft,
           top: row.rectTop,
+          originX: "left",
+          originY: "top",
           width: row.rectWidth,
           height: row.rectHeight,
           fill: `${color}33`,
@@ -499,6 +503,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       currentRect = new deps.fabric.Rect({
         left: startPoint.x,
         top: startPoint.y,
+        originX: "left",
+        originY: "top",
         width: 0,
         height: 0,
         fill: "rgba(255, 0, 0, 0.2)",
@@ -708,6 +714,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       const text = new deps.fabric.Text(displayName, {
         left: anchor.left,
         top: anchor.top - 4,
+        originX: "left",
         originY: "bottom",
         fontSize: state.labelFontSize,
         fontFamily: "'Consolas', monospace",
@@ -843,14 +850,14 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       shell.hideCrosshair();
     },
 
-    copy(): void {
-      clipboard.copy();
+    async copy(): Promise<void> {
+      await clipboard.copy();
     },
 
-    paste(): void {
+    async paste(): Promise<void> {
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
-      const pasted = clipboard.paste();
+      const pasted = await clipboard.paste();
       if (pasted.length === 0) {
         return;
       }
