@@ -14,6 +14,7 @@ declare global {
     Tiff: typeof Tiff;
     bootstrap: typeof bootstrap;
     showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
+    getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
   }
 
   interface DirectoryPickerOptions {

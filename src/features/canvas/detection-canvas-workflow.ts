@@ -1,4 +1,6 @@
 import { parseYoloRows, serializeRectsToYolo } from "../../domain/yolo/yolo.js";
+import { createBoxLayout, placeBoxLayout } from "../automation/layout.js";
+import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
 import { getColorForClass as defaultGetColorForClass } from "./colors.js";
@@ -324,10 +326,14 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           scaleX: snapshot.scaleX,
           scaleY: snapshot.scaleY,
           labelClass: snapshot.labelClass,
+          layoutInstanceId: snapshot.layoutInstanceId,
+          layoutBoxId: snapshot.layoutBoxId,
           fill: `${color}33`,
           stroke: color
         });
         existingRect.originalYolo = originalYolo;
+        existingRect.layoutInstanceId = snapshot.layoutInstanceId;
+        existingRect.layoutBoxId = snapshot.layoutBoxId;
         existingRect.setCoords();
 
         if (state.showLabelsOnCanvas) {
@@ -361,6 +367,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         hoverCursor: isEditMode ? "move" : "crosshair",
         annotationId: snapshot.annotationId,
         labelClass: snapshot.labelClass,
+        layoutInstanceId: snapshot.layoutInstanceId,
+        layoutBoxId: snapshot.layoutBoxId,
         originalYolo
       });
 
@@ -461,6 +469,260 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       const rects = this.getObjects("rect").filter(isRectObject);
       return serializeRectsToYolo(rects, image.width, image.height);
+    },
+
+    captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): ReturnType<typeof createBoxLayout> {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before saving a layout");
+      }
+
+      const allRects = canvas.getObjects("rect").filter(isRectObject);
+      const selectedRects = extractVisibleRectSelection(canvas.getActiveObject());
+      const rects = scope === "selected" ? selectedRects : allRects;
+      if (rects.length === 0) {
+        throw new Error(scope === "selected" ? "Select at least one box" : "The image has no boxes to save");
+      }
+
+      return createBoxLayout({
+        name,
+        sourceImageName,
+        sourceImageSize: { width: image.width, height: image.height },
+        boxes: rects.map((rect, order) => {
+          const bounds = rect.getBoundingRect(true);
+          return {
+            id: ensureAnnotationId(rect),
+            classId: String(rect.labelClass ?? ""),
+            left: bounds.left,
+            top: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+            order
+          };
+        })
+      });
+    },
+
+    applyBoxLayout(layout, anchor, options = {}): { instanceId: string; annotationIds: string[] } {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before applying a layout");
+      }
+      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height });
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      const instanceId = typeof globalThis.crypto?.randomUUID === "function"
+        ? `layout-instance-${globalThis.crypto.randomUUID()}`
+        : `layout-instance-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      canvas.discardActiveObject();
+      if (options.replaceExisting) {
+        canvas.getObjects("rect").filter(isRectObject).forEach(removeRectInternal);
+      }
+
+      const createdRects = placedBoxes.map((box) => {
+        const color = colorForClass(box.classId);
+        const rect = new deps.fabric.Rect({
+          left: box.x,
+          top: box.y,
+          originX: "left",
+          originY: "top",
+          width: box.width,
+          height: box.height,
+          fill: `${color}33`,
+          stroke: color,
+          strokeWidth: 2,
+          strokeUniform: true,
+          selectable: state.currentMode === "edit",
+          hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
+          annotationId: createAnnotationId(),
+          labelClass: box.classId,
+          layoutInstanceId: instanceId,
+          layoutBoxId: box.layoutBoxId,
+          originalYolo: null
+        });
+        rect.setControlVisible("mtr", false);
+        canvas.add(rect);
+        this.drawLabelText(rect);
+        return rect;
+      });
+
+      if (createdRects.length === 1 && createdRects[0]) {
+        canvas.setActiveObject(createdRects[0]);
+      } else if (createdRects.length > 1) {
+        canvas.setActiveObject(new deps.fabric.ActiveSelection(createdRects, { canvas }));
+      }
+      createdRects.forEach((rect) => rect.setCoords());
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+
+      return {
+        instanceId,
+        annotationIds: createdRects.map((rect) => ensureAnnotationId(rect))
+      };
+    },
+
+    applyDetectionBoxes(boxes, options = {}): { annotationIds: string[] } {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before applying detection boxes");
+      }
+      if (boxes.length === 0) {
+        throw new Error("At least one detection box is required");
+      }
+      boxes.forEach((box, index) => {
+        const geometry = [box.x, box.y, box.width, box.height];
+        if (!geometry.every(Number.isFinite) || box.width <= 0 || box.height <= 0) {
+          throw new Error(`Detection box ${index + 1} has invalid geometry`);
+        }
+        if (!box.classId.trim()) {
+          throw new Error(`Detection box ${index + 1} requires a class ID`);
+        }
+        if (box.x < 0 || box.y < 0 || box.x + box.width > image.width || box.y + box.height > image.height) {
+          throw new Error(`Detection box ${index + 1} falls outside the image bounds`);
+        }
+      });
+
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      canvas.discardActiveObject();
+      if (options.replaceExisting) {
+        canvas.getObjects("rect").filter(isRectObject).forEach(removeRectInternal);
+      }
+
+      const createdRects = boxes.map((box) => {
+        const classId = box.classId.trim();
+        const color = colorForClass(classId);
+        const rect = new deps.fabric.Rect({
+          left: box.x,
+          top: box.y,
+          originX: "left",
+          originY: "top",
+          width: box.width,
+          height: box.height,
+          fill: `${color}33`,
+          stroke: color,
+          strokeWidth: 2,
+          strokeUniform: true,
+          selectable: state.currentMode === "edit",
+          hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
+          annotationId: createAnnotationId(),
+          labelClass: classId,
+          originalYolo: null
+        });
+        rect.setControlVisible("mtr", false);
+        canvas.add(rect);
+        this.drawLabelText(rect);
+        rect.setCoords();
+        return rect;
+      });
+
+      if (createdRects.length === 1 && createdRects[0]) {
+        canvas.setActiveObject(createdRects[0]);
+      } else {
+        canvas.setActiveObject(new deps.fabric.ActiveSelection(createdRects, { canvas }));
+      }
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+
+      return { annotationIds: createdRects.map((rect) => ensureAnnotationId(rect)) };
+    },
+
+    translateLayoutInstance(instanceId: string, delta: PixelPoint): void {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before moving a layout");
+      }
+      if (!Number.isFinite(delta.x) || !Number.isFinite(delta.y)) {
+        throw new Error("Layout movement must use finite pixel values");
+      }
+      const rects = canvas.getObjects("rect").filter(isRectObject).filter((rect) => rect.layoutInstanceId === instanceId);
+      if (rects.length === 0) {
+        throw new Error("The applied layout is no longer available");
+      }
+      const wouldLeaveImage = rects.some((rect) => {
+        const bounds = rect.getBoundingRect(true);
+        const left = bounds.left + delta.x;
+        const top = bounds.top + delta.y;
+        return left < 0 || top < 0 || left + bounds.width > image.width || top + bounds.height > image.height;
+      });
+      if (wouldLeaveImage) {
+        throw new Error("Moving the layout would place a box outside the image bounds");
+      }
+
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      rects.forEach((rect) => {
+        rect.set({ left: rect.left + delta.x, top: rect.top + delta.y });
+        rect.originalYolo = null;
+        rect.setCoords();
+        this.updateLabelText(rect);
+      });
+      canvas.requestRenderAll();
+      deps.updateLabelList();
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+    },
+
+    translateSelectedBoxes(delta: PixelPoint): void {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before moving selected boxes");
+      }
+      if (!Number.isFinite(delta.x) || !Number.isFinite(delta.y)) {
+        throw new Error("Selection movement must use finite pixel values");
+      }
+      const rects = extractVisibleRectSelection(canvas.getActiveObject());
+      if (rects.length === 0) {
+        throw new Error("Select at least one visible box to move");
+      }
+      const wouldLeaveImage = rects.some((rect) => {
+        const bounds = rect.getBoundingRect(true);
+        const left = bounds.left + delta.x;
+        const top = bounds.top + delta.y;
+        return left < 0 || top < 0 || left + bounds.width > image.width || top + bounds.height > image.height;
+      });
+      if (wouldLeaveImage) {
+        throw new Error("Moving the selection would place a box outside the image bounds");
+      }
+
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      rects.forEach((rect) => {
+        rect.set({ left: rect.left + delta.x, top: rect.top + delta.y });
+        rect.originalYolo = null;
+        rect.setCoords();
+        this.updateLabelText(rect);
+      });
+      canvas.requestRenderAll();
+      deps.updateLabelList();
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+    },
+
+    getSelectedBoxCount(): number {
+      return extractVisibleRectSelection(canvas.getActiveObject()).length;
     },
 
     highlightSelection(): void {

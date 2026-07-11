@@ -76,7 +76,9 @@ class FakeWindow {
 
 function createElements() {
   return {
+    appBrand: new FakeHtmlElement(),
     selectImageFolderBtn: new FakeHtmlElement(),
+    loadSampleTestBtn: new FakeHtmlElement(),
     selectLabelFolderBtn: new FakeHtmlElement(),
     loadClassInfoFolderBtn: new FakeHtmlElement(),
     classFileSelect: new FakeInputElement(),
@@ -108,6 +110,7 @@ function createElements() {
     alignBottomBtn: new FakeHtmlElement(),
     distributeHorizontalBtn: new FakeHtmlElement(),
     distributeVerticalBtn: new FakeHtmlElement(),
+    moveSelectedBoxesBtn: new FakeHtmlElement(),
     canvasContainer: new FakeHtmlElement(),
     zoomInput: new FakeInputElement(),
     mouseCoordsDisplay: new FakeHtmlElement(),
@@ -210,6 +213,7 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     sortObjectsByLabel: vi.fn(),
     zoom: vi.fn(),
     resetZoom: vi.fn(),
+    resizeCanvas: vi.fn(),
     setZoomPercentage: vi.fn(),
     selectLabelsByClass: vi.fn(),
     goToCoords: vi.fn(),
@@ -286,6 +290,9 @@ function createNoopUiManager(elements: ReturnType<typeof createElements>, overri
     renderImageList: vi.fn(),
     renderPreviewList: vi.fn(),
     updateLabelList: vi.fn(),
+    updateCurrentImageName: vi.fn(),
+    updateZoomDisplay: vi.fn(),
+    setWorkflow: vi.fn(),
     updateMouseCoords: vi.fn(),
     hideMouseCoords: vi.fn(),
     togglePreviewBarVisibility: vi.fn(),
@@ -338,6 +345,43 @@ describe("bootstrap/event-manager-adapter", () => {
       writable: true,
       value: originalHTMLInputElement
     });
+  });
+
+  it("refreshes the workspace from the brand without clearing undo/redo history", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    rawController.canUndo.mockReturnValue(true);
+    rawController.canRedo.mockReturnValue(true);
+    const uiManager = createNoopUiManager(elements);
+    const preventDefault = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager,
+      fileSystem: createNoopFileSystem(),
+      canvasController: {
+        setMode: vi.fn(),
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef: new FakeWindow()
+    });
+
+    eventManager.bindEventListeners();
+    elements.appBrand.dispatch("click", { preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(rawController.resizeCanvas).toHaveBeenCalledTimes(1);
+    expect(rawController.renderAll).toHaveBeenCalledTimes(1);
+    expect(rawController.clearHistory).not.toHaveBeenCalled();
+    expect(uiManager.renderImageList).toHaveBeenCalledTimes(1);
+    expect(uiManager.renderPreviewList).toHaveBeenCalledTimes(1);
+    expect(uiManager.updateLabelList).toHaveBeenCalledTimes(1);
+    expect(uiManager.updateCurrentImageName).toHaveBeenCalledTimes(1);
+    expect(uiManager.updateZoomDisplay).toHaveBeenCalledWith(1);
+    expect(elements.undoBtn.disabled).toBe(false);
+    expect(elements.redoBtn.disabled).toBe(false);
   });
 
   it("defaults workflow tabs to detection and switches the active workflow cleanly", () => {
@@ -1402,6 +1446,9 @@ describe("bootstrap/event-manager-adapter", () => {
     const selectImageFolder = vi.fn(async () => {
       canUndo = false;
     });
+    const loadSampleTestData = vi.fn(async () => {
+      canUndo = false;
+    });
     const navigateImage = vi.fn(async () => {
       canUndo = false;
     });
@@ -1422,6 +1469,7 @@ describe("bootstrap/event-manager-adapter", () => {
       } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
       fileSystem: {
         selectImageFolder,
+        loadSampleTestData,
         selectLabelFolder: vi.fn(async () => {}),
         selectClassInfoFolder: vi.fn(async () => {}),
         saveLabels: vi.fn(async () => {}),
@@ -1446,6 +1494,13 @@ describe("bootstrap/event-manager-adapter", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(selectImageFolder).toHaveBeenCalledTimes(1);
+    expect(elements.undoBtn.disabled).toBe(true);
+
+    canUndo = true;
+    elements.loadSampleTestBtn.dispatch("click", {});
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(loadSampleTestData).toHaveBeenCalledTimes(1);
     expect(elements.undoBtn.disabled).toBe(true);
 
     canUndo = true;

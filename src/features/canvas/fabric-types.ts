@@ -40,6 +40,8 @@ export interface FabricObjectLike extends FabricSettable {
   originX?: string;
   originY?: string;
   labelClass?: string;
+  layoutInstanceId?: string;
+  layoutBoxId?: string;
   originalYolo?: YoloMetadata | null;
   _labelText?: FabricTextLike | null;
   setCoords(): void;

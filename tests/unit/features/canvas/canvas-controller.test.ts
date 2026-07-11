@@ -1117,4 +1117,120 @@ describe("features/canvas/canvas-controller", () => {
     expect((shell.canvas as FakeCanvas).selection).toBe(true);
   });
 
+  it("captures selected boxes and applies a class-preserving layout as one history entry", () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const first = createRect({ left: 10, top: 20, width: 30, height: 15, labelClass: "2" });
+    const second = createRect({ left: 50, top: 40, width: 20, height: 10, labelClass: "5" });
+    controller.canvas.add(first, second);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection([first, second], { canvas: controller.canvas }));
+
+    const layout = controller.captureBoxLayout("fixture", "reference.png", "selected");
+    expect(layout.sourceAnchor).toEqual({ x: 10, y: 20 });
+    expect(layout.boxes.map((box) => box.classId)).toEqual(["2", "5"]);
+
+    const application = controller.applyBoxLayout(layout, { x: 100, y: 50 });
+    const applied = controller.getObjects("rect").filter((rect) => rect.layoutInstanceId === application.instanceId);
+    expect(applied).toHaveLength(2);
+    expect(applied.map((rect) => ({ left: rect.left, top: rect.top, classId: rect.labelClass }))).toEqual([
+      { left: 100, top: 50, classId: "2" },
+      { left: 140, top: 70, classId: "5" }
+    ]);
+
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(2);
+    controller.redo();
+    expect(controller.getObjects("rect")).toHaveLength(4);
+  });
+
+  it("moves an applied layout together and restores the move with one undo", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const layout = controller.captureBoxLayout.bind(controller);
+    const source = createRect({ left: 10, top: 10, width: 20, height: 10, labelClass: "1" });
+    controller.canvas.add(source);
+    const captured = layout("single", "reference.png", "all");
+    const application = controller.applyBoxLayout(captured, { x: 30, y: 30 });
+
+    controller.translateLayoutInstance(application.instanceId, { x: 5, y: -3 });
+    const moved = controller.getObjects("rect").find((rect) => rect.layoutInstanceId === application.instanceId);
+    expect(moved).toMatchObject({ left: 35, top: 27, originalYolo: null });
+
+    controller.undo();
+    const restored = controller.getObjects("rect").find((rect) => rect.layoutInstanceId === application.instanceId);
+    expect(restored).toMatchObject({ left: 30, top: 30 });
+  });
+
+  it("moves selected boxes regardless of layout membership and preserves relative geometry in one undo", () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const first = createRect({
+      left: 10,
+      top: 15,
+      width: 20,
+      height: 10,
+      labelClass: "2",
+      originalYolo: { x_center: "0.1", y_center: "0.2", width: "0.1", height: "0.1" }
+    });
+    const second = createRect({ left: 55, top: 40, width: 15, height: 12, labelClass: "7" });
+    controller.canvas.add(first, second);
+    controller.drawLabelText(first);
+    controller.drawLabelText(second);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection([first, second], { canvas: controller.canvas }));
+
+    expect(controller.getSelectedBoxCount()).toBe(2);
+    controller.translateSelectedBoxes({ x: 9, y: -4 });
+
+    expect(first).toMatchObject({ left: 19, top: 11, width: 20, height: 10, labelClass: "2", originalYolo: null });
+    expect(second).toMatchObject({ left: 64, top: 36, width: 15, height: 12, labelClass: "7", originalYolo: null });
+    expect(second.left - first.left).toBe(45);
+    expect(second.top - first.top).toBe(25);
+
+    controller.undo();
+    const restored = controller.getObjects("rect");
+    expect(restored.map((rect) => ({ left: rect.left, top: rect.top }))).toEqual([
+      { left: 10, top: 15 },
+      { left: 55, top: 40 }
+    ]);
+  });
+
+  it("aborts the complete selection move when any selected box would leave the image", () => {
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(createState(), createDeps({ fabric }));
+    const first = createRect({ left: 10, top: 15, width: 20, height: 10, labelClass: "2" });
+    const edge = createRect({ left: 180, top: 20, width: 20, height: 10, labelClass: "7" });
+    controller.canvas.add(first, edge);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection([first, edge], { canvas: controller.canvas }));
+
+    expect(() => controller.translateSelectedBoxes({ x: 1, y: 0 })).toThrow(/outside the image bounds/);
+    expect(first).toMatchObject({ left: 10, top: 15 });
+    expect(edge).toMatchObject({ left: 180, top: 20 });
+  });
+
+  it("applies multiple detection boxes with class IDs, padded geometry, fresh IDs, and one-step undo", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+
+    const result = controller.applyDetectionBoxes([
+      { classId: "4", x: 8, y: 9, width: 24, height: 18 },
+      { classId: "4", x: 70, y: 35, width: 24, height: 18 }
+    ]);
+    const rects = controller.getObjects("rect");
+
+    expect(rects).toHaveLength(2);
+    expect(rects.map((rect) => ({ classId: rect.labelClass, left: rect.left, top: rect.top, width: rect.width, height: rect.height }))).toEqual([
+      { classId: "4", left: 8, top: 9, width: 24, height: 18 },
+      { classId: "4", left: 70, top: 35, width: 24, height: 18 }
+    ]);
+    expect(new Set(result.annotationIds).size).toBe(2);
+    expect(rects.every((rect) => rect.originalYolo === null)).toBe(true);
+
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    controller.redo();
+    expect(controller.getObjects("rect")).toHaveLength(2);
+  });
+
 });

@@ -16,7 +16,12 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark app-navbar" data-ui="app-navbar">
         <div class="container-fluid">
             <div class="d-flex align-items-center toolbar-left-cluster" data-ui="toolbar-left-cluster">
-                <a class="navbar-brand app-brand mb-0" href="#" data-ui="app-brand"><img class="app-brand-icon" src="assets/icons/easy-labeling.png" alt="" aria-hidden="true"> Easy Labeling</a>
+                <div class="d-flex align-items-center brand-tools">
+                    <a id="appBrand" class="navbar-brand app-brand mb-0" href="#" data-ui="app-brand" title="Refresh Workspace"><img class="app-brand-icon" src="assets/icons/easy-labeling.png" alt="" aria-hidden="true"> Easy Labeling</a>
+                    <button id="loadSampleTestBtn" type="button" class="btn btn-sm app-sample-test-btn" data-ui="load-sample-test" title="Load Sample Test" aria-label="Load Sample Test">
+                        <i class="bi bi-flask" aria-hidden="true"></i>
+                    </button>
+                </div>
                 <div class="btn-group btn-group-sm workflow-tabs" data-ui="workflow-tabs" role="group" aria-label="Workflow tabs">
                     <input type="radio" class="btn-check" name="workflow" id="detectionWorkflowTab" autocomplete="off" checked>
                     <label class="btn btn-outline-light" for="detectionWorkflowTab" data-ui="workflow-tab-detection">Detection</label>
@@ -27,10 +32,10 @@
                 </div>
                 <div class="btn-group history-controls" data-ui="history-controls" role="group" aria-label="History controls">
                     <button class="btn btn-outline-light btn-sm" type="button" id="undoBtn" data-ui="history-undo" title="Undo" aria-label="Undo" disabled>
-                        <i class="bi bi-arrow-counterclockwise history-icon" aria-hidden="true"></i>
+                        <i class="bi bi-arrow-90deg-left history-icon" aria-hidden="true"></i>
                     </button>
                     <button class="btn btn-outline-light btn-sm" type="button" id="redoBtn" data-ui="history-redo" title="Redo" aria-label="Redo" disabled>
-                        <i class="bi bi-arrow-clockwise history-icon" aria-hidden="true"></i>
+                        <i class="bi bi-arrow-90deg-right history-icon" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
@@ -41,15 +46,15 @@
             </div>
             
               <div id="info-display" class="d-flex align-items-center text-white me-3 canvas-toolbar" data-ui="canvas-toolbar">
-                 <div class="btn-group me-3 zoom-controls" data-ui="zoom-controls" role="group">
-                     <button class="btn btn-primary btn-sm" type="button" id="zoomInBtn" data-ui="zoom-in" title="Zoom In"><i class="bi bi-zoom-in"></i></button>
-                     <button class="btn btn-primary btn-sm" type="button" id="zoomOutBtn" data-ui="zoom-out" title="Zoom Out"><i class="bi bi-zoom-out"></i></button>
-                     <button class="btn btn-primary btn-sm" type="button" id="resetZoomBtn" data-ui="zoom-reset" title="Reset Zoom"><i class="bi bi-aspect-ratio"></i></button>
-                 </div>
                   <div id="coords-input-container" class="d-flex align-items-center me-3 coordinates-toolbar" data-ui="coordinates-toolbar">
                       <input type="number" id="coordX" class="form-control form-control-sm" data-ui="coord-input-x" placeholder="X">
                       <input type="number" id="coordY" class="form-control form-control-sm" data-ui="coord-input-y" placeholder="Y">
-                     <button id="goToCoordsBtn" type="button" class="btn btn-primary btn-sm" data-ui="go-to-coordinates"><i class="bi bi-geo-alt-fill"></i></button>
+                     <button id="goToCoordsBtn" type="button" class="btn btn-primary btn-sm" data-ui="go-to-coordinates" title="Go to Coordinates" aria-label="Go to Coordinates"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i></button>
+                  </div>
+                 <div class="btn-group me-3 zoom-controls" data-ui="zoom-controls" role="group" aria-label="Canvas view controls">
+                     <button class="btn btn-primary btn-sm" type="button" id="zoomInBtn" data-ui="zoom-in" title="Zoom In" aria-label="Zoom In"><i class="bi bi-zoom-in" aria-hidden="true"></i></button>
+                     <button class="btn btn-primary btn-sm" type="button" id="zoomOutBtn" data-ui="zoom-out" title="Zoom Out" aria-label="Zoom Out"><i class="bi bi-zoom-out" aria-hidden="true"></i></button>
+                     <button class="btn btn-primary btn-sm" type="button" id="resetZoomBtn" data-ui="zoom-reset" title="Fit to Screen" aria-label="Fit to Screen"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i></button>
                  </div>
                 <div class="input-group input-group-sm me-3 zoom-input-group" data-ui="zoom-input-group" style="width: 130px;">
                     <span class="input-group-text">Zoom</span>
@@ -226,6 +231,42 @@
                                 </svg>
                             </button>
                         </div>
+                        <div class="selection-move-controls mt-2">
+                            <div class="automation-coordinate-grid">
+                                <label class="input-group input-group-sm"><span class="input-group-text">X</span><input id="selectionMoveXInput" type="number" class="form-control" value="0" step="1" aria-label="Selection X delta pixels"></label>
+                                <label class="input-group input-group-sm"><span class="input-group-text">Y</span><input id="selectionMoveYInput" type="number" class="form-control" value="0" step="1" aria-label="Selection Y delta pixels"></label>
+                            </div>
+                            <button id="moveSelectedBoxesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrows-move"></i> Move Selection</button>
+                        </div>
+                    </section>
+                    <hr>
+                    <section class="panel-section layout-panel-section" data-ui="layout-controls">
+                        <h5 class="panel-section-title"><i class="bi bi-bounding-box-circles"></i> Layout</h5>
+                        <button id="openLayoutSetupBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="bi bi-sliders"></i> Layout Setup</button>
+                        <div class="input-group input-group-sm mb-2">
+                            <select id="boxLayoutSelect" class="form-select" aria-label="Saved box layout">
+                                <option value="">Choose layout...</option>
+                            </select>
+                            <button id="applyBoxLayoutBtn" type="button" class="btn btn-primary"><i class="bi bi-layers"></i> Apply Layout</button>
+                        </div>
+                    </section>
+                    <hr>
+                    <section class="panel-section automation-panel-section" data-ui="automation-controls">
+                        <h5 class="panel-section-title"><i class="bi bi-crosshair2"></i> Template Automation</h5>
+                        <button id="openTemplateMatchingBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="bi bi-crosshair2"></i> Template Matching Setup</button>
+                        <div class="input-group input-group-sm mb-2">
+                            <select id="automationPresetSelect" class="form-select" aria-label="Automation preset">
+                                <option value="">Choose preset...</option>
+                            </select>
+                            <button id="runAutomationBatchBtn" type="button" class="btn btn-success" title="Run batch automation"><i class="bi bi-play-fill"></i></button>
+                            <button id="cancelAutomationBatchBtn" type="button" class="btn btn-outline-danger" title="Cancel after current image" disabled><i class="bi bi-stop-fill"></i></button>
+                        </div>
+                        <div id="automationBatchProgressGroup" class="automation-batch-progress" hidden>
+                            <div class="d-flex justify-content-between small mb-1"><span id="automationBatchCurrentFile">Waiting</span><span id="automationBatchCounts">0 / 0</span></div>
+                            <div class="progress" role="progressbar" aria-label="Batch automation progress"><div id="automationBatchProgressBar" class="progress-bar" style="width: 0%"></div></div>
+                            <div id="automationBatchResultSummary" class="small text-muted mt-1"></div>
+                            <div id="automationBatchResultList" class="automation-batch-result-list mt-1" aria-live="polite"></div>
+                        </div>
                     </section>
                     <hr>
                     <section class="panel-section label-list-section" data-ui="label-list-section">
@@ -307,7 +348,174 @@
         </div>
     </div> <!-- This closes main-container -->
 
-    
+    <div class="modal fade" id="layoutSetupModal" tabindex="-1" aria-labelledby="layoutSetupModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable layout-setup-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="layoutSetupModalLabel"><i class="bi bi-bounding-box-circles"></i> Layout Setup</h5>
+                        <div class="small text-muted" id="layoutSetupSourceName">Load an image to create or preview layouts.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body layout-setup-body">
+                    <aside class="layout-library-column">
+                        <label class="form-label small fw-semibold" for="layoutSetupSelect">Saved layouts</label>
+                        <select id="layoutSetupSelect" class="form-select form-select-sm mb-3" size="10" aria-label="Saved layouts"></select>
+                        <div class="d-grid gap-2">
+                            <button id="duplicateBoxLayoutBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-copy"></i> Duplicate</button>
+                            <div class="btn-group btn-group-sm" role="group" aria-label="Layout rename and delete">
+                                <button id="renameBoxLayoutBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-pencil"></i> Rename</button>
+                                <button id="deleteBoxLayoutBtn" type="button" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Delete</button>
+                            </div>
+                            <div class="btn-group btn-group-sm" role="group" aria-label="Layout JSON actions">
+                                <button id="exportAutomationLibraryBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-box-arrow-up"></i> Export JSON</button>
+                                <button id="importAutomationLibraryBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-box-arrow-in-down"></i> Import JSON</button>
+                            </div>
+                            <input id="importAutomationLibraryInput" type="file" accept="application/json,.json" hidden>
+                        </div>
+                    </aside>
+                    <section class="layout-preview-column">
+                        <div class="layout-preview-toolbar">
+                            <div id="layoutDetails" class="small text-muted">Choose a layout to inspect its geometry.</div>
+                            <button id="previewBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> Refresh Preview</button>
+                        </div>
+                        <div class="layout-preview-stage">
+                            <canvas id="layoutPreviewCanvas" width="960" height="560" aria-label="Layout preview"></canvas>
+                        </div>
+                    </section>
+                    <aside class="layout-create-column">
+                        <h6 class="settings-subtitle mt-0">Create from current image</h6>
+                        <label class="form-label small" for="layoutNameInput">Layout name</label>
+                        <input id="layoutNameInput" type="text" class="form-control form-control-sm mb-2" placeholder="Station A">
+                        <label class="form-label small" for="layoutCaptureScopeSelect">Boxes to capture</label>
+                        <select id="layoutCaptureScopeSelect" class="form-select form-select-sm mb-3">
+                            <option value="selected">Selected Boxes</option>
+                            <option value="all">All Boxes</option>
+                        </select>
+                        <button id="saveBoxLayoutBtn" type="button" class="btn btn-primary btn-sm w-100"><i class="bi bi-floppy"></i> Save New Layout</button>
+                        <div id="layoutSetupError" class="alert alert-danger py-2 px-2 small mt-3 mb-0" hidden></div>
+                    </aside>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button id="applyBoxLayoutFromSetupBtn" type="button" class="btn btn-primary"><i class="bi bi-layers"></i> Apply to Current Image</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="templateMatchingModal" tabindex="-1" aria-labelledby="templateMatchingModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable template-matching-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="templateMatchingModalLabel"><i class="bi bi-crosshair2"></i> Template Matching Setup</h5>
+                        <div class="small text-muted" id="templateMatchingSourceName">Load an image to begin.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body template-matching-body">
+                    <div class="template-workspace-column">
+                        <div class="template-workspace-toolbar">
+                            <label class="d-flex align-items-center gap-2 small fw-semibold">Reference image
+                                <select id="templateSourceImageSelect" class="form-select form-select-sm" aria-label="Reference image"></select>
+                            </label>
+                            <label class="d-flex align-items-center gap-2 small">Zoom <input id="templateWorkspaceZoomInput" type="range" min="25" max="200" value="100" step="5"><span id="templateWorkspaceZoomValue">100%</span></label>
+                        </div>
+                        <div id="templateWorkspaceScroller" class="template-workspace-scroller">
+                            <canvas id="templateMatchingCanvas" width="800" height="500" aria-label="Draw template ROI on reference image"></canvas>
+                        </div>
+                        <div class="template-preview-strip">
+                            <div><div class="small text-muted mb-1">Selected template</div><canvas id="templateOriginalPreviewCanvas" width="240" height="140"></canvas></div>
+                            <div><div class="small text-muted mb-1">Preprocessing preview</div><canvas id="templateProcessedPreviewCanvas" width="240" height="140"></canvas></div>
+                            <div class="template-match-result-panel"><div class="small text-muted mb-1">Match result</div><strong id="templateMatchScore">Not tested</strong><span id="templateMatchCoordinates" class="small"></span><span id="templateMatchTimings" class="small text-muted mt-1"></span><div id="templateMatchCandidates" class="template-match-candidates small mt-1"></div></div>
+                        </div>
+                    </div>
+                    <div class="template-settings-column">
+                        <div class="d-flex gap-2 mb-3">
+                            <button id="newAutomationPresetBtn" type="button" class="btn btn-outline-secondary btn-sm flex-grow-1"><i class="bi bi-plus-lg"></i> New</button>
+                            <button id="deleteAutomationPresetBtn" type="button" class="btn btn-outline-danger btn-sm" title="Delete selected preset"><i class="bi bi-trash"></i></button>
+                        </div>
+                        <label class="form-label small" for="templateNameInput">Preset and template name</label>
+                        <input id="templateNameInput" type="text" class="form-control form-control-sm mb-2" placeholder="Station A">
+                        <h6 class="settings-subtitle">Output</h6>
+                        <div class="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Template output mode">
+                            <input id="templateOutputLayoutRadio" type="radio" class="btn-check" name="templateOutputMode" value="layout-best-match" checked>
+                            <label class="btn btn-outline-primary" for="templateOutputLayoutRadio">Best Match + Layout</label>
+                            <input id="templateOutputMultipleRadio" type="radio" class="btn-check" name="templateOutputMode" value="multiple-detection-boxes">
+                            <label class="btn btn-outline-primary" for="templateOutputMultipleRadio">Multiple Boxes</label>
+                        </div>
+                        <div id="templateLayoutOutputSettings">
+                            <label class="form-label small" for="templateLayoutSelect">Box layout</label>
+                            <select id="templateLayoutSelect" class="form-select form-select-sm mb-2"><option value="">Choose layout...</option></select>
+                            <h6 class="settings-subtitle">Layout offsets (px)</h6>
+                            <div class="automation-coordinate-grid mb-2">
+                                <label class="small">Relation X<input id="templateRelationXInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
+                                <label class="small">Relation Y<input id="templateRelationYInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
+                                <label class="small">Manual X<input id="templateManualXInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
+                                <label class="small">Manual Y<input id="templateManualYInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
+                            </div>
+                        </div>
+                        <div id="templateMultipleOutputSettings" hidden>
+                            <div class="automation-coordinate-grid mb-2">
+                                <label class="small">Class ID<input id="templateMultipleClassIdInput" type="text" class="form-control form-control-sm" value="0"></label>
+                                <label class="small">Maximum<input id="templateMaximumDetectionsInput" type="number" class="form-control form-control-sm" min="1" max="10000" step="1" value="100"></label>
+                            </div>
+                            <div class="form-check form-switch mb-2"><input id="templateStrictNonOverlapToggle" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="templateStrictNonOverlapToggle">Strict non-overlap</label></div>
+                            <label class="small mb-2 d-block">NMS IoU threshold<input id="templateNmsIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.05" value="0.30"></label>
+                            <div class="automation-coordinate-grid mb-2">
+                                <label class="small">Padding X<input id="templatePaddingXInput" type="number" class="form-control form-control-sm" min="0" step="1" value="0"></label>
+                                <label class="small">Padding Y<input id="templatePaddingYInput" type="number" class="form-control form-control-sm" min="0" step="1" value="0"></label>
+                            </div>
+                        </div>
+                        <h6 class="settings-subtitle">Preprocessing</h6>
+                        <div class="form-check form-switch mb-2"><input id="templateGrayscaleToggle" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="templateGrayscaleToggle">Grayscale</label></div>
+                        <div class="form-check form-switch mb-2"><input id="templateBlurToggle" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="templateBlurToggle">Gaussian Blur</label></div>
+                        <div class="automation-coordinate-grid mb-2">
+                            <label class="small">Kernel<input id="templateBlurKernelInput" type="number" class="form-control form-control-sm" min="1" max="99" step="2" value="21"></label>
+                            <label class="small">Sigma<input id="templateBlurSigmaInput" type="number" class="form-control form-control-sm" min="0" step="0.1" value="0"></label>
+                        </div>
+                        <div class="form-check form-switch mb-2"><input id="templateNoiseToggle" class="form-check-input" type="checkbox"><label class="form-check-label" for="templateNoiseToggle">Gaussian Noise Simulation</label></div>
+                        <div class="automation-coordinate-grid mb-3">
+                            <label class="small">Noise sigma<input id="templateNoiseSigmaInput" type="number" class="form-control form-control-sm" min="0" step="0.1" value="0"></label>
+                            <label class="small">Seed<input id="templateNoiseSeedInput" type="number" class="form-control form-control-sm" step="1" value="1"></label>
+                        </div>
+                        <h6 class="settings-subtitle">Matching</h6>
+                        <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Template matching mode">
+                            <input id="templateMatchingAccurateRadio" type="radio" class="btn-check" name="templateMatchingMode" value="accurate" checked>
+                            <label class="btn btn-outline-secondary" for="templateMatchingAccurateRadio">Accurate</label>
+                            <input id="templateMatchingFastRadio" type="radio" class="btn-check" name="templateMatchingMode" value="fast">
+                            <label class="btn btn-outline-secondary" for="templateMatchingFastRadio">Fast</label>
+                        </div>
+                        <label class="small mb-2 d-block">Minimum score<input id="templateMinimumScoreInput" type="number" class="form-control form-control-sm" min="-1" max="1" step="0.01" value="0.80"></label>
+                        <div class="form-check form-switch mb-2"><input id="templateSearchRoiToggle" class="form-check-input" type="checkbox"><label class="form-check-label" for="templateSearchRoiToggle">Limit search area</label></div>
+                        <div id="templateSearchRoiInputs" class="automation-coordinate-grid automation-coordinate-grid-four mb-3" hidden>
+                            <label class="small">X<input id="templateSearchXInput" type="number" class="form-control form-control-sm" min="0" value="0"></label>
+                            <label class="small">Y<input id="templateSearchYInput" type="number" class="form-control form-control-sm" min="0" value="0"></label>
+                            <label class="small">W<input id="templateSearchWidthInput" type="number" class="form-control form-control-sm" min="1" value="100"></label>
+                            <label class="small">H<input id="templateSearchHeightInput" type="number" class="form-control form-control-sm" min="1" value="100"></label>
+                        </div>
+                        <label class="form-label small" for="templateExistingPolicySelect">Existing labels</label>
+                        <select id="templateExistingPolicySelect" class="form-select form-select-sm mb-2">
+                            <option value="skip">Skip labeled (recommended)</option>
+                            <option value="append">Append</option>
+                            <option value="replace">Replace</option>
+                        </select>
+                        <div class="small text-muted">Fixed-scale matching only. Rotation and scale changes are not included.</div>
+                        <div id="templateSettingsError" class="alert alert-danger py-2 px-2 small mt-2 mb-0" hidden></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="testTemplateMatchBtn" type="button" class="btn btn-outline-primary"><i class="bi bi-bullseye"></i> Test Match</button>
+                    <button id="applyTemplateMatchBtn" type="button" class="btn btn-outline-success" disabled><i class="bi bi-check2-square"></i> Apply Result</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button id="saveAutomationPresetBtn" type="button" class="btn btn-primary"><i class="bi bi-floppy"></i> Save Preset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">

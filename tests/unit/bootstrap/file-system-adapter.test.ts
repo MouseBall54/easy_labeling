@@ -176,6 +176,48 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  it("loads the bundled sample directory without invoking the native folder picker", async () => {
+    await withDocumentMock(async () => {
+      const previousHtmlImageElement = Reflect.get(globalThis, "HTMLImageElement");
+      Reflect.set(globalThis, "HTMLImageElement", class HTMLImageElement {});
+      try {
+        const labelFolder = new MockDirectoryHandle("label")
+          .withFile(new MockFileHandle("classes.yaml", "0: Light / White\n1: Dark / Gray"));
+        const sampleFolder = new MockDirectoryHandle("Easy Labeling Sample Test")
+          .withDirectory(labelFolder)
+          .withDirectory(new MockDirectoryHandle("mask"))
+          .withDirectory(new MockDirectoryHandle(".easy-labeling").withFile(new MockFileHandle("automation-library.json", "{}")));
+        const state = createInitialAppState();
+        const windowRef = {
+          ...createWindowRef(sampleFolder),
+          getEasyLabelingSampleDirectory: vi.fn(async () => sampleFolder)
+        };
+        const fileSystem = createFileSystemAdapter({
+          state,
+          windowRef: windowRef as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
+          tiffRef: null
+        });
+        const deps = createConnectedDeps();
+        fileSystem.connect(deps as never);
+
+        await fileSystem.loadSampleTestData();
+
+        expect(windowRef.getEasyLabelingSampleDirectory).toHaveBeenCalledTimes(1);
+        expect(windowRef.showDirectoryPicker).not.toHaveBeenCalled();
+        expect(state.session.imageFolderHandle).toBe(sampleFolder);
+        expect(state.session.labelFolderHandle).toBe(labelFolder);
+        expect(state.session.classNames).toEqual(new Map([["0", "Light / White"], ["1", "Dark / Gray"]]));
+        expect(deps.uiManager.notify).toHaveBeenCalledWith(expect.stringContaining("Sample test data loaded"), 5000);
+      } finally {
+        if (previousHtmlImageElement === undefined) {
+          Reflect.deleteProperty(globalThis, "HTMLImageElement");
+        } else {
+          Reflect.set(globalThis, "HTMLImageElement", previousHtmlImageElement);
+        }
+      }
+    });
+  });
+
   it("selectClassInfoFolder loads class files and selects first YAML for viewer", async () => {
     await withDocumentMock(async () => {
       const classFolder = new MockDirectoryHandle("classes")

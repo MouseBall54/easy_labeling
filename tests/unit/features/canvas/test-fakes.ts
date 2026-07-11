@@ -30,6 +30,8 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
   public opacity = 1;
   public labelClass: string | undefined;
   public annotationId: string | undefined;
+  public layoutInstanceId: string | undefined;
+  public layoutBoxId: string | undefined;
   public originalYolo: YoloMetadata | null | undefined;
   public _labelText: FabricTextLike | null | undefined;
   public group: { left: number; top: number; width: number; height: number } | null = null;
@@ -104,6 +106,8 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
     target.opacity = this.opacity;
     target.labelClass = this.labelClass;
     target.annotationId = this.annotationId;
+    target.layoutInstanceId = this.layoutInstanceId;
+    target.layoutBoxId = this.layoutBoxId;
     target.originalYolo = cloneMetadata(this.originalYolo);
   }
 
@@ -126,7 +130,11 @@ export class FakeFabricRect extends FakeFabricObject<"rect"> implements FabricRe
     this.hoverCursor = String(options.hoverCursor ?? "move");
     this.labelClass = options.labelClass as string | undefined;
     this.annotationId = options.annotationId as string | undefined;
-    this.originalYolo = (options.originalYolo as YoloMetadata | null | undefined) ?? undefined;
+    this.layoutInstanceId = options.layoutInstanceId as string | undefined;
+    this.layoutBoxId = options.layoutBoxId as string | undefined;
+    this.originalYolo = Object.hasOwn(options, "originalYolo")
+      ? options.originalYolo as YoloMetadata | null | undefined
+      : undefined;
   }
 
   protected cloneSelf(): FabricObjectLike {

@@ -1,7 +1,9 @@
 const path = require("node:path");
+const fs = require("node:fs/promises");
 const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 
 const PICK_DIRECTORY_CHANNEL = "easy-labeling:pick-directory";
+const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
 
 function createMainWindow() {
   const window = new BrowserWindow({
@@ -31,6 +33,13 @@ function registerIpcHandlers() {
       return null;
     }
     return result.filePaths[0];
+  });
+  ipcMain.handle(SAMPLE_DIRECTORY_CHANNEL, async () => {
+    const sourcePath = path.resolve(__dirname, "..", "assets", "sample");
+    const targetPath = path.join(app.getPath("userData"), "sample-test");
+    await fs.mkdir(targetPath, { recursive: true });
+    await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
+    return targetPath;
   });
 }
 

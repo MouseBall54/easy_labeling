@@ -122,7 +122,8 @@ function bootstrapBrowserRuntime(): void {
         uiManager: uiManager as RuntimeUiManager,
         fileSystem: fileSystem as RuntimeFileSystem,
         canvasController: canvasController as RuntimeCanvasController,
-        windowRef: window
+        windowRef: window,
+        documentRef: document
       });
     }
   };

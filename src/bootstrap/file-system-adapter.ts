@@ -18,18 +18,11 @@ import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/f
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
-
-interface TiffDecodedCanvas {
-  toDataURL(type?: string): string;
-}
-
-interface TiffInstanceLike {
-  toCanvas(): TiffDecodedCanvas;
-}
-
-interface TiffConstructorLike {
-  new (input: { buffer: ArrayBuffer }): TiffInstanceLike;
-}
+import { createImageDecoder } from "../features/images/image-decoder.js";
+import { imageFileNameToBaseName } from "../domain/files/image-names.js";
+import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
+import { isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
+import { createBundledSampleDirectory } from "../features/sample/sample-test-directory.js";
 
 class LiveImageSessionState implements ImageSessionServiceState {
   constructor(private readonly appState: AppState) {}
@@ -139,34 +132,17 @@ class LiveImageSessionState implements ImageSessionServiceState {
   }
 }
 
-function isTiffConstructor(value: unknown): value is TiffConstructorLike {
-  return typeof value === "function";
-}
-
-async function loadImageElementFromUrl(url: string): Promise<HTMLImageElement> {
-  const image = new Image();
-  image.src = url;
-
-  try {
-    await image.decode();
-    return image;
-  } catch (decodeError) {
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(decodeError instanceof Error ? decodeError : new Error("Failed to decode image"));
-    });
-  }
-
-  return image;
-}
-
 export interface RuntimeFileSystem extends FileSystem {
   selectImageFolder(): Promise<void>;
+  loadSampleTestData(): Promise<void>;
   selectLabelFolder(): Promise<void>;
   selectClassInfoFolder(): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
   navigateImage(direction: number): Promise<void>;
   loadImage(fileHandle: FileHandleLike): Promise<void>;
+  decodeImageForAutomation(fileHandle: FileHandleLike): Promise<HTMLImageElement>;
+  readDetectionLabels(imageFileName: string): Promise<string>;
+  writeDetectionLabels(imageFileName: string, yoloData: string): Promise<void>;
   loadClassNamesFromFile(fileHandle: FileHandleLike): Promise<void>;
   showClassFileContent(): Promise<void>;
   saveClassFileContent(): Promise<void>;
@@ -177,6 +153,7 @@ export interface RuntimeFileSystem extends FileSystem {
 
 interface FileSystemWindowRuntime {
   showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+  getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
   clearTimeout: typeof window.clearTimeout;
   confirm: (message?: string) => boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
@@ -198,23 +175,10 @@ export function createFileSystemAdapter(input: {
     await operationChain;
   };
 
-  const loadDecodedImage = async (
-    fileHandle: FileHandle,
-    tiffBuffer: ArrayBuffer | null
-  ): Promise<HTMLImageElement> => {
-    if (tiffBuffer && isTiffConstructor(input.tiffRef)) {
-      const decoded = new input.tiffRef({ buffer: tiffBuffer }).toCanvas();
-      return loadImageElementFromUrl(decoded.toDataURL("image/png"));
-    }
-
-    const file = await fileHandle.getFile();
-    const objectUrl = input.windowRef.URL.createObjectURL(file);
-    try {
-      return await loadImageElementFromUrl(objectUrl);
-    } finally {
-      input.windowRef.URL.revokeObjectURL(objectUrl);
-    }
-  };
+  const decodeImage = createImageDecoder({
+    tiffRef: input.tiffRef,
+    urlRuntime: input.windowRef.URL
+  });
 
   const applyCurrentImageToCanvas = (): void => {
     if (!connectedDeps) {
@@ -298,7 +262,7 @@ export function createFileSystemAdapter(input: {
   };
 
   const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
-    decodeImage: async ({ fileHandle, tiffBuffer }) => loadDecodedImage(fileHandle as FileHandle, tiffBuffer),
+    decodeImage: async ({ fileHandle }) => decodeImage(fileHandle),
     readCurrentLabelsAsYolo: () => {
       if (!connectedDeps) {
         return "";
@@ -336,6 +300,28 @@ export function createFileSystemAdapter(input: {
     }
   });
 
+  const activateImageFolder = async (imageFolderHandle: DirectoryHandleLike): Promise<void> => {
+    pendingLoadedYolo = null;
+    await imageSessionService.selectImageFolder(imageFolderHandle);
+    input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
+      scope: "session-replacement",
+      hiddenLabelClasses: input.state.view.hiddenLabelClasses,
+      persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
+      resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
+    });
+    applyCurrentImageToCanvas();
+    await refreshClassFileStateFromAvailableFolder();
+
+    if (!connectedDeps) {
+      return;
+    }
+    const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+    uiManager.elements.selectLabelFolderBtn.removeAttribute("disabled");
+    uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
+    uiManager.renderImageList();
+    uiManager.renderPreviewList();
+  };
+
   const fileSystem: RuntimeFileSystem = {
     imageSessionService,
 
@@ -358,26 +344,26 @@ export function createFileSystemAdapter(input: {
           }
 
           const imageFolderHandle = await picker();
-          pendingLoadedYolo = null;
-          await imageSessionService.selectImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
-            input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
-              scope: "session-replacement",
-              hiddenLabelClasses: input.state.view.hiddenLabelClasses,
-              persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
-              resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
-            });
-            applyCurrentImageToCanvas();
+          await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
+          } finally {
+            uiManager?.hideLoading();
+          }
+        });
+      },
 
-            await refreshClassFileStateFromAvailableFolder();
-
-            if (!uiManager) {
-              return;
+      async loadSampleTestData(): Promise<void> {
+        await enqueueOperation(async () => {
+          const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
+          uiManager?.showLoading();
+          try {
+            if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
+              await imageSessionService.saveLabels(true);
             }
-
-            uiManager.elements.selectLabelFolderBtn.removeAttribute("disabled");
-            uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
-            uiManager.renderImageList();
-            uiManager.renderPreviewList();
+            const imageFolderHandle = input.windowRef.getEasyLabelingSampleDirectory
+              ? await input.windowRef.getEasyLabelingSampleDirectory()
+              : await createBundledSampleDirectory();
+            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
+            uiManager?.notify("Sample test data loaded: 3 images, color labels, layouts, and template presets.", 5000);
           } finally {
             uiManager?.hideLoading();
           }
@@ -460,6 +446,38 @@ export function createFileSystemAdapter(input: {
             uiManager?.hideLoading();
           }
         });
+      },
+
+      async decodeImageForAutomation(fileHandle: FileHandleLike): Promise<HTMLImageElement> {
+        return decodeImage(fileHandle);
+      },
+
+      async readDetectionLabels(imageFileName: string): Promise<string> {
+        const folder = input.state.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
+        if (!folder) {
+          return "";
+        }
+        const fileName = `${imageFileNameToBaseName(imageFileName)}.txt`;
+        try {
+          return await readTextFileByName(folder, fileName);
+        } catch (error: unknown) {
+          if (isNotFoundError(error)) {
+            return "";
+          }
+          throw error;
+        }
+      },
+
+      async writeDetectionLabels(imageFileName: string, yoloData: string): Promise<void> {
+        const folder = input.state.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
+        if (!folder) {
+          throw new Error("Load a Detection label folder before running automation");
+        }
+        const trimmed = yoloData.trim();
+        await writeTextFileByName(folder, `${imageFileNameToBaseName(imageFileName)}.txt`, trimmed);
+        const status = input.state.session.imageWorkflowStatus.get(imageFileName) ?? createEmptyImageWorkflowStatus();
+        status.detection.hasAnnotation = trimmed.length > 0;
+        input.state.session.imageWorkflowStatus.set(imageFileName, status);
       },
 
       async loadClassNamesFromFile(fileHandle: FileHandleLike): Promise<void> {

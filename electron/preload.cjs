@@ -3,6 +3,7 @@ const path = require("node:path");
 const { ipcRenderer } = require("electron");
 
 const PICK_DIRECTORY_CHANNEL = "easy-labeling:pick-directory";
+const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
 
 function createDomException(name, message) {
   const error = new Error(message);
@@ -181,4 +182,9 @@ window.showDirectoryPicker = async function showDirectoryPicker() {
     throw createDomException("AbortError", "The user aborted a request.");
   }
   return createDirectoryHandle(selectedPath);
+};
+
+window.getEasyLabelingSampleDirectory = async function getEasyLabelingSampleDirectory() {
+  const samplePath = await ipcRenderer.invoke(SAMPLE_DIRECTORY_CHANNEL);
+  return createDirectoryHandle(samplePath);
 };

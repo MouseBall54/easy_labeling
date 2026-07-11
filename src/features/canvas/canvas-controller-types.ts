@@ -9,6 +9,24 @@ import type {
 } from "./fabric-types.js";
 import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./history.js";
 import type { SegmentationDocumentSnapshot, SegmentationSummary, SegmentationTool } from "../segmentation/types.js";
+import type { BoxLayout, PixelPoint } from "../automation/types.js";
+
+export interface AppliedBoxLayout {
+  instanceId: string;
+  annotationIds: string[];
+}
+
+export interface DetectionBoxInput {
+  classId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface AppliedDetectionBoxes {
+  annotationIds: string[];
+}
 
 export interface CanvasControllerState {
   currentMode: AppMode;
@@ -66,6 +84,12 @@ export interface CanvasController {
   setMode(mode: AppMode): void;
   addLabelsFromYolo(yoloData: string): void;
   getLabelsAsYolo(): string;
+  captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): BoxLayout;
+  applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean }): AppliedBoxLayout;
+  applyDetectionBoxes(boxes: readonly DetectionBoxInput[], options?: { replaceExisting?: boolean }): AppliedDetectionBoxes;
+  translateLayoutInstance(instanceId: string, delta: PixelPoint): void;
+  translateSelectedBoxes(delta: PixelPoint): void;
+  getSelectedBoxCount(): number;
   highlightSelection(): void;
   startDrawing(pointer: CanvasPoint): void;
   continueDrawing(pointer: CanvasPoint): void;

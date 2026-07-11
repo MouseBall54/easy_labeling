@@ -11,6 +11,8 @@ export interface CanvasHistoryRectSnapshot {
   scaleX: number;
   scaleY: number;
   labelClass: string | undefined;
+  layoutInstanceId?: string;
+  layoutBoxId?: string;
   originalYolo: YoloMetadata | null | undefined;
 }
 
@@ -79,6 +81,8 @@ export function createRectSnapshot(rect: FabricRectLike): CanvasHistoryRectSnaps
     scaleX: withScale.scaleX ?? 1,
     scaleY: withScale.scaleY ?? 1,
     labelClass: rect.labelClass,
+    layoutInstanceId: rect.layoutInstanceId,
+    layoutBoxId: rect.layoutBoxId,
     originalYolo: rect.originalYolo
       ? {
         x_center: rect.originalYolo.x_center,

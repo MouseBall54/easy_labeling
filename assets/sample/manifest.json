@@ -1,0 +1,15 @@
+{
+  "name": "Easy Labeling Sample Test",
+  "files": [
+    "sample_1.jpg",
+    "sample_2.jpg",
+    "sample_3.jpg",
+    "label/sample_1.txt",
+    "label/sample_2.txt",
+    "label/sample_3.txt",
+    "label/classes.yaml",
+    "templates/pink-anchor.png",
+    "templates/pink-vehicle.png",
+    ".easy-labeling/automation-library.json"
+  ]
+}

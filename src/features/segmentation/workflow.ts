@@ -330,6 +330,30 @@ export function createSegmentationCanvasWorkflow(
       return "";
     },
 
+    captureBoxLayout(): never {
+      throw new Error("Box layouts are only available in Detection mode");
+    },
+
+    applyBoxLayout(): never {
+      throw new Error("Box layouts are only available in Detection mode");
+    },
+
+    applyDetectionBoxes(): never {
+      throw new Error("Detection boxes are only available in Detection mode");
+    },
+
+    translateLayoutInstance(): never {
+      throw new Error("Box layouts are only available in Detection mode");
+    },
+
+    translateSelectedBoxes(): never {
+      throw new Error("Detection boxes are only available in Detection mode");
+    },
+
+    getSelectedBoxCount(): number {
+      return 0;
+    },
+
     highlightSelection(): void {
       return;
     },

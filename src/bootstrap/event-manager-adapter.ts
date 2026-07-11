@@ -6,6 +6,7 @@ import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
+import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -64,12 +65,28 @@ export function createEventManagerAdapter(input: {
   uiManager: RuntimeUiManager;
   fileSystem: RuntimeFileSystem;
   canvasController: RuntimeCanvasController;
-  windowRef: Pick<Window, "addEventListener">;
+  windowRef: Pick<Window, "addEventListener"> & Partial<{
+    confirm: Window["confirm"];
+    prompt: Window["prompt"];
+    URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
+  }>;
+  documentRef?: Document;
 }): EventManager {
   return {
     bindEventListeners(): void {
       const { elements } = input.uiManager;
       const rawCanvas = input.canvasController.raw.canvas;
+      const automationController = input.documentRef
+        ? createAutomationController({
+          state: input.state,
+          uiManager: input.uiManager,
+          fileSystem: input.fileSystem,
+          canvasController: input.canvasController,
+          documentRef: input.documentRef,
+          windowRef: input.windowRef as AutomationWindow
+        })
+        : null;
+      automationController?.bind();
 
       const runAsync = (action: () => Promise<void>): void => {
         action().catch((error: unknown) => {
@@ -106,7 +123,15 @@ export function createEventManagerAdapter(input: {
 
       const getActiveVisibleRectSelectionCount = (): number => {
         const activeObject = rawCanvas.getActiveObject();
-        if (!activeObject || !isActiveSelectionObject(activeObject)) {
+        if (!activeObject) {
+          return 0;
+        }
+
+        if (isRectObject(activeObject)) {
+          return activeObject.visible === false ? 0 : 1;
+        }
+
+        if (!isActiveSelectionObject(activeObject)) {
           return 0;
         }
 
@@ -129,6 +154,7 @@ export function createEventManagerAdapter(input: {
         (elements.alignBottomBtn as HTMLButtonElement).disabled = alignDisabled;
         (elements.distributeHorizontalBtn as HTMLButtonElement).disabled = distributeDisabled;
         (elements.distributeVerticalBtn as HTMLButtonElement).disabled = distributeDisabled;
+        elements.moveSelectedBoxesBtn.disabled = actionableCount < 1;
         (elements.undoBtn as HTMLButtonElement).disabled = undoDisabled;
         (elements.redoBtn as HTMLButtonElement).disabled = redoDisabled;
       };
@@ -255,6 +281,18 @@ export function createEventManagerAdapter(input: {
         input.uiManager.updateLabelList();
       };
 
+      elements.appBrand.addEventListener("click", (event) => {
+        event.preventDefault();
+        input.canvasController.raw.resizeCanvas();
+        input.canvasController.raw.renderAll();
+        renderLists();
+        input.uiManager.updateCurrentImageName();
+        input.uiManager.updateZoomDisplay(input.canvasController.raw.canvas.getZoom());
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+        syncToolbarActionState();
+        input.uiManager.notify("Workspace refreshed.");
+      });
+
       let pendingGestureBaseline: CanvasHistoryGestureBaseline | null = null;
       let suppressSelectionForSegmentationStroke = false;
       let isMovingSegmentationRegion = false;
@@ -310,7 +348,21 @@ export function createEventManagerAdapter(input: {
       };
 
       elements.selectImageFolderBtn.addEventListener("click", () => {
-        runAsyncAndSyncToolbar(() => input.fileSystem.selectImageFolder());
+        runAsyncAndSyncToolbar(automationController
+          ? async () => {
+            await input.fileSystem.selectImageFolder();
+            await automationController.refreshLibrary();
+          }
+          : () => input.fileSystem.selectImageFolder());
+      });
+
+      elements.loadSampleTestBtn.addEventListener("click", () => {
+        runAsyncAndSyncToolbar(automationController
+          ? async () => {
+            await input.fileSystem.loadSampleTestData();
+            await automationController.refreshLibrary({ selectFirst: true });
+          }
+          : () => input.fileSystem.loadSampleTestData());
       });
 
       elements.selectLabelFolderBtn.addEventListener("click", () => {
@@ -865,6 +917,9 @@ export function createEventManagerAdapter(input: {
       syncToolbarActionState();
 
       input.windowRef.addEventListener("easy-labeling:history-reset", () => {
+        syncToolbarActionState();
+      });
+      input.windowRef.addEventListener("easy-labeling:history-change", () => {
         syncToolbarActionState();
       });
 

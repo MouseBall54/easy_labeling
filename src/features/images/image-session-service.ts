@@ -15,7 +15,6 @@ import {
   getSubdirectoryHandle,
   isNotFoundError,
   listFileHandles,
-  readFileArrayBuffer,
   readFileText,
   readTextFileByName,
   readBinaryFileByName,
@@ -43,7 +42,6 @@ export interface ImageSessionServiceState {
 
 export interface DecodeImageInput {
   fileHandle: FileHandleLike;
-  tiffBuffer: ArrayBuffer | null;
 }
 
 export interface ImageSessionServiceDeps {
@@ -264,9 +262,7 @@ export function createImageSessionService(
       const loadToken = state.currentLoadToken;
       state.currentImageFile = imageFileHandle;
 
-      const isTiffImage = /\.(tif|tiff)$/i.test(imageFileHandle.name);
-      const tiffBuffer = isTiffImage ? await readFileArrayBuffer(imageFileHandle) : null;
-      const decodedImage = await deps.decodeImage({ fileHandle: imageFileHandle, tiffBuffer });
+      const decodedImage = await deps.decodeImage({ fileHandle: imageFileHandle });
 
       if (loadToken !== state.currentLoadToken) {
         return;
