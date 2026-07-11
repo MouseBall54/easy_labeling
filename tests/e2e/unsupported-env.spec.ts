@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("unsupported-env: missing File System Access API triggers legacy alert gating", async ({ page }) => {
+test("unsupported-env: missing File System Access API keeps the bundled sample available", async ({ page }) => {
   await page.addInitScript(() => {
     const alerts: string[] = [];
     Object.defineProperty(window, "__legacyAlerts", {
@@ -31,10 +31,23 @@ test("unsupported-env: missing File System Access API triggers legacy alert gati
     return Array.isArray(capturedAlerts) ? [...capturedAlerts] : [];
   });
 
-  expect(alerts).toEqual([
-    "Incompatible Browser: This application uses the File System Access API, which is not supported by your current browser. Please use a modern browser like Chrome or Edge."
-  ]);
+  expect(alerts).toEqual([]);
 
   const testApiPresent = await page.evaluate(() => Reflect.has(window, "__easyLabelingTestApi"));
-  expect(testApiPresent).toBe(false);
+  expect(testApiPresent).toBe(true);
+  await expect(page.locator("#fileSystemCompatibilityNotice")).toBeVisible();
+  await expect(page.locator("#selectImageFolderBtn")).toBeDisabled();
+  await expect(page.locator("#emptyLoadSampleBtn")).toBeEnabled();
+
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getCurrentImageName?: () => string;
+      getRectCount?: () => number;
+    } | undefined;
+    return {
+      image: api?.getCurrentImageName?.() ?? "",
+      boxes: api?.getRectCount?.() ?? -1
+    };
+  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 52 });
 });

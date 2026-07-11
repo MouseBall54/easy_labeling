@@ -87,6 +87,7 @@ export function createSegmentationCanvasWorkflow(
   let pendingSelectionForceFull = false;
   let overlayRenderScheduled = false;
   let overlayRenderRequestId: number | null = null;
+  let workflowActive = true;
 
   const clearPendingOverlayRenderState = (): void => {
     pendingMaskDirtyBounds = null;
@@ -217,6 +218,7 @@ export function createSegmentationCanvasWorkflow(
         hasMaskDirtyBounds ? { dirtyBounds: maskDirtyBounds } : { dirtyBounds: null }
       );
     }
+    maskLayer.object.set("visible", workflowActive && doc.overlayVisible);
 
     if (selectedRegion || selectionOverlayLayer) {
       const selectionLayer = ensureSelectionOverlayLayer();
@@ -229,6 +231,7 @@ export function createSegmentationCanvasWorkflow(
         },
         forceSelectionFull ? { forceFull: true } : undefined
       );
+      selectionLayer.object.set("visible", workflowActive && selectedRegion !== null);
     }
 
     canvas.requestRenderAll();
@@ -410,12 +413,15 @@ export function createSegmentationCanvasWorkflow(
         autoFillDirtyBounds = autoFillMutation.dirtyBounds;
       }
 
-      doc.pushHistoryFromSnapshot(strokeBaseline);
+      const changed = doc.pushHistoryFromSnapshot(strokeBaseline);
       const finalDirtyBounds = mergeBounds(strokeDirtyBounds, autoFillDirtyBounds);
       strokeBaseline = null;
       strokePoints = [];
       strokeDirtyBounds = null;
       requestOverlayRender({ maskDirtyBounds: finalDirtyBounds });
+      if (changed) {
+        deps.onDocumentMutation?.();
+      }
     },
 
     removeObject(_object: FabricRectLike): void {
@@ -569,6 +575,7 @@ export function createSegmentationCanvasWorkflow(
         forceSelectionFull: true,
         immediate: true
       });
+      deps.onDocumentMutation?.();
     },
 
     redo(): void {
@@ -582,6 +589,7 @@ export function createSegmentationCanvasWorkflow(
         forceSelectionFull: true,
         immediate: true
       });
+      deps.onDocumentMutation?.();
     },
 
     canUndo(): boolean {
@@ -721,6 +729,7 @@ export function createSegmentationCanvasWorkflow(
       const deletedBounds = cloneBounds(selectedRegion.bounds);
       clearSelection();
       requestOverlayRender({ maskDirtyBounds: deletedBounds });
+      deps.onDocumentMutation?.();
       return true;
     },
 
@@ -816,6 +825,9 @@ export function createSegmentationCanvasWorkflow(
       moveLastDeltaX = null;
       moveLastDeltaY = null;
       requestOverlayRender({ maskDirtyBounds: null });
+      if (changed) {
+        deps.onDocumentMutation?.();
+      }
       return changed;
     },
 
@@ -835,6 +847,7 @@ export function createSegmentationCanvasWorkflow(
       if (mutation.mutated) {
         selectedRegion = doc.getConnectedRegionAtPoint(pointer);
         requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
+        deps.onDocumentMutation?.();
       }
       return mutation.mutated;
     },
@@ -870,6 +883,20 @@ export function createSegmentationCanvasWorkflow(
         forceSelectionFull: true,
         immediate: true
       });
+    },
+
+    setWorkflowActive(active: boolean): void {
+      workflowActive = active;
+      if (maskOverlayLayer) {
+        maskOverlayLayer.object.set("visible", active && (document?.overlayVisible ?? true));
+      }
+      if (selectionOverlayLayer) {
+        selectionOverlayLayer.object.set("visible", active && selectedRegion !== null);
+      }
+      if (!active) {
+        canvas.discardActiveObject();
+      }
+      canvas.requestRenderAll();
     }
   };
 

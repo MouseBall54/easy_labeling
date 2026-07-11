@@ -2,6 +2,7 @@ import type { ImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import type { WorkflowType } from "../types/labels.js";
 import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
+import { getColorForClass } from "../features/canvas/colors.js";
 
 export const CREATE_NEW_CLASS_FILE_VALUE = "__CREATE_NEW__";
 
@@ -223,16 +224,12 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
     return Number.parseInt(a, 10) - Number.parseInt(b, 10);
   });
 
-  const totalElement = document.createElement("span");
-  totalElement.className = "badge bg-dark me-2 mb-1 align-items-center d-inline-flex";
-  totalElement.textContent = `Total: ${totalCount}`;
-  input.labelFiltersElement.appendChild(totalElement);
-
   if (totalCount > 0) {
     const allButton = document.createElement("button");
-    allButton.className = `btn btn-sm me-1 mb-1 ${input.isAllActive ? "btn-primary" : "btn-outline-primary"}`;
+    allButton.className = `class-filter-row ${input.isAllActive ? "active btn-primary" : ""}`.trim();
     allButton.type = "button";
-    allButton.textContent = "All";
+    allButton.setAttribute("aria-pressed", String(input.isAllActive));
+    allButton.innerHTML = `<i class="bi bi-grid-fill" aria-hidden="true"></i><span class="class-name">All classes</span><span class="class-count">${totalCount}</span><i class="bi ${input.isAllActive ? "bi-eye" : "bi-eye-slash"} class-visibility-icon" aria-hidden="true"></i>`;
     allButton.dataset.ui = "filter-all";
     allButton.dataset.testid = "filter-all";
     input.labelFiltersElement.appendChild(allButton);
@@ -242,9 +239,15 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
     const button = document.createElement("button");
     const normalizedFilterKey = labelClass === UNLABELED_FILTER_KEY ? UNLABELED_FILTER_KEY : labelClass;
     const isActive = input.activeFilterKeys?.has(normalizedFilterKey) ?? false;
-    button.className = `btn btn-sm me-1 mb-1 ${isActive ? "btn-secondary active" : "btn-outline-secondary"}`;
+    button.className = `class-filter-row ${isActive ? "active btn-primary" : ""}`.trim();
     button.type = "button";
-    button.textContent = `${input.getDisplayNameForClass(labelClass)} (${classCounts[labelClass] ?? 0})`;
+    button.setAttribute("aria-pressed", String(isActive));
+    button.innerHTML = `<span class="label-color-swatch" style="background-color:${getColorForClass(labelClass)}" aria-hidden="true"></span><span class="class-name"></span><span class="class-count">${classCounts[labelClass] ?? 0}</span><i class="bi ${isActive ? "bi-eye" : "bi-eye-slash"} class-visibility-icon" aria-hidden="true"></i>`;
+    const className = button.querySelector<HTMLElement>(".class-name");
+    if (className) {
+      className.textContent = input.getDisplayNameForClass(labelClass);
+      className.title = className.textContent;
+    }
     button.dataset.labelClass = labelClass;
     button.dataset.filterKey = normalizedFilterKey;
     button.dataset.ui = "filter-class";

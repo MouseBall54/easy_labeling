@@ -1,5 +1,6 @@
 import type { CanvasController as AppCanvasController, CanvasControllerDeps } from "../app/contracts.js";
 import type { AppState } from "../app/state.js";
+import { markCurrentDocumentDirty } from "../app/document-status.js";
 import {
   createCanvasControllerForWorkflow,
   createCanvasShell,
@@ -8,6 +9,7 @@ import {
 } from "../features/canvas/canvas-controller.js";
 import type { FabricRuntimeLike } from "../features/canvas/fabric-types.js";
 import type { WorkflowType } from "../types/labels.js";
+import type { SegmentationDocumentSnapshot } from "../features/segmentation/types.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
 class LiveCanvasControllerState implements CanvasControllerState {
@@ -45,6 +47,14 @@ class LiveCanvasControllerState implements CanvasControllerState {
     this.appState.view.showLabelsOnCanvas = value;
   }
 
+  get labelDisplayMode() {
+    return this.appState.view.labelDisplayMode ?? "auto";
+  }
+
+  set labelDisplayMode(value) {
+    this.appState.view.labelDisplayMode = value;
+  }
+
   get labelFontSize() {
     return this.appState.view.labelFontSize;
   }
@@ -80,13 +90,18 @@ class LiveCanvasControllerState implements CanvasControllerState {
 
 export interface RuntimeCanvasController extends AppCanvasController {
   raw: FeatureCanvasController;
+  loadImageSession(input: {
+    image: HTMLImageElement;
+    detectionYolo: string;
+    segmentationSnapshot: SegmentationDocumentSnapshot | null;
+  }): void;
 }
 
 export function createCanvasControllerAdapter(input: {
   state: AppState;
   fabricRef: FabricRuntimeLike;
   documentRef: Document;
-  windowRef: Pick<Window, "prompt">;
+  windowRef: Pick<Window, "prompt"> & Partial<Pick<Window, "dispatchEvent">>;
 }): RuntimeCanvasController {
   let uiManager: RuntimeUiManager | null = null;
   let connectedDeps: CanvasControllerDeps | null = null;
@@ -130,6 +145,10 @@ export function createCanvasControllerAdapter(input: {
     },
     notify: (message: string, duration?: number) => {
       uiManager?.notify(message, duration);
+    },
+    onDocumentMutation: () => {
+      markCurrentDocumentDirty(input.state);
+      input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
     }
   } satisfies Parameters<typeof createCanvasControllerForWorkflow>[2];
 
@@ -138,6 +157,8 @@ export function createCanvasControllerAdapter(input: {
     detection: createCanvasControllerForWorkflow("detection", liveState, controllerDeps, sharedShell),
     segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell)
   };
+  workflowControllers.detection.setWorkflowActive?.(input.state.session.workflow === "detection");
+  workflowControllers.segmentation.setWorkflowActive?.(input.state.session.workflow === "segmentation");
 
   const getActiveController = (): FeatureCanvasController => {
     return workflowControllers[input.state.session.workflow] ?? workflowControllers.detection;
@@ -158,8 +179,26 @@ export function createCanvasControllerAdapter(input: {
     },
 
     setWorkflow(workflow): void {
+      if (workflow === input.state.session.workflow) {
+        return;
+      }
+      getActiveController().setWorkflowActive?.(false);
       input.state.session.workflow = workflow;
+      getActiveController().setWorkflowActive?.(true);
       getActiveController().setMode(input.state.view.currentMode);
+    },
+
+    loadImageSession({ image, detectionYolo, segmentationSnapshot }): void {
+      workflowControllers.detection.clearHistory();
+      workflowControllers.segmentation.clear();
+      workflowControllers.segmentation.setBackgroundImage(image);
+      if (detectionYolo.trim()) {
+        workflowControllers.detection.addLabelsFromYolo(detectionYolo);
+      }
+      workflowControllers.segmentation.loadSegmentationDocumentSnapshot?.(segmentationSnapshot);
+      workflowControllers.detection.setWorkflowActive?.(input.state.session.workflow === "detection");
+      workflowControllers.segmentation.setWorkflowActive?.(input.state.session.workflow === "segmentation");
+      getActiveController().resetZoom();
     }
   };
 }

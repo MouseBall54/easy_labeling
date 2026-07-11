@@ -26,10 +26,12 @@ class FakeHtmlElement {
   public disabled = false;
   public value = "";
   public textContent = "";
-  public style = { display: "" };
+  public style = { display: "", left: "", top: "" };
   public tagName = "DIV";
   public isContentEditable = false;
   public onclick: (() => void) | null = null;
+  public hidden = false;
+  public readonly dataset: Record<string, string> = {};
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
     const existing = this.listeners.get(type) ?? [];
@@ -58,6 +60,24 @@ class FakeHtmlElement {
   querySelector(): null {
     return null;
   }
+
+  querySelectorAll(): FakeHtmlElement[] {
+    return [];
+  }
+
+  setAttribute(): void {}
+
+  removeAttribute(): void {}
+
+  toggleAttribute(_name: string, force?: boolean): boolean {
+    return Boolean(force);
+  }
+
+  focus(): void {}
+
+  click(): void {
+    this.dispatch("click", { preventDefault: () => {} });
+  }
 }
 
 class FakeInputElement extends FakeHtmlElement {
@@ -66,11 +86,17 @@ class FakeInputElement extends FakeHtmlElement {
 
 class FakeWindow {
   public keydownListener: ((event: unknown) => void) | null = null;
+  public dispatchedEvents: string[] = [];
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
     if (type === "keydown") {
       this.keydownListener = listener;
     }
+  }
+
+  dispatchEvent(event: Event): boolean {
+    this.dispatchedEvents.push(event.type);
+    return true;
   }
 }
 
@@ -128,6 +154,7 @@ function createElements() {
     sortLabelsAscBtn: new FakeHtmlElement(),
     sortLabelsDescBtn: new FakeHtmlElement(),
     viewClassFileBtn: new FakeHtmlElement(),
+    templateMatchingModal: { _isShown: false, show: vi.fn(), hide: vi.fn() },
     classFileViewerModal: { _element: new FakeHtmlElement(), show: vi.fn(), hide: vi.fn() },
     classFileEditorBody: new FakeHtmlElement(),
     addClassRowBtn: new FakeHtmlElement(),
@@ -169,7 +196,27 @@ function createElements() {
     contextMenu: new FakeHtmlElement(),
     ctxEditLabel: new FakeHtmlElement(),
     ctxDeleteLabel: new FakeHtmlElement(),
-    loadingOverlay: new FakeHtmlElement()
+    loadingOverlay: new FakeHtmlElement(),
+    taskFilesBtn: new FakeHtmlElement(),
+    taskAnnotateBtn: new FakeHtmlElement(),
+    taskAutomateBtn: new FakeHtmlElement(),
+    refreshDatasetBtn: new FakeHtmlElement(),
+    classSearchInput: new FakeInputElement(),
+    addClassShortcutBtn: new FakeHtmlElement(),
+    emptyOpenDatasetBtn: new FakeHtmlElement(),
+    emptyLoadSampleBtn: new FakeHtmlElement(),
+    inspectorAnnotationTabBtn: new FakeHtmlElement(),
+    inspectorTransformTabBtn: new FakeHtmlElement(),
+    inspectorAutomationTabBtn: new FakeHtmlElement(),
+    labelDisplayModeSelect: new FakeInputElement(),
+    selectionClassSelect: new FakeInputElement(),
+    selectionGeometryX: new FakeInputElement(),
+    selectionGeometryY: new FakeInputElement(),
+    selectionGeometryWidth: new FakeInputElement(),
+    selectionGeometryHeight: new FakeInputElement(),
+    duplicateSelectionBtn: new FakeHtmlElement(),
+    hideSelectionBtn: new FakeHtmlElement(),
+    deleteSelectionBtn: new FakeHtmlElement()
   };
 }
 
@@ -195,6 +242,7 @@ function createRawCanvas() {
     findTarget: vi.fn<() => unknown>(() => null),
     getActiveObject: vi.fn<() => unknown>(() => null),
     getActiveObjects: vi.fn<() => unknown[]>(() => []),
+    setActiveObject: vi.fn(),
     discardActiveObject: vi.fn()
   };
 }
@@ -210,6 +258,7 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
 
   return {
     canvas: rawCanvas,
+    getObjects: vi.fn<() => unknown[]>(() => []),
     sortObjectsByLabel: vi.fn(),
     zoom: vi.fn(),
     resetZoom: vi.fn(),
@@ -252,6 +301,8 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     removeObject: vi.fn(),
     deleteSelection: vi.fn(),
     setSelectedLabelClass: vi.fn(() => false),
+    updateSelectedBoxGeometry: vi.fn(() => false),
+    setSelectedBoxesVisibility: vi.fn(() => false),
     undo: vi.fn(),
     redo: vi.fn(),
     canUndo: vi.fn(() => false),
@@ -298,6 +349,11 @@ function createNoopUiManager(elements: ReturnType<typeof createElements>, overri
     togglePreviewBarVisibility: vi.fn(),
     togglePanel: vi.fn(),
     applyDarkMode: vi.fn(),
+    setActiveTask: vi.fn(),
+    setInspectorTab: vi.fn(),
+    setLabelDisplayMode: vi.fn(),
+    syncSelectionInspector: vi.fn(),
+    syncWorkspaceState: vi.fn(),
     ...overrides
   } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"];
 }
@@ -305,6 +361,8 @@ function createNoopUiManager(elements: ReturnType<typeof createElements>, overri
 function createNoopFileSystem() {
   return {
     selectImageFolder: vi.fn(async () => {}),
+    refreshDataset: vi.fn(async () => {}),
+    loadSampleTestData: vi.fn(async () => {}),
     selectLabelFolder: vi.fn(async () => {}),
     selectClassInfoFolder: vi.fn(async () => {}),
     saveLabels: vi.fn(async () => {}),
@@ -509,6 +567,21 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(setMode).toHaveBeenCalledWith("draw");
     expect(elements.drawModeBtn.checked).toBe(true);
     expect(elements.editModeBtn.checked).toBe(false);
+
+    elements.templateMatchingModal._isShown = true;
+    const modalPreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      key: "q",
+      target: new FakeHtmlElement(),
+      preventDefault: modalPreventDefault,
+      shiftKey: false
+    });
+
+    expect(modalPreventDefault).toHaveBeenCalledTimes(1);
+    expect(windowRef.dispatchedEvents).toContain("easy-labeling:toggle-template-pointer-mode");
+    expect(setMode).toHaveBeenCalledTimes(1);
   });
 
   it("prevents the browser default for Ctrl+B and routes to label editing", () => {
@@ -1004,6 +1077,85 @@ describe("bootstrap/event-manager-adapter", () => {
     elements.segmentationToolSizeSlider.dispatch("input", { currentTarget: elements.segmentationToolSizeSlider });
 
     expect(rawController.setSegmentationBrushRadius).toHaveBeenCalledWith(14);
+  });
+
+  it("uses double-click on a detection box in edit mode to open class editing", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "detection";
+    state.view.currentMode = "edit";
+    const elements = createElements();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const rect = createRect({ left: 10, top: 20, width: 30, height: 40, labelClass: "1" });
+    const setMode = vi.fn();
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: {
+        setMode,
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef: new FakeWindow()
+    });
+
+    eventManager.bindEventListeners();
+    const doubleClickHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:dblclick")?.[1];
+    doubleClickHandler?.({ e: { clientX: 0, clientY: 0 }, target: rect });
+    await Promise.resolve();
+
+    expect(rawController.editLabel).toHaveBeenCalledWith(rect);
+    expect(setMode).not.toHaveBeenCalled();
+  });
+
+  it("shows detection box actions on right-click without using right-click to change tools", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "detection";
+    state.view.currentMode = "edit";
+    const elements = createElements();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const rect = createRect({ left: 10, top: 20, width: 30, height: 40, labelClass: "1" });
+    const setMode = vi.fn();
+    rawCanvas.findTarget.mockReturnValue(rect);
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: {
+        setMode,
+        raw: rawController
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef: new FakeWindow()
+    });
+
+    eventManager.bindEventListeners();
+    const preventDefault = vi.fn();
+    rawCanvas.upperCanvasEl.dispatch("contextmenu", { preventDefault, clientX: 120, clientY: 80 });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(elements.contextMenu.style).toMatchObject({ display: "block", left: "120px", top: "80px" });
+    elements.ctxEditLabel.onclick?.();
+    await Promise.resolve();
+    expect(rawController.editLabel).toHaveBeenCalledWith(rect);
+
+    rawCanvas.upperCanvasEl.dispatch("contextmenu", { preventDefault, clientX: 140, clientY: 90 });
+    elements.ctxDeleteLabel.onclick?.();
+    expect(rawCanvas.setActiveObject).toHaveBeenCalledWith(rect);
+    expect(rawController.deleteSelection).toHaveBeenCalledTimes(1);
+
+    rawCanvas.findTarget.mockReturnValue(null);
+    rawCanvas.getPointer.mockReturnValue({ x: 20, y: 30 });
+    rawController.getObjects.mockReturnValue([rect]);
+    rawCanvas.upperCanvasEl.dispatch("contextmenu", { preventDefault, clientX: 160, clientY: 100 });
+    expect(elements.contextMenu.style.display).toBe("block");
+
+    rawCanvas.getPointer.mockReturnValue({ x: 200, y: 200 });
+    rawCanvas.upperCanvasEl.dispatch("contextmenu", { preventDefault, clientX: 180, clientY: 120 });
+    expect(elements.contextMenu.style.display).toBe("none");
+    expect(setMode).not.toHaveBeenCalled();
   });
 
   it("uses double-click in segmentation edit mode to open region relabeling", async () => {

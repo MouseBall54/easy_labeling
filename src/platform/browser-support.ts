@@ -16,15 +16,6 @@ export function evaluateBrowserSupport(snapshot: BrowserRuntimeSnapshot): Browse
     };
   }
 
-  if (!hasShowDirectoryPicker) {
-    return {
-      isMobile,
-      hasShowDirectoryPicker,
-      supported: false,
-      reason: "missing-show-directory-picker"
-    };
-  }
-
   return {
     isMobile,
     hasShowDirectoryPicker,

@@ -55,6 +55,7 @@ describe("bundled sample assets", () => {
       "layout-best-match",
       "multiple-detection-boxes"
     ]);
+    expect(library.presets.every((preset) => preset.matching.searchRoi === null)).toBe(true);
 
     const templateFiles = new Map([
       ["sample-pink-anchor-template", "pink-anchor.png"],

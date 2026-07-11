@@ -1,10 +1,26 @@
 import type { PixelRect, TemplateMatchCandidate, TemplateMatchResult, TemplatePreprocessingSettings } from "./types.js";
 
+export interface TemplateWorkspaceMatch {
+  candidate: TemplateMatchCandidate;
+  selected: boolean;
+  classId: string | null;
+}
+
+export interface TemplateMatchContextRequest {
+  matchIndex: number | null;
+  clientX: number;
+  clientY: number;
+}
+
+export type TemplateWorkspaceInteractionMode = "template-roi" | "select-results";
+
 export interface TemplateWorkspace {
   bind(): void;
+  setInteractionMode(mode: TemplateWorkspaceInteractionMode): void;
+  getInteractionMode(): TemplateWorkspaceInteractionMode;
   setImage(image: HTMLImageElement, roi?: PixelRect | null): void;
   setMatchResult(result: TemplateMatchResult | null): void;
-  setMatchResults(results: readonly TemplateMatchCandidate[]): void;
+  setMatchResults(results: readonly TemplateWorkspaceMatch[]): void;
   getRoi(): PixelRect | null;
   setStoredTemplateImage(image: HTMLImageElement | null): void;
   renderPreviews(settings: TemplatePreprocessingSettings): void;
@@ -53,11 +69,14 @@ export function createTemplateWorkspace(input: {
   originalPreviewCanvas: HTMLCanvasElement;
   processedPreviewCanvas: HTMLCanvasElement;
   onRoiChanged?(roi: PixelRect): void;
+  onMatchClicked?(index: number): void;
+  onMatchContextRequested?(request: TemplateMatchContextRequest): void;
 }): TemplateWorkspace {
   let image: HTMLImageElement | null = null;
   let storedTemplateImage: HTMLImageElement | null = null;
   let roi: PixelRect | null = null;
-  let matchResults: TemplateMatchCandidate[] = [];
+  let matchResults: TemplateWorkspaceMatch[] = [];
+  let interactionMode: TemplateWorkspaceInteractionMode = "template-roi";
   let dragStart: { x: number; y: number } | null = null;
   let draftEnd: { x: number; y: number } | null = null;
 
@@ -65,7 +84,7 @@ export function createTemplateWorkspace(input: {
   const imageHeight = (): number => image?.naturalHeight || image?.height || 0;
   const zoom = (): number => Number.parseInt(input.zoomInput.value, 10) / 100;
 
-  const eventToImagePoint = (event: PointerEvent): { x: number; y: number } => {
+  const eventToImagePoint = (event: Pick<PointerEvent, "clientX" | "clientY">): { x: number; y: number } => {
     const bounds = input.canvas.getBoundingClientRect();
     const canvasX = (event.clientX - bounds.left) * (input.canvas.width / bounds.width);
     const canvasY = (event.clientY - bounds.top) * (input.canvas.height / bounds.height);
@@ -73,6 +92,34 @@ export function createTemplateWorkspace(input: {
       x: clamp(canvasX / zoom(), 0, imageWidth()),
       y: clamp(canvasY / zoom(), 0, imageHeight())
     };
+  };
+
+  const findMatchIndexAt = (point: { x: number; y: number }): number => {
+    for (let index = matchResults.length - 1; index >= 0; index -= 1) {
+      const candidate = matchResults[index]?.candidate;
+      if (candidate
+        && point.x >= candidate.x
+        && point.x <= candidate.x + candidate.width
+        && point.y >= candidate.y
+        && point.y <= candidate.y + candidate.height) {
+        return index;
+      }
+    }
+    return -1;
+  };
+
+  const syncInteractionMode = (): void => {
+    input.canvas.dataset.interactionMode = interactionMode;
+    input.canvas.setAttribute(
+      "aria-label",
+      interactionMode === "template-roi"
+        ? "Draw template ROI on reference image"
+        : "Select template match results"
+    );
+  };
+
+  const syncRoiState = (): void => {
+    input.canvas.dataset.roiReady = String(roi !== null);
   };
 
   const render = (): void => {
@@ -84,8 +131,14 @@ export function createTemplateWorkspace(input: {
       return;
     }
 
-    input.canvas.width = Math.max(1, Math.round(imageWidth() * currentZoom));
-    input.canvas.height = Math.max(1, Math.round(imageHeight() * currentZoom));
+    const nextCanvasWidth = Math.max(1, Math.round(imageWidth() * currentZoom));
+    const nextCanvasHeight = Math.max(1, Math.round(imageHeight() * currentZoom));
+    if (input.canvas.width !== nextCanvasWidth) {
+      input.canvas.width = nextCanvasWidth;
+    }
+    if (input.canvas.height !== nextCanvasHeight) {
+      input.canvas.height = nextCanvasHeight;
+    }
     context.drawImage(image, 0, 0, input.canvas.width, input.canvas.height);
     context.save();
     context.scale(currentZoom, currentZoom);
@@ -102,17 +155,23 @@ export function createTemplateWorkspace(input: {
       context.strokeRect(selection.x, selection.y, selection.width, selection.height);
     }
     if (matchResults.length > 0) {
-      context.strokeStyle = "#20c997";
       context.lineWidth = 3 / currentZoom;
       context.setLineDash([]);
-      context.fillStyle = "rgba(32, 201, 151, 0.16)";
       context.font = `${Math.max(10, 12 / currentZoom)}px sans-serif`;
-      matchResults.forEach((match, index) => {
+      matchResults.forEach((item, index) => {
+        const match = item.candidate;
+        const accent = item.selected ? "#0d6efd" : "#20c997";
+        context.strokeStyle = accent;
+        context.fillStyle = item.selected ? "rgba(13, 110, 253, 0.20)" : "rgba(32, 201, 151, 0.12)";
         context.fillRect(match.x, match.y, match.width, match.height);
         context.strokeRect(match.x, match.y, match.width, match.height);
+        const label = `${index + 1} ${(match.score * 100).toFixed(1)}%${item.classId ? ` C${item.classId}` : ""}`;
+        const labelHeight = 17 / currentZoom;
+        const labelWidth = Math.min(match.width, context.measureText(label).width + 8 / currentZoom);
+        context.fillStyle = accent;
+        context.fillRect(match.x, match.y, labelWidth, labelHeight);
         context.fillStyle = "#ffffff";
-        context.fillText(`${index + 1} ${(match.score * 100).toFixed(1)}%`, match.x + 4 / currentZoom, match.y + 14 / currentZoom);
-        context.fillStyle = "rgba(32, 201, 151, 0.16)";
+        context.fillText(label, match.x + 4 / currentZoom, match.y + 13 / currentZoom);
       });
     }
     context.restore();
@@ -157,6 +216,8 @@ export function createTemplateWorkspace(input: {
     context.restore();
   };
 
+  syncInteractionMode();
+
   return {
     bind(): void {
       input.zoomInput.addEventListener("input", render);
@@ -164,8 +225,20 @@ export function createTemplateWorkspace(input: {
         if (!image) {
           return;
         }
+        const point = eventToImagePoint(event);
+        if (interactionMode === "select-results") {
+          event.preventDefault();
+          if (event.button !== 0) {
+            return;
+          }
+          const matchIndex = findMatchIndexAt(point);
+          if (matchIndex >= 0) {
+            input.onMatchClicked?.(matchIndex);
+          }
+          return;
+        }
         input.canvas.setPointerCapture(event.pointerId);
-        dragStart = eventToImagePoint(event);
+        dragStart = point;
         draftEnd = dragStart;
         matchResults = [];
         render();
@@ -193,10 +266,39 @@ export function createTemplateWorkspace(input: {
             height: Math.round(next.height)
           };
           storedTemplateImage = null;
+          syncRoiState();
           input.onRoiChanged?.(roi);
         }
         render();
       });
+      input.canvas.addEventListener("contextmenu", (event) => {
+        if (!image || interactionMode !== "select-results") {
+          return;
+        }
+        event.preventDefault();
+        const matchIndex = findMatchIndexAt(eventToImagePoint(event));
+        input.onMatchContextRequested?.({
+          matchIndex: matchIndex >= 0 ? matchIndex : null,
+          clientX: event.clientX,
+          clientY: event.clientY
+        });
+      });
+    },
+
+    setInteractionMode(mode): void {
+      if (interactionMode === mode) {
+        syncInteractionMode();
+        return;
+      }
+      interactionMode = mode;
+      dragStart = null;
+      draftEnd = null;
+      syncInteractionMode();
+      render();
+    },
+
+    getInteractionMode(): TemplateWorkspaceInteractionMode {
+      return interactionMode;
     },
 
     setImage(nextImage, nextRoi = null): void {
@@ -204,22 +306,28 @@ export function createTemplateWorkspace(input: {
       roi = nextRoi;
       matchResults = [];
       storedTemplateImage = null;
+      syncRoiState();
       render();
     },
 
     setMatchResult(result): void {
-      matchResults = result ? (result.matches.length > 0 ? [...result.matches] : [{
+      const candidates = result ? (result.matches.length > 0 ? [...result.matches] : [{
         score: result.score,
         x: result.x,
         y: result.y,
         width: result.width,
         height: result.height
       }]) : [];
+      matchResults = candidates.map((candidate) => ({ candidate, selected: true, classId: null }));
       render();
     },
 
     setMatchResults(results): void {
-      matchResults = results.map((result) => ({ ...result }));
+      matchResults = results.map((result) => ({
+        candidate: { ...result.candidate },
+        selected: result.selected,
+        classId: result.classId
+      }));
       render();
     },
 

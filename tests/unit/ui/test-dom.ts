@@ -69,6 +69,8 @@ export class FakeElement {
   alt = "";
   offsetWidth = 0;
   htmlFor = "";
+  title = "";
+  readonly attributes = new Map<string, string>();
 
   private classNameValue = "";
 
@@ -155,6 +157,14 @@ export class FakeElement {
       return this.children.filter((child) => child.dataset.ui === "filter-all");
     }
     return [];
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
   }
 
   focus(): void {

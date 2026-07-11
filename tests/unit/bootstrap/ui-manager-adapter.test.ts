@@ -63,7 +63,15 @@ class FakeClassList {
     return this.classes.has(token);
   }
 
-  toggle(token: string): boolean {
+  toggle(token: string, force?: boolean): boolean {
+    if (force === true) {
+      this.classes.add(token);
+      return true;
+    }
+    if (force === false) {
+      this.classes.delete(token);
+      return false;
+    }
     if (this.classes.has(token)) {
       this.classes.delete(token);
       return false;
@@ -96,6 +104,9 @@ class FakeElement {
   checked = false;
   selectedIndex = 0;
   disabled = false;
+  hidden = false;
+  tabIndex = 0;
+  title = "";
   tagName: string;
   parentElement: FakeElement | null = null;
 
@@ -138,6 +149,11 @@ class FakeElement {
     });
   }
 
+  replaceChildren(...children: FakeElement[]): void {
+    this.children.length = 0;
+    this.append(...children);
+  }
+
   addEventListener(type: string, listener: (event: { stopPropagation(): void }) => void): void {
     const existing = this.listeners.get(type) ?? [];
     existing.push(listener);
@@ -161,6 +177,16 @@ class FakeElement {
   querySelectorAll(_selector: string): FakeElement[] {
     return [];
   }
+
+  setAttribute(): void {}
+
+  removeAttribute(): void {}
+
+  toggleAttribute(_name: string, force?: boolean): boolean {
+    return Boolean(force);
+  }
+
+  focus(): void {}
 }
 
 class FakeDocument {
@@ -169,6 +195,10 @@ class FakeDocument {
   }
 
   getElementById(_id: string): null {
+    return null;
+  }
+
+  querySelector(): null {
     return null;
   }
 }
@@ -190,6 +220,8 @@ function flattenRows(parent: FakeElement): FakeElement[] {
 function createElements() {
   const imageSearchInput = new FakeElement("input");
   imageSearchInput.value = "";
+  const classSearchInput = new FakeElement("input");
+  classSearchInput.value = "";
   const showLabeledCheckbox = new FakeElement("input");
   showLabeledCheckbox.checked = true;
   const showUnlabeledCheckbox = new FakeElement("input");
@@ -213,6 +245,7 @@ function createElements() {
     segmentationWorkflowPanel: new FakeElement("div"),
     imageList: new FakeElement("div"),
     imageSearchInput,
+    classSearchInput,
     showLabeledCheckbox,
     showUnlabeledCheckbox,
     bottomPanel: new FakeElement("div"),
@@ -234,7 +267,50 @@ function createElements() {
     segmentationEdgeGlowValue: new FakeElement("span"),
     segmentationClassSummary: new FakeElement("div"),
     segmentationAutoFillClosedRegionGroup: new FakeElement("div"),
-    segmentationAutoFillClosedRegionToggle: new FakeElement("input")
+    segmentationAutoFillClosedRegionToggle: new FakeElement("input"),
+    canvasEmptyState: new FakeElement("div"),
+    imageCountBadge: new FakeElement("span"),
+    datasetConnectionStatus: new FakeElement("span"),
+    refreshDatasetBtn: new FakeElement("button"),
+    selectLabelFolderBtn: new FakeElement("button"),
+    prevImageBtn: new FakeElement("button"),
+    nextImageBtn: new FakeElement("button"),
+    saveLabelsBtn: new FakeElement("button"),
+    headerDocumentStatus: new FakeElement("div"),
+    documentStatus: new FakeElement("div"),
+    statusImageInfo: new FakeElement("div"),
+    statusAnnotationInfo: new FakeElement("div"),
+    statusMode: new FakeElement("div"),
+    inspectorTitle: new FakeElement("h2"),
+    inspectorSubtitle: new FakeElement("span"),
+    inspectorAnnotationTabBtn: new FakeElement("button"),
+    inspectorTransformTabBtn: new FakeElement("button"),
+    inspectorAutomationTabBtn: new FakeElement("button"),
+    inspectorAnnotationPane: new FakeElement("section"),
+    inspectorTransformPane: new FakeElement("section"),
+    inspectorAutomationPane: new FakeElement("section"),
+    activeToolSummary: new FakeElement("span"),
+    labelDisplayModeSelect: new FakeElement("select"),
+    selectedAnnotationCount: new FakeElement("span"),
+    selectionEmptyState: new FakeElement("div"),
+    selectionDetails: new FakeElement("div"),
+    selectionClassSelect: new FakeElement("select"),
+    selectionGeometryX: new FakeElement("input"),
+    selectionGeometryY: new FakeElement("input"),
+    selectionGeometryWidth: new FakeElement("input"),
+    selectionGeometryHeight: new FakeElement("input"),
+    duplicateSelectionBtn: new FakeElement("button"),
+    hideSelectionBtn: new FakeElement("button"),
+    deleteSelectionBtn: new FakeElement("button"),
+    taskFilesBtn: new FakeElement("button"),
+    taskAnnotateBtn: new FakeElement("button"),
+    taskAutomateBtn: new FakeElement("button"),
+    leftPanel: new FakeElement("aside"),
+    rightPanel: new FakeElement("aside"),
+    leftSplitter: new FakeElement("div"),
+    rightSplitter: new FakeElement("div"),
+    expandLeftPanelBtn: new FakeElement("button"),
+    expandRightPanelBtn: new FakeElement("button")
   };
 }
 
@@ -269,6 +345,7 @@ function createManagerWithRects(input: {
         getObjects: () => input.rects,
         canvas: {
           getActiveObjects: () => [],
+          getActiveObject: () => null,
           setActiveObject: () => {
             return;
           }
@@ -427,6 +504,23 @@ describe("bootstrap/ui-manager-adapter updateLabelList", () => {
     const summary = elements.labelFilters.children.find((child) => child.dataset.ui === "filter-summary");
     expect(summary?.textContent).toBe("Visible: 0 / Total: 3");
   });
+
+  it("virtualizes dense annotation groups until the group is expanded", () => {
+    const rects = Array.from({ length: 500 }, () => createRect("1"));
+    const { manager, elements } = createManagerWithRects({ rects });
+
+    manager.updateLabelList();
+
+    const group = elements.labelList.children[0];
+    const header = group.children[0];
+    const items = group.children[1];
+    expect(header.classList.contains("collapsed")).toBe(true);
+    expect(items.children).toHaveLength(0);
+
+    header.dispatch("click");
+    expect(items.children).toHaveLength(81);
+    expect(items.children[80]?.dataset.ui).toBe("label-list-load-more");
+  });
 });
 
 
@@ -489,6 +583,11 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     manager.connect({
       canvasController: {
         raw: {
+          getObjects: () => [],
+          canvas: {
+            getActiveObjects: () => [],
+            getActiveObject: () => null
+          },
           getSegmentationSummary: () => ({
             activeClassId: "1",
             activeTool: "brush",

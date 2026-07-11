@@ -197,6 +197,7 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
   const initialLeftSpan =
     Math.max(...initialSelected.map((geometry) => geometry.left)) - Math.min(...initialSelected.map((geometry) => geometry.left));
 
+  await page.locator("#inspectorTransformTabBtn").click();
   await page.locator('[data-ui="arrange-align-left"]').click();
   await expect.poll(async () => (await readSnapshot(page)).canUndo).toBe(true);
   await expect.poll(async () => (await readSnapshot(page)).canRedo).toBe(false);
@@ -404,6 +405,7 @@ test("arrange/history: class-group selection restores exact geometry after align
   const beforeById = new Map(before.geometries.map((geometry) => [geometry.annotationId, geometry]));
   expect(before.activeSelectionBounds).not.toBeNull();
 
+  await page.locator("#inspectorTransformTabBtn").click();
   await page.locator('[data-ui="arrange-align-left"]').click();
   await page.locator('[data-ui="history-undo"]').click();
 

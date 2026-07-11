@@ -23,6 +23,12 @@ import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import { isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import { createBundledSampleDirectory } from "../features/sample/sample-test-directory.js";
+import {
+  markDocumentSaveError,
+  markDocumentSaved,
+  markDocumentSaving,
+  markImageDocumentsClean
+} from "../app/document-status.js";
 
 class LiveImageSessionState implements ImageSessionServiceState {
   constructor(private readonly appState: AppState) {}
@@ -134,6 +140,7 @@ class LiveImageSessionState implements ImageSessionServiceState {
 
 export interface RuntimeFileSystem extends FileSystem {
   selectImageFolder(): Promise<void>;
+  refreshDataset(): Promise<void>;
   loadSampleTestData(): Promise<void>;
   selectLabelFolder(): Promise<void>;
   selectClassInfoFolder(): Promise<void>;
@@ -193,16 +200,17 @@ export function createFileSystemAdapter(input: {
       return;
     }
 
-    canvasController.raw.clearHistory();
-    canvasController.raw.clear();
-    canvasController.raw.setBackgroundImage(currentImage);
-    if (pendingLoadedYolo && pendingLoadedYolo.trim()) {
-      canvasController.raw.addLabelsFromYolo(pendingLoadedYolo);
-    }
-    canvasController.raw.loadSegmentationDocumentSnapshot?.(pendingLoadedSegmentationSnapshot);
+    canvasController.loadImageSession({
+      image: currentImage,
+      detectionYolo: pendingLoadedYolo ?? "",
+      segmentationSnapshot: pendingLoadedSegmentationSnapshot
+    });
     pendingLoadedYolo = null;
     pendingLoadedSegmentationSnapshot = null;
-    canvasController.raw.resetZoom();
+    const currentImageName = input.state.session.currentImageFile?.name;
+    if (currentImageName) {
+      markImageDocumentsClean(input.state, currentImageName);
+    }
     uiManager.updateCurrentImageName();
     uiManager.updateZoomDisplay(canvasController.raw.canvas.getZoom());
     uiManager.renderImageList();
@@ -210,6 +218,7 @@ export function createFileSystemAdapter(input: {
     uiManager.updateLabelList();
     uiManager.setWorkflow?.(input.state.session.workflow);
     input.windowRef.dispatchEvent?.(new CustomEvent("easy-labeling:history-reset"));
+    input.windowRef.dispatchEvent?.(new CustomEvent("easy-labeling:document-status-change"));
   };
 
   const syncAfterImageLoad = async (fileHandle: FileHandleLike): Promise<void> => {
@@ -332,11 +341,11 @@ export function createFileSystemAdapter(input: {
       async selectImageFolder(): Promise<void> {
         await enqueueOperation(async () => {
           const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
-          uiManager?.showLoading();
+          uiManager?.showLoading("Opening dataset...");
           try {
           const picker = input.windowRef.showDirectoryPicker;
           if (typeof picker !== "function") {
-            return;
+            throw new Error("Folder access is unavailable in this browser. Load the bundled sample instead.");
           }
 
           if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
@@ -351,10 +360,38 @@ export function createFileSystemAdapter(input: {
         });
       },
 
+      async refreshDataset(): Promise<void> {
+        await enqueueOperation(async () => {
+          const folder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+          if (!folder) {
+            throw new Error("Open a dataset before refreshing it");
+          }
+          const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
+          const currentImageName = input.state.session.currentImageFile?.name ?? null;
+          uiManager?.showLoading("Refreshing dataset...");
+          try {
+            await imageSessionService.selectImageFolder(folder);
+            const target = currentImageName
+              ? input.state.session.imageFiles.find((file) => file.name === currentImageName)
+              : null;
+            if (target && target.name !== input.state.session.currentImageFile?.name) {
+              pendingLoadedYolo = null;
+              pendingLoadedSegmentationSnapshot = null;
+              await imageSessionService.loadImageAndLabels(target as unknown as FileHandleLike);
+            }
+            applyCurrentImageToCanvas();
+            await refreshClassFileStateFromAvailableFolder();
+            uiManager?.notify("Dataset refreshed.");
+          } finally {
+            uiManager?.hideLoading();
+          }
+        });
+      },
+
       async loadSampleTestData(): Promise<void> {
         await enqueueOperation(async () => {
           const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
-          uiManager?.showLoading();
+          uiManager?.showLoading("Loading sample workspace...");
           try {
             if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
               await imageSessionService.saveLabels(true);
@@ -374,7 +411,7 @@ export function createFileSystemAdapter(input: {
         await enqueueOperation(async () => {
           const picker = input.windowRef.showDirectoryPicker;
           if (typeof picker !== "function") {
-            return;
+            throw new Error("Folder access is unavailable in this browser.");
           }
 
           input.state.session.labelFolderHandle = await picker();
@@ -393,7 +430,7 @@ export function createFileSystemAdapter(input: {
         await enqueueOperation(async () => {
           const picker = input.windowRef.showDirectoryPicker;
           if (typeof picker !== "function") {
-            return;
+            throw new Error("Folder access is unavailable in this browser.");
           }
 
           const folderHandle = await picker();
@@ -404,11 +441,31 @@ export function createFileSystemAdapter(input: {
 
       async saveLabels(isAuto = false): Promise<void> {
         await enqueueOperation(async () => {
-          await imageSessionService.saveLabels(isAuto);
-          if (connectedDeps) {
-            const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-            uiManager.renderImageList();
-            uiManager.renderPreviewList();
+          const imageName = input.state.session.currentImageFile?.name;
+          const workflow = input.state.session.workflow;
+          if (!imageName) {
+            return;
+          }
+          markDocumentSaving(input.state, imageName, workflow, isAuto);
+          input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
+          try {
+            const result = await imageSessionService.saveLabels(isAuto);
+            if (!result.saved) {
+              throw new Error(workflow === "detection"
+                ? "Connect a label folder before saving Detection labels."
+                : "Load an image before saving a Segmentation mask.");
+            }
+            markDocumentSaved(input.state, imageName, workflow, { wasAutoSaved: isAuto });
+            if (connectedDeps) {
+              const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+              uiManager.renderImageList();
+              uiManager.renderPreviewList();
+            }
+          } catch (error: unknown) {
+            markDocumentSaveError(input.state, imageName, workflow, error);
+            throw error;
+          } finally {
+            input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
           }
         });
       },
@@ -439,7 +496,7 @@ export function createFileSystemAdapter(input: {
       async loadImage(fileHandle: FileHandleLike): Promise<void> {
         await enqueueOperation(async () => {
           const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
-          uiManager?.showLoading();
+          uiManager?.showLoading(`Loading ${fileHandle.name}...`);
           try {
             await syncAfterImageLoad(fileHandle);
           } finally {

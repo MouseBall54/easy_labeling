@@ -6,36 +6,34 @@ import {
   saveAutomationLibrary,
   upsertById
 } from "../features/automation/automation-library-service.js";
-import { runSequentialBatch, type BatchSummary } from "../features/automation/batch.js";
-import {
-  createAutomationDetectionBoxes,
-  mergeDetectionLabels,
-  serializeAutomationBoxes
-} from "../features/automation/batch-labels.js";
 import { cropImageElementToPngDataUrl, imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
 import {
-  DEFAULT_MULTIPLE_DETECTION_SETTINGS,
-  validatePreprocessingSettings
-} from "../features/automation/preset-codec.js";
-import { createTemplateMatchingService, requireAcceptedMatch, type TemplateMatchingService } from "../features/automation/template-matching-service.js";
-import { createTemplateWorkspace } from "../features/automation/template-workspace.js";
+  createTemplateMatchingService,
+  requireAcceptedMatch,
+  type TemplateMatchInput,
+  type TemplateMatchingService
+} from "../features/automation/template-matching-service.js";
+import {
+  createTemplateWorkspace,
+  type TemplateMatchContextRequest,
+  type TemplateWorkspaceInteractionMode
+} from "../features/automation/template-workspace.js";
 import {
   AUTOMATION_SCHEMA_VERSION,
   TEMPLATE_SCHEMA_VERSION,
-  type AutomationOutputMode,
   type AutomationLibraryDocument,
   type AutomationPreset,
   type BoxLayout,
   type ExistingLabelsPolicy,
-  type MultipleDetectionSettings,
-  type PixelRect,
   type TemplateAsset,
+  type TemplateMatchCandidate,
   type TemplateMatchResult,
-  type TemplateMatchingSettings,
-  type TemplatePreprocessingSettings
 } from "../features/automation/types.js";
-import type { DirectoryHandleLike, FileHandleLike } from "../types/files.js";
+import type { DirectoryHandleLike } from "../types/files.js";
+import { createAutomationBatchController } from "./automation-batch-controller.js";
+import { createAutomationLayoutPreview } from "./automation-layout-preview.js";
+import { createAutomationPresetForm } from "./automation-preset-form.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
@@ -112,8 +110,29 @@ export function createAutomationController(input: {
   let activeTemplateDataUrl: string | null = null;
   let templateRoiDirty = false;
   let lastTemplateMatchResult: TemplateMatchResult | null = null;
-  let batchCancellationRequested = false;
-  let batchRunning = false;
+  let contextTemplateMatchIndex: number | null = null;
+  const selectedTemplateMatchIndices = new Set<number>();
+  const assignedTemplateMatchClasses = new Map<number, string>();
+
+  const hideTemplateMatchContextMenu = (returnFocus = false): void => {
+    contextTemplateMatchIndex = null;
+    elements.templateMatchContextMenu.hidden = true;
+    elements.templateMatchContextMenu.classList.remove("show");
+    if (returnFocus) {
+      elements.templateMatchingCanvas.focus();
+    }
+  };
+
+  const setMatchingEngineStatus = (state: "loading" | "ready" | "error", text: string): void => {
+    elements.matchingEngineStatus.dataset.state = state;
+    const labels = elements.matchingEngineStatus.querySelectorAll<HTMLElement>("span");
+    const label = labels[labels.length - 1];
+    if (label) {
+      label.textContent = text;
+    } else {
+      elements.matchingEngineStatus.textContent = text;
+    }
+  };
 
   const getMatchingService = (): TemplateMatchingService => {
     matchingService ??= input.createMatchingService?.() ?? createTemplateMatchingService();
@@ -122,17 +141,42 @@ export function createAutomationController(input: {
 
   const warmUpMatchingEngineInBackground = (): void => {
     let service: TemplateMatchingService | null = null;
+    setMatchingEngineStatus("loading", "Matching engine: Loading");
     void Promise.resolve()
       .then(() => {
         service = getMatchingService();
         return service.warmUp();
       })
-      .catch(() => {
+      .then(() => {
+        setMatchingEngineStatus("ready", "Matching engine: Ready");
+      })
+      .catch((error: unknown) => {
         service?.terminate();
         if (matchingService === service) {
           matchingService = null;
         }
+        const message = error instanceof Error ? error.message : "Engine initialization failed";
+        elements.matchingEngineStatus.title = message;
+        setMatchingEngineStatus("error", "Matching engine: Retry on use");
       });
+  };
+
+  const matchWithRecovery = async (matchInput: TemplateMatchInput): Promise<TemplateMatchResult> => {
+    try {
+      return await getMatchingService().match(matchInput);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/worker|opencv|initializ|terminated/i.test(message)) {
+        throw error;
+      }
+      matchingService?.terminate();
+      matchingService = null;
+      setMatchingEngineStatus("loading", "Matching engine: Recovering");
+      const replacement = getMatchingService();
+      await replacement.warmUp();
+      setMatchingEngineStatus("ready", "Matching engine: Ready");
+      return await replacement.match(matchInput);
+    }
   };
 
   const selectedLayout = (): BoxLayout | null => {
@@ -147,6 +191,17 @@ export function createAutomationController(input: {
     return library.presets.find((preset) => preset.id === elements.automationPresetSelect.value) ?? null;
   };
 
+  const layoutPreview = createAutomationLayoutPreview({
+    state: input.state,
+    elements,
+    canvasController: input.canvasController,
+    getSelectedLayout: selectedLayout,
+    getSelectedSetupLayout: selectedSetupLayout
+  });
+  const renderLayoutGhostPreview = (): void => layoutPreview.renderGhost();
+  const clearLayoutGhostPreview = (): void => layoutPreview.clearGhost();
+  const renderLayoutPreview = (): void => layoutPreview.renderLibraryPreview();
+
   const refreshSelects = (selection?: { layoutId?: string; presetId?: string }): void => {
     const layoutId = selection?.layoutId ?? elements.boxLayoutSelect.value;
     const presetId = selection?.presetId ?? elements.automationPresetSelect.value;
@@ -156,6 +211,7 @@ export function createAutomationController(input: {
     setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId);
     elements.applyBoxLayoutBtn.disabled = !library.layouts.some((layout) => layout.id === layoutId);
     elements.applyBoxLayoutFromSetupBtn.disabled = elements.applyBoxLayoutBtn.disabled;
+    renderLayoutGhostPreview();
   };
 
   const refreshSourceImageSelect = (): void => {
@@ -183,63 +239,13 @@ export function createAutomationController(input: {
     elements.layoutSetupError.textContent = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   };
 
-  const renderLayoutPreview = (): void => {
-    const canvas = elements.layoutPreviewCanvas;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Layout preview canvas is unavailable");
-    }
-    const layout = selectedSetupLayout();
-    const image = input.state.session.currentImage;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#20252a";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    if (!layout) {
-      elements.layoutDetails.textContent = "Choose a layout to inspect its geometry.";
-      return;
-    }
-
-    const minX = Math.min(...layout.boxes.map((box) => box.relativeX));
-    const minY = Math.min(...layout.boxes.map((box) => box.relativeY));
-    const maxX = Math.max(...layout.boxes.map((box) => box.relativeX + box.width));
-    const maxY = Math.max(...layout.boxes.map((box) => box.relativeY + box.height));
-    const classCounts = new Map<string, number>();
-    layout.boxes.forEach((box) => classCounts.set(box.classId, (classCounts.get(box.classId) ?? 0) + 1));
-    const classes = [...classCounts.entries()].map(([classId, count]) => `${classId} (${count})`).join(", ");
-    elements.layoutDetails.textContent = `${layout.name} | ${layout.boxes.length} boxes | Classes: ${classes} | Anchor ${Math.round(layout.sourceAnchor.x)}, ${Math.round(layout.sourceAnchor.y)} | Size ${Math.round(maxX - minX)} x ${Math.round(maxY - minY)} | Source ${layout.sourceImageSize.width} x ${layout.sourceImageSize.height}`;
-
-    const sourceWidth = image?.naturalWidth || image?.width || layout.sourceImageSize.width;
-    const sourceHeight = image?.naturalHeight || image?.height || layout.sourceImageSize.height;
-    const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
-    const drawWidth = sourceWidth * scale;
-    const drawHeight = sourceHeight * scale;
-    const offsetX = (canvas.width - drawWidth) / 2;
-    const offsetY = (canvas.height - drawHeight) / 2;
-    if (image) {
-      context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
-    } else {
-      context.fillStyle = "#e9ecef";
-      context.fillRect(offsetX, offsetY, drawWidth, drawHeight);
-    }
-    context.lineWidth = 2;
-    context.font = "12px sans-serif";
-    layout.boxes.forEach((box) => {
-      const x = offsetX + (layout.sourceAnchor.x + box.relativeX) * scale;
-      const y = offsetY + (layout.sourceAnchor.y + box.relativeY) * scale;
-      const width = box.width * scale;
-      const height = box.height * scale;
-      context.fillStyle = "rgba(13, 110, 253, 0.2)";
-      context.strokeStyle = "#0d6efd";
-      context.fillRect(x, y, width, height);
-      context.strokeRect(x, y, width, height);
-      context.fillStyle = "#ffffff";
-      context.fillText(box.classId, x + 4, y + 14);
-    });
-  };
-
   const applyLayout = (layout: BoxLayout): void => {
     input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+    clearLayoutGhostPreview();
+    elements.layoutPlacementNotice.textContent = `${layout.boxes.length} boxes applied. Undo is available.`;
+    elements.layoutPlacementNotice.dataset.state = "applied";
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
+    input.uiManager.updateLabelList();
   };
 
   const showSettingsError = (error: unknown): void => {
@@ -252,81 +258,25 @@ export function createAutomationController(input: {
     elements.templateSettingsError.textContent = "";
   };
 
+  const presetForm = createAutomationPresetForm(elements);
+  const readPreprocessing = presetForm.readPreprocessing;
+  const readMatching = presetForm.readMatching;
+  const readOutputMode = presetForm.readOutputMode;
+  const readMultipleDetection = presetForm.readMultipleDetection;
+  const syncOutputModeUi = presetForm.syncOutputMode;
+
   const invalidateTemplateMatch = (): void => {
+    hideTemplateMatchContextMenu();
     lastTemplateMatchResult = null;
+    selectedTemplateMatchIndices.clear();
+    assignedTemplateMatchClasses.clear();
     elements.applyTemplateMatchBtn.disabled = true;
-  };
-
-  const readPreprocessing = (): TemplatePreprocessingSettings => {
-    const settings: TemplatePreprocessingSettings = {
-      grayscale: elements.templateGrayscaleToggle.checked,
-      gaussianBlurEnabled: elements.templateBlurToggle.checked,
-      blurKernelSize: readFinite(elements.templateBlurKernelInput, "Blur kernel"),
-      blurSigma: readFinite(elements.templateBlurSigmaInput, "Blur sigma"),
-      gaussianNoiseEnabled: elements.templateNoiseToggle.checked,
-      gaussianNoiseSigma: readFinite(elements.templateNoiseSigmaInput, "Noise sigma"),
-      gaussianNoiseSeed: readFinite(elements.templateNoiseSeedInput, "Noise seed")
-    };
-    validatePreprocessingSettings(settings);
-    return settings;
-  };
-
-  const readSearchRoi = (): PixelRect | null => {
-    if (!elements.templateSearchRoiToggle.checked) {
-      return null;
-    }
-    return {
-      x: readFinite(elements.templateSearchXInput, "Search X"),
-      y: readFinite(elements.templateSearchYInput, "Search Y"),
-      width: readFinite(elements.templateSearchWidthInput, "Search width"),
-      height: readFinite(elements.templateSearchHeightInput, "Search height")
-    };
-  };
-
-  const readMatching = (): TemplateMatchingSettings => {
-    const minimumScore = readFinite(elements.templateMinimumScoreInput, "Minimum score");
-    if (minimumScore < -1 || minimumScore > 1) {
-      throw new Error("Minimum score must be between -1 and 1");
-    }
-    return {
-      minimumScore,
-      searchRoi: readSearchRoi(),
-      mode: elements.templateMatchingFastRadio.checked ? "fast" : "accurate"
-    };
-  };
-
-  const readOutputMode = (): AutomationOutputMode => {
-    return elements.templateOutputMultipleRadio.checked ? "multiple-detection-boxes" : "layout-best-match";
-  };
-
-  const readMultipleDetection = (): MultipleDetectionSettings => {
-    const settings: MultipleDetectionSettings = {
-      classId: elements.templateMultipleClassIdInput.value.trim(),
-      maximumDetections: readFinite(elements.templateMaximumDetectionsInput, "Maximum detections"),
-      strictNonOverlap: elements.templateStrictNonOverlapToggle.checked,
-      nmsIouThreshold: readFinite(elements.templateNmsIouInput, "NMS IoU threshold"),
-      paddingX: readFinite(elements.templatePaddingXInput, "Padding X"),
-      paddingY: readFinite(elements.templatePaddingYInput, "Padding Y")
-    };
-    if (!settings.classId) {
-      throw new Error("Multiple Detection class ID is required");
-    }
-    if (!Number.isInteger(settings.maximumDetections) || settings.maximumDetections < 1 || settings.maximumDetections > 10000) {
-      throw new Error("Maximum detections must be an integer between 1 and 10000");
-    }
-    if (settings.nmsIouThreshold < 0 || settings.nmsIouThreshold > 1) {
-      throw new Error("NMS IoU threshold must be between 0 and 1");
-    }
-    if (settings.paddingX < 0 || settings.paddingY < 0) {
-      throw new Error("Detection padding must be zero or greater");
-    }
-    return settings;
-  };
-
-  const syncOutputModeUi = (): void => {
-    const multiple = readOutputMode() === "multiple-detection-boxes";
-    elements.templateLayoutOutputSettings.hidden = multiple;
-    elements.templateMultipleOutputSettings.hidden = !multiple;
+    elements.assignTemplateMatchClassBtn.disabled = true;
+    elements.templateMatchSelectionSummary.textContent = "0 selected";
+    presetForm.clearResult();
+    workspace.setMatchResults([]);
+    elements.templatePointerSelectRadio.disabled = true;
+    setTemplateInteractionMode("template-roi");
   };
 
   const workspace = createTemplateWorkspace({
@@ -335,6 +285,8 @@ export function createAutomationController(input: {
     zoomValue: elements.templateWorkspaceZoomValue,
     originalPreviewCanvas: elements.templateOriginalPreviewCanvas,
     processedPreviewCanvas: elements.templateProcessedPreviewCanvas,
+    onMatchClicked: (index) => toggleTemplateMatchSelection(index),
+    onMatchContextRequested: (request) => showTemplateMatchContextMenu(request),
     onRoiChanged: (roi) => {
       templateRoiDirty = true;
       activeTemplateDataUrl = null;
@@ -353,43 +305,228 @@ export function createAutomationController(input: {
     }
   });
 
+  function setTemplateInteractionMode(mode: TemplateWorkspaceInteractionMode): void {
+    if (mode === "select-results" && elements.templatePointerSelectRadio.disabled) {
+      return;
+    }
+    elements.templatePointerRoiRadio.checked = mode === "template-roi";
+    elements.templatePointerSelectRadio.checked = mode === "select-results";
+    workspace.setInteractionMode(mode);
+  }
+
+  const selectedMatchScope = (): boolean => elements.templateApplySelectedMatchesRadio.checked;
+
+  const effectiveCandidateClassId = (index: number): string | null => {
+    const assignedClassId = assignedTemplateMatchClasses.get(index);
+    if (assignedClassId) {
+      return assignedClassId;
+    }
+    if (!selectedMatchScope()) {
+      return elements.templateMultipleClassIdInput.value.trim() || null;
+    }
+    return assignedTemplateMatchClasses.get(index)
+      ?? (selectedTemplateMatchIndices.has(index) ? elements.templateMultipleClassIdInput.value.trim() || null : null);
+  };
+
+  const renderMultipleMatchSelection = (): void => {
+    const candidates = lastTemplateMatchResult?.matches ?? [];
+    const selectedScope = selectedMatchScope();
+    elements.templateMatchSelectionControls.hidden = !selectedScope;
+    elements.templateMatchSelectionSummary.textContent = `${selectedTemplateMatchIndices.size} selected · ${assignedTemplateMatchClasses.size} assigned`;
+    elements.selectAllTemplateMatchesBtn.disabled = candidates.length === 0 || selectedTemplateMatchIndices.size === candidates.length;
+    elements.clearTemplateMatchSelectionBtn.disabled = selectedTemplateMatchIndices.size === 0;
+    elements.assignTemplateMatchClassBtn.disabled = !selectedScope || selectedTemplateMatchIndices.size === 0;
+    elements.applyTemplateMatchBtn.disabled = candidates.length === 0
+      || (selectedScope && selectedTemplateMatchIndices.size === 0);
+
+    elements.templateMatchCandidates.replaceChildren();
+    candidates.forEach((candidate, index) => {
+      const row = input.documentRef.createElement("label");
+      row.className = "template-match-candidate-row";
+      row.classList.toggle("selected", selectedScope && selectedTemplateMatchIndices.has(index));
+      row.dataset.matchIndex = String(index);
+      row.dataset.testid = `template-match-candidate-${index}`;
+      row.dataset.matchX = String(candidate.x);
+      row.dataset.matchY = String(candidate.y);
+      row.dataset.matchWidth = String(candidate.width);
+      row.dataset.matchHeight = String(candidate.height);
+
+      const checkbox = input.documentRef.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "form-check-input";
+      checkbox.checked = selectedScope && selectedTemplateMatchIndices.has(index);
+      checkbox.dataset.testid = `template-match-select-${index}`;
+      checkbox.setAttribute("aria-label", `Select match ${index + 1}`);
+      checkbox.addEventListener("change", () => {
+        if (!selectedMatchScope()) {
+          elements.templateApplySelectedMatchesRadio.checked = true;
+          elements.templateApplyAllMatchesRadio.checked = false;
+          selectedTemplateMatchIndices.clear();
+        }
+        if (checkbox.checked) {
+          selectedTemplateMatchIndices.add(index);
+        } else {
+          selectedTemplateMatchIndices.delete(index);
+        }
+        renderMultipleMatchSelection();
+      });
+
+      const details = input.documentRef.createElement("span");
+      details.className = "template-match-candidate-details";
+      details.textContent = `${index + 1}. ${(candidate.score * 100).toFixed(2)}% · X ${candidate.x}, Y ${candidate.y} · ${candidate.width} x ${candidate.height}`;
+      row.append(checkbox, details);
+
+      const classId = effectiveCandidateClassId(index);
+      if (classId) {
+        const badge = input.documentRef.createElement("span");
+        badge.className = "template-match-class-badge";
+        badge.dataset.assigned = String(assignedTemplateMatchClasses.has(index));
+        badge.textContent = `Class ${classId}`;
+        row.appendChild(badge);
+      }
+      row.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        showTemplateMatchContextMenu({
+          matchIndex: index,
+          clientX: event.clientX,
+          clientY: event.clientY
+        });
+      });
+      elements.templateMatchCandidates.appendChild(row);
+    });
+
+    workspace.setMatchResults(candidates.map((candidate, index) => ({
+      candidate,
+      selected: selectedScope && selectedTemplateMatchIndices.has(index),
+      classId: effectiveCandidateClassId(index)
+    })));
+  };
+
+  function toggleTemplateMatchSelection(index: number): void {
+    const candidates = lastTemplateMatchResult?.matches ?? [];
+    if (readOutputMode() !== "multiple-detection-boxes" || !candidates[index]) {
+      return;
+    }
+    if (!selectedMatchScope()) {
+      elements.templateApplySelectedMatchesRadio.checked = true;
+      elements.templateApplyAllMatchesRadio.checked = false;
+      selectedTemplateMatchIndices.clear();
+      selectedTemplateMatchIndices.add(index);
+    } else if (selectedTemplateMatchIndices.has(index)) {
+      selectedTemplateMatchIndices.delete(index);
+    } else {
+      selectedTemplateMatchIndices.add(index);
+    }
+    renderMultipleMatchSelection();
+  }
+
+  function showTemplateMatchContextMenu(request: TemplateMatchContextRequest): void {
+    hideTemplateMatchContextMenu();
+    const candidate = request.matchIndex === null ? null : lastTemplateMatchResult?.matches[request.matchIndex];
+    if (!candidate || request.matchIndex === null || workspace.getInteractionMode() !== "select-results") {
+      return;
+    }
+
+    contextTemplateMatchIndex = request.matchIndex;
+    elements.templateMatchContextSummary.textContent = `#${request.matchIndex + 1} · X ${candidate.x}, Y ${candidate.y}`;
+    elements.templateMatchContextClassInput.value = assignedTemplateMatchClasses.get(request.matchIndex)
+      ?? elements.templateMultipleClassIdInput.value.trim();
+    elements.templateMatchContextMenu.hidden = false;
+    elements.templateMatchContextMenu.classList.add("show");
+
+    const menuBounds = elements.templateMatchContextMenu.getBoundingClientRect();
+    const viewportWidth = input.documentRef.documentElement.clientWidth;
+    const viewportHeight = input.documentRef.documentElement.clientHeight;
+    const left = Math.max(8, Math.min(request.clientX, viewportWidth - menuBounds.width - 8));
+    const top = Math.max(8, Math.min(request.clientY, viewportHeight - menuBounds.height - 8));
+    elements.templateMatchContextMenu.style.left = `${left}px`;
+    elements.templateMatchContextMenu.style.top = `${top}px`;
+    elements.templateMatchContextClassInput.focus();
+    elements.templateMatchContextClassInput.select();
+  }
+
+  const assignContextTemplateMatchClass = (): void => {
+    const index = contextTemplateMatchIndex;
+    const classId = elements.templateMatchContextClassInput.value.trim();
+    if (index === null || !lastTemplateMatchResult?.matches[index]) {
+      hideTemplateMatchContextMenu();
+      return;
+    }
+    if (!classId) {
+      showSettingsError("Class ID is required");
+      elements.templateMatchContextClassInput.focus();
+      return;
+    }
+    assignedTemplateMatchClasses.set(index, classId);
+    clearSettingsError();
+    renderMultipleMatchSelection();
+    hideTemplateMatchContextMenu(true);
+  };
+
+  const deleteContextTemplateMatch = (): void => {
+    const index = contextTemplateMatchIndex;
+    const result = lastTemplateMatchResult;
+    if (index === null || !result?.matches[index]) {
+      hideTemplateMatchContextMenu();
+      return;
+    }
+
+    const matches = result.matches.filter((_, candidateIndex) => candidateIndex !== index);
+    const remappedSelected = [...selectedTemplateMatchIndices]
+      .filter((candidateIndex) => candidateIndex !== index)
+      .map((candidateIndex) => candidateIndex > index ? candidateIndex - 1 : candidateIndex);
+    const remappedClasses = [...assignedTemplateMatchClasses.entries()]
+      .filter(([candidateIndex]) => candidateIndex !== index)
+      .map(([candidateIndex, classId]) => [candidateIndex > index ? candidateIndex - 1 : candidateIndex, classId] as const);
+    selectedTemplateMatchIndices.clear();
+    remappedSelected.forEach((candidateIndex) => selectedTemplateMatchIndices.add(candidateIndex));
+    assignedTemplateMatchClasses.clear();
+    remappedClasses.forEach(([candidateIndex, classId]) => assignedTemplateMatchClasses.set(candidateIndex, classId));
+
+    const best = matches.reduce<TemplateMatchCandidate | null>((current, candidate) => (
+      !current || candidate.score > current.score ? candidate : current
+    ), null);
+    lastTemplateMatchResult = best
+      ? { ...result, score: best.score, x: best.x, y: best.y, width: best.width, height: best.height, matches }
+      : { ...result, matches };
+    elements.templateMatchScore.textContent = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
+    elements.templateMatchCoordinates.textContent = best
+      ? `Best ${(best.score * 100).toFixed(2)}% at X ${best.x}, Y ${best.y}`
+      : "No matches remain";
+    elements.templateMatchScore.classList.toggle("text-danger", matches.length === 0);
+    elements.templateMatchScore.classList.toggle("text-success", matches.length > 0);
+    elements.templatePointerSelectRadio.disabled = matches.length === 0;
+    hideTemplateMatchContextMenu();
+    if (matches.length === 0) {
+      setTemplateInteractionMode("template-roi");
+    }
+    renderMultipleMatchSelection();
+    elements.templateMatchingCanvas.focus();
+  };
+
+  const toggleTemplateInteractionMode = (): void => {
+    hideTemplateMatchContextMenu();
+    if (workspace.getInteractionMode() === "select-results") {
+      setTemplateInteractionMode("template-roi");
+      return;
+    }
+    setTemplateInteractionMode("select-results");
+  };
+
+  const renderSingleMatchResult = (candidate: TemplateMatchCandidate): void => {
+    elements.templateMatchSelectionControls.hidden = true;
+    elements.templateMatchCandidates.replaceChildren();
+    elements.templatePointerSelectRadio.disabled = true;
+    setTemplateInteractionMode("template-roi");
+    workspace.setMatchResults([{ candidate, selected: true, classId: null }]);
+  };
+
   const resetPresetForm = (): void => {
     activePresetId = null;
     activeTemplateDataUrl = null;
     templateRoiDirty = false;
-    elements.templateNameInput.value = "";
-    elements.templateLayoutSelect.value = elements.boxLayoutSelect.value;
-    elements.templateOutputLayoutRadio.checked = true;
-    elements.templateOutputMultipleRadio.checked = false;
-    elements.templateMatchingAccurateRadio.checked = true;
-    elements.templateMatchingFastRadio.checked = false;
-    elements.templateGrayscaleToggle.checked = true;
-    elements.templateBlurToggle.checked = true;
-    elements.templateBlurKernelInput.value = "21";
-    elements.templateBlurSigmaInput.value = "0";
-    elements.templateNoiseToggle.checked = false;
-    elements.templateNoiseSigmaInput.value = "0";
-    elements.templateNoiseSeedInput.value = "1";
-    elements.templateMinimumScoreInput.value = "0.80";
-    elements.templateSearchRoiToggle.checked = false;
-    elements.templateSearchRoiInputs.hidden = true;
-    elements.templateRelationXInput.value = "0";
-    elements.templateRelationYInput.value = "0";
-    elements.templateManualXInput.value = "0";
-    elements.templateManualYInput.value = "0";
-    elements.templateMultipleClassIdInput.value = DEFAULT_MULTIPLE_DETECTION_SETTINGS.classId;
-    elements.templateMaximumDetectionsInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.maximumDetections);
-    elements.templateStrictNonOverlapToggle.checked = DEFAULT_MULTIPLE_DETECTION_SETTINGS.strictNonOverlap;
-    elements.templateNmsIouInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.nmsIouThreshold);
-    elements.templatePaddingXInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.paddingX);
-    elements.templatePaddingYInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.paddingY);
-    elements.templateExistingPolicySelect.value = "skip";
-    elements.templateMatchScore.textContent = "Not tested";
-    elements.templateMatchCoordinates.textContent = "";
-    elements.templateMatchTimings.textContent = "";
-    elements.templateMatchCandidates.replaceChildren();
+    presetForm.reset(elements.boxLayoutSelect.value);
     invalidateTemplateMatch();
-    syncOutputModeUi();
     clearSettingsError();
     if (input.state.session.currentImage) {
       workspace.setImage(input.state.session.currentImage);
@@ -404,232 +541,15 @@ export function createAutomationController(input: {
     activePresetId = preset.id;
     activeTemplateDataUrl = template.pngDataUrl;
     templateRoiDirty = false;
-    elements.templateNameInput.value = preset.name;
-    elements.templateLayoutSelect.value = preset.layoutId ?? "";
-    elements.templateOutputLayoutRadio.checked = preset.outputMode === "layout-best-match";
-    elements.templateOutputMultipleRadio.checked = preset.outputMode === "multiple-detection-boxes";
-    elements.templateMatchingAccurateRadio.checked = preset.matching.mode === "accurate";
-    elements.templateMatchingFastRadio.checked = preset.matching.mode === "fast";
-    elements.templateGrayscaleToggle.checked = template.preprocessing.grayscale;
-    elements.templateBlurToggle.checked = template.preprocessing.gaussianBlurEnabled;
-    elements.templateBlurKernelInput.value = String(template.preprocessing.blurKernelSize);
-    elements.templateBlurSigmaInput.value = String(template.preprocessing.blurSigma);
-    elements.templateNoiseToggle.checked = template.preprocessing.gaussianNoiseEnabled;
-    elements.templateNoiseSigmaInput.value = String(template.preprocessing.gaussianNoiseSigma);
-    elements.templateNoiseSeedInput.value = String(template.preprocessing.gaussianNoiseSeed);
-    elements.templateMinimumScoreInput.value = String(preset.matching.minimumScore);
-    elements.templateSearchRoiToggle.checked = Boolean(preset.matching.searchRoi);
-    elements.templateSearchRoiInputs.hidden = !preset.matching.searchRoi;
-    const searchRoi = preset.matching.searchRoi;
-    elements.templateSearchXInput.value = String(searchRoi?.x ?? 0);
-    elements.templateSearchYInput.value = String(searchRoi?.y ?? 0);
-    elements.templateSearchWidthInput.value = String(searchRoi?.width ?? template.sourceImageSize.width);
-    elements.templateSearchHeightInput.value = String(searchRoi?.height ?? template.sourceImageSize.height);
-    elements.templateRelationXInput.value = String(preset.relationOffset.x);
-    elements.templateRelationYInput.value = String(preset.relationOffset.y);
-    elements.templateManualXInput.value = String(preset.manualOffset.x);
-    elements.templateManualYInput.value = String(preset.manualOffset.y);
-    elements.templateMultipleClassIdInput.value = preset.multipleDetection.classId;
-    elements.templateMaximumDetectionsInput.value = String(preset.multipleDetection.maximumDetections);
-    elements.templateStrictNonOverlapToggle.checked = preset.multipleDetection.strictNonOverlap;
-    elements.templateNmsIouInput.value = String(preset.multipleDetection.nmsIouThreshold);
-    elements.templatePaddingXInput.value = String(preset.multipleDetection.paddingX);
-    elements.templatePaddingYInput.value = String(preset.multipleDetection.paddingY);
-    elements.templateExistingPolicySelect.value = preset.existingLabelsPolicy;
+    presetForm.load(preset, template);
     if (input.state.session.currentImage) {
       workspace.setImage(input.state.session.currentImage, template.roi);
     }
     const storedImage = await decodeDataUrlImage(template.pngDataUrl);
     workspace.setStoredTemplateImage(storedImage);
     workspace.renderPreviews(template.preprocessing);
-    elements.templateMatchScore.textContent = "Not tested";
-    elements.templateMatchCoordinates.textContent = "";
-    elements.templateMatchTimings.textContent = "";
-    elements.templateMatchCandidates.replaceChildren();
     invalidateTemplateMatch();
-    syncOutputModeUi();
     clearSettingsError();
-  };
-
-  const updateBatchUi = (summary: BatchSummary, currentFile = "Complete"): void => {
-    elements.automationBatchProgressGroup.hidden = false;
-    elements.automationBatchCurrentFile.textContent = currentFile;
-    elements.automationBatchCounts.textContent = `${summary.processed} / ${summary.total}`;
-    const percent = summary.total === 0 ? 0 : Math.round((summary.processed / summary.total) * 100);
-    elements.automationBatchProgressBar.style.width = `${percent}%`;
-    elements.automationBatchProgressBar.textContent = percent >= 15 ? `${percent}%` : "";
-    const failures = summary.items.filter((item) => item.state === "failed");
-    const suffix = summary.cancelled ? " | Cancelled" : "";
-    elements.automationBatchResultSummary.textContent = `Success ${summary.success} | Failed ${summary.failed} | Skipped ${summary.skipped}${suffix}`;
-    elements.automationBatchResultSummary.title = failures.map((item) => `${item.fileName}: ${item.reason ?? "Failed"}`).join("\n");
-    elements.automationBatchResultList.replaceChildren();
-    summary.items.forEach((item) => {
-      const row = input.documentRef.createElement("div");
-      row.className = "automation-batch-result-row";
-      row.dataset.state = item.state;
-      const file = input.documentRef.createElement("span");
-      file.textContent = item.fileName;
-      file.title = item.reason ?? "";
-      const state = input.documentRef.createElement("span");
-      state.className = "automation-result-state";
-      const score = item.score == null ? "" : ` ${(item.score * 100).toFixed(1)}%`;
-      const minimum = item.minimumMatchedScore == null ? "" : `-${(item.minimumMatchedScore * 100).toFixed(1)}%`;
-      const matches = item.matchCount == null ? "" : ` | ${item.matchCount} match${item.matchCount === 1 ? "" : "es"}`;
-      const duration = item.durationMs == null ? "" : ` | ${item.durationMs.toFixed(0)} ms`;
-      state.textContent = `${item.state}${score}${minimum}${matches}${duration}`;
-      state.title = item.durationMs == null
-        ? item.reason ?? ""
-        : `Decode ${(item.decodeMs ?? 0).toFixed(1)} ms | ImageData ${(item.imageDataMs ?? 0).toFixed(1)} ms | Worker ${(item.workerMs ?? 0).toFixed(1)} ms | Save ${(item.saveMs ?? 0).toFixed(1)} ms`;
-      row.append(file, state);
-      elements.automationBatchResultList.appendChild(row);
-    });
-  };
-
-  const setBatchRunning = (running: boolean): void => {
-    batchRunning = running;
-    elements.runAutomationBatchBtn.disabled = running;
-    elements.cancelAutomationBatchBtn.disabled = !running;
-    elements.openTemplateMatchingBtn.disabled = running;
-    elements.applyBoxLayoutBtn.disabled = running;
-  };
-
-  const runBatch = async (): Promise<void> => {
-    if (batchRunning) {
-      return;
-    }
-    const preset = selectedPreset();
-    if (!preset) {
-      throw new Error("Choose an automation preset first");
-    }
-    const template = library.templates.find((candidate) => candidate.id === preset.templateId);
-    const layout = preset.layoutId ? library.layouts.find((candidate) => candidate.id === preset.layoutId) ?? null : null;
-    if (!template || (preset.outputMode === "layout-best-match" && !layout)) {
-      throw new Error("The preset references a missing template or layout");
-    }
-    if (preset.existingLabelsPolicy === "replace" && !input.windowRef.confirm("Replace existing Detection labels on matched images?")) {
-      return;
-    }
-    if (input.state.session.workflow !== "detection") {
-      throw new Error("Batch automation is only available in Detection mode");
-    }
-
-    const templateImageData = await pngDataUrlToImageData(template.pngDataUrl, input.documentRef);
-    batchCancellationRequested = false;
-    setBatchRunning(true);
-    elements.automationBatchProgressGroup.hidden = false;
-
-    try {
-      const summary = await runSequentialBatch({
-        files: [...input.state.session.imageFiles],
-        preset,
-        deps: {
-          getFileName: (file) => file.name,
-          isAlreadyLabeled: (file) => input.state.session.imageWorkflowStatus.get(file.name)?.detection.hasAnnotation ?? false,
-          isCancellationRequested: () => batchCancellationRequested,
-          onProgress: ({ fileName, summary: progressSummary }) => updateBatchUi(progressSummary, fileName),
-          processFile: async (file: FileHandleLike, activePreset: AutomationPreset, policy: ExistingLabelsPolicy) => {
-            const startedAt = globalThis.performance?.now() ?? Date.now();
-            let decodeMs = 0;
-            let imageDataMs = 0;
-            let workerMs = 0;
-            let saveMs = 0;
-            let matchScore: number | null = null;
-            let matchX: number | null = null;
-            let matchY: number | null = null;
-            try {
-              const decodeStartedAt = globalThis.performance?.now() ?? Date.now();
-              const targetImage = await input.fileSystem.decodeImageForAutomation(file);
-              decodeMs = (globalThis.performance?.now() ?? Date.now()) - decodeStartedAt;
-              const imageDataStartedAt = globalThis.performance?.now() ?? Date.now();
-              const targetImageData = imageElementToImageData(targetImage, input.documentRef);
-              imageDataMs = (globalThis.performance?.now() ?? Date.now()) - imageDataStartedAt;
-              const match = await getMatchingService().match({
-                target: targetImageData,
-                template: templateImageData,
-                preprocessing: template.preprocessing,
-                matching: activePreset.matching,
-                outputMode: activePreset.outputMode,
-                multipleDetection: activePreset.multipleDetection
-              });
-              workerMs = match.timings.workerTotalMs;
-              matchScore = match.score;
-              matchX = match.x;
-              matchY = match.y;
-              if (activePreset.outputMode === "layout-best-match") {
-                requireAcceptedMatch(match, activePreset.matching.minimumScore);
-              } else if (match.matches.length === 0) {
-                return {
-                  state: "failed" as const,
-                  score: match.score,
-                  x: match.x,
-                  y: match.y,
-                  reason: `No non-overlapping matches met the minimum ${(activePreset.matching.minimumScore * 100).toFixed(1)}% (best ${(match.score * 100).toFixed(1)}%)`,
-                  matchCount: 0,
-                  minimumMatchedScore: null,
-                  durationMs: (globalThis.performance?.now() ?? Date.now()) - startedAt,
-                  decodeMs,
-                  imageDataMs,
-                  workerMs,
-                  saveMs
-                };
-              }
-
-              const imageSize = {
-                width: targetImage.naturalWidth || targetImage.width,
-                height: targetImage.naturalHeight || targetImage.height
-              };
-              const boxes = createAutomationDetectionBoxes({ preset: activePreset, layout, match, imageSize });
-              if (boxes.length === 0) {
-                throw new Error("Automation produced no Detection boxes");
-              }
-              const generatedYolo = serializeAutomationBoxes(boxes, imageSize);
-              const existingYolo = policy === "append" ? await input.fileSystem.readDetectionLabels(file.name) : "";
-              const yolo = mergeDetectionLabels(existingYolo, generatedYolo, policy === "append" ? "append" : "replace");
-              const saveStartedAt = globalThis.performance?.now() ?? Date.now();
-              await input.fileSystem.writeDetectionLabels(file.name, yolo);
-              saveMs = (globalThis.performance?.now() ?? Date.now()) - saveStartedAt;
-              const scores = activePreset.outputMode === "multiple-detection-boxes"
-                ? match.matches.map((candidate) => candidate.score)
-                : [match.score];
-              return {
-                state: "success" as const,
-                score: match.score,
-                x: match.x,
-                y: match.y,
-                reason: null,
-                matchCount: scores.length,
-                minimumMatchedScore: Math.min(...scores),
-                durationMs: (globalThis.performance?.now() ?? Date.now()) - startedAt,
-                decodeMs,
-                imageDataMs,
-                workerMs,
-                saveMs
-              };
-            } catch (error: unknown) {
-              return {
-                state: "failed" as const,
-                score: matchScore,
-                x: matchX,
-                y: matchY,
-                reason: error instanceof Error ? error.message : "Automation failed",
-                matchCount: 0,
-                minimumMatchedScore: null,
-                durationMs: (globalThis.performance?.now() ?? Date.now()) - startedAt,
-                decodeMs,
-                imageDataMs,
-                workerMs,
-                saveMs
-              };
-            }
-          }
-        }
-      });
-      updateBatchUi(summary);
-      input.uiManager.renderImageList();
-      input.uiManager.renderPreviewList();
-    } finally {
-      setBatchRunning(false);
-    }
   };
 
   const testMatch = async (): Promise<void> => {
@@ -643,7 +563,7 @@ export function createAutomationController(input: {
     const outputMode = readOutputMode();
     const multipleDetection = readMultipleDetection();
     const templateDataUrl = activeTemplateDataUrl ?? cropImageElementToPngDataUrl(targetImage, roi, input.documentRef);
-    const result = await getMatchingService().match({
+    const result = await matchWithRecovery({
       target: imageElementToImageData(targetImage, input.documentRef),
       template: await pngDataUrlToImageData(templateDataUrl, input.documentRef),
       preprocessing,
@@ -652,25 +572,23 @@ export function createAutomationController(input: {
       multipleDetection
     });
     lastTemplateMatchResult = result;
-    elements.applyTemplateMatchBtn.disabled = outputMode === "multiple-detection-boxes"
-      ? result.matches.length === 0
-      : result.score < matching.minimumScore;
-    workspace.setMatchResults(outputMode === "multiple-detection-boxes" ? result.matches : [result]);
+    selectedTemplateMatchIndices.clear();
+    assignedTemplateMatchClasses.clear();
     workspace.renderPreviews(preprocessing);
     const accepted = result.score >= matching.minimumScore;
+    if (outputMode === "multiple-detection-boxes") {
+      renderMultipleMatchSelection();
+      elements.templatePointerSelectRadio.disabled = result.matches.length === 0;
+      setTemplateInteractionMode(result.matches.length > 0 ? "select-results" : "template-roi");
+    } else {
+      elements.applyTemplateMatchBtn.disabled = !accepted;
+      renderSingleMatchResult(result);
+    }
     elements.templateMatchScore.textContent = outputMode === "multiple-detection-boxes"
       ? `${result.matches.length} match${result.matches.length === 1 ? "" : "es"}`
       : `${(result.score * 100).toFixed(2)}%`;
-    elements.templateMatchCoordinates.textContent = result.matches.length === 0
-      ? `Best ${(result.score * 100).toFixed(2)}% at X ${result.x}, Y ${result.y}`
-      : `Best ${(result.score * 100).toFixed(2)}% at X ${result.x}, Y ${result.y}`;
+    elements.templateMatchCoordinates.textContent = `Best ${(result.score * 100).toFixed(2)}% at X ${result.x}, Y ${result.y}`;
     elements.templateMatchTimings.textContent = `OpenCV init ${result.timings.engineInitializationMs.toFixed(1)} ms | Match ${result.timings.matchingMs.toFixed(1)} ms | Worker ${result.timings.workerTotalMs.toFixed(1)} ms | Round trip ${result.timings.roundTripMs.toFixed(1)} ms${result.templateCacheHit ? " | Template cache hit" : ""}`;
-    elements.templateMatchCandidates.replaceChildren();
-    result.matches.slice(0, 50).forEach((candidate, index) => {
-      const row = input.documentRef.createElement("div");
-      row.textContent = `${index + 1}. ${(candidate.score * 100).toFixed(2)}% | X ${candidate.x}, Y ${candidate.y} | ${candidate.width} x ${candidate.height}`;
-      elements.templateMatchCandidates.appendChild(row);
-    });
     elements.templateMatchScore.classList.toggle("text-danger", !accepted || (outputMode === "multiple-detection-boxes" && result.matches.length === 0));
     elements.templateMatchScore.classList.toggle("text-success", accepted && (outputMode !== "multiple-detection-boxes" || result.matches.length > 0));
   };
@@ -690,17 +608,25 @@ export function createAutomationController(input: {
       return;
     }
     if (outputMode === "multiple-detection-boxes") {
-      if (result.matches.length === 0) {
-        throw new Error("No non-overlapping matches are available to apply");
-      }
       const multiple = readMultipleDetection();
-      input.canvasController.raw.applyDetectionBoxes(result.matches.map((candidate) => ({
-        classId: multiple.classId,
-        x: candidate.x,
-        y: candidate.y,
-        width: candidate.width,
-        height: candidate.height
-      })), { replaceExisting: policy === "replace" });
+      const matchesToApply = result.matches.flatMap((candidate, index) => {
+        if (selectedMatchScope() && !selectedTemplateMatchIndices.has(index)) {
+          return [];
+        }
+        return [{
+          classId: assignedTemplateMatchClasses.get(index) ?? multiple.classId,
+          x: candidate.x,
+          y: candidate.y,
+          width: candidate.width,
+          height: candidate.height
+        }];
+      });
+      if (matchesToApply.length === 0) {
+        throw new Error(selectedMatchScope()
+          ? "Select at least one match to apply"
+          : "No non-overlapping matches are available to apply");
+      }
+      input.canvasController.raw.applyDetectionBoxes(matchesToApply, { replaceExisting: policy === "replace" });
     } else {
       requireAcceptedMatch(result, readMatching().minimumScore);
       const layout = library.layouts.find((candidate) => candidate.id === elements.templateLayoutSelect.value);
@@ -811,11 +737,27 @@ export function createAutomationController(input: {
     input.uiManager.notify("Automation preset saved.");
   };
 
+  const batchController = createAutomationBatchController({
+    state: input.state,
+    elements,
+    documentRef: input.documentRef,
+    fileSystem: input.fileSystem,
+    uiManager: input.uiManager,
+    getSelectedPreset: selectedPreset,
+    getLibrary: () => library,
+    match: matchWithRecovery,
+    setRelatedControlsDisabled: (running) => {
+      elements.openTemplateMatchingBtn.disabled = running;
+      elements.applyBoxLayoutBtn.disabled = running;
+    }
+  });
+
   return {
     bind(): void {
       workspace.bind();
       refreshSelects();
       warmUpMatchingEngineInBackground();
+      batchController.bind();
 
       elements.saveBoxLayoutBtn.addEventListener("click", () => {
         void (async () => {
@@ -964,10 +906,12 @@ export function createAutomationController(input: {
         elements.layoutNameInput.value = layout?.name ?? "";
         setLayoutSetupError(null);
         renderLayoutPreview();
+        renderLayoutGhostPreview();
       });
       elements.boxLayoutSelect.addEventListener("change", () => {
         elements.layoutSetupSelect.value = elements.boxLayoutSelect.value;
         elements.applyBoxLayoutBtn.disabled = !selectedLayout();
+        renderLayoutGhostPreview();
       });
       elements.previewBoxLayoutBtn.addEventListener("click", () => {
         try {
@@ -979,6 +923,11 @@ export function createAutomationController(input: {
       });
 
       elements.openTemplateMatchingBtn.addEventListener("click", () => {
+        if (elements.openTemplateMatchingBtn.disabled) {
+          return;
+        }
+        elements.openTemplateMatchingBtn.disabled = true;
+        elements.openTemplateMatchingBtn.setAttribute("aria-busy", "true");
         void (async () => {
           if (!input.state.session.currentImage) {
             throw new Error("Load an image before opening Template Matching Setup");
@@ -994,9 +943,19 @@ export function createAutomationController(input: {
           }
           elements.templateMatchingModal.show();
           elements.templateMatchTimings.textContent = "Loading OpenCV engine...";
+          setMatchingEngineStatus("loading", "Matching engine: Loading");
           const warmup = await getMatchingService().warmUp();
           elements.templateMatchTimings.textContent = `OpenCV initialized in ${warmup.engineInitializationMs.toFixed(1)} ms`;
-        })().catch((error: unknown) => input.uiManager.notify(error instanceof Error ? error.message : "Unable to open template setup", 5000));
+          setMatchingEngineStatus("ready", "Matching engine: Ready");
+        })().catch((error: unknown) => {
+          input.uiManager.notify(error instanceof Error ? error.message : "Unable to open template setup", 5000);
+        }).finally(() => {
+          elements.openTemplateMatchingBtn.disabled = false;
+          elements.openTemplateMatchingBtn.removeAttribute("aria-busy");
+          if (!elements.templateMatchingModal._isShown) {
+            elements.openTemplateMatchingBtn.focus();
+          }
+        });
       });
 
       elements.newAutomationPresetBtn.addEventListener("click", resetPresetForm);
@@ -1046,6 +1005,42 @@ export function createAutomationController(input: {
       elements.templateSearchRoiToggle.addEventListener("change", () => {
         elements.templateSearchRoiInputs.hidden = !elements.templateSearchRoiToggle.checked;
       });
+      elements.templatePointerRoiRadio.addEventListener("change", () => {
+        if (elements.templatePointerRoiRadio.checked) {
+          setTemplateInteractionMode("template-roi");
+        }
+      });
+      elements.templatePointerSelectRadio.addEventListener("change", () => {
+        if (elements.templatePointerSelectRadio.checked) {
+          setTemplateInteractionMode("select-results");
+        }
+      });
+      input.windowRef.addEventListener("easy-labeling:toggle-template-pointer-mode", toggleTemplateInteractionMode);
+      input.documentRef.addEventListener("pointerdown", (event) => {
+        if (!elements.templateMatchContextMenu.hidden
+          && event.target instanceof Node
+          && !elements.templateMatchContextMenu.contains(event.target)) {
+          hideTemplateMatchContextMenu();
+        }
+      });
+      input.documentRef.getElementById("templateMatchingModal")?.addEventListener("hidden.bs.modal", () => {
+        hideTemplateMatchContextMenu();
+      });
+      elements.templateMatchContextAssignBtn.addEventListener("click", assignContextTemplateMatchClass);
+      elements.templateMatchContextMenu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          hideTemplateMatchContextMenu(true);
+        }
+      });
+      elements.templateMatchContextClassInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          assignContextTemplateMatchClass();
+        }
+      });
+      elements.templateMatchContextDeleteBtn.addEventListener("click", deleteContextTemplateMatch);
       elements.templateOutputLayoutRadio.addEventListener("change", () => {
         syncOutputModeUi();
         invalidateTemplateMatch();
@@ -1053,6 +1048,43 @@ export function createAutomationController(input: {
       elements.templateOutputMultipleRadio.addEventListener("change", () => {
         syncOutputModeUi();
         invalidateTemplateMatch();
+      });
+      elements.templateApplyAllMatchesRadio.addEventListener("change", () => {
+        if (elements.templateApplyAllMatchesRadio.checked) {
+          renderMultipleMatchSelection();
+        }
+      });
+      elements.templateApplySelectedMatchesRadio.addEventListener("change", () => {
+        if (elements.templateApplySelectedMatchesRadio.checked) {
+          renderMultipleMatchSelection();
+        }
+      });
+      elements.selectAllTemplateMatchesBtn.addEventListener("click", () => {
+        const candidates = lastTemplateMatchResult?.matches ?? [];
+        elements.templateApplySelectedMatchesRadio.checked = true;
+        elements.templateApplyAllMatchesRadio.checked = false;
+        selectedTemplateMatchIndices.clear();
+        candidates.forEach((_, index) => selectedTemplateMatchIndices.add(index));
+        renderMultipleMatchSelection();
+      });
+      elements.clearTemplateMatchSelectionBtn.addEventListener("click", () => {
+        selectedTemplateMatchIndices.clear();
+        renderMultipleMatchSelection();
+      });
+      elements.assignTemplateMatchClassBtn.addEventListener("click", () => {
+        const classId = elements.templateMultipleClassIdInput.value.trim();
+        if (!classId) {
+          showSettingsError("Class ID is required before assigning selected matches");
+          return;
+        }
+        selectedTemplateMatchIndices.forEach((index) => assignedTemplateMatchClasses.set(index, classId));
+        clearSettingsError();
+        renderMultipleMatchSelection();
+      });
+      elements.templateMultipleClassIdInput.addEventListener("input", () => {
+        if (lastTemplateMatchResult && readOutputMode() === "multiple-detection-boxes") {
+          renderMultipleMatchSelection();
+        }
       });
       const previewInputs: HTMLElement[] = [
         elements.templateGrayscaleToggle,
@@ -1089,7 +1121,6 @@ export function createAutomationController(input: {
         elements.templateSearchYInput,
         elements.templateSearchWidthInput,
         elements.templateSearchHeightInput,
-        elements.templateMultipleClassIdInput,
         elements.templateMaximumDetectionsInput,
         elements.templateStrictNonOverlapToggle,
         elements.templateNmsIouInput,
@@ -1113,19 +1144,25 @@ export function createAutomationController(input: {
         }
       });
       elements.saveAutomationPresetBtn.addEventListener("click", () => {
+        if (elements.saveAutomationPresetBtn.disabled) {
+          return;
+        }
         clearSettingsError();
-        void savePreset().catch(showSettingsError);
+        elements.saveAutomationPresetBtn.disabled = true;
+        elements.saveAutomationPresetBtn.setAttribute("aria-busy", "true");
+        void savePreset().catch(showSettingsError).finally(() => {
+          elements.saveAutomationPresetBtn.disabled = false;
+          elements.saveAutomationPresetBtn.removeAttribute("aria-busy");
+        });
       });
 
       elements.automationPresetSelect.addEventListener("change", () => {
         activePresetId = elements.automationPresetSelect.value || null;
+        batchController.hidePreflight();
       });
-      elements.runAutomationBatchBtn.addEventListener("click", () => {
-        void runBatch().catch((error: unknown) => input.uiManager.notify(error instanceof Error ? error.message : "Batch automation failed", 7000));
-      });
-      elements.cancelAutomationBatchBtn.addEventListener("click", () => {
-        batchCancellationRequested = true;
-        elements.automationBatchCurrentFile.textContent = "Cancelling after current image...";
+
+      input.windowRef.addEventListener("easy-labeling:canvas-view-change", () => {
+        renderLayoutGhostPreview();
       });
 
       elements.exportAutomationLibraryBtn.addEventListener("click", () => {

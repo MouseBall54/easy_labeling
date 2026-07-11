@@ -96,6 +96,8 @@ export interface FabricTextLike extends FabricObjectLike {
   text: string;
   _isLabelText?: boolean;
   _rect?: FabricRectLike;
+  _labelLayoutVisible?: boolean;
+  _labelRepresentation?: "full" | "compact" | "hidden";
 }
 
 export interface FabricLineLike extends FabricObjectLike {

@@ -132,12 +132,7 @@
       },
       "matching": {
         "minimumScore": 0.85,
-        "searchRoi": {
-          "x": 560,
-          "y": 250,
-          "width": 220,
-          "height": 180
-        },
+        "searchRoi": null,
         "mode": "accurate"
       },
       "multipleDetection": {
@@ -169,12 +164,7 @@
       },
       "matching": {
         "minimumScore": 0.82,
-        "searchRoi": {
-          "x": 560,
-          "y": 250,
-          "width": 220,
-          "height": 180
-        },
+        "searchRoi": null,
         "mode": "fast"
       },
       "multipleDetection": {

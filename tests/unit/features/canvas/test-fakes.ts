@@ -28,6 +28,8 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
   public strokeDashArray: number[] = [];
   public shadow: unknown = null;
   public opacity = 1;
+  public scaleX = 1;
+  public scaleY = 1;
   public labelClass: string | undefined;
   public annotationId: string | undefined;
   public layoutInstanceId: string | undefined;
@@ -67,19 +69,19 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
   }
 
   getScaledWidth(): number {
-    return this.width;
+    return this.width * this.scaleX;
   }
 
   getScaledHeight(): number {
-    return this.height;
+    return this.height * this.scaleY;
   }
 
   getBoundingRect(): { left: number; top: number; width: number; height: number } {
     return {
       left: this.left,
       top: this.top,
-      width: this.width,
-      height: this.height
+      width: this.getScaledWidth(),
+      height: this.getScaledHeight()
     };
   }
 
@@ -104,6 +106,8 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
     target.strokeDashArray = [...this.strokeDashArray];
     target.shadow = this.shadow;
     target.opacity = this.opacity;
+    target.scaleX = this.scaleX;
+    target.scaleY = this.scaleY;
     target.labelClass = this.labelClass;
     target.annotationId = this.annotationId;
     target.layoutInstanceId = this.layoutInstanceId;
@@ -160,12 +164,19 @@ export class FakeFabricRect extends FakeFabricObject<"rect"> implements FabricRe
 class FakeFabricText extends FakeFabricObject<"text"> implements FabricTextLike {
   public _isLabelText = false;
   public _rect: FabricRectLike | undefined;
+  public _labelLayoutVisible = false;
+  public _labelRepresentation: "full" | "compact" | "hidden" = "hidden";
 
   constructor(public text: string, options: Record<string, unknown>) {
     super("text", Number(options.left ?? 0), Number(options.top ?? 0), 0, 0);
     this.fill = options.fill as string | undefined;
     this._isLabelText = Boolean(options._isLabelText ?? false);
     this._rect = options._rect as FabricRectLike | undefined;
+    this._labelLayoutVisible = Boolean(options._labelLayoutVisible ?? false);
+    this._labelRepresentation = (options._labelRepresentation as typeof this._labelRepresentation | undefined) ?? "hidden";
+    this.visible = Boolean(options.visible ?? true);
+    this.originX = String(options.originX ?? "left");
+    this.originY = String(options.originY ?? "top");
   }
 
   protected cloneSelf(): FabricObjectLike {

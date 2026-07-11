@@ -119,6 +119,10 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
 
+  await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
+  await page.keyboard.press("3");
+  await expect(page.locator("#undoBtn")).toBeEnabled();
+
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
@@ -127,7 +131,8 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await page.locator('label[for="detectionWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
-  await page.locator('[data-testid="image-list-item-scene-a.png"]').click();
+  await expect(page.locator("#undoBtn")).toBeEnabled();
+  await page.locator("#undoBtn").click();
   await expect.poll(async () => {
     return page.evaluate(() => Reflect.get(window, '__easyLabelingTestApi')?.getRectCount?.() ?? 0);
   }).toBe(2);

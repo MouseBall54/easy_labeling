@@ -74,14 +74,23 @@ export interface UiDomElements {
   runAutomationBatchBtn: HTMLButtonElement;
   cancelAutomationBatchBtn: HTMLButtonElement;
   automationBatchProgressGroup: HTMLElement;
+  automationBatchPreflight: HTMLElement;
+  batchPreflightTargets: HTMLElement;
+  batchPreflightPolicy: HTMLElement;
+  batchDryRunToggle: HTMLInputElement;
+  confirmAutomationBatchBtn: HTMLButtonElement;
+  closeAutomationPreflightBtn: HTMLButtonElement;
   automationBatchCurrentFile: HTMLElement;
   automationBatchCounts: HTMLElement;
   automationBatchProgressBar: HTMLElement;
   automationBatchResultSummary: HTMLElement;
   automationBatchResultList: HTMLElement;
+  retryFailedBatchBtn: HTMLButtonElement;
   templateMatchingModal: BootstrapModalLike;
   templateMatchingSourceName: HTMLElement;
   templateSourceImageSelect: HTMLSelectElement;
+  templatePointerRoiRadio: HTMLInputElement;
+  templatePointerSelectRadio: HTMLInputElement;
   templateWorkspaceZoomInput: HTMLInputElement;
   templateWorkspaceZoomValue: HTMLElement;
   templateWorkspaceScroller: HTMLElement;
@@ -92,6 +101,11 @@ export interface UiDomElements {
   templateMatchCoordinates: HTMLElement;
   templateMatchTimings: HTMLElement;
   templateMatchCandidates: HTMLElement;
+  templateMatchContextMenu: HTMLElement;
+  templateMatchContextSummary: HTMLElement;
+  templateMatchContextClassInput: HTMLInputElement;
+  templateMatchContextAssignBtn: HTMLButtonElement;
+  templateMatchContextDeleteBtn: HTMLButtonElement;
   newAutomationPresetBtn: HTMLButtonElement;
   deleteAutomationPresetBtn: HTMLButtonElement;
   templateNameInput: HTMLInputElement;
@@ -100,8 +114,15 @@ export interface UiDomElements {
   templateLayoutOutputSettings: HTMLElement;
   templateMultipleOutputSettings: HTMLElement;
   templateLayoutSelect: HTMLSelectElement;
+  templateApplyAllMatchesRadio: HTMLInputElement;
+  templateApplySelectedMatchesRadio: HTMLInputElement;
   templateMultipleClassIdInput: HTMLInputElement;
   templateMaximumDetectionsInput: HTMLInputElement;
+  templateMatchSelectionControls: HTMLElement;
+  templateMatchSelectionSummary: HTMLElement;
+  selectAllTemplateMatchesBtn: HTMLButtonElement;
+  clearTemplateMatchSelectionBtn: HTMLButtonElement;
+  assignTemplateMatchClassBtn: HTMLButtonElement;
   templateStrictNonOverlapToggle: HTMLInputElement;
   templateNmsIouInput: HTMLInputElement;
   templatePaddingXInput: HTMLInputElement;
@@ -189,6 +210,49 @@ export interface UiDomElements {
   ctxEditLabel: HTMLElement;
   ctxDeleteLabel: HTMLElement;
   loadingOverlay: HTMLElement;
+  loadingStatusText: HTMLElement;
+  taskFilesBtn: HTMLButtonElement;
+  taskAnnotateBtn: HTMLButtonElement;
+  taskAutomateBtn: HTMLButtonElement;
+  refreshDatasetBtn: HTMLButtonElement;
+  datasetConnectionStatus: HTMLElement;
+  fileSystemCompatibilityNotice: HTMLElement;
+  imageCountBadge: HTMLElement;
+  classSearchInput: HTMLInputElement;
+  addClassShortcutBtn: HTMLButtonElement;
+  canvasEmptyState: HTMLElement;
+  layoutGhostCanvas: HTMLCanvasElement;
+  emptyOpenDatasetBtn: HTMLButtonElement;
+  emptyLoadSampleBtn: HTMLButtonElement;
+  emptyStateCompatibilityText: HTMLElement;
+  inspectorTitle: HTMLElement;
+  inspectorSubtitle: HTMLElement;
+  inspectorAnnotationTabBtn: HTMLButtonElement;
+  inspectorTransformTabBtn: HTMLButtonElement;
+  inspectorAutomationTabBtn: HTMLButtonElement;
+  inspectorAnnotationPane: HTMLElement;
+  inspectorTransformPane: HTMLElement;
+  inspectorAutomationPane: HTMLElement;
+  activeToolSummary: HTMLElement;
+  selectedAnnotationCount: HTMLElement;
+  selectionEmptyState: HTMLElement;
+  selectionDetails: HTMLElement;
+  selectionClassSelect: HTMLSelectElement;
+  selectionGeometryX: HTMLInputElement;
+  selectionGeometryY: HTMLInputElement;
+  selectionGeometryWidth: HTMLInputElement;
+  selectionGeometryHeight: HTMLInputElement;
+  duplicateSelectionBtn: HTMLButtonElement;
+  hideSelectionBtn: HTMLButtonElement;
+  deleteSelectionBtn: HTMLButtonElement;
+  labelDisplayModeSelect: HTMLSelectElement;
+  layoutPlacementNotice: HTMLElement;
+  headerDocumentStatus: HTMLElement;
+  statusImageInfo: HTMLElement;
+  statusAnnotationInfo: HTMLElement;
+  documentStatus: HTMLElement;
+  statusMode: HTMLElement;
+  matchingEngineStatus: HTMLElement;
 }
 
 export interface UnsupportedEnvironmentDomElements {
@@ -276,14 +340,23 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     runAutomationBatchBtn: requireById<HTMLButtonElement>(documentRef, "runAutomationBatchBtn"),
     cancelAutomationBatchBtn: requireById<HTMLButtonElement>(documentRef, "cancelAutomationBatchBtn"),
     automationBatchProgressGroup: requireById<HTMLElement>(documentRef, "automationBatchProgressGroup"),
+    automationBatchPreflight: requireById<HTMLElement>(documentRef, "automationBatchPreflight"),
+    batchPreflightTargets: requireById<HTMLElement>(documentRef, "batchPreflightTargets"),
+    batchPreflightPolicy: requireById<HTMLElement>(documentRef, "batchPreflightPolicy"),
+    batchDryRunToggle: requireById<HTMLInputElement>(documentRef, "batchDryRunToggle"),
+    confirmAutomationBatchBtn: requireById<HTMLButtonElement>(documentRef, "confirmAutomationBatchBtn"),
+    closeAutomationPreflightBtn: requireById<HTMLButtonElement>(documentRef, "closeAutomationPreflightBtn"),
     automationBatchCurrentFile: requireById<HTMLElement>(documentRef, "automationBatchCurrentFile"),
     automationBatchCounts: requireById<HTMLElement>(documentRef, "automationBatchCounts"),
     automationBatchProgressBar: requireById<HTMLElement>(documentRef, "automationBatchProgressBar"),
     automationBatchResultSummary: requireById<HTMLElement>(documentRef, "automationBatchResultSummary"),
     automationBatchResultList: requireById<HTMLElement>(documentRef, "automationBatchResultList"),
+    retryFailedBatchBtn: requireById<HTMLButtonElement>(documentRef, "retryFailedBatchBtn"),
     templateMatchingModal: new bootstrapRef.Modal(templateMatchingModalElement),
     templateMatchingSourceName: requireById<HTMLElement>(documentRef, "templateMatchingSourceName"),
     templateSourceImageSelect: requireById<HTMLSelectElement>(documentRef, "templateSourceImageSelect"),
+    templatePointerRoiRadio: requireById<HTMLInputElement>(documentRef, "templatePointerRoiRadio"),
+    templatePointerSelectRadio: requireById<HTMLInputElement>(documentRef, "templatePointerSelectRadio"),
     templateWorkspaceZoomInput: requireById<HTMLInputElement>(documentRef, "templateWorkspaceZoomInput"),
     templateWorkspaceZoomValue: requireById<HTMLElement>(documentRef, "templateWorkspaceZoomValue"),
     templateWorkspaceScroller: requireById<HTMLElement>(documentRef, "templateWorkspaceScroller"),
@@ -294,6 +367,11 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateMatchCoordinates: requireById<HTMLElement>(documentRef, "templateMatchCoordinates"),
     templateMatchTimings: requireById<HTMLElement>(documentRef, "templateMatchTimings"),
     templateMatchCandidates: requireById<HTMLElement>(documentRef, "templateMatchCandidates"),
+    templateMatchContextMenu: requireById<HTMLElement>(documentRef, "templateMatchContextMenu"),
+    templateMatchContextSummary: requireById<HTMLElement>(documentRef, "templateMatchContextSummary"),
+    templateMatchContextClassInput: requireById<HTMLInputElement>(documentRef, "templateMatchContextClassInput"),
+    templateMatchContextAssignBtn: requireById<HTMLButtonElement>(documentRef, "templateMatchContextAssignBtn"),
+    templateMatchContextDeleteBtn: requireById<HTMLButtonElement>(documentRef, "templateMatchContextDeleteBtn"),
     newAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "newAutomationPresetBtn"),
     deleteAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "deleteAutomationPresetBtn"),
     templateNameInput: requireById<HTMLInputElement>(documentRef, "templateNameInput"),
@@ -302,8 +380,15 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateLayoutOutputSettings: requireById<HTMLElement>(documentRef, "templateLayoutOutputSettings"),
     templateMultipleOutputSettings: requireById<HTMLElement>(documentRef, "templateMultipleOutputSettings"),
     templateLayoutSelect: requireById<HTMLSelectElement>(documentRef, "templateLayoutSelect"),
+    templateApplyAllMatchesRadio: requireById<HTMLInputElement>(documentRef, "templateApplyAllMatchesRadio"),
+    templateApplySelectedMatchesRadio: requireById<HTMLInputElement>(documentRef, "templateApplySelectedMatchesRadio"),
     templateMultipleClassIdInput: requireById<HTMLInputElement>(documentRef, "templateMultipleClassIdInput"),
     templateMaximumDetectionsInput: requireById<HTMLInputElement>(documentRef, "templateMaximumDetectionsInput"),
+    templateMatchSelectionControls: requireById<HTMLElement>(documentRef, "templateMatchSelectionControls"),
+    templateMatchSelectionSummary: requireById<HTMLElement>(documentRef, "templateMatchSelectionSummary"),
+    selectAllTemplateMatchesBtn: requireById<HTMLButtonElement>(documentRef, "selectAllTemplateMatchesBtn"),
+    clearTemplateMatchSelectionBtn: requireById<HTMLButtonElement>(documentRef, "clearTemplateMatchSelectionBtn"),
+    assignTemplateMatchClassBtn: requireById<HTMLButtonElement>(documentRef, "assignTemplateMatchClassBtn"),
     templateStrictNonOverlapToggle: requireById<HTMLInputElement>(documentRef, "templateStrictNonOverlapToggle"),
     templateNmsIouInput: requireById<HTMLInputElement>(documentRef, "templateNmsIouInput"),
     templatePaddingXInput: requireById<HTMLInputElement>(documentRef, "templatePaddingXInput"),
@@ -390,7 +475,50 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     contextMenu: requireById<HTMLElement>(documentRef, "context-menu"),
     ctxEditLabel: requireById<HTMLElement>(documentRef, "ctx-edit-label"),
     ctxDeleteLabel: requireById<HTMLElement>(documentRef, "ctx-delete-label"),
-    loadingOverlay: requireById<HTMLElement>(documentRef, "loading-overlay")
+    loadingOverlay: requireById<HTMLElement>(documentRef, "loading-overlay"),
+    loadingStatusText: requireById<HTMLElement>(documentRef, "loadingStatusText"),
+    taskFilesBtn: requireById<HTMLButtonElement>(documentRef, "taskFilesBtn"),
+    taskAnnotateBtn: requireById<HTMLButtonElement>(documentRef, "taskAnnotateBtn"),
+    taskAutomateBtn: requireById<HTMLButtonElement>(documentRef, "taskAutomateBtn"),
+    refreshDatasetBtn: requireById<HTMLButtonElement>(documentRef, "refreshDatasetBtn"),
+    datasetConnectionStatus: requireById<HTMLElement>(documentRef, "datasetConnectionStatus"),
+    fileSystemCompatibilityNotice: requireById<HTMLElement>(documentRef, "fileSystemCompatibilityNotice"),
+    imageCountBadge: requireById<HTMLElement>(documentRef, "imageCountBadge"),
+    classSearchInput: requireById<HTMLInputElement>(documentRef, "classSearchInput"),
+    addClassShortcutBtn: requireById<HTMLButtonElement>(documentRef, "addClassShortcutBtn"),
+    canvasEmptyState: requireById<HTMLElement>(documentRef, "canvasEmptyState"),
+    layoutGhostCanvas: requireById<HTMLCanvasElement>(documentRef, "layoutGhostCanvas"),
+    emptyOpenDatasetBtn: requireById<HTMLButtonElement>(documentRef, "emptyOpenDatasetBtn"),
+    emptyLoadSampleBtn: requireById<HTMLButtonElement>(documentRef, "emptyLoadSampleBtn"),
+    emptyStateCompatibilityText: requireById<HTMLElement>(documentRef, "emptyStateCompatibilityText"),
+    inspectorTitle: requireById<HTMLElement>(documentRef, "inspectorTitle"),
+    inspectorSubtitle: requireById<HTMLElement>(documentRef, "inspectorSubtitle"),
+    inspectorAnnotationTabBtn: requireById<HTMLButtonElement>(documentRef, "inspectorAnnotationTabBtn"),
+    inspectorTransformTabBtn: requireById<HTMLButtonElement>(documentRef, "inspectorTransformTabBtn"),
+    inspectorAutomationTabBtn: requireById<HTMLButtonElement>(documentRef, "inspectorAutomationTabBtn"),
+    inspectorAnnotationPane: requireById<HTMLElement>(documentRef, "inspectorAnnotationPane"),
+    inspectorTransformPane: requireById<HTMLElement>(documentRef, "inspectorTransformPane"),
+    inspectorAutomationPane: requireById<HTMLElement>(documentRef, "inspectorAutomationPane"),
+    activeToolSummary: requireById<HTMLElement>(documentRef, "activeToolSummary"),
+    selectedAnnotationCount: requireById<HTMLElement>(documentRef, "selectedAnnotationCount"),
+    selectionEmptyState: requireById<HTMLElement>(documentRef, "selectionEmptyState"),
+    selectionDetails: requireById<HTMLElement>(documentRef, "selectionDetails"),
+    selectionClassSelect: requireById<HTMLSelectElement>(documentRef, "selectionClassSelect"),
+    selectionGeometryX: requireById<HTMLInputElement>(documentRef, "selectionGeometryX"),
+    selectionGeometryY: requireById<HTMLInputElement>(documentRef, "selectionGeometryY"),
+    selectionGeometryWidth: requireById<HTMLInputElement>(documentRef, "selectionGeometryWidth"),
+    selectionGeometryHeight: requireById<HTMLInputElement>(documentRef, "selectionGeometryHeight"),
+    duplicateSelectionBtn: requireById<HTMLButtonElement>(documentRef, "duplicateSelectionBtn"),
+    hideSelectionBtn: requireById<HTMLButtonElement>(documentRef, "hideSelectionBtn"),
+    deleteSelectionBtn: requireById<HTMLButtonElement>(documentRef, "deleteSelectionBtn"),
+    labelDisplayModeSelect: requireById<HTMLSelectElement>(documentRef, "labelDisplayModeSelect"),
+    layoutPlacementNotice: requireById<HTMLElement>(documentRef, "layoutPlacementNotice"),
+    headerDocumentStatus: requireById<HTMLElement>(documentRef, "headerDocumentStatus"),
+    statusImageInfo: requireById<HTMLElement>(documentRef, "statusImageInfo"),
+    statusAnnotationInfo: requireById<HTMLElement>(documentRef, "statusAnnotationInfo"),
+    documentStatus: requireById<HTMLElement>(documentRef, "documentStatus"),
+    statusMode: requireById<HTMLElement>(documentRef, "statusMode"),
+    matchingEngineStatus: requireById<HTMLElement>(documentRef, "matchingEngineStatus")
   };
 }
 

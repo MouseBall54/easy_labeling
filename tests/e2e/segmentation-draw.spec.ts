@@ -246,6 +246,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   expect(edgeOnSample?.edge?.[3]).toBe(255);
   expect(edgeOnSample?.halo?.[3] ?? 0).toBeGreaterThan(0);
 
+  await page.locator(".segmentation-display-settings > summary").click();
   await page.locator('#segmentationEdgeHighlightToggle').uncheck();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, '__easyLabelingTestApi') as {

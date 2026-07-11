@@ -252,7 +252,7 @@ def create_automation_library(sample_1: np.ndarray, sample_1_boxes: list[Box]) -
             "manualOffset": {"x": 0, "y": 0},
             "matching": {
                 "minimumScore": 0.85,
-                "searchRoi": {"x": 560, "y": 250, "width": 220, "height": 180},
+                "searchRoi": None,
                 "mode": "accurate",
             },
             "multipleDetection": default_multiple,
@@ -271,7 +271,7 @@ def create_automation_library(sample_1: np.ndarray, sample_1_boxes: list[Box]) -
             "manualOffset": {"x": 0, "y": 0},
             "matching": {
                 "minimumScore": 0.82,
-                "searchRoi": {"x": 560, "y": 250, "width": 220, "height": 180},
+                "searchRoi": None,
                 "mode": "fast",
             },
             "multipleDetection": default_multiple,

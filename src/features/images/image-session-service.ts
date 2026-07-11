@@ -275,35 +275,25 @@ export function createImageSessionService(
     async loadLabels(imageName: string, loadToken: number): Promise<void> {
       const imageBaseName = imageFileNameToBaseName(imageName);
 
-      if (state.workflow === "detection") {
-        if (!state.labelFolderHandle) {
-          return;
-        }
-
+      let detectionYolo = "";
+      if (state.labelFolderHandle) {
         const labelFilePath = resolveAnnotationAssetPaths("detection", imageBaseName).primaryFilePath;
         const labelFileName = labelFilePath.split("/").pop() ?? `${imageBaseName}.txt`;
         try {
-          const yoloData = await readTextFileByName(state.labelFolderHandle, labelFileName);
+          detectionYolo = await readTextFileByName(state.labelFolderHandle, labelFileName);
           if (loadToken !== state.currentLoadToken) {
             return;
-          }
-
-          if (yoloData.trim()) {
-            await deps.applyLoadedYolo(yoloData);
           }
         } catch (error: unknown) {
           if (!isNotFoundError(error)) {
             throw error;
           }
         }
-        return;
       }
-
-      if (state.workflow !== "segmentation") {
-        return;
-      }
+      await deps.applyLoadedYolo(detectionYolo);
 
       if (!state.imageFolderHandle) {
+        await deps.applyLoadedSegmentationSnapshot(null);
         return;
       }
 

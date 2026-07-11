@@ -118,8 +118,9 @@ test("layout and automation: modal management, both matching modes, and offscree
   });
 
   await page.goto("/index.html");
-  await expect(page.locator('[data-ui="automation-controls"]')).toBeVisible();
+  await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
   await expect(page.locator("#right-panel #layoutNameInput")).toHaveCount(0);
+  await page.locator("#inspectorTransformTabBtn").click();
   await expect(page.locator("#right-panel #openLayoutSetupBtn")).toBeVisible();
 
   await page.locator("#selectImageFolderBtn").click();
@@ -178,26 +179,46 @@ test("layout and automation: modal management, both matching modes, and offscree
     return api?.getRectCount?.() ?? -1;
   })).toBe(2);
 
+  await page.locator("#inspectorAutomationTabBtn").click();
   await page.locator("#openTemplateMatchingBtn").click();
   const modal = page.locator("#templateMatchingModal");
   await expect(modal).toBeVisible();
+  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
+  await expect(page.locator("#templatePointerSelectRadio")).toBeDisabled();
+  await modal.locator(".template-advanced-settings > summary").click();
   await expect(page.locator("#templateSourceImageSelect option")).toHaveCount(2);
   await expect(page.locator("#templateSourceImageSelect")).toHaveValue("scene-a.png");
+  await expect(page.locator("#templateSearchRoiToggle")).not.toBeChecked();
   await page.locator("#templateNameInput").fill("Shifted station");
   await page.locator("#templateMinimumScoreInput").fill("0.50");
   await page.locator("#templateSearchRoiToggle").check();
   await page.locator("#templateSearchWidthInput").fill("68");
   await page.locator("#templateSearchHeightInput").fill("90");
   const canvas = page.locator("#templateMatchingCanvas");
+  await canvas.scrollIntoViewIfNeeded();
   const bounds = await canvas.boundingBox();
   expect(bounds).not.toBeNull();
   if (!bounds) {
     throw new Error("Template canvas bounds are unavailable");
   }
+  const canvasHit = await page.evaluate(({ x, y }) => ({
+    hit: (() => {
+      const element = document.elementFromPoint(x, y);
+      return element ? { id: element.id, tag: element.tagName, className: element.className } : null;
+    })(),
+    viewport: { width: window.innerWidth, height: window.innerHeight }
+  }), {
+    x: bounds.x + 12,
+    y: bounds.y + 12
+  });
+  if (canvasHit.hit?.id !== "templateMatchingCanvas") {
+    throw new Error(`Template canvas is not hit-testable: ${JSON.stringify({ canvasHit, bounds })}`);
+  }
   await page.mouse.move(bounds.x + 12, bounds.y + 12);
   await page.mouse.down();
   await page.mouse.move(bounds.x + 45, bounds.y + 48, { steps: 5 });
   await page.mouse.up();
+  await expect(canvas).toHaveAttribute("data-roi-ready", "true");
 
   await page.locator("#saveAutomationPresetBtn").click();
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(2);
@@ -228,6 +249,18 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(modal).toBeHidden();
 
   await page.locator("#runAutomationBatchBtn").click();
+  await expect(page.locator("#automationBatchPreflight")).toBeVisible();
+  await expect(page.locator("#batchPreflightTargets")).toHaveText("2 images");
+  await page.locator("#batchDryRunToggle").check();
+  await page.locator("#confirmAutomationBatchBtn").click();
+  await expect(page.locator("#automationBatchResultSummary")).toContainText("Dry run", { timeout: 30_000 });
+  await expect.poll(async () => page.evaluate(() => {
+    const fixture = Reflect.get(window, "__automationFixture") as { readLabel?: (name: string) => string | null } | undefined;
+    return fixture?.readLabel?.("scene-b.txt") ?? null;
+  })).toBeNull();
+
+  await page.locator("#runAutomationBatchBtn").click();
+  await page.locator("#confirmAutomationBatchBtn").click();
   await expect(page.locator("#automationBatchCounts")).toHaveText("2 / 2", { timeout: 30_000 });
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Success 1");
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Skipped 1");
@@ -250,6 +283,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#templateMinimumScoreInput").fill("0.40");
   await page.locator("#templateMaximumDetectionsInput").fill("10");
   await page.locator("#templateExistingPolicySelect").selectOption("append");
+  await canvas.scrollIntoViewIfNeeded();
   const multiBounds = await canvas.boundingBox();
   if (!multiBounds) {
     throw new Error("Template canvas bounds are unavailable");
@@ -260,13 +294,77 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.mouse.up();
   await page.locator("#testTemplateMatchBtn").click();
   await expect(page.locator("#templateMatchScore")).toContainText("matches", { timeout: 30_000 });
-  await expect(page.locator("#templateMatchCandidates > div")).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.locator("#templateMatchCandidates > .template-match-candidate-row")).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.locator("#templatePointerSelectRadio")).toBeEnabled();
+  await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
+  const appEditModeBeforeTemplateShortcut = await page.locator("#editMode").isChecked();
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
+  expect(await page.locator("#editMode").isChecked()).toBe(appEditModeBeforeTemplateShortcut);
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
+
+  const rightClickTemplateMatch = async (index: number): Promise<void> => {
+    const candidate = page.getByTestId(`template-match-candidate-${index}`);
+    const geometry = await candidate.evaluate((element) => ({
+      x: Number((element as HTMLElement).dataset.matchX),
+      y: Number((element as HTMLElement).dataset.matchY),
+      width: Number((element as HTMLElement).dataset.matchWidth),
+      height: Number((element as HTMLElement).dataset.matchHeight)
+    }));
+    const currentBounds = await canvas.boundingBox();
+    if (!currentBounds) {
+      throw new Error("Template canvas bounds are unavailable for result context menu");
+    }
+    const canvasSize = await canvas.evaluate((element) => ({
+      width: (element as HTMLCanvasElement).width,
+      height: (element as HTMLCanvasElement).height
+    }));
+    await page.mouse.click(
+      currentBounds.x + ((geometry.x + geometry.width / 2) * currentBounds.width / canvasSize.width),
+      currentBounds.y + ((geometry.y + geometry.height / 2) * currentBounds.height / canvasSize.height),
+      { button: "right" }
+    );
+  };
+
+  await rightClickTemplateMatch(0);
+  await expect(page.locator("#templateMatchContextMenu")).toBeVisible();
+  await page.locator("#templateMatchContextClassInput").fill("12");
+  await page.locator("#templateMatchContextAssignBtn").click();
+  await expect(page.getByTestId("template-match-candidate-0")).toContainText("Class 12");
+  await rightClickTemplateMatch(0);
+  await page.locator("#templateMatchContextDeleteBtn").click();
+  await expect(page.locator("#templateMatchCandidates > .template-match-candidate-row")).toHaveCount(1);
+  await expect(page.locator("#templateMatchScore")).toHaveText("1 match");
+
+  await page.locator("#testTemplateMatchBtn").click();
+  await expect(page.locator("#templateMatchCandidates > .template-match-candidate-row")).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
+  await expect(page.locator("#templateApplyAllMatchesRadio")).toBeChecked();
+  await expect(page.locator("#templateMatchSelectionControls")).toBeHidden();
+  await page.getByTestId("template-match-select-0").check();
+  await expect(page.locator("#templateApplySelectedMatchesRadio")).toBeChecked();
+  await expect(page.locator("#templateMatchSelectionSummary")).toContainText("1 selected");
+  await page.locator("#assignTemplateMatchClassBtn").click();
+  await expect(page.getByTestId("template-match-candidate-0")).toContainText("Class 8");
+  await page.getByTestId("template-match-select-0").uncheck();
+  await page.getByTestId("template-match-select-1").check();
+  await page.locator("#templateMultipleClassIdInput").fill("9");
+  await page.locator("#assignTemplateMatchClassBtn").click();
+  await expect(page.getByTestId("template-match-candidate-1")).toContainText("Class 9");
+  await page.getByTestId("template-match-select-0").check();
+  await expect(page.locator("#templateMatchSelectionSummary")).toContainText("2 selected · 2 assigned");
   await expect(page.locator("#applyTemplateMatchBtn")).toBeEnabled();
   await page.locator("#applyTemplateMatchBtn").click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
   })).toBe(4);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as { getVisibleClassKeys?: () => string[] } | undefined;
+    return api?.getVisibleClassKeys?.() ?? [];
+  })).toEqual(["0", "1", "8", "9"]);
+  await page.locator("#templateMultipleClassIdInput").fill("8");
   await page.locator("#saveAutomationPresetBtn").click();
   await modal.locator(".modal-footer").getByRole("button", { name: "Close" }).click();
   await expect(modal).toBeHidden();
@@ -276,6 +374,7 @@ test("layout and automation: modal management, both matching modes, and offscree
     return api?.getRectCount?.() ?? -1;
   })).toBe(2);
   await page.locator("#runAutomationBatchBtn").click();
+  await page.locator("#confirmAutomationBatchBtn").click();
   await expect(page.locator("#automationBatchCounts")).toHaveText("2 / 2", { timeout: 30_000 });
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Success 2");
   await expect.poll(async () => page.evaluate(() => {

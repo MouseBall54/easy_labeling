@@ -1209,6 +1209,39 @@ describe("features/canvas/canvas-controller", () => {
     expect(edge).toMatchObject({ left: 180, top: 20 });
   });
 
+  it("edits a single selected box geometry in pixels with one-step undo", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const rect = createRect({
+      left: 10,
+      top: 15,
+      width: 20,
+      height: 10,
+      labelClass: "2",
+      originalYolo: { x_center: "0.1", y_center: "0.2", width: "0.1", height: "0.1" }
+    });
+    controller.canvas.add(rect);
+    controller.canvas.setActiveObject(rect);
+
+    expect(controller.updateSelectedBoxGeometry?.({ x: 30, y: 20, width: 40, height: 25 })).toBe(true);
+    expect(rect.getBoundingRect()).toEqual({ left: 30, top: 20, width: 40, height: 25 });
+    expect(rect.originalYolo).toBeNull();
+    expect(history.getPastEntries()).toHaveLength(1);
+
+    controller.undo();
+    expect(controller.getObjects("rect")[0]?.getBoundingRect(true)).toEqual({ left: 10, top: 15, width: 20, height: 10 });
+  });
+
+  it("rejects inspector geometry that would leave the image", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const rect = createRect({ left: 10, top: 15, width: 20, height: 10, labelClass: "2" });
+    controller.canvas.add(rect);
+    controller.canvas.setActiveObject(rect);
+
+    expect(() => controller.updateSelectedBoxGeometry?.({ x: 190, y: 20, width: 20, height: 10 })).toThrow(/image bounds/);
+    expect(rect.getBoundingRect()).toEqual({ left: 10, top: 15, width: 20, height: 10 });
+  });
+
   it("applies multiple detection boxes with class IDs, padded geometry, fresh IDs, and one-step undo", () => {
     const history = createCanvasHistoryService();
     const controller = createCanvasController(createState(), createDeps({ historyService: history }));

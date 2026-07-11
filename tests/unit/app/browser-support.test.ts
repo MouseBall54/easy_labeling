@@ -95,7 +95,7 @@ describe("browser support evaluation", () => {
 });
 
 describe("createApp browser support and composition", () => {
-  it("returns unsupported when showDirectoryPicker is missing and skips factories", () => {
+  it("creates the app in sample-only mode when showDirectoryPicker is missing", () => {
     const harness = createFactorySpies();
 
     const result = createApp({
@@ -109,12 +109,12 @@ describe("createApp browser support and composition", () => {
       createState: harness.createState
     });
 
-    expect(result).toEqual({ ok: false, reason: "missing-show-directory-picker" });
-    expect(harness.createState).not.toHaveBeenCalled();
-    expect(harness.factories.createCanvasController).not.toHaveBeenCalled();
-    expect(harness.factories.createUIManager).not.toHaveBeenCalled();
-    expect(harness.factories.createFileSystem).not.toHaveBeenCalled();
-    expect(harness.factories.createEventManager).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(harness.createState).toHaveBeenCalledTimes(1);
+    expect(harness.factories.createCanvasController).toHaveBeenCalledTimes(1);
+    expect(harness.factories.createUIManager).toHaveBeenCalledTimes(1);
+    expect(harness.factories.createFileSystem).toHaveBeenCalledTimes(1);
+    expect(harness.factories.createEventManager).toHaveBeenCalledTimes(1);
   });
 
   it("returns unsupported for mobile user agent", () => {

@@ -14,7 +14,6 @@ import {
   type FabricObjectLike,
   type FabricCircleLike,
   type FabricRectLike,
-  type FabricTextLike,
   type YoloMetadata
 } from "./fabric-types.js";
 import { normalizeFilterClassKey } from "../../ui/filter-state.js";
@@ -34,6 +33,7 @@ import {
   type CanvasHistoryRectSnapshot,
   type CanvasHistorySelectionPayload
 } from "./history.js";
+import { layoutAnnotationLabels } from "./annotation-label-renderer.js";
 
 function hasTinySize(rect: FabricRectLike): boolean {
   return rect.width < 5 && rect.height < 5;
@@ -74,6 +74,23 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
   let isDrawing = false;
   let startPoint: CanvasPoint | null = null;
   let currentRect: FabricRectLike | null = null;
+  let workflowActive = true;
+  let suspendedSelection: CanvasHistorySelectionPayload | null = null;
+  let hoveredAnnotationId: string | null = null;
+  let labelLayoutFrame: number | null = null;
+
+  const scheduleLabelLayout = (): void => {
+    if (labelLayoutFrame !== null) {
+      return;
+    }
+    if (typeof globalThis.requestAnimationFrame !== "function") {
+      return;
+    }
+    labelLayoutFrame = globalThis.requestAnimationFrame(() => {
+      labelLayoutFrame = null;
+      controller.updateAllLabelTexts();
+    });
+  };
 
   const clipboard = createClipboardManager({
     fabric: deps.fabric,
@@ -120,6 +137,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       selectionBefore: input.selectionBefore,
       selectionAfter: input.selectionAfter
     });
+    deps.onDocumentMutation?.();
   };
 
   const removeRectInternal = (object: FabricRectLike): void => {
@@ -408,6 +426,12 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     clear(): void {
+      if (labelLayoutFrame !== null && typeof globalThis.cancelAnimationFrame === "function") {
+        globalThis.cancelAnimationFrame(labelLayoutFrame);
+      }
+      labelLayoutFrame = null;
+      hoveredAnnotationId = null;
+      suspendedSelection = null;
       shell.clear();
     },
 
@@ -459,6 +483,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         canvas.add(rect);
         this.drawLabelText(rect);
       });
+      this.updateAllLabelTexts();
     },
 
     getLabelsAsYolo(): string {
@@ -725,6 +750,86 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       return extractVisibleRectSelection(canvas.getActiveObject()).length;
     },
 
+    updateSelectedBoxGeometry(geometry: { x: number; y: number; width: number; height: number }): boolean {
+      const image = state.currentImage;
+      const selectedRects = extractVisibleRectSelection(canvas.getActiveObject());
+      if (!image || selectedRects.length !== 1) {
+        return false;
+      }
+      if (
+        !Number.isFinite(geometry.x) ||
+        !Number.isFinite(geometry.y) ||
+        !Number.isFinite(geometry.width) ||
+        !Number.isFinite(geometry.height) ||
+        geometry.width <= 0 ||
+        geometry.height <= 0
+      ) {
+        throw new Error("Box geometry must use finite positive pixel values");
+      }
+      if (
+        geometry.x < 0 ||
+        geometry.y < 0 ||
+        geometry.x + geometry.width > image.width ||
+        geometry.y + geometry.height > image.height
+      ) {
+        throw new Error("Box geometry must stay inside the image bounds");
+      }
+
+      const rect = selectedRects[0];
+      const bounds = rect.getBoundingRect(true);
+      const epsilon = 1e-8;
+      if (
+        Math.abs(bounds.left - geometry.x) <= epsilon &&
+        Math.abs(bounds.top - geometry.y) <= epsilon &&
+        Math.abs(bounds.width - geometry.width) <= epsilon &&
+        Math.abs(bounds.height - geometry.height) <= epsilon
+      ) {
+        return false;
+      }
+
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      const baseWidth = Math.max(rect.width, epsilon);
+      const baseHeight = Math.max(rect.height, epsilon);
+      rect.set({
+        left: rect.left + geometry.x - bounds.left,
+        top: rect.top + geometry.y - bounds.top,
+        scaleX: geometry.width / baseWidth,
+        scaleY: geometry.height / baseHeight
+      });
+      rect.originalYolo = null;
+      rect.setCoords();
+      this.updateLabelText(rect);
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+      return true;
+    },
+
+    setSelectedBoxesVisibility(visible: boolean): boolean {
+      const selectedRects = extractVisibleRectSelection(canvas.getActiveObject());
+      if (selectedRects.length === 0) {
+        return false;
+      }
+      selectedRects.forEach((rect) => {
+        rect.visible = visible;
+        if (rect._labelText) {
+          rect._labelText.visible = visible;
+        }
+      });
+      if (!visible) {
+        canvas.discardActiveObject();
+      }
+      canvas.requestRenderAll();
+      deps.updateLabelList();
+      return true;
+    },
+
     highlightSelection(): void {
       const rects = this.getObjects("rect").filter(isRectObject);
       const activeObjects = canvas.getActiveObjects();
@@ -944,14 +1049,17 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
     setZoomPercentage(percentage: string): void {
       shell.setZoomPercentage(percentage);
+      this.updateAllLabelTexts();
     },
 
     zoom(factor: number): void {
       shell.zoom(factor);
+      this.updateAllLabelTexts();
     },
 
     resetZoom(): void {
       shell.resetZoom();
+      this.updateAllLabelTexts();
     },
 
     resizeCanvas(): void {
@@ -967,88 +1075,159 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     drawLabelText(rect: FabricRectLike): void {
-      if (!state.showLabelsOnCanvas) {
+      if (rect._labelText) {
+        scheduleLabelLayout();
         return;
       }
 
-      const displayName = deps.getDisplayNameForClass(rect.labelClass);
       const anchor = getRectLabelAnchor(rect);
-      const text = new deps.fabric.Text(displayName, {
+      const text = new deps.fabric.Text(String(rect.labelClass ?? ""), {
+        left: anchor.left,
+        top: anchor.top,
+        originX: "left",
+        originY: "top",
+        fontSize: state.labelFontSize,
+        fontFamily: "'Segoe UI', sans-serif",
+        fontWeight: "600",
+        fill: "#ffffff",
+        backgroundColor: rect.stroke,
+        padding: 3,
+        selectable: false,
+        evented: false,
+        visible: workflowActive && state.showLabelsOnCanvas && rect.visible !== false,
+        _isLabelText: true,
+        _rect: rect,
+        _labelLayoutVisible: true,
+        _labelRepresentation: "full"
+      });
+
+      rect._labelText = text;
+      canvas.add(text);
+      scheduleLabelLayout();
+    },
+
+    updateLabelText(rect: FabricRectLike): void {
+      if (!rect._labelText) {
+        this.drawLabelText(rect);
+        return;
+      }
+      const anchor = getRectLabelAnchor(rect);
+      rect._labelText.set({
+        text: deps.getDisplayNameForClass(rect.labelClass),
         left: anchor.left,
         top: anchor.top - 4,
         originX: "left",
         originY: "bottom",
         fontSize: state.labelFontSize,
-        fontFamily: "'Consolas', monospace",
-        fill: rect.stroke,
-        backgroundColor: rect.fill,
-        padding: 2,
-        selectable: false,
-        evented: false,
-        _isLabelText: true,
-        _rect: rect
+        backgroundColor: rect.stroke,
+        fill: "#ffffff",
+        visible: workflowActive && state.showLabelsOnCanvas && rect.visible !== false
       });
-
-      rect._labelText = text;
-      canvas.add(text);
-    },
-
-    updateLabelText(rect: FabricRectLike): void {
-      if (!rect._labelText) {
-        return;
-      }
-
-      const displayName = deps.getDisplayNameForClass(rect.labelClass);
-      const anchor = getRectLabelAnchor(rect);
-
-      rect._labelText.set({
-        text: displayName,
-        left: anchor.left,
-        top: anchor.top - 4,
-        originY: "bottom",
-        fontSize: state.labelFontSize,
-        fontFamily: "'Consolas', monospace",
-        padding: 2,
-        fill: rect.stroke,
-        backgroundColor: rect.fill
-      });
+      rect._labelText._labelLayoutVisible = true;
+      rect._labelText._labelRepresentation = "full";
+      scheduleLabelLayout();
     },
 
     updateAllLabelTexts(): void {
-      this.getObjects("rect")
-        .filter(isRectObject)
-        .forEach((rect) => {
-          if (rect._labelText) {
-            this.updateLabelText(rect);
-          }
+      const image = state.currentImage;
+      if (!image) {
+        return;
+      }
+      const rects = this.getObjects("rect").filter(isRectObject);
+      rects.forEach((rect) => {
+        if (!rect._labelText) {
+          const anchor = getRectLabelAnchor(rect);
+          const text = new deps.fabric.Text(String(rect.labelClass ?? ""), {
+            left: anchor.left,
+            top: anchor.top,
+            originX: "left",
+            originY: "top",
+            fontSize: state.labelFontSize,
+            fontFamily: "'Segoe UI', sans-serif",
+            fontWeight: "600",
+            fill: "#ffffff",
+            backgroundColor: rect.stroke,
+            padding: 3,
+            selectable: false,
+            evented: false,
+            visible: false,
+            _isLabelText: true,
+            _rect: rect,
+            _labelLayoutVisible: false,
+            _labelRepresentation: "hidden"
+          });
+          rect._labelText = text;
+          canvas.add(text);
+        }
+      });
+
+      const [scaleX, , , scaleY, translateX, translateY] = canvas.viewportTransform;
+      const zoom = Math.max(0.01, canvas.getZoom());
+      const visibleSceneBounds = {
+        left: -translateX / (scaleX || zoom),
+        top: -translateY / (scaleY || zoom),
+        width: canvas.getWidth() / Math.abs(scaleX || zoom),
+        height: canvas.getHeight() / Math.abs(scaleY || zoom)
+      };
+      const selection = captureSelectionSnapshot();
+      const placements = layoutAnnotationLabels({
+        items: rects.map((rect) => ({
+          annotationId: ensureAnnotationId(rect),
+          classId: String(rect.labelClass ?? ""),
+          displayName: deps.getDisplayNameForClass(rect.labelClass),
+          bounds: rect.getBoundingRect(true)
+        })),
+        mode: state.showLabelsOnCanvas ? (state.labelDisplayMode ?? "auto") : "off",
+        zoom,
+        imageBounds: { left: 0, top: 0, width: image.width, height: image.height },
+        visibleSceneBounds,
+        selectedAnnotationIds: new Set(selection.annotationIds),
+        hoveredAnnotationId,
+        preferredFontSizePx: state.labelFontSize
+      });
+      const placementById = new Map(placements.map((placement) => [placement.annotationId, placement]));
+      rects.forEach((rect) => {
+        const text = rect._labelText;
+        if (!text) {
+          return;
+        }
+        const placement = placementById.get(ensureAnnotationId(rect));
+        const layoutVisible = Boolean(placement?.visible);
+        text._labelLayoutVisible = layoutVisible;
+        text._labelRepresentation = placement?.representation ?? "hidden";
+        text.set({
+          text: placement?.text ?? "",
+          left: placement?.left ?? 0,
+          top: placement?.top ?? 0,
+          originX: "left",
+          originY: "top",
+          fontSize: placement?.fontSize ?? state.labelFontSize,
+          fontFamily: "'Segoe UI', sans-serif",
+          fontWeight: placement?.representation === "full" ? "600" : "700",
+          padding: 3,
+          fill: "#ffffff",
+          backgroundColor: rect.stroke,
+          visible: workflowActive && rect.visible !== false && layoutVisible
         });
+      });
+      canvas.requestRenderAll();
     },
 
     toggleAllLabelTexts(visible: boolean): void {
-      if (visible) {
-        this.getObjects("rect")
-          .filter(isRectObject)
-          .forEach((rect) => {
-            this.drawLabelText(rect);
-          });
-      } else {
-        canvas
-          .getObjects("text")
-          .filter((obj): obj is FabricTextLike => obj.type === "text")
-          .forEach((text) => {
-            if (text._isLabelText) {
-              canvas.remove(text);
-            }
-          });
+      state.showLabelsOnCanvas = visible;
+      state.labelDisplayMode = visible ? (state.labelDisplayMode === "off" ? "auto" : state.labelDisplayMode ?? "auto") : "off";
+      this.updateAllLabelTexts();
+    },
 
-        this.getObjects("rect")
-          .filter(isRectObject)
-          .forEach((rect) => {
-            rect._labelText = null;
-          });
-      }
+    setLabelDisplayMode(mode): void {
+      state.labelDisplayMode = mode;
+      state.showLabelsOnCanvas = mode !== "off";
+      this.updateAllLabelTexts();
+    },
 
-      this.renderAll();
+    setHoveredAnnotation(rect): void {
+      hoveredAnnotationId = rect ? ensureAnnotationId(rect) : null;
+      this.updateAllLabelTexts();
     },
 
     applyVisibilityFromHiddenClasses(hiddenLabelClasses: ReadonlySet<string>, clearSelectionWhenFilteredHidden = true): void {
@@ -1060,9 +1239,9 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         .filter(isRectObject)
         .forEach((rect) => {
           const isHidden = isRectHiddenByFilter(rect, hiddenLabelClasses);
-          rect.set("visible", !isHidden);
+          rect.set("visible", workflowActive && !isHidden);
           if (rect._labelText) {
-            rect._labelText.set("visible", !isHidden);
+            rect._labelText.set("visible", workflowActive && !isHidden && rect._labelText._labelLayoutVisible === true);
           }
         });
 
@@ -1356,6 +1535,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       }
 
       replayHistoryEntry(entry, "undo");
+      deps.onDocumentMutation?.();
     },
 
     redo(): void {
@@ -1365,6 +1545,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       }
 
       replayHistoryEntry(entry, "redo");
+      deps.onDocumentMutation?.();
     },
 
     canUndo(): boolean {
@@ -1373,6 +1554,35 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
     canRedo(): boolean {
       return history.canRedo();
+    },
+
+    setWorkflowActive(active: boolean): void {
+      if (workflowActive === active) {
+        return;
+      }
+
+      workflowActive = active;
+      if (!active) {
+        suspendedSelection = captureSelectionSnapshot();
+        canvas.discardActiveObject();
+      }
+
+      this.getObjects("rect")
+        .filter(isRectObject)
+        .forEach((rect) => {
+          rect.set({
+            visible: active,
+            selectable: active && state.currentMode === "edit",
+            evented: active
+          });
+          rect._labelText?.set("visible", active && state.showLabelsOnCanvas && rect._labelText._labelLayoutVisible === true);
+        });
+
+      if (active && suspendedSelection) {
+        restoreSelectionFromPayload(suspendedSelection);
+        suspendedSelection = null;
+      }
+      canvas.requestRenderAll();
     }
   };
 

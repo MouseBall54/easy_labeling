@@ -281,11 +281,11 @@ describe("bootstrap/file-system-adapter", () => {
     expect(deps.canvasController.raw.getLabelsAsYolo).toHaveBeenCalledTimes(1);
 
     state.session.workflow = "segmentation";
-    await fileSystem.saveLabels(true);
+    await expect(fileSystem.saveLabels(true)).rejects.toThrow("Load an image before saving a Segmentation mask.");
     expect(await savedHandle.getFile().then((file) => file.text())).toBe("0 0.5 0.5 1 1");
     expect(deps.canvasController.raw.getLabelsAsYolo).toHaveBeenCalledTimes(1);
-    expect(deps.uiManager.renderImageList).toHaveBeenCalledTimes(2);
-    expect(deps.uiManager.renderPreviewList).toHaveBeenCalledTimes(2);
+    expect(deps.uiManager.renderImageList).toHaveBeenCalledTimes(1);
+    expect(deps.uiManager.renderPreviewList).toHaveBeenCalledTimes(1);
   });
 
   it("writes only a segmentation mask png instead of detection txt when segmentation workflow is active", async () => {

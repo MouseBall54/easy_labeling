@@ -149,6 +149,7 @@ function bootstrapBrowserRuntime(): void {
   const runtimeCanvasController = appResult.app.canvasController as RuntimeCanvasController;
   let testSelectionIds: string[] = [];
   runtimeUiManager.restoreDarkModeFromStorage();
+  runtimeUiManager.setDirectoryPickerSupport(typeof window.showDirectoryPicker === "function");
   runtimeUiManager.setupSplitters();
 
   Reflect.set(window, "__easyLabelingTestApi", {

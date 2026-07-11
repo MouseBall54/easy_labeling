@@ -8,9 +8,6 @@ const MOBILE_USER_AGENT_PATTERN =
 const MOBILE_ALERT_MESSAGE =
   "Mobile Access Notice: This application is optimized for a desktop environment and may not function correctly on mobile devices. For the best experience, please use a desktop browser.";
 
-const MISSING_PICKER_ALERT_MESSAGE =
-  "Incompatible Browser: This application uses the File System Access API, which is not supported by your current browser. Please use a modern browser like Chrome or Edge.";
-
 const MOBILE_FALLBACK_HTML =
   '<div class="container mt-5"><div class="alert alert-warning"><h2>Mobile Access Notice</h2><p>This application is designed for desktop use. Please switch to a desktop browser for full functionality.</p></div></div>';
 
@@ -48,14 +45,6 @@ export function runLegacyUnsupportedGate(input: {
     return {
       supported: false,
       reason: "mobile-user-agent"
-    };
-  }
-
-  if (typeof input.windowRef.showDirectoryPicker !== "function") {
-    input.alertRef(MISSING_PICKER_ALERT_MESSAGE);
-    return {
-      supported: false,
-      reason: "missing-show-directory-picker"
     };
   }
 

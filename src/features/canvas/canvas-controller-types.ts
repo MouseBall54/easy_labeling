@@ -1,4 +1,4 @@
-import type { AppMode, CanvasPoint } from "../../types/labels.js";
+import type { AppMode, CanvasPoint, LabelDisplayMode } from "../../types/labels.js";
 import type {
   CanvasImageLike,
   FabricActiveSelectionLike,
@@ -33,6 +33,7 @@ export interface CanvasControllerState {
   currentImage: CanvasImageLike | null;
   labelFolderHandle: unknown | null;
   showLabelsOnCanvas: boolean;
+  labelDisplayMode?: LabelDisplayMode;
   labelFontSize: number;
   isCrosshairVisible: boolean;
   lastMousePosition: CanvasPoint;
@@ -49,6 +50,7 @@ export interface CanvasControllerDeps {
   notify(message: string, duration?: number): void;
   getColorForClass?: (labelClass: string | undefined) => string;
   historyService?: CanvasHistoryService;
+  onDocumentMutation?(): void;
 }
 
 export interface CanvasShell {
@@ -90,6 +92,8 @@ export interface CanvasController {
   translateLayoutInstance(instanceId: string, delta: PixelPoint): void;
   translateSelectedBoxes(delta: PixelPoint): void;
   getSelectedBoxCount(): number;
+  updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
+  setSelectedBoxesVisibility?(visible: boolean): boolean;
   highlightSelection(): void;
   startDrawing(pointer: CanvasPoint): void;
   continueDrawing(pointer: CanvasPoint): void;
@@ -109,6 +113,8 @@ export interface CanvasController {
   updateLabelText(rect: FabricRectLike): void;
   updateAllLabelTexts(): void;
   toggleAllLabelTexts(visible: boolean): void;
+  setLabelDisplayMode?(mode: LabelDisplayMode): void;
+  setHoveredAnnotation?(rect: FabricRectLike | null): void;
   applyVisibilityFromHiddenClasses(hiddenLabelClasses: ReadonlySet<string>, clearSelectionWhenFilteredHidden?: boolean): void;
   selectAllLabels(): void;
   selectLabelsByClass(labelClass: string): void;
@@ -133,6 +139,7 @@ export interface CanvasController {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  setWorkflowActive?(active: boolean): void;
   setSegmentationTool?(tool: SegmentationTool): void;
   setSegmentationBrushRadius?(radius: number): void;
   setSegmentationActiveClass?(classId: string): void;

@@ -1,11 +1,13 @@
 import type { UIManager, UIManagerDeps } from "../app/contracts.js";
 import type { AppState } from "../app/state.js";
+import { getCurrentDocumentStatus } from "../app/document-status.js";
 import type { FileHandle } from "../types/files.js";
-import type { WorkflowType } from "../types/labels.js";
+import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import { getDOMElements, type BootstrapLike, type UiDomElements } from "../ui/dom-elements.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
+import { installModalFocusManagement } from "../ui/modal-focus.js";
 import {
   bindLabelFilterEvents,
   renderClassFileSelect,
@@ -86,8 +88,14 @@ export interface RuntimeUiManager extends UIManager {
   updateCurrentImageName(): void;
   updateMouseCoords(x: number, y: number): void;
   hideMouseCoords(): void;
-  showLoading(): void;
+  showLoading(message?: string): void;
   hideLoading(): void;
+  setDirectoryPickerSupport(available: boolean): void;
+  setActiveTask(task: "files" | "annotate" | "automate"): void;
+  setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
+  syncWorkspaceState(): void;
+  syncSelectionInspector(): void;
+  setLabelDisplayMode(mode: LabelDisplayMode, persist?: boolean): void;
   togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void;
   setupSplitters(): void;
   showClassFileContentModal(): void;
@@ -101,8 +109,41 @@ export function createUiManagerAdapter(input: {
   storage: Pick<Storage, "getItem" | "setItem">;
 }): RuntimeUiManager {
   const elements = getDOMElements(input.documentRef, input.bootstrapRef);
+  installModalFocusManagement(input.documentRef, [
+    "layoutSetupModal",
+    "templateMatchingModal",
+    "classFileViewerModal",
+    "labelClassModal"
+  ]);
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
+  let directoryPickerAvailable = true;
+  const initializedDenseLabelGroups = new Set<string>();
+
+  const setStatusText = (element: HTMLElement, text: string): void => {
+    const textElement = element.querySelector<HTMLElement>("span");
+    if (textElement) {
+      textElement.textContent = text;
+      return;
+    }
+    element.textContent = text;
+  };
+
+  const selectedDetectionRects = (): ReturnType<RuntimeCanvasController["raw"]["getObjects"]> => {
+    const canvasController = getCanvasController();
+    if (!canvasController || input.state.session.workflow !== "detection") {
+      return [];
+    }
+
+    const selected = canvasController.raw.canvas.getActiveObjects().filter(isRectObject);
+    const activeObject = canvasController.raw.canvas.getActiveObject();
+    if (activeObject && isActiveSelectionObject(activeObject)) {
+      selected.push(...activeObject.getObjects().filter(isRectObject));
+    } else if (activeObject && isRectObject(activeObject)) {
+      selected.push(activeObject);
+    }
+    return [...new Set(selected)];
+  };
 
   const getCanvasController = (): RuntimeCanvasController | null => {
     return deps?.canvasController as RuntimeCanvasController | null;
@@ -241,6 +282,186 @@ export function createUiManagerAdapter(input: {
 
     connect(connectedDeps: UIManagerDeps): void {
       deps = connectedDeps;
+      manager.syncWorkspaceState();
+    },
+
+    setDirectoryPickerSupport(available: boolean): void {
+      directoryPickerAvailable = available;
+      elements.fileSystemCompatibilityNotice.hidden = available;
+      elements.emptyStateCompatibilityText.hidden = available;
+      elements.selectImageFolderBtn.toggleAttribute("disabled", !available);
+      elements.loadClassInfoFolderBtn.toggleAttribute("disabled", !available);
+      manager.syncWorkspaceState();
+    },
+
+    setActiveTask(task: "files" | "annotate" | "automate"): void {
+      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, elements.taskAutomateBtn];
+      buttons.forEach((button) => {
+        const active = button.dataset.task === task;
+        button.classList.toggle("active", active);
+        if (active) {
+          button.setAttribute("aria-current", "page");
+        } else {
+          button.removeAttribute("aria-current");
+        }
+      });
+      input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
+      elements.leftPanel.classList.toggle("mobile-open", task === "files");
+      elements.rightPanel.classList.toggle("mobile-open", task !== "files");
+
+      if (task === "files") {
+        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
+        elements.imageSearchInput.focus({ preventScroll: true });
+        return;
+      }
+
+      manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
+      manager.setInspectorTab(task === "automate" ? "automation" : "annotation");
+    },
+
+    setInspectorTab(tab: "annotation" | "transform" | "automation"): void {
+      const controls = [
+        { id: "annotation", button: elements.inspectorAnnotationTabBtn, pane: elements.inspectorAnnotationPane },
+        { id: "transform", button: elements.inspectorTransformTabBtn, pane: elements.inspectorTransformPane },
+        { id: "automation", button: elements.inspectorAutomationTabBtn, pane: elements.inspectorAutomationPane }
+      ] as const;
+      controls.forEach((control) => {
+        const active = control.id === tab;
+        control.button.classList.toggle("active", active);
+        control.button.setAttribute("aria-selected", String(active));
+        control.button.tabIndex = active ? 0 : -1;
+        control.pane.classList.toggle("active", active);
+        control.pane.hidden = !active;
+      });
+    },
+
+    setLabelDisplayMode(mode: LabelDisplayMode, persist = true): void {
+      input.state.view.labelDisplayMode = mode;
+      input.state.view.showLabelsOnCanvas = mode !== "off";
+      elements.labelDisplayModeSelect.value = mode;
+      elements.showLabelsOnCanvasToggle.checked = mode !== "off";
+      getCanvasController()?.raw.setLabelDisplayMode?.(mode);
+      if (persist) {
+        input.storage.setItem("easy-labeling:label-display-mode", mode);
+      }
+      manager.syncWorkspaceState();
+    },
+
+    syncSelectionInspector(): void {
+      const rects = selectedDetectionRects();
+      const selectionCount = rects.length;
+      elements.selectedAnnotationCount.textContent = String(selectionCount);
+      elements.selectionEmptyState.hidden = selectionCount > 0;
+      elements.selectionDetails.hidden = selectionCount === 0;
+      elements.inspectorSubtitle.textContent = input.state.session.workflow === "segmentation"
+        ? "Paint and inspect mask regions"
+        : selectionCount === 0
+          ? "No annotation selected"
+          : `${selectionCount} annotation${selectionCount === 1 ? "" : "s"} selected`;
+
+      const availableClasses = [...new Set([
+        ...input.state.session.classNames.keys(),
+        ...rects.map((rect) => rect.labelClass ?? "").filter(Boolean)
+      ])].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+      const selectedClasses = [...new Set(rects.map((rect) => rect.labelClass ?? ""))];
+      const classValue = selectedClasses.length === 1 ? selectedClasses[0] : "";
+      elements.selectionClassSelect.replaceChildren();
+      const placeholder = input.documentRef.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = selectionCount > 1 && selectedClasses.length > 1 ? "Multiple classes" : "Choose class";
+      elements.selectionClassSelect.appendChild(placeholder);
+      availableClasses.forEach((classId) => {
+        const option = input.documentRef.createElement("option");
+        option.value = classId;
+        option.textContent = manager.getDisplayNameForClass(classId);
+        elements.selectionClassSelect.appendChild(option);
+      });
+      elements.selectionClassSelect.value = classValue;
+      elements.selectionClassSelect.disabled = selectionCount === 0;
+
+      const oneRect = selectionCount === 1 ? rects[0] : null;
+      const bounds = oneRect?.getBoundingRect(true);
+      const geometryInputs = [
+        elements.selectionGeometryX,
+        elements.selectionGeometryY,
+        elements.selectionGeometryWidth,
+        elements.selectionGeometryHeight
+      ];
+      const geometryValues = bounds
+        ? [bounds.left, bounds.top, bounds.width, bounds.height]
+        : [Number.NaN, Number.NaN, Number.NaN, Number.NaN];
+      geometryInputs.forEach((field, index) => {
+        field.value = Number.isFinite(geometryValues[index]) ? String(Math.round(geometryValues[index])) : "";
+        field.disabled = !oneRect;
+      });
+      elements.duplicateSelectionBtn.disabled = selectionCount === 0;
+      elements.hideSelectionBtn.disabled = selectionCount === 0;
+      elements.deleteSelectionBtn.disabled = selectionCount === 0;
+    },
+
+    syncWorkspaceState(): void {
+      const canvasController = getCanvasController();
+      const currentFile = input.state.session.currentImageFile;
+      const currentImage = input.state.session.currentImage;
+      const hasImage = Boolean(currentFile && currentImage);
+      const isCompactViewport = input.documentRef.defaultView?.matchMedia("(max-width: 800px)").matches ?? false;
+      const imageCount = input.state.session.imageFiles.length;
+      const rectCount = canvasController?.raw.getObjects("rect").filter(isRectObject).length ?? 0;
+      const segmentationSummary = canvasController?.raw.getSegmentationSummary?.();
+      const annotationCount = input.state.session.workflow === "detection"
+        ? rectCount
+        : segmentationSummary?.allClassIds.length ?? 0;
+      const folderName = input.state.session.imageFolderHandle?.name;
+      const documentStatus = getCurrentDocumentStatus(input.state);
+      const phase = documentStatus?.phase ?? "clean";
+      const baseStatusText = !hasImage
+        ? "Ready"
+        : phase === "dirty"
+          ? "Unsaved changes"
+          : phase === "saving"
+            ? (documentStatus?.wasAutoSaved ? "Auto saving..." : "Saving...")
+            : phase === "saved"
+              ? (documentStatus?.wasAutoSaved ? "Auto saved" : "Saved")
+              : phase === "error"
+                ? "Save failed"
+                : "Loaded";
+      const statusText = hasImage && input.state.view.isAutoSaveEnabled && phase !== "saving" && phase !== "saved"
+        ? `${baseStatusText} · Auto save on`
+        : baseStatusText;
+
+      elements.canvasEmptyState.hidden = hasImage;
+      if (!hasImage && isCompactViewport) {
+        elements.leftPanel.classList.remove("mobile-open");
+        elements.rightPanel.classList.remove("mobile-open");
+      }
+      elements.imageCountBadge.textContent = String(imageCount);
+      elements.datasetConnectionStatus.textContent = folderName
+        ? `${folderName} · ${imageCount} image${imageCount === 1 ? "" : "s"}`
+        : "No dataset connected";
+      elements.refreshDatasetBtn.disabled = !folderName;
+      elements.selectLabelFolderBtn.toggleAttribute("disabled", !directoryPickerAvailable || !folderName);
+      (elements.prevImageBtn as HTMLButtonElement).disabled = imageCount < 2;
+      (elements.nextImageBtn as HTMLButtonElement).disabled = imageCount < 2;
+      (elements.saveLabelsBtn as HTMLButtonElement).disabled = !hasImage;
+      elements.headerDocumentStatus.dataset.state = phase;
+      elements.documentStatus.dataset.state = phase;
+      elements.headerDocumentStatus.title = documentStatus?.errorMessage ?? statusText;
+      elements.documentStatus.title = documentStatus?.errorMessage ?? statusText;
+      setStatusText(elements.headerDocumentStatus, statusText);
+      setStatusText(elements.documentStatus, `Status: ${statusText}`);
+      setStatusText(elements.statusImageInfo, currentFile && currentImage
+        ? `${currentFile.name} · ${currentImage.width} × ${currentImage.height}`
+        : "No image loaded");
+      setStatusText(elements.statusAnnotationInfo, input.state.session.workflow === "detection"
+        ? `Annotations: ${annotationCount}`
+        : `Mask classes: ${annotationCount}`);
+      setStatusText(elements.statusMode, `${input.state.session.workflow === "detection" ? "Detection" : "Segmentation"} · ${input.state.view.currentMode === "draw" ? "Draw" : "Edit"} · ${input.state.session.workflow === "detection" ? "TXT" : "PNG/JSON"}`);
+      elements.inspectorTitle.textContent = input.state.session.workflow === "detection" ? "Annotation Inspector" : "Mask Inspector";
+      elements.activeToolSummary.textContent = input.state.view.currentMode === "draw"
+        ? (input.state.session.workflow === "segmentation" ? segmentationSummary?.activeTool ?? "Brush" : "Draw")
+        : "Edit";
+      elements.labelDisplayModeSelect.value = input.state.view.labelDisplayMode ?? "auto";
+      manager.syncSelectionInspector();
     },
 
     getDisplayNameForClass(labelClass: string | undefined): string {
@@ -258,13 +479,17 @@ export function createUiManagerAdapter(input: {
       if (hasLabelFolder && folderName) {
         button.classList.remove("btn-secondary", "btn-danger");
         button.classList.add("btn-success");
-        button.innerHTML = `<i class="bi bi-folder-check"></i> ${folderName}`;
+        button.setAttribute("aria-label", `Label folder: ${folderName}`);
+        button.setAttribute("title", `Label folder: ${folderName}`);
+        button.innerHTML = '<i class="bi bi-folder-check" aria-hidden="true"></i>';
         return;
       }
 
       button.classList.remove("btn-success");
       button.classList.add("btn-danger");
-      button.innerHTML = '<i class="bi bi-folder-x"></i> Load Label Folder';
+      button.setAttribute("aria-label", "Connect label folder");
+      button.setAttribute("title", "Connect label folder");
+      button.innerHTML = '<i class="bi bi-folder-x" aria-hidden="true"></i>';
     },
 
     togglePreviewBarVisibility(hidden: boolean): void {
@@ -284,11 +509,16 @@ export function createUiManagerAdapter(input: {
       input.state.session.workflow = workflow;
       syncWorkflowPanels();
       syncSegmentationPanelState();
+      elements.taskAutomateBtn.disabled = workflow !== "detection";
+      if (workflow === "segmentation") {
+        manager.setActiveTask("annotate");
+      }
       if (workflow === "detection") {
         manager.updateLabelList();
       }
       manager.renderImageList();
       manager.renderPreviewList();
+      manager.syncWorkspaceState();
     },
 
     async promptForLabelClass(defaultValue: string): Promise<string> {
@@ -377,7 +607,12 @@ export function createUiManagerAdapter(input: {
       if (enabled) {
         manager.applyDarkMode(true);
       }
-
+      const storedLabelMode = input.storage.getItem("easy-labeling:label-display-mode");
+      const allowedModes = new Set<LabelDisplayMode>(["auto", "full", "compact", "selected", "off"]);
+      manager.setLabelDisplayMode(
+        allowedModes.has(storedLabelMode as LabelDisplayMode) ? storedLabelMode as LabelDisplayMode : "auto",
+        false
+      );
     },
 
     renderImageList(): void {
@@ -398,6 +633,7 @@ export function createUiManagerAdapter(input: {
           });
         }
       });
+      manager.syncWorkspaceState();
     },
 
     renderPreviewList(): void {
@@ -479,17 +715,22 @@ export function createUiManagerAdapter(input: {
         groupHeader.dataset.ui = "label-group-header";
         groupHeader.dataset.groupClass = classId;
         groupHeader.innerHTML = `
-          <i class="bi bi-chevron-right me-2"></i>
-          <span class="label-color-swatch me-2" style="background-color: ${getColorForClass(classId)};"></span>
-          <span class="fw-bold">${manager.getDisplayNameForClass(classId)}</span>
-          <i class="bi bi-check2-all select-group-btn ms-2" title="Select all in this group" data-ui="select-group" data-testid="select-group-${classId}"></i>
-          <span class="badge bg-secondary ms-auto">${groupRects.length}</span>
+          <i class="bi bi-chevron-right label-group-chevron" aria-hidden="true"></i>
+          <span class="label-color-swatch" style="background-color: ${getColorForClass(classId)};"></span>
+          <span class="label-group-name">${manager.getDisplayNameForClass(classId)}</span>
+          <button type="button" class="label-group-select-btn" title="Select all in this group" aria-label="Select all annotations in this class" data-ui="select-group" data-testid="select-group-${classId}"><i class="bi bi-check2-all" aria-hidden="true"></i></button>
+          <span class="badge bg-secondary label-group-count">${groupRects.length}</span>
         `;
 
         const itemsContainer = input.documentRef.createElement("div");
         itemsContainer.className = "label-group-items label-group-list";
         itemsContainer.dataset.ui = "label-group-items";
         itemsContainer.dataset.groupClass = classId;
+        const virtualizeGroup = visibleRects.length > 150;
+        if (virtualizeGroup && !initializedDenseLabelGroups.has(classId)) {
+          initializedDenseLabelGroups.add(classId);
+          input.state.view.collapsedLabelGroups.add(classId);
+        }
         const isCollapsed = input.state.view.collapsedLabelGroups.has(classId);
         if (isCollapsed) {
           groupHeader.classList.add("collapsed");
@@ -498,6 +739,9 @@ export function createUiManagerAdapter(input: {
 
         groupHeader.addEventListener("click", () => {
           const collapsed = groupHeader.classList.toggle("collapsed");
+          if (!collapsed && itemsContainer.children.length === 0) {
+            appendGroupItems();
+          }
           itemsContainer.style.maxHeight = collapsed ? "0" : `${itemsContainer.scrollHeight}px`;
           if (collapsed) {
             input.state.view.collapsedLabelGroups.add(classId);
@@ -511,11 +755,14 @@ export function createUiManagerAdapter(input: {
           canvasController.raw.selectLabelsByClass(classId);
         });
 
-        groupRects.forEach((rect) => {
+        let renderedItemLimit = virtualizeGroup ? 80 : groupRects.length;
+        const appendGroupItems = (): void => {
+          itemsContainer.replaceChildren();
+          groupRects.slice(0, renderedItemLimit).forEach((rect) => {
           const originalIndex = rects.indexOf(rect);
           const item = input.documentRef.createElement("li");
           item.id = `label-item-${originalIndex}`;
-          item.className = "list-group-item d-flex justify-content-between align-items-center label-list-item";
+          item.className = "list-group-item label-list-item";
           item.dataset.index = String(originalIndex);
           item.dataset.ui = "label-list-item";
           item.dataset.labelClass = normalizeFilterClassKey(rect.labelClass);
@@ -533,7 +780,7 @@ export function createUiManagerAdapter(input: {
             item.classList.add("active");
           }
 
-          item.innerHTML = `<span><span class="badge me-2" style="background-color: ${getColorForClass(rect.labelClass)};"> </span>${manager.getDisplayNameForClass(rect.labelClass)}</span><div><button class="btn btn-sm btn-outline-primary edit-btn py-0 px-1" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger delete-btn py-0 px-1" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}"><i class="bi bi-trash"></i></button></div>`;
+          item.innerHTML = `<span class="label-list-item-main"><span class="label-color-swatch" style="background-color: ${getColorForClass(rect.labelClass)};"></span><span class="label-list-item-name">${manager.getDisplayNameForClass(rect.labelClass)}</span></span><span class="label-list-item-actions"><button class="btn btn-sm btn-outline-primary edit-btn" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}" title="Edit annotation" aria-label="Edit annotation ${originalIndex + 1}"><i class="bi bi-pencil" aria-hidden="true"></i></button><button class="btn btn-sm btn-outline-danger delete-btn" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}" title="Delete annotation" aria-label="Delete annotation ${originalIndex + 1}"><i class="bi bi-trash" aria-hidden="true"></i></button></span>`;
           item.addEventListener("click", (event) => {
             if ((event.target as HTMLElement | null)?.closest('[data-ui="edit-label"], [data-ui="delete-label"]')) {
               return;
@@ -560,8 +807,29 @@ export function createUiManagerAdapter(input: {
             canvasController.raw.renderAll();
           });
 
-          itemsContainer.appendChild(item);
-        });
+            itemsContainer.appendChild(item);
+          });
+
+          if (renderedItemLimit < groupRects.length) {
+            const remaining = groupRects.length - renderedItemLimit;
+            const loadMore = input.documentRef.createElement("button");
+            loadMore.type = "button";
+            loadMore.className = "btn btn-sm btn-outline-secondary label-list-load-more";
+            loadMore.dataset.ui = "label-list-load-more";
+            loadMore.textContent = `Show ${Math.min(80, remaining)} more (${remaining} remaining)`;
+            loadMore.addEventListener("click", (event) => {
+              event.stopPropagation();
+              renderedItemLimit = Math.min(groupRects.length, renderedItemLimit + 80);
+              appendGroupItems();
+              itemsContainer.style.maxHeight = `${itemsContainer.scrollHeight}px`;
+            });
+            itemsContainer.appendChild(loadMore);
+          }
+        };
+
+        if (!isCollapsed) {
+          appendGroupItems();
+        }
 
         groupContainer.append(groupHeader, itemsContainer);
         elements.labelList.appendChild(groupContainer);
@@ -585,10 +853,16 @@ export function createUiManagerAdapter(input: {
       });
 
       const filterSummary = input.documentRef.createElement("span");
-      filterSummary.className = "badge bg-dark me-2 mb-1 align-items-center d-inline-flex";
+      filterSummary.className = "class-filter-summary";
       filterSummary.dataset.ui = "filter-summary";
       filterSummary.textContent = `Visible: ${visibilitySummary.visibleCount} / Total: ${visibilitySummary.totalCount}`;
       elements.labelFilters.appendChild(filterSummary);
+      const classSearchQuery = elements.classSearchInput.value.trim().toLocaleLowerCase();
+      if (classSearchQuery) {
+        elements.labelFilters.querySelectorAll<HTMLElement>(".class-filter-row").forEach((row) => {
+          row.hidden = !(row.textContent ?? "").toLocaleLowerCase().includes(classSearchQuery);
+        });
+      }
 
       bindLabelFilterEvents({
         labelFiltersElement: elements.labelFilters,
@@ -618,10 +892,12 @@ export function createUiManagerAdapter(input: {
         visibleRects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
         (labelClass) => manager.getDisplayNameForClass(labelClass)
       );
+      manager.syncWorkspaceState();
     },
 
     updateCurrentImageName(): void {
-      elements.currentImageNameSpan.textContent = input.state.session.currentImageFile?.name ?? "";
+      elements.currentImageNameSpan.textContent = input.state.session.currentImageFile?.name ?? "No image";
+      manager.syncWorkspaceState();
     },
 
     updateMouseCoords(x: number, y: number): void {
@@ -633,15 +909,18 @@ export function createUiManagerAdapter(input: {
       elements.mouseCoordsDisplay.style.visibility = "hidden";
     },
 
-    showLoading(): void {
+    showLoading(message = "Loading workspace..."): void {
       loadingDepth += 1;
+      elements.loadingStatusText.textContent = message;
       showLoadingOverlay(elements.loadingOverlay);
+      elements.loadingOverlay.setAttribute("aria-hidden", "false");
     },
 
     hideLoading(): void {
       loadingDepth = Math.max(0, loadingDepth - 1);
       if (loadingDepth === 0) {
         hideLoadingOverlay(elements.loadingOverlay);
+        elements.loadingOverlay.setAttribute("aria-hidden", "true");
       }
     },
 
