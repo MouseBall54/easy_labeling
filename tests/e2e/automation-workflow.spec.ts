@@ -124,7 +124,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
   await page.locator("#taskAutomateBtn").click();
-  await expect(page.locator("#left-panel")).toHaveClass(/collapsed/);
+  await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Automation Workspace");
@@ -207,6 +207,17 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator('label[for="templatePointerRoiRadio"]').click();
   await modal.locator(".template-advanced-settings > summary").click();
   await expect(page.locator("#templateBlurKernelInput")).toHaveValue("13");
+  await page.locator("#templateBlurKernelInput").click();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("21");
+  await expect(page.locator("#templateBlurKernelInput")).toHaveValue("21");
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#templateBlurSigmaInput")).toBeFocused();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("1.5");
+  await expect(page.locator("#templateBlurSigmaInput")).toHaveValue("1.5");
+  await page.locator("#templateBlurKernelInput").fill("13");
+  await page.locator("#templateBlurSigmaInput").fill("0");
   await expect(page.locator("#templateSourceImageSelect option")).toHaveCount(2);
   await expect(page.locator("#templateSourceImageSelect")).toHaveValue("scene-a.png");
   await expect(page.locator("#templateSearchRoiToggle")).not.toBeChecked();
@@ -258,8 +269,27 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#templateManualXInput").fill("200");
   await page.locator("#saveAutomationPresetBtn").click();
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(2);
+  await expect(page.locator("#exportAutomationPresetBtn")).toBeEnabled();
+  const presetDownloadPromise = page.waitForEvent("download");
+  await page.locator("#exportAutomationPresetBtn").click();
+  const presetDownload = await presetDownloadPromise;
+  expect(presetDownload.suggestedFilename()).toBe("Shifted-station.preset.json");
+  const presetJsonPath = await presetDownload.path();
+  expect(presetJsonPath).not.toBeNull();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#deleteAutomationPresetBtn").click();
+  await expect(page.locator("#templatePresetSelect option")).toHaveCount(1);
+  await expect(page.locator("#exportAutomationPresetBtn")).toBeDisabled();
+  if (!presetJsonPath) {
+    throw new Error("Exported template preset path is unavailable");
+  }
+  await page.locator("#importAutomationPresetInput").setInputFiles(presetJsonPath);
+  await expect(page.locator("#templatePresetSelect option")).toHaveCount(2);
+  await expect(page.locator("#templatePresetSelect option:checked")).toHaveText("Shifted station");
+  await expect(page.locator("#templateNameInput")).toHaveValue("Shifted station");
+  await expect(page.locator(".toast-message").last()).toHaveText("Template preset file loaded.");
   await page.locator("#testTemplateMatchBtn").click();
-  await expect(page.locator("#templateMatchScore")).not.toHaveText("Not tested", { timeout: 30_000 });
+  await expect(page.locator("#templateMatchScore")).not.toHaveText("No preview yet", { timeout: 30_000 });
   await expect(page.locator("#templateMatchCoordinates")).toContainText("X");
   await expect(page.locator("#templateMatchTimings")).toContainText("Match");
   const accurateCoordinates = await page.locator("#templateMatchCoordinates").textContent();
@@ -288,8 +318,30 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#automationBatchPreflight")).toBeVisible();
   await expect(page.locator("#batchPreflightTargets")).toHaveText("2 images");
   await page.locator("#batchDryRunToggle").check();
+  await page.evaluate(() => {
+    const panel = document.getElementById("activeOperationPanel");
+    const title = document.getElementById("activeOperationTitle");
+    const stop = document.getElementById("cancelActiveOperationBtn") as HTMLButtonElement | null;
+    if (!panel) {
+      throw new Error("Active operation panel is missing");
+    }
+    Reflect.set(window, "__operationPanelObservation", null);
+    const observer = new MutationObserver(() => {
+      if (!panel.hidden) {
+        Reflect.set(window, "__operationPanelObservation", {
+          title: title?.textContent ?? "",
+          stopAvailable: Boolean(stop && !stop.hidden && !stop.disabled)
+        });
+        observer.disconnect();
+      }
+    });
+    observer.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
+  });
   await page.locator("#confirmAutomationBatchBtn").click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__operationPanelObservation")))
+    .toEqual({ title: "Checking automation batch", stopAvailable: true });
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Dry run", { timeout: 30_000 });
+  await expect(page.locator("#activeOperationPanel")).toBeHidden();
   await expect.poll(async () => page.evaluate(() => {
     const fixture = Reflect.get(window, "__automationFixture") as { readLabel?: (name: string) => string | null } | undefined;
     return fixture?.readLabel?.("scene-b.txt") ?? null;

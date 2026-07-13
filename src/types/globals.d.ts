@@ -15,6 +15,22 @@ declare global {
     bootstrap: typeof bootstrap;
     showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
     getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
+    openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
+    saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
+  }
+
+  type EasyLabelingLibraryFileKind = "preset" | "layout";
+
+  interface EasyLabelingLibraryFile {
+    filePath: string;
+    name: string;
+    contents: string;
+  }
+
+  interface EasyLabelingLibraryFileSaveOptions {
+    kind: EasyLabelingLibraryFileKind;
+    suggestedName: string;
+    contents: string;
   }
 
   interface DirectoryPickerOptions {

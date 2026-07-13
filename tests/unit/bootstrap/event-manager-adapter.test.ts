@@ -582,6 +582,55 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(modalPreventDefault).toHaveBeenCalledTimes(1);
     expect(windowRef.dispatchedEvents).toContain("easy-labeling:toggle-template-pointer-mode");
     expect(setMode).toHaveBeenCalledTimes(1);
+
+    const editableTarget = { tagName: "INPUT", isContentEditable: false };
+    const editablePreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      key: "q",
+      target: editableTarget,
+      preventDefault: editablePreventDefault,
+      shiftKey: false
+    });
+    windowRef.keydownListener?.({
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      key: "Backspace",
+      target: editableTarget,
+      preventDefault: editablePreventDefault,
+      shiftKey: false
+    });
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      key: "a",
+      target: editableTarget,
+      preventDefault: editablePreventDefault,
+      shiftKey: false
+    });
+
+    expect(editablePreventDefault).not.toHaveBeenCalled();
+    expect(windowRef.dispatchedEvents.filter((type) => type === "easy-labeling:toggle-template-pointer-mode")).toHaveLength(1);
+    expect(rawController.deleteSelection).not.toHaveBeenCalled();
+    expect(rawController.selectAllLabels).not.toHaveBeenCalled();
+
+    const radioPreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      key: "q",
+      target: { tagName: "INPUT", type: "radio" },
+      preventDefault: radioPreventDefault,
+      shiftKey: false
+    });
+
+    expect(radioPreventDefault).toHaveBeenCalledTimes(1);
+    expect(windowRef.dispatchedEvents.filter((type) => type === "easy-labeling:toggle-template-pointer-mode")).toHaveLength(2);
   });
 
   it("prevents the browser default for Ctrl+B and routes to label editing", () => {

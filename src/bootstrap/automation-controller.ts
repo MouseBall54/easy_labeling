@@ -1,14 +1,18 @@
 import type { AppState } from "../app/state.js";
+import { isOperationCancelledError, throwIfOperationCancelled } from "../app/operation.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
 import {
   createEmptyAutomationLibrary,
+  createPresetFileDocument,
   deleteLayoutFromLibrary,
   loadAutomationLibrary,
+  mergePresetFileDocument,
   saveAutomationLibrary,
   upsertById
 } from "../features/automation/automation-library-service.js";
 import { cropImageElementToPngDataUrl, imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
+import { parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
 import {
   createTemplateMatchingService,
   requireAcceptedMatch,
@@ -37,7 +41,7 @@ import { createAutomationLayoutPreview } from "./automation-layout-preview.js";
 import { createAutomationPresetForm } from "./automation-preset-form.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
-import type { RuntimeUiManager } from "./ui-manager-adapter.js";
+import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
 
 export interface AutomationController {
   bind(): void;
@@ -50,6 +54,8 @@ export interface AutomationWindow {
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
   dispatchEvent(event: Event): boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
+  openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
+  saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
 }
 
 function createId(prefix: string): string {
@@ -65,6 +71,11 @@ function readFinite(input: HTMLInputElement, field: string): number {
     throw new Error(`${field} must be a finite number`);
   }
   return value;
+}
+
+function portableJsonFileName(name: string, fallback: string, kind: "layout" | "preset"): string {
+  const stem = name.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || fallback;
+  return `${stem}.${kind}.json`;
 }
 
 function setSelectOptions(
@@ -192,6 +203,9 @@ export function createAutomationController(input: {
     try {
       return await getMatchingService().match(matchInput);
     } catch (error: unknown) {
+      if (isOperationCancelledError(error)) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (!/worker|opencv|initializ|terminated/i.test(message)) {
         throw error;
@@ -203,6 +217,32 @@ export function createAutomationController(input: {
       await replacement.warmUp();
       setMatchingEngineStatus("ready", "Matching engine: Ready");
       return await replacement.match(matchInput);
+    }
+  };
+
+  const runCancellableMatchingOperation = async (
+    options: { title: string; detail: string; stoppedMessage: string },
+    task: (operation: RuntimeOperationHandle) => Promise<void>
+  ): Promise<void> => {
+    const operation = input.uiManager.beginOperation({
+      title: options.title,
+      detail: options.detail,
+      cancellable: true
+    });
+    const cancelMatching = (): void => matchingService?.cancelPending();
+    operation.signal.addEventListener("abort", cancelMatching, { once: true });
+    try {
+      await task(operation);
+      throwIfOperationCancelled(operation.signal);
+    } catch (error: unknown) {
+      if (!operation.signal.aborted && !isOperationCancelledError(error)) {
+        throw error;
+      }
+      setMatchingEngineStatus("ready", "Matching engine: Ready");
+      input.uiManager.notify(options.stoppedMessage);
+    } finally {
+      operation.signal.removeEventListener("abort", cancelMatching);
+      operation.finish();
     }
   };
 
@@ -319,6 +359,7 @@ export function createAutomationController(input: {
     setSelectOptions(input.documentRef, elements.templatePresetSelect, library.presets, "New preset...", presetId);
     elements.applyBoxLayoutBtn.disabled = !library.layouts.some((layout) => layout.id === layoutId);
     elements.applyBoxLayoutFromSetupBtn.disabled = elements.applyBoxLayoutBtn.disabled;
+    elements.exportAutomationPresetBtn.disabled = !library.presets.some((preset) => preset.id === presetId);
     syncLayoutEditorState();
     renderLayoutGhostPreview();
   };
@@ -341,6 +382,35 @@ export function createAutomationController(input: {
       throw new Error("Load an image folder before saving automation settings");
     }
     await saveAutomationLibrary(folder as unknown as DirectoryHandleLike, library);
+  };
+
+  const downloadJsonFile = (contents: string, fileName: string): void => {
+    const blob = new Blob([contents], { type: "application/json" });
+    const url = input.windowRef.URL.createObjectURL(blob);
+    const anchor = input.documentRef.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    input.windowRef.URL.revokeObjectURL(url);
+  };
+
+  const saveJsonFile = async (
+    kind: EasyLabelingLibraryFileKind,
+    contents: string,
+    fileName: string
+  ): Promise<void> => {
+    if (input.windowRef.saveEasyLabelingLibraryFile) {
+      const result = await input.windowRef.saveEasyLabelingLibraryFile({
+        kind,
+        suggestedName: fileName,
+        contents
+      });
+      if (result) {
+        input.uiManager.notify(`Saved to ${result.filePath}`, 5000);
+      }
+      return;
+    }
+    downloadJsonFile(contents, fileName);
   };
 
   const setLayoutSetupError = (error: unknown | null): void => {
@@ -633,6 +703,7 @@ export function createAutomationController(input: {
         badge.textContent = `Class ${classId}`;
         row.appendChild(badge);
       }
+      row.addEventListener("click", () => workspace.focusMatch(index));
       row.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         showTemplateMatchContextMenu({
@@ -773,6 +844,7 @@ export function createAutomationController(input: {
     activePresetId = null;
     activeTemplateDataUrl = null;
     templateRoiDirty = false;
+    elements.exportAutomationPresetBtn.disabled = true;
     elements.templatePresetSelect.value = "";
     presetForm.reset(elements.boxLayoutSelect.value);
     invalidateTemplateMatch();
@@ -788,6 +860,7 @@ export function createAutomationController(input: {
       throw new Error("The selected preset references a missing template");
     }
     activePresetId = preset.id;
+    elements.exportAutomationPresetBtn.disabled = false;
     elements.automationPresetSelect.value = preset.id;
     elements.templatePresetSelect.value = preset.id;
     activeTemplateDataUrl = template.pngDataUrl;
@@ -808,7 +881,7 @@ export function createAutomationController(input: {
     clearSettingsError();
   };
 
-  const testMatch = async (): Promise<void> => {
+  const testMatch = async (operation: RuntimeOperationHandle): Promise<void> => {
     const targetImage = input.state.session.currentImage;
     const roi = workspace.getRoi();
     if (!targetImage || !roi) {
@@ -818,15 +891,21 @@ export function createAutomationController(input: {
     const matching = readMatching();
     const outputMode = readOutputMode();
     const multipleDetection = readMultipleDetection();
+    operation.update({ detail: "Preparing template and image pixels" });
     const templateDataUrl = activeTemplateDataUrl ?? cropImageElementToPngDataUrl(targetImage, roi, input.documentRef);
+    const templateImageData = await pngDataUrlToImageData(templateDataUrl, input.documentRef);
+    throwIfOperationCancelled(operation.signal);
+    operation.update({ detail: "Running OpenCV template matching" });
     const result = await matchWithRecovery({
       target: imageElementToImageData(targetImage, input.documentRef),
-      template: await pngDataUrlToImageData(templateDataUrl, input.documentRef),
+      template: templateImageData,
       preprocessing,
       matching,
       outputMode,
       multipleDetection
     });
+    throwIfOperationCancelled(operation.signal);
+    operation.update({ detail: "Rendering match results" });
     lastTemplateMatchResult = result;
     selectedTemplateMatchIndices.clear();
     assignedTemplateMatchClasses.clear();
@@ -1006,7 +1085,7 @@ export function createAutomationController(input: {
     input.uiManager.notify("Automation preset saved.");
   };
 
-  const runSelectedPresetOnCurrentImage = async (): Promise<void> => {
+  const runSelectedPresetOnCurrentImage = async (operation: RuntimeOperationHandle): Promise<void> => {
     const preset = selectedPreset();
     const targetImage = input.state.session.currentImage;
     if (!preset) {
@@ -1034,18 +1113,24 @@ export function createAutomationController(input: {
     setMatchingEngineStatus("loading", "Matching engine: Running");
     let result: TemplateMatchResult;
     try {
+      operation.update({ detail: `Preparing ${input.state.session.currentImageFile.name}` });
+      const templateImageData = await pngDataUrlToImageData(template.pngDataUrl, input.documentRef);
+      throwIfOperationCancelled(operation.signal);
+      operation.update({ detail: "Running OpenCV template matching" });
       result = await matchWithRecovery({
         target: imageElementToImageData(targetImage, input.documentRef),
-        template: await pngDataUrlToImageData(template.pngDataUrl, input.documentRef),
+        template: templateImageData,
         preprocessing: template.preprocessing,
         matching: preset.matching,
         outputMode: preset.outputMode,
         multipleDetection: preset.multipleDetection
       });
+      throwIfOperationCancelled(operation.signal);
     } finally {
       setMatchingEngineStatus("ready", "Matching engine: Ready");
     }
 
+    operation.update({ detail: "Applying generated boxes" });
     const replaceExisting = preset.existingLabelsPolicy === "replace";
     let appliedCount = 0;
     let discardedOutOfBoundsCount = 0;
@@ -1093,12 +1178,48 @@ export function createAutomationController(input: {
     getSelectedPreset: selectedPreset,
     getLibrary: () => library,
     match: matchWithRecovery,
+    cancelActiveMatch: () => matchingService?.cancelPending(),
     setRelatedControlsDisabled: (running) => {
       elements.openTemplateMatchingBtn.disabled = running;
       elements.applyBoxLayoutBtn.disabled = running;
       elements.runAutomationCurrentBtn.disabled = running;
     }
   });
+
+  const importPresetFileContents = async (contents: string): Promise<void> => {
+    const presetFile = parseAutomationLibrary(contents);
+    const mergedLibrary = mergePresetFileDocument(library, presetFile);
+    const preset = presetFile.presets[0];
+    if (!preset) {
+      throw new Error("A preset file must contain exactly one preset");
+    }
+    library = mergedLibrary;
+    await persistLibrary();
+    activePresetId = preset.id;
+    refreshSelects({
+      layoutId: preset.layoutId ?? elements.boxLayoutSelect.value,
+      presetId: preset.id
+    });
+    await loadPresetForm(preset);
+    batchController.hidePreflight();
+    input.uiManager.notify("Template preset file loaded.");
+  };
+
+  const importLayoutFileContents = async (contents: string): Promise<void> => {
+    const parsed: unknown = JSON.parse(contents);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Layout JSON must be an object");
+    }
+    const layout = parsed as BoxLayout;
+    validateBoxLayout(layout);
+    library = { ...library, layouts: upsertById(library.layouts, layout) };
+    await persistLibrary();
+    refreshSelects({ layoutId: layout.id });
+    elements.layoutSetupSelect.value = layout.id;
+    elements.layoutNameInput.value = layout.name;
+    renderLayoutPreview();
+    input.uiManager.notify("Layout file loaded.");
+  };
 
   return {
     bind(): void {
@@ -1393,7 +1514,11 @@ export function createAutomationController(input: {
         }
         elements.openTemplateMatchingBtn.disabled = true;
         elements.openTemplateMatchingBtn.setAttribute("aria-busy", "true");
-        void (async () => {
+        void runCancellableMatchingOperation({
+          title: "Opening template setup",
+          detail: "Loading preset and reference image",
+          stoppedMessage: "Opening template setup stopped."
+        }, async (operation) => {
           if (!input.state.session.currentImage) {
             throw new Error("Load an image before opening Template Matching Setup");
           }
@@ -1406,13 +1531,16 @@ export function createAutomationController(input: {
           } else {
             resetPresetForm();
           }
+          throwIfOperationCancelled(operation.signal);
           elements.templateMatchingModal.show();
           elements.templateMatchTimings.textContent = "Loading OpenCV engine...";
           setMatchingEngineStatus("loading", "Matching engine: Loading");
+          operation.update({ detail: "Initializing OpenCV matching engine" });
           const warmup = await getMatchingService().warmUp();
+          throwIfOperationCancelled(operation.signal);
           elements.templateMatchTimings.textContent = `OpenCV initialized in ${warmup.engineInitializationMs.toFixed(1)} ms`;
           setMatchingEngineStatus("ready", "Matching engine: Ready");
-        })().catch((error: unknown) => {
+        }).catch((error: unknown) => {
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to open template setup", 5000);
         }).finally(() => {
           elements.openTemplateMatchingBtn.disabled = false;
@@ -1428,6 +1556,7 @@ export function createAutomationController(input: {
         const presetId = elements.templatePresetSelect.value;
         elements.automationPresetSelect.value = presetId;
         activePresetId = presetId || null;
+        elements.exportAutomationPresetBtn.disabled = !library.presets.some((preset) => preset.id === presetId);
         batchController.hidePreflight();
         elements.templatePresetSelect.disabled = true;
         void (async () => {
@@ -1455,8 +1584,9 @@ export function createAutomationController(input: {
           activePresetId = null;
           activeTemplateDataUrl = null;
           templateRoiDirty = false;
+          elements.exportAutomationPresetBtn.disabled = true;
           elements.templateMatchingSourceName.textContent = file.name;
-          elements.templateMatchScore.textContent = "Not tested";
+          elements.templateMatchScore.textContent = "No preview yet";
           elements.templateMatchCoordinates.textContent = "";
           elements.templateMatchTimings.textContent = "";
           elements.templateMatchCandidates.replaceChildren();
@@ -1482,6 +1612,52 @@ export function createAutomationController(input: {
           refreshSelects();
           resetPresetForm();
         })().catch(showSettingsError);
+      });
+      elements.exportAutomationPresetBtn.addEventListener("click", () => {
+        void (async () => {
+          clearSettingsError();
+          const presetFile = createPresetFileDocument(library, activePresetId ?? "");
+          const preset = presetFile.presets[0];
+          if (!preset) {
+            throw new Error("Choose a preset to save");
+          }
+          await saveJsonFile(
+            "preset",
+            serializeAutomationLibrary(presetFile),
+            portableJsonFileName(preset.name, "template-preset", "preset")
+          );
+        })().catch(showSettingsError);
+      });
+      elements.importAutomationPresetBtn.addEventListener("click", () => {
+        if (!input.windowRef.openEasyLabelingLibraryFile) {
+          elements.importAutomationPresetInput.click();
+          return;
+        }
+        clearSettingsError();
+        void (async () => {
+          const file = await input.windowRef.openEasyLabelingLibraryFile?.("preset");
+          if (file) {
+            await importPresetFileContents(file.contents);
+          }
+        })().catch((error: unknown) => {
+          showSettingsError(error);
+          input.uiManager.notify(error instanceof Error ? error.message : "Unable to load template preset file", 6000);
+        });
+      });
+      elements.importAutomationPresetInput.addEventListener("change", () => {
+        clearSettingsError();
+        void (async () => {
+          const file = elements.importAutomationPresetInput.files?.[0];
+          if (!file) {
+            return;
+          }
+          await importPresetFileContents(await file.text());
+        })().catch((error: unknown) => {
+          showSettingsError(error);
+          input.uiManager.notify(error instanceof Error ? error.message : "Unable to load template preset file", 6000);
+        }).finally(() => {
+          elements.importAutomationPresetInput.value = "";
+        });
       });
 
       elements.templateSearchRoiToggle.addEventListener("change", () => {
@@ -1601,7 +1777,11 @@ export function createAutomationController(input: {
       elements.testTemplateMatchBtn.addEventListener("click", () => {
         clearSettingsError();
         elements.testTemplateMatchBtn.disabled = true;
-        void testMatch().catch(showSettingsError).finally(() => {
+        void runCancellableMatchingOperation({
+          title: "Testing template match",
+          detail: "Preparing template and image pixels",
+          stoppedMessage: "Template matching stopped."
+        }, testMatch).catch(showSettingsError).finally(() => {
           elements.testTemplateMatchBtn.disabled = false;
         });
       });
@@ -1674,7 +1854,11 @@ export function createAutomationController(input: {
         elements.runAutomationCurrentBtn.setAttribute("aria-busy", "true");
         elements.runAutomationBatchBtn.disabled = true;
         elements.openTemplateMatchingBtn.disabled = true;
-        void runSelectedPresetOnCurrentImage().catch((error: unknown) => {
+        void runCancellableMatchingOperation({
+          title: "Running template automation",
+          detail: "Preparing current image",
+          stoppedMessage: "Current image automation stopped."
+        }, runSelectedPresetOnCurrentImage).catch((error: unknown) => {
           input.uiManager.notify(error instanceof Error ? error.message : "Current image automation failed", 7000);
         }).finally(() => {
           elements.runAutomationCurrentBtn.disabled = false;
@@ -1688,6 +1872,7 @@ export function createAutomationController(input: {
         const presetId = elements.automationPresetSelect.value;
         activePresetId = presetId || null;
         elements.templatePresetSelect.value = presetId;
+        elements.exportAutomationPresetBtn.disabled = !library.presets.some((preset) => preset.id === presetId);
         batchController.hidePreflight();
         if (elements.templateMatchingModal._isShown) {
           const preset = selectedPreset();
@@ -1700,46 +1885,48 @@ export function createAutomationController(input: {
       });
 
       elements.exportAutomationLibraryBtn.addEventListener("click", () => {
-        try {
+        void (async () => {
           const layout = selectedSetupLayout();
           if (!layout) {
             throw new Error("Choose a layout to export");
           }
-          const blob = new Blob([`${JSON.stringify(layout, null, 2)}\n`], { type: "application/json" });
-          const url = input.windowRef.URL.createObjectURL(blob);
-          const anchor = input.documentRef.createElement("a");
-          anchor.href = url;
-          anchor.download = `${layout.name.replace(/[^a-z0-9_-]+/gi, "-") || "box-layout"}.json`;
-          anchor.click();
-          input.windowRef.URL.revokeObjectURL(url);
-        } catch (error: unknown) {
+          await saveJsonFile(
+            "layout",
+            `${JSON.stringify(layout, null, 2)}\n`,
+            portableJsonFileName(layout.name, "box-layout", "layout")
+          );
+        })().catch((error: unknown) => {
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to export box layout");
-        }
+        });
       });
-      elements.importAutomationLibraryBtn.addEventListener("click", () => elements.importAutomationLibraryInput.click());
+      elements.importAutomationLibraryBtn.addEventListener("click", () => {
+        if (!input.windowRef.openEasyLabelingLibraryFile) {
+          elements.importAutomationLibraryInput.click();
+          return;
+        }
+        setLayoutSetupError(null);
+        void (async () => {
+          const file = await input.windowRef.openEasyLabelingLibraryFile?.("layout");
+          if (file) {
+            await importLayoutFileContents(file.contents);
+          }
+        })().catch((error: unknown) => {
+          setLayoutSetupError(error);
+          input.uiManager.notify(error instanceof Error ? error.message : "Unable to import box layout", 6000);
+        });
+      });
       elements.importAutomationLibraryInput.addEventListener("change", () => {
         void (async () => {
           const file = elements.importAutomationLibraryInput.files?.[0];
           if (!file) {
             return;
           }
-          const parsed: unknown = JSON.parse(await file.text());
-          if (!parsed || typeof parsed !== "object") {
-            throw new Error("Layout JSON must be an object");
-          }
-          const layout = parsed as BoxLayout;
-          validateBoxLayout(layout);
-          library = { ...library, layouts: upsertById(library.layouts, layout) };
-          await persistLibrary();
-          refreshSelects({ layoutId: layout.id });
-          elements.layoutSetupSelect.value = layout.id;
-          elements.layoutNameInput.value = layout.name;
-          renderLayoutPreview();
-          input.uiManager.notify("Box layout imported.");
-          elements.importAutomationLibraryInput.value = "";
+          await importLayoutFileContents(await file.text());
         })().catch((error: unknown) => {
           setLayoutSetupError(error);
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to import box layout", 6000);
+        }).finally(() => {
+          elements.importAutomationLibraryInput.value = "";
         });
       });
     },

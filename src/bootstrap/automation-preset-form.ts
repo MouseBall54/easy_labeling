@@ -180,7 +180,7 @@ export function createAutomationPresetForm(elements: UiDomElements): AutomationP
     },
 
     clearResult(): void {
-      elements.templateMatchScore.textContent = "Not tested";
+      elements.templateMatchScore.textContent = "No preview yet";
       elements.templateMatchCoordinates.textContent = "";
       elements.templateMatchTimings.textContent = "";
       elements.templateMatchCandidates.replaceChildren();

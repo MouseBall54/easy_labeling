@@ -1,4 +1,5 @@
 import type { FileSystem, FileSystemDeps } from "../app/contracts.js";
+import { throwIfOperationCancelled } from "../app/operation.js";
 import type { AppState } from "../app/state.js";
 import {
   createImageSessionService,
@@ -16,7 +17,7 @@ import { listFileHandles } from "../platform/file-system-access.js";
 import type { ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
-import type { RuntimeUiManager } from "./ui-manager-adapter.js";
+import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 import { createImageDecoder } from "../features/images/image-decoder.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
@@ -159,8 +160,8 @@ export interface RuntimeFileSystem extends FileSystem {
 }
 
 interface FileSystemWindowRuntime {
-  showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
-  getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
+  showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
+  getEasyLabelingSampleDirectory?: (signal?: AbortSignal) => Promise<FileSystemDirectoryHandle>;
   clearTimeout: typeof window.clearTimeout;
   confirm: (message?: string) => boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
@@ -177,9 +178,93 @@ export function createFileSystemAdapter(input: {
   let pendingLoadedSegmentationSnapshot: import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null = null;
   let operationChain: Promise<void> = Promise.resolve();
 
+  const captureSessionSnapshot = () => ({
+    imageFolderHandle: input.state.session.imageFolderHandle,
+    labelFolderHandle: input.state.session.labelFolderHandle,
+    classInfoFolderHandle: input.state.session.classInfoFolderHandle,
+    imageFiles: [...input.state.session.imageFiles],
+    classFiles: [...input.state.session.classFiles],
+    selectedClassFile: input.state.session.selectedClassFile,
+    imageWorkflowStatus: new Map([...input.state.session.imageWorkflowStatus].map(([name, status]) => [name, {
+      detection: { ...status.detection },
+      segmentation: { ...status.segmentation }
+    }])),
+    currentImageFile: input.state.session.currentImageFile,
+    currentImage: input.state.session.currentImage,
+    classNames: new Map(input.state.session.classNames),
+    documentStatusByImage: new Map(input.state.session.documentStatusByImage ?? []),
+    hiddenLabelClasses: new Set(input.state.view.hiddenLabelClasses)
+  });
+
+  const restoreSessionSnapshot = (snapshot: ReturnType<typeof captureSessionSnapshot>): void => {
+    input.state.runtime.currentLoadToken += 1;
+    input.state.runtime.previewImageCache.forEach((url) => {
+      if (url.startsWith("blob:")) {
+        input.windowRef.URL.revokeObjectURL(url);
+      }
+    });
+    input.state.runtime.previewImageCache = new Map();
+    input.state.session.imageFolderHandle = snapshot.imageFolderHandle;
+    input.state.session.labelFolderHandle = snapshot.labelFolderHandle;
+    input.state.session.classInfoFolderHandle = snapshot.classInfoFolderHandle;
+    input.state.session.imageFiles = snapshot.imageFiles;
+    input.state.session.classFiles = snapshot.classFiles;
+    input.state.session.selectedClassFile = snapshot.selectedClassFile;
+    input.state.session.imageWorkflowStatus = snapshot.imageWorkflowStatus;
+    input.state.session.currentImageFile = snapshot.currentImageFile;
+    input.state.session.currentImage = snapshot.currentImage;
+    input.state.session.classNames = snapshot.classNames;
+    input.state.session.documentStatusByImage = snapshot.documentStatusByImage;
+    input.state.view.hiddenLabelClasses = snapshot.hiddenLabelClasses;
+    pendingLoadedYolo = null;
+    pendingLoadedSegmentationSnapshot = null;
+
+    if (connectedDeps) {
+      const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+      uiManager.updateCurrentImageName();
+      uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
+      uiManager.renderClassFileSelect();
+      uiManager.renderImageList();
+      uiManager.renderPreviewList();
+      uiManager.updateLabelList();
+    }
+  };
+
   const enqueueOperation = async (operation: () => Promise<void>): Promise<void> => {
     operationChain = operationChain.then(operation, operation);
     await operationChain;
+  };
+
+  const runTrackedOperation = async (
+    options: { title: string; detail: string; stoppedMessage: string },
+    task: (operation: RuntimeOperationHandle | null) => Promise<void>
+  ): Promise<void> => {
+    const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
+    const snapshot = captureSessionSnapshot();
+    const operation = uiManager?.beginOperation({
+      title: options.title,
+      detail: options.detail,
+      cancellable: true,
+      blockCanvas: true
+    }) ?? null;
+    const invalidatePendingLoad = (): void => {
+      input.state.runtime.currentLoadToken += 1;
+    };
+    operation?.signal.addEventListener("abort", invalidatePendingLoad, { once: true });
+
+    try {
+      await task(operation);
+      throwIfOperationCancelled(operation?.signal);
+    } catch (error: unknown) {
+      if (!operation?.signal.aborted) {
+        throw error;
+      }
+      restoreSessionSnapshot(snapshot);
+      uiManager?.notify(options.stoppedMessage);
+    } finally {
+      operation?.signal.removeEventListener("abort", invalidatePendingLoad);
+      operation?.finish();
+    }
   };
 
   const decodeImage = createImageDecoder({
@@ -221,18 +306,25 @@ export function createFileSystemAdapter(input: {
     input.windowRef.dispatchEvent?.(new CustomEvent("easy-labeling:document-status-change"));
   };
 
-  const syncAfterImageLoad = async (fileHandle: FileHandleLike): Promise<void> => {
+  const syncAfterImageLoad = async (
+    fileHandle: FileHandleLike,
+    operation: RuntimeOperationHandle | null = null
+  ): Promise<void> => {
     if (!connectedDeps) {
       return;
     }
 
     pendingLoadedYolo = null;
     pendingLoadedSegmentationSnapshot = null;
+    operation?.update({ detail: `Decoding ${fileHandle.name} and loading labels` });
     await imageSessionService.loadImageAndLabels(fileHandle);
+    throwIfOperationCancelled(operation?.signal);
     applyCurrentImageToCanvas();
   };
 
-  const refreshClassFileStateFromAvailableFolder = async (): Promise<void> => {
+  const refreshClassFileStateFromAvailableFolder = async (
+    operation: RuntimeOperationHandle | null = null
+  ): Promise<void> => {
     const classFolder = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
     const previousSelectionName = input.state.session.selectedClassFile?.name ?? null;
 
@@ -248,7 +340,9 @@ export function createFileSystemAdapter(input: {
       return;
     }
 
+    operation?.update({ detail: "Reading class information" });
     const files = (await listFileHandles(classFolder)).filter((file) => /\.(yaml|yml)$/i.test(file.name)) as FileHandle[];
+    throwIfOperationCancelled(operation?.signal);
     input.state.session.classFiles = files;
 
     const selectedFile =
@@ -258,6 +352,7 @@ export function createFileSystemAdapter(input: {
 
     if (selectedFile) {
       await loadClassNamesIntoState(selectedFile, input.state);
+      throwIfOperationCancelled(operation?.signal);
     } else {
       input.state.session.selectedClassFile = null;
       input.state.session.classNames = new Map<string, string>();
@@ -322,17 +417,23 @@ export function createFileSystemAdapter(input: {
     }
   });
 
-  const activateImageFolder = async (imageFolderHandle: DirectoryHandleLike): Promise<void> => {
+  const activateImageFolder = async (
+    imageFolderHandle: DirectoryHandleLike,
+    operation: RuntimeOperationHandle | null = null
+  ): Promise<void> => {
     pendingLoadedYolo = null;
+    operation?.update({ detail: "Scanning images and annotation files" });
     await imageSessionService.selectImageFolder(imageFolderHandle);
+    throwIfOperationCancelled(operation?.signal);
     input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
       scope: "session-replacement",
       hiddenLabelClasses: input.state.view.hiddenLabelClasses,
       persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
       resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
     });
+    await refreshClassFileStateFromAvailableFolder(operation);
+    throwIfOperationCancelled(operation?.signal);
     applyCurrentImageToCanvas();
-    await refreshClassFileStateFromAvailableFolder();
 
     if (!connectedDeps) {
       return;
@@ -353,23 +454,27 @@ export function createFileSystemAdapter(input: {
 
       async selectImageFolder(): Promise<void> {
         await enqueueOperation(async () => {
-          const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
-          uiManager?.showLoading("Opening dataset...");
-          try {
-          const picker = input.windowRef.showDirectoryPicker;
-          if (typeof picker !== "function") {
-            throw new Error("Folder access is unavailable in this browser. Load the bundled sample instead.");
-          }
+          await runTrackedOperation({
+            title: "Opening dataset",
+            detail: "Waiting for folder selection",
+            stoppedMessage: "Opening dataset stopped."
+          }, async (operation) => {
+            const picker = input.windowRef.showDirectoryPicker;
+            if (typeof picker !== "function") {
+              throw new Error("Folder access is unavailable in this browser. Load the bundled sample instead.");
+            }
 
-          if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
-            await imageSessionService.saveLabels(true);
-          }
+            if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
+              operation?.update({ detail: "Saving the current labels" });
+              await imageSessionService.saveLabels(true);
+              throwIfOperationCancelled(operation?.signal);
+            }
 
-          const imageFolderHandle = await picker();
-          await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
-          } finally {
-            uiManager?.hideLoading();
-          }
+            operation?.update({ detail: "Waiting for folder selection" });
+            const imageFolderHandle = await picker();
+            throwIfOperationCancelled(operation?.signal);
+            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation);
+          });
         });
       },
 
@@ -381,74 +486,101 @@ export function createFileSystemAdapter(input: {
           }
           const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
           const currentImageName = input.state.session.currentImageFile?.name ?? null;
-          uiManager?.showLoading("Refreshing dataset...");
-          try {
+          await runTrackedOperation({
+            title: "Refreshing dataset",
+            detail: "Scanning images and annotation files",
+            stoppedMessage: "Dataset refresh stopped."
+          }, async (operation) => {
             await imageSessionService.selectImageFolder(folder);
+            throwIfOperationCancelled(operation?.signal);
             const target = currentImageName
               ? input.state.session.imageFiles.find((file) => file.name === currentImageName)
               : null;
             if (target && target.name !== input.state.session.currentImageFile?.name) {
               pendingLoadedYolo = null;
               pendingLoadedSegmentationSnapshot = null;
+              operation?.update({ detail: `Restoring ${target.name}` });
               await imageSessionService.loadImageAndLabels(target as unknown as FileHandleLike);
+              throwIfOperationCancelled(operation?.signal);
             }
+            await refreshClassFileStateFromAvailableFolder(operation);
+            throwIfOperationCancelled(operation?.signal);
             applyCurrentImageToCanvas();
-            await refreshClassFileStateFromAvailableFolder();
             uiManager?.notify("Dataset refreshed.");
-          } finally {
-            uiManager?.hideLoading();
-          }
+          });
         });
       },
 
       async loadSampleTestData(): Promise<void> {
         await enqueueOperation(async () => {
           const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
-          uiManager?.showLoading("Loading sample workspace...");
-          try {
+          await runTrackedOperation({
+            title: "Loading sample workspace",
+            detail: "Preparing bundled sample files",
+            stoppedMessage: "Loading sample workspace stopped."
+          }, async (operation) => {
             if (input.state.view.isAutoSaveEnabled && input.state.session.currentImageFile) {
+              operation?.update({ detail: "Saving the current labels" });
               await imageSessionService.saveLabels(true);
+              throwIfOperationCancelled(operation?.signal);
             }
+            operation?.update({ detail: "Preparing bundled sample files" });
             const imageFolderHandle = input.windowRef.getEasyLabelingSampleDirectory
-              ? await input.windowRef.getEasyLabelingSampleDirectory()
-              : await createBundledSampleDirectory();
-            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike);
+              ? await input.windowRef.getEasyLabelingSampleDirectory(operation?.signal)
+              : await createBundledSampleDirectory({ signal: operation?.signal });
+            throwIfOperationCancelled(operation?.signal);
+            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation);
             uiManager?.notify("Sample test data loaded: 3 images, color labels, layouts, and template presets.", 5000);
-          } finally {
-            uiManager?.hideLoading();
-          }
+          });
         });
       },
 
       async selectLabelFolder(): Promise<void> {
         await enqueueOperation(async () => {
-          const picker = input.windowRef.showDirectoryPicker;
-          if (typeof picker !== "function") {
-            throw new Error("Folder access is unavailable in this browser.");
-          }
+          await runTrackedOperation({
+            title: "Connecting label folder",
+            detail: "Waiting for folder selection",
+            stoppedMessage: "Connecting label folder stopped."
+          }, async (operation) => {
+            const picker = input.windowRef.showDirectoryPicker;
+            if (typeof picker !== "function") {
+              throw new Error("Folder access is unavailable in this browser.");
+            }
 
-          input.state.session.labelFolderHandle = await picker();
-          await imageSessionService.refreshImageWorkflowStatus();
-          await refreshClassFileStateFromAvailableFolder();
-          if (connectedDeps) {
-            const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-            uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
-            uiManager.renderImageList();
-            uiManager.renderPreviewList();
-          }
+            input.state.session.labelFolderHandle = await picker();
+            throwIfOperationCancelled(operation?.signal);
+            operation?.update({ detail: "Reading label and class files" });
+            await imageSessionService.refreshImageWorkflowStatus();
+            throwIfOperationCancelled(operation?.signal);
+            await refreshClassFileStateFromAvailableFolder(operation);
+            throwIfOperationCancelled(operation?.signal);
+            if (connectedDeps) {
+              const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+              uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
+              uiManager.renderImageList();
+              uiManager.renderPreviewList();
+            }
+          });
         });
       },
 
       async selectClassInfoFolder(): Promise<void> {
         await enqueueOperation(async () => {
-          const picker = input.windowRef.showDirectoryPicker;
-          if (typeof picker !== "function") {
-            throw new Error("Folder access is unavailable in this browser.");
-          }
+          await runTrackedOperation({
+            title: "Loading class information",
+            detail: "Waiting for folder selection",
+            stoppedMessage: "Loading class information stopped."
+          }, async (operation) => {
+            const picker = input.windowRef.showDirectoryPicker;
+            if (typeof picker !== "function") {
+              throw new Error("Folder access is unavailable in this browser.");
+            }
 
-          const folderHandle = await picker();
-          input.state.session.classInfoFolderHandle = folderHandle;
-          await refreshClassFileStateFromAvailableFolder();
+            const folderHandle = await picker({ id: "class-info", mode: "readwrite" });
+            throwIfOperationCancelled(operation?.signal);
+            input.state.session.classInfoFolderHandle = folderHandle;
+            await refreshClassFileStateFromAvailableFolder(operation);
+          });
         });
       },
 
@@ -502,19 +634,26 @@ export function createFileSystemAdapter(input: {
             nextIndex = imageFiles.length - 1;
           }
 
-          await syncAfterImageLoad(imageFiles[nextIndex]);
+          const nextFile = imageFiles[nextIndex];
+          await runTrackedOperation({
+            title: "Loading image",
+            detail: `Preparing ${nextFile.name}`,
+            stoppedMessage: "Loading image stopped."
+          }, async (operation) => {
+            await syncAfterImageLoad(nextFile, operation);
+          });
         });
       },
 
       async loadImage(fileHandle: FileHandleLike): Promise<void> {
         await enqueueOperation(async () => {
-          const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
-          uiManager?.showLoading(`Loading ${fileHandle.name}...`);
-          try {
-            await syncAfterImageLoad(fileHandle);
-          } finally {
-            uiManager?.hideLoading();
-          }
+          await runTrackedOperation({
+            title: "Loading image",
+            detail: `Preparing ${fileHandle.name}`,
+            stoppedMessage: "Loading image stopped."
+          }, async (operation) => {
+            await syncAfterImageLoad(fileHandle, operation);
+          });
         });
       },
 

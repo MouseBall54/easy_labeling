@@ -149,4 +149,61 @@ describe("template matching service", () => {
     expect(reused.templateCacheHit).toBe(true);
     expect(changed.templateCacheHit).toBe(false);
   });
+
+  it("cancels an active match by replacing the worker and remains reusable", async () => {
+    const workers = [0, 1].map((index) => ({
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      onerror: null,
+      terminated: false,
+      postMessage(message: unknown): void {
+        if (index === 0) {
+          return;
+        }
+        const request = message as { id: number };
+        queueMicrotask(() => this.onmessage?.({ data: {
+          id: request.id,
+          ok: true,
+          result: {
+            score: 0.91,
+            x: 3,
+            y: 4,
+            width: 2,
+            height: 2,
+            matches: [{ score: 0.91, x: 3, y: 4, width: 2, height: 2 }],
+            timings,
+            templateCacheHit: false
+          }
+        } } as MessageEvent));
+      },
+      terminate(): void {
+        this.terminated = true;
+      }
+    }));
+    let workerIndex = 0;
+    const service = createTemplateMatchingService(() => workers[workerIndex++] as never);
+    const target = { width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4) } as ImageData;
+    const template = { width: 2, height: 2, data: new Uint8ClampedArray(2 * 2 * 4) } as ImageData;
+    const preprocessing = {
+      grayscale: true,
+      gaussianBlurEnabled: true,
+      blurKernelSize: 13,
+      blurSigma: 0,
+      gaussianNoiseEnabled: false,
+      gaussianNoiseSigma: 0,
+      gaussianNoiseSeed: 1
+    };
+    const matching = { minimumScore: 0.8, searchRoi: null, mode: "accurate" as const };
+
+    const cancelledMatch = service.match({ target, template, preprocessing, matching });
+    service.cancelPending();
+
+    await expect(cancelledMatch).rejects.toMatchObject({ name: "AbortError" });
+    expect(workers[0]?.terminated).toBe(true);
+    await expect(service.match({
+      target: { ...target, data: new Uint8ClampedArray(target.data) } as ImageData,
+      template,
+      preprocessing,
+      matching
+    })).resolves.toMatchObject({ score: 0.91, x: 3, y: 4 });
+  });
 });

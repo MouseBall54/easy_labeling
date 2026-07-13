@@ -20,6 +20,62 @@ export function createEmptyAutomationLibrary(): AutomationLibraryDocument {
   };
 }
 
+export function createPresetFileDocument(
+  document: AutomationLibraryDocument,
+  presetId: string
+): AutomationLibraryDocument {
+  validateAutomationLibrary(document);
+  const preset = document.presets.find((candidate) => candidate.id === presetId);
+  if (!preset) {
+    throw new Error("Choose a preset to save");
+  }
+  const template = document.templates.find((candidate) => candidate.id === preset.templateId);
+  const layout = preset.layoutId
+    ? document.layouts.find((candidate) => candidate.id === preset.layoutId)
+    : null;
+  if (!template || (preset.layoutId && !layout)) {
+    throw new Error("The preset references a missing template or layout");
+  }
+
+  const presetFile: AutomationLibraryDocument = {
+    schemaVersion: AUTOMATION_SCHEMA_VERSION,
+    layouts: layout ? [layout] : [],
+    templates: [template],
+    presets: [preset]
+  };
+  validateAutomationLibrary(presetFile);
+  return presetFile;
+}
+
+export function mergePresetFileDocument(
+  document: AutomationLibraryDocument,
+  presetFile: AutomationLibraryDocument
+): AutomationLibraryDocument {
+  validateAutomationLibrary(document);
+  validateAutomationLibrary(presetFile);
+  if (presetFile.presets.length !== 1) {
+    throw new Error("A preset file must contain exactly one preset");
+  }
+
+  const preset = presetFile.presets[0];
+  const template = presetFile.templates.find((candidate) => candidate.id === preset.templateId);
+  const layout = preset.layoutId
+    ? presetFile.layouts.find((candidate) => candidate.id === preset.layoutId)
+    : null;
+  if (!template || (preset.layoutId && !layout)) {
+    throw new Error("The preset file is missing its template or layout");
+  }
+
+  const merged: AutomationLibraryDocument = {
+    ...document,
+    layouts: layout ? upsertById(document.layouts, layout) : document.layouts,
+    templates: upsertById(document.templates, template),
+    presets: upsertById(document.presets, preset)
+  };
+  validateAutomationLibrary(merged);
+  return merged;
+}
+
 export async function loadAutomationLibrary(imageFolderHandle: DirectoryHandleLike): Promise<AutomationLibraryDocument> {
   try {
     const directory = await getSubdirectoryHandle(imageFolderHandle, AUTOMATION_DIRECTORY_NAME);

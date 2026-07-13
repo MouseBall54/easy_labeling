@@ -164,13 +164,14 @@ async function addFile(root: MemoryDirectoryHandle, relativePath: string, bytes:
 export async function createBundledSampleDirectory(input?: {
   baseUrl?: URL;
   fetchRef?: typeof fetch;
+  signal?: AbortSignal;
 }): Promise<DirectoryHandleLike> {
   const fetchRef = input?.fetchRef ?? globalThis.fetch;
   if (typeof fetchRef !== "function") {
     throw new Error("Bundled sample loader requires fetch support");
   }
   const baseUrl = input?.baseUrl ?? new URL("assets/sample/", document.baseURI);
-  const manifestResponse = await fetchRef(new URL("manifest.json", baseUrl));
+  const manifestResponse = await fetchRef(new URL("manifest.json", baseUrl), { signal: input?.signal });
   if (!manifestResponse.ok) {
     throw new Error(`Unable to load bundled sample manifest (${manifestResponse.status})`);
   }
@@ -181,7 +182,8 @@ export async function createBundledSampleDirectory(input?: {
 
   const root = new MemoryDirectoryHandle(manifest.name.trim());
   for (const relativePath of manifest.files) {
-    const response = await fetchRef(new URL(relativePath, baseUrl));
+    input?.signal?.throwIfAborted();
+    const response = await fetchRef(new URL(relativePath, baseUrl), { signal: input?.signal });
     if (!response.ok) {
       throw new Error(`Unable to load bundled sample file: ${relativePath} (${response.status})`);
     }

@@ -315,6 +315,16 @@ function createElements() {
     taskAutomateBtn,
     automationPresetSelect: new FakeElement("select"),
     matchingEngineStatus,
+    loadingOverlay: new FakeElement("div"),
+    loadingStatusText: new FakeElement("strong"),
+    activeOperationPanel: new FakeElement("section"),
+    activeOperationTitle: new FakeElement("strong"),
+    activeOperationDetail: new FakeElement("span"),
+    activeOperationElapsed: new FakeElement("span"),
+    activeOperationProgressText: new FakeElement("span"),
+    activeOperationProgress: new FakeElement("div"),
+    activeOperationProgressBar: new FakeElement("div"),
+    cancelActiveOperationBtn: new FakeElement("button"),
     leftPanel: new FakeElement("aside"),
     rightPanel: new FakeElement("aside"),
     leftSplitter: new FakeElement("div"),
@@ -623,6 +633,47 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
   });
 });
 
+describe("bootstrap/ui-manager-adapter operation status", () => {
+  it("shows progress and aborts the active operation from the stop button", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    getDOMElementsMock.mockReturnValue(elements);
+    const manager = createUiManagerAdapter({
+      state,
+      documentRef: new FakeDocument() as unknown as Document,
+      bootstrapRef: {} as never,
+      windowRef: { prompt: () => null },
+      storage: { getItem: () => null, setItem: () => undefined }
+    });
+
+    const operation = manager.beginOperation({
+      title: "Running template match",
+      detail: "Matching current image",
+      current: 2,
+      total: 5,
+      cancellable: true,
+      blockCanvas: true
+    });
+
+    expect(elements.activeOperationPanel.hidden).toBe(false);
+    expect(elements.activeOperationTitle.textContent).toBe("Running template match");
+    expect(elements.activeOperationDetail.textContent).toBe("Matching current image");
+    expect(elements.activeOperationProgressText.textContent).toBe("2 / 5");
+    expect(elements.activeOperationProgressBar.style.width).toBe("40%");
+    expect(elements.cancelActiveOperationBtn.hidden).toBe(false);
+
+    elements.cancelActiveOperationBtn.dispatch("click");
+
+    expect(operation.signal.aborted).toBe(true);
+    expect(elements.activeOperationPanel.dataset.state).toBe("stopping");
+    expect(elements.activeOperationDetail.textContent).toContain("Stopping");
+    expect(elements.cancelActiveOperationBtn.disabled).toBe(true);
+
+    operation.finish();
+    expect(elements.activeOperationPanel.hidden).toBe(true);
+  });
+});
+
 describe("bootstrap/ui-manager-adapter task workspaces", () => {
   beforeEach(() => {
     getDOMElementsMock.mockReset();
@@ -640,7 +691,7 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     expect(elements.rightPanel.classList.contains("collapsed")).toBe(true);
 
     manager.setActiveTask("automate");
-    expect(elements.leftPanel.classList.contains("collapsed")).toBe(true);
+    expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("task-focus")).toBe(true);
     expect(elements.inspectorAutomationPane.hidden).toBe(false);

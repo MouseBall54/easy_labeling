@@ -1,4 +1,5 @@
 import { validatePreprocessingSettings } from "./preset-codec.js";
+import { createOperationCancelledError } from "../../app/operation.js";
 import type {
   AutomationOutputMode,
   MultipleDetectionSettings,
@@ -41,6 +42,7 @@ export interface TemplateMatchInput {
 export interface TemplateMatchingService {
   warmUp(): Promise<{ engineInitializationMs: number }>;
   match(input: TemplateMatchInput): Promise<TemplateMatchResult>;
+  cancelPending(): void;
   terminate(): void;
 }
 
@@ -113,10 +115,12 @@ function preprocessingKey(settings: TemplatePreprocessingSettings): string {
 }
 
 export function createTemplateMatchingService(workerFactory?: () => WorkerLike): TemplateMatchingService {
-  const worker = workerFactory?.() ?? new Worker(
+  const createWorker = workerFactory ?? (() => new Worker(
     new URL("../../../workers/template-matching-worker.js", import.meta.url),
     { name: "easy-labeling-template-matching" }
-  );
+  ));
+  let worker = createWorker();
+  let terminated = false;
   let requestId = 0;
   let activeTemplateKey: string | null = null;
   let warmupPromise: Promise<{ engineInitializationMs: number }> | null = null;
@@ -133,41 +137,58 @@ export function createTemplateMatchingService(workerFactory?: () => WorkerLike):
     return key;
   };
 
-  worker.onmessage = (event) => {
-    const request = pending.get(event.data.id);
-    if (!request) {
-      return;
-    }
-    pending.delete(event.data.id);
-    if (!event.data.ok) {
-      request.reject(new Error(event.data.error ?? "Template matching failed"));
-      return;
-    }
-    if (request.kind === "warmup" && event.data.warmup) {
-      request.resolve(event.data.warmup);
-      return;
-    }
-    if (request.kind === "match" && event.data.result) {
-      activeTemplateKey = request.templateKey;
-      request.resolve({
-        ...event.data.result,
-        timings: {
-          ...event.data.result.timings,
-          roundTripMs: now() - request.startedAt
-        }
-      });
-      return;
-    }
-    request.reject(new Error("Template matching worker returned an invalid response"));
+  const bindWorker = (target: WorkerLike): void => {
+    target.onmessage = (event) => {
+      const request = pending.get(event.data.id);
+      if (!request) {
+        return;
+      }
+      pending.delete(event.data.id);
+      if (!event.data.ok) {
+        request.reject(new Error(event.data.error ?? "Template matching failed"));
+        return;
+      }
+      if (request.kind === "warmup" && event.data.warmup) {
+        request.resolve(event.data.warmup);
+        return;
+      }
+      if (request.kind === "match" && event.data.result) {
+        activeTemplateKey = request.templateKey;
+        request.resolve({
+          ...event.data.result,
+          timings: {
+            ...event.data.result.timings,
+            roundTripMs: now() - request.startedAt
+          }
+        });
+        return;
+      }
+      request.reject(new Error("Template matching worker returned an invalid response"));
+    };
+    target.onerror = (event) => {
+      const error = new Error(event.message || "Template matching worker failed");
+      pending.forEach((request) => request.reject(error));
+      pending.clear();
+      warmupPromise = null;
+    };
   };
-  worker.onerror = (event) => {
-    const error = new Error(event.message || "Template matching worker failed");
+  bindWorker(worker);
+
+  const rejectPending = (error: Error): void => {
     pending.forEach((request) => request.reject(error));
     pending.clear();
     warmupPromise = null;
+    activeTemplateKey = null;
+  };
+
+  const requireRunning = (): void => {
+    if (terminated) {
+      throw new Error("Template matching service terminated");
+    }
   };
 
   const warmUp = (): Promise<{ engineInitializationMs: number }> => {
+    requireRunning();
     warmupPromise ??= new Promise((resolve, reject) => {
       requestId += 1;
       const id = requestId;
@@ -181,6 +202,7 @@ export function createTemplateMatchingService(workerFactory?: () => WorkerLike):
     warmUp,
 
     async match(input): Promise<TemplateMatchResult> {
+      requireRunning();
       validatePreprocessingSettings(input.preprocessing);
       if (input.template.width > input.target.width || input.template.height > input.target.height) {
         throw new Error("Template is larger than the target image");
@@ -219,10 +241,26 @@ export function createTemplateMatchingService(workerFactory?: () => WorkerLike):
       return await result;
     },
 
+    cancelPending(): void {
+      if (terminated || pending.size === 0) {
+        return;
+      }
+      const error = createOperationCancelledError("Template matching stopped");
+      const previousWorker = worker;
+      previousWorker.onmessage = null;
+      previousWorker.onerror = null;
+      previousWorker.terminate();
+      rejectPending(error);
+      worker = createWorker();
+      bindWorker(worker);
+    },
+
     terminate(): void {
-      const error = new Error("Template matching service terminated");
-      pending.forEach((request) => request.reject(error));
-      pending.clear();
+      if (terminated) {
+        return;
+      }
+      terminated = true;
+      rejectPending(new Error("Template matching service terminated"));
       worker.terminate();
     }
   };

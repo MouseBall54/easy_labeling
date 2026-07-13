@@ -70,9 +70,17 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator('#image-list [data-file-name="sample_1.jpg"]').click();
   await expectSampleImage("sample_1.jpg", 52);
 
+  const inspectorTracks = await page.locator("#detectionWorkflowPanel .inspector-tabs").evaluate((element) => {
+    return getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat);
+  });
+  expect(inspectorTracks).toHaveLength(2);
+  expect(Math.abs((inspectorTracks[0] ?? 0) - (inspectorTracks[1] ?? 0))).toBeLessThanOrEqual(1);
+
   await page.locator("#taskAutomateBtn").focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
+  await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#left-panel")).toBeVisible();
 
   const templateSetupButton = page.locator("#openTemplateMatchingBtn");
   await templateSetupButton.focus();
@@ -87,6 +95,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#templatePresetSelect").selectOption("sample-layout-preset");
   await expect(page.locator("#templateNameInput")).toHaveValue("Sample Pink Anchor + Layout");
   await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("min", "1");
+  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("max", "1000");
   await expect(page.locator("#templateWorkspaceFitBtn")).toBeVisible();
   await expect.poll(async () => Number(await page.locator("#templateWorkspaceZoomInput").inputValue()))
     .toBeLessThan(100);
@@ -151,7 +160,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(page.locator("#templateSearchRoiToggle")).not.toBeChecked();
 
   await page.locator("#testTemplateMatchBtn").click();
-  await expect(page.locator("#templateMatchScore")).not.toHaveText("Not tested", { timeout: 30_000 });
+  await expect(page.locator("#templateMatchScore")).not.toHaveText("No preview yet", { timeout: 30_000 });
   await expect(page.locator("#templateMatchScore")).toHaveClass(/text-success/);
   await expect(page.locator("#templateMatchCoordinates")).toContainText("X 620, Y 301");
   await expect(page.locator("#templateMatchCoordinates")).toContainText("Anchor offset");
@@ -197,6 +206,27 @@ test("bundled sample test loads labeled cars and applies the prepared template l
     input.value = "200";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  const focusedCandidate = page.getByTestId("template-match-candidate-0");
+  const focusedGeometry = await focusedCandidate.evaluate((element) => ({
+    x: Number((element as HTMLElement).dataset.matchX),
+    y: Number((element as HTMLElement).dataset.matchY),
+    width: Number((element as HTMLElement).dataset.matchWidth),
+    height: Number((element as HTMLElement).dataset.matchHeight)
+  }));
+  await focusedCandidate.click();
+  await expect(page.locator("#templateMatchingCanvas")).toHaveAttribute("data-focused-match-index", "0");
+  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveValue("200");
+  await expect.poll(async () => page.locator("#templateWorkspaceScroller").evaluate((element, geometry) => {
+    const canvas = element.querySelector<HTMLCanvasElement>("#templateMatchingCanvas");
+    if (!canvas) {
+      return false;
+    }
+    const zoom = Number((document.querySelector("#templateWorkspaceZoomInput") as HTMLInputElement).value) / 100;
+    const focusedCenterX = Number.parseFloat(canvas.style.left) + (geometry.x + geometry.width / 2) * zoom;
+    const focusedCenterY = Number.parseFloat(canvas.style.top) + (geometry.y + geometry.height / 2) * zoom;
+    return Math.abs(focusedCenterX - (element.scrollLeft + element.clientWidth / 2)) <= 1
+      && Math.abs(focusedCenterY - (element.scrollTop + element.clientHeight / 2)) <= 1;
+  }, focusedGeometry)).toBe(true);
   await page.locator('label[for="templatePointerSelectRadio"]').click();
   const templateScroller = page.locator("#templateWorkspaceScroller");
   const scrollBeforePan = await templateScroller.evaluate((element) => {

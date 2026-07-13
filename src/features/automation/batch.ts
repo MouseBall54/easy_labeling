@@ -91,6 +91,10 @@ export async function runSequentialBatch<TFile>(input: {
       try {
         outcome = await input.deps.processFile(file, input.preset, input.preset.existingLabelsPolicy);
       } catch (error: unknown) {
+        if (input.deps.isCancellationRequested()) {
+          summary.cancelled = true;
+          break;
+        }
         outcome = {
           state: "failed",
           score: null,

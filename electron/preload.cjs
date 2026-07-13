@@ -4,6 +4,8 @@ const { ipcRenderer } = require("electron");
 
 const PICK_DIRECTORY_CHANNEL = "easy-labeling:pick-directory";
 const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
+const OPEN_LIBRARY_FILE_CHANNEL = "easy-labeling:open-library-file";
+const SAVE_LIBRARY_FILE_CHANNEL = "easy-labeling:save-library-file";
 
 function createDomException(name, message) {
   const error = new Error(message);
@@ -176,15 +178,41 @@ function createDirectoryHandle(directoryPath) {
   };
 }
 
-window.showDirectoryPicker = async function showDirectoryPicker() {
-  const selectedPath = await ipcRenderer.invoke(PICK_DIRECTORY_CHANNEL);
+window.showDirectoryPicker = async function showDirectoryPicker(options) {
+  const selectedPath = await ipcRenderer.invoke(PICK_DIRECTORY_CHANNEL, {
+    id: options?.id
+  });
   if (!selectedPath) {
     throw createDomException("AbortError", "The user aborted a request.");
   }
   return createDirectoryHandle(selectedPath);
 };
 
-window.getEasyLabelingSampleDirectory = async function getEasyLabelingSampleDirectory() {
-  const samplePath = await ipcRenderer.invoke(SAMPLE_DIRECTORY_CHANNEL);
-  return createDirectoryHandle(samplePath);
+window.openEasyLabelingLibraryFile = function openEasyLabelingLibraryFile(kind) {
+  return ipcRenderer.invoke(OPEN_LIBRARY_FILE_CHANNEL, kind);
+};
+
+window.saveEasyLabelingLibraryFile = function saveEasyLabelingLibraryFile(options) {
+  return ipcRenderer.invoke(SAVE_LIBRARY_FILE_CHANNEL, options);
+};
+
+window.getEasyLabelingSampleDirectory = async function getEasyLabelingSampleDirectory(signal) {
+  const samplePathPromise = ipcRenderer.invoke(SAMPLE_DIRECTORY_CHANNEL);
+  if (!signal) {
+    return createDirectoryHandle(await samplePathPromise);
+  }
+  if (signal.aborted) {
+    throw signal.reason ?? createDomException("AbortError", "The operation was stopped.");
+  }
+  let rejectOnAbort;
+  const abortPromise = new Promise((_resolve, reject) => {
+    rejectOnAbort = () => reject(signal.reason ?? createDomException("AbortError", "The operation was stopped."));
+    signal.addEventListener("abort", rejectOnAbort, { once: true });
+  });
+  try {
+    const samplePath = await Promise.race([samplePathPromise, abortPromise]);
+    return createDirectoryHandle(samplePath);
+  } finally {
+    signal.removeEventListener("abort", rejectOnAbort);
+  }
 };

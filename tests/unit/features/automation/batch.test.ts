@@ -69,6 +69,28 @@ describe("sequential automation batch", () => {
     expect(summary).toMatchObject({ processed: 1, success: 1, cancelled: true });
   });
 
+  it("does not record an actively cancelled file as a failure", async () => {
+    let cancelled = false;
+    const summary = await runSequentialBatch({
+      files: ["active.png", "later.png"],
+      preset: createPreset(),
+      deps: {
+        getFileName: (file) => file,
+        isAlreadyLabeled: () => false,
+        processFile: async () => {
+          cancelled = true;
+          const error = new Error("Template matching stopped");
+          error.name = "AbortError";
+          throw error;
+        },
+        isCancellationRequested: () => cancelled
+      }
+    });
+
+    expect(summary).toMatchObject({ processed: 0, success: 0, failed: 0, cancelled: true });
+    expect(summary.items).toEqual([]);
+  });
+
   it("records low-score and save failures without stopping later files", async () => {
     const summary = await runSequentialBatch({
       files: ["low.png", "disk-error.png", "good.png"],

@@ -122,6 +122,9 @@ export interface UiDomElements {
   templateMatchContextDeleteBtn: HTMLButtonElement;
   newAutomationPresetBtn: HTMLButtonElement;
   deleteAutomationPresetBtn: HTMLButtonElement;
+  exportAutomationPresetBtn: HTMLButtonElement;
+  importAutomationPresetBtn: HTMLButtonElement;
+  importAutomationPresetInput: HTMLInputElement;
   templateNameInput: HTMLInputElement;
   templateOutputLayoutRadio: HTMLInputElement;
   templateOutputMultipleRadio: HTMLInputElement;
@@ -228,6 +231,14 @@ export interface UiDomElements {
   ctxDeleteLabel: HTMLElement;
   loadingOverlay: HTMLElement;
   loadingStatusText: HTMLElement;
+  activeOperationPanel: HTMLElement;
+  activeOperationTitle: HTMLElement;
+  activeOperationDetail: HTMLElement;
+  activeOperationElapsed: HTMLElement;
+  activeOperationProgressText: HTMLElement;
+  activeOperationProgress: HTMLElement;
+  activeOperationProgressBar: HTMLElement;
+  cancelActiveOperationBtn: HTMLButtonElement;
   taskFilesBtn: HTMLButtonElement;
   taskAnnotateBtn: HTMLButtonElement;
   taskAutomateBtn: HTMLButtonElement;
@@ -405,6 +416,9 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateMatchContextDeleteBtn: requireById<HTMLButtonElement>(documentRef, "templateMatchContextDeleteBtn"),
     newAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "newAutomationPresetBtn"),
     deleteAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "deleteAutomationPresetBtn"),
+    exportAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "exportAutomationPresetBtn"),
+    importAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "importAutomationPresetBtn"),
+    importAutomationPresetInput: requireById<HTMLInputElement>(documentRef, "importAutomationPresetInput"),
     templateNameInput: requireById<HTMLInputElement>(documentRef, "templateNameInput"),
     templateOutputLayoutRadio: requireById<HTMLInputElement>(documentRef, "templateOutputLayoutRadio"),
     templateOutputMultipleRadio: requireById<HTMLInputElement>(documentRef, "templateOutputMultipleRadio"),
@@ -511,6 +525,14 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     ctxDeleteLabel: requireById<HTMLElement>(documentRef, "ctx-delete-label"),
     loadingOverlay: requireById<HTMLElement>(documentRef, "loading-overlay"),
     loadingStatusText: requireById<HTMLElement>(documentRef, "loadingStatusText"),
+    activeOperationPanel: requireById<HTMLElement>(documentRef, "activeOperationPanel"),
+    activeOperationTitle: requireById<HTMLElement>(documentRef, "activeOperationTitle"),
+    activeOperationDetail: requireById<HTMLElement>(documentRef, "activeOperationDetail"),
+    activeOperationElapsed: requireById<HTMLElement>(documentRef, "activeOperationElapsed"),
+    activeOperationProgressText: requireById<HTMLElement>(documentRef, "activeOperationProgressText"),
+    activeOperationProgress: requireById<HTMLElement>(documentRef, "activeOperationProgress"),
+    activeOperationProgressBar: requireById<HTMLElement>(documentRef, "activeOperationProgressBar"),
+    cancelActiveOperationBtn: requireById<HTMLButtonElement>(documentRef, "cancelActiveOperationBtn"),
     taskFilesBtn: requireById<HTMLButtonElement>(documentRef, "taskFilesBtn"),
     taskAnnotateBtn: requireById<HTMLButtonElement>(documentRef, "taskAnnotateBtn"),
     taskAutomateBtn: requireById<HTMLButtonElement>(documentRef, "taskAutomateBtn"),

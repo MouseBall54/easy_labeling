@@ -83,6 +83,23 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect(page.locator("#layoutSetupSelect option:checked")).toHaveText("Updated pair");
   await expect(page.locator("#layoutDetails")).toContainText("2 boxes");
 
+  const layoutDownloadPromise = page.waitForEvent("download");
+  await page.locator("#exportAutomationLibraryBtn").click();
+  const layoutDownload = await layoutDownloadPromise;
+  expect(layoutDownload.suggestedFilename()).toBe("Updated-pair.layout.json");
+  const layoutJsonPath = await layoutDownload.path();
+  expect(layoutJsonPath).not.toBeNull();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#deleteBoxLayoutBtn").click();
+  await expect(page.locator("#layoutSetupSelect option", { hasText: "Updated pair" })).toHaveCount(0);
+  if (!layoutJsonPath) {
+    throw new Error("Exported layout path is unavailable");
+  }
+  await page.locator("#importAutomationLibraryInput").setInputFiles(layoutJsonPath);
+  await expect(page.locator("#layoutSetupSelect option:checked")).toHaveText("Updated pair");
+  await expect(page.locator("#layoutDetails")).toContainText("2 boxes");
+  await expect(page.locator(".toast-message").last()).toHaveText("Layout file loaded.");
+
   await modal.locator(".modal-footer").getByRole("button", { name: "Close" }).click();
   await page.locator("#applyBoxLayoutBtn").click();
   await expect.poll(async () => page.evaluate(() => {

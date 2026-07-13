@@ -3,6 +3,28 @@ import { describe, expect, it, vi } from "vitest";
 import { createBundledSampleDirectory } from "../../../../src/features/sample/sample-test-directory.js";
 
 describe("bundled sample test directory", () => {
+  it("aborts an in-flight bundled file request", async () => {
+    const controller = new AbortController();
+    const fetchRef = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith("manifest.json")) {
+        return new Response(JSON.stringify({ name: "Sample Test", files: ["sample.jpg"] }), { status: 200 });
+      }
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    });
+
+    const loading = createBundledSampleDirectory({
+      baseUrl: new URL("https://example.test/assets/sample/"),
+      fetchRef: fetchRef as typeof fetch,
+      signal: controller.signal
+    });
+    await vi.waitFor(() => expect(fetchRef).toHaveBeenCalledTimes(2));
+    controller.abort();
+
+    await expect(loading).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("builds nested File System Access handles and keeps writes session-local", async () => {
     const files = new Map<string, BodyInit>([
       ["https://example.test/assets/sample/manifest.json", JSON.stringify({

@@ -127,8 +127,35 @@ function createConnectedDeps() {
       return rows;
     }
   };
+  const operations: Array<{
+    options: { title: string; detail?: string };
+    controller: AbortController;
+    update: ReturnType<typeof vi.fn>;
+    finish: ReturnType<typeof vi.fn>;
+    cancel(): void;
+  }> = [];
   return {
+    operations,
     uiManager: {
+      beginOperation: vi.fn((options: { title: string; detail?: string }) => {
+        const controller = new AbortController();
+        const operation = {
+          options,
+          controller,
+          update: vi.fn(),
+          finish: vi.fn(),
+          cancel(): void {
+            controller.abort();
+          }
+        };
+        operations.push(operation);
+        return {
+          signal: controller.signal,
+          update: operation.update,
+          finish: operation.finish,
+          cancel: () => operation.cancel()
+        };
+      }),
       showLoading: vi.fn(),
       hideLoading: vi.fn(),
       notify: vi.fn(),
@@ -176,6 +203,38 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  it("stops a pending sample load and restores the previous session", async () => {
+    const oldFolder = new MockDirectoryHandle("old-dataset");
+    const sampleFolder = new MockDirectoryHandle("sample-dataset");
+    let resolveSample!: (folder: MockDirectoryHandle) => void;
+    const samplePromise = new Promise<MockDirectoryHandle>((resolve) => {
+      resolveSample = resolve;
+    });
+    const state = createInitialAppState();
+    state.session.imageFolderHandle = oldFolder as never;
+    const windowRef = {
+      ...createWindowRef(sampleFolder),
+      getEasyLabelingSampleDirectory: vi.fn(() => samplePromise)
+    };
+    const fileSystem = createFileSystemAdapter({
+      state,
+      windowRef: windowRef as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
+      tiffRef: null
+    });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+
+    const loading = fileSystem.loadSampleTestData();
+    await vi.waitFor(() => expect(deps.operations).toHaveLength(1));
+    deps.operations[0]?.cancel();
+    resolveSample(sampleFolder);
+    await loading;
+
+    expect(state.session.imageFolderHandle).toBe(oldFolder);
+    expect(deps.operations[0]?.finish).toHaveBeenCalledTimes(1);
+    expect(deps.uiManager.notify).toHaveBeenCalledWith("Loading sample workspace stopped.");
+  });
+
   it("loads the bundled sample directory without invoking the native folder picker", async () => {
     await withDocumentMock(async () => {
       const previousHtmlImageElement = Reflect.get(globalThis, "HTMLImageElement");
@@ -224,9 +283,10 @@ describe("bootstrap/file-system-adapter", () => {
         .withFile(new MockFileHandle("classes.yaml", "0: person\n1: car"))
         .withFile(new MockFileHandle("ignore.txt", "noop"));
       const state = createInitialAppState();
+      const windowRef = createWindowRef(classFolder);
       const fileSystem = createFileSystemAdapter({
         state,
-        windowRef: createWindowRef(classFolder) as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
+        windowRef: windowRef as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
         tiffRef: null
       });
       const deps = createConnectedDeps();
@@ -237,6 +297,7 @@ describe("bootstrap/file-system-adapter", () => {
 
       expect(state.session.classFiles.map((file) => file.name)).toEqual(["classes.yaml"]);
       expect(state.session.selectedClassFile?.name).toBe("classes.yaml");
+      expect(windowRef.showDirectoryPicker).toHaveBeenCalledWith({ id: "class-info", mode: "readwrite" });
       expect(deps.uiManager.renderClassFileSelect).toHaveBeenCalled();
       expect(deps.uiManager.showClassFileContentModal).toHaveBeenCalledTimes(1);
       expect(deps.uiManager.elements.classFileEditorBody.querySelectorAll("tr").length).toBe(2);

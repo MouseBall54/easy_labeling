@@ -1,4 +1,5 @@
 import type { UIManager, UIManagerDeps } from "../app/contracts.js";
+import { createOperationCancelledError } from "../app/operation.js";
 import type { AppState } from "../app/state.js";
 import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
@@ -69,6 +70,7 @@ export interface RuntimeUiManager extends UIManager {
   updateCurrentImageName(): void;
   updateMouseCoords(x: number, y: number): void;
   hideMouseCoords(): void;
+  beginOperation(options: RuntimeOperationOptions): RuntimeOperationHandle;
   showLoading(message?: string): void;
   hideLoading(): void;
   setDirectoryPickerSupport(available: boolean): void;
@@ -80,6 +82,39 @@ export interface RuntimeUiManager extends UIManager {
   togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void;
   setupSplitters(): void;
   showClassFileContentModal(): void;
+}
+
+export interface RuntimeOperationUpdate {
+  title?: string;
+  detail?: string;
+  current?: number;
+  total?: number;
+}
+
+export interface RuntimeOperationOptions extends RuntimeOperationUpdate {
+  title: string;
+  cancellable?: boolean;
+  blockCanvas?: boolean;
+}
+
+export interface RuntimeOperationHandle {
+  readonly signal: AbortSignal;
+  update(update: RuntimeOperationUpdate): void;
+  cancel(): void;
+  finish(): void;
+}
+
+interface ActiveRuntimeOperation {
+  id: number;
+  title: string;
+  detail: string;
+  current: number | null;
+  total: number | null;
+  cancellable: boolean;
+  blockCanvas: boolean;
+  startedAt: number;
+  controller: AbortController;
+  timer: ReturnType<typeof setInterval>;
 }
 
 export function createUiManagerAdapter(input: {
@@ -98,6 +133,8 @@ export function createUiManagerAdapter(input: {
   ]);
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
+  let nextOperationId = 0;
+  const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
   let activeTask: "files" | "annotate" | "automate" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
@@ -110,6 +147,67 @@ export function createUiManagerAdapter(input: {
       return;
     }
     element.textContent = text;
+  };
+
+  const latestOperation = (): ActiveRuntimeOperation | null => {
+    const operations = [...activeOperations.values()];
+    return operations[operations.length - 1] ?? null;
+  };
+
+  const syncLoadingOverlay = (): void => {
+    const blockingOperation = [...activeOperations.values()].reverse().find((operation) => operation.blockCanvas);
+    const visible = loadingDepth > 0 || Boolean(blockingOperation);
+    if (blockingOperation) {
+      elements.loadingStatusText.textContent = blockingOperation.title;
+    }
+    if (visible) {
+      showLoadingOverlay(elements.loadingOverlay);
+      elements.loadingOverlay.setAttribute("aria-hidden", "false");
+      return;
+    }
+    hideLoadingOverlay(elements.loadingOverlay);
+    elements.loadingOverlay.setAttribute("aria-hidden", "true");
+  };
+
+  const renderActiveOperation = (): void => {
+    const operation = latestOperation();
+    if (!operation) {
+      elements.activeOperationPanel.hidden = true;
+      elements.activeOperationProgress.hidden = true;
+      return;
+    }
+
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - operation.startedAt) / 1000));
+    const hasProgress = operation.current !== null
+      && operation.total !== null
+      && operation.total > 0;
+    const percent = hasProgress
+      ? Math.max(0, Math.min(100, Math.round(((operation.current ?? 0) / (operation.total ?? 1)) * 100)))
+      : 0;
+
+    elements.activeOperationPanel.hidden = false;
+    elements.activeOperationPanel.dataset.state = operation.controller.signal.aborted ? "stopping" : "running";
+    elements.activeOperationTitle.textContent = operation.controller.signal.aborted ? "Stopping operation" : operation.title;
+    elements.activeOperationDetail.textContent = operation.detail;
+    elements.activeOperationElapsed.textContent = `Elapsed ${elapsedSeconds}s`;
+    elements.cancelActiveOperationBtn.hidden = !operation.cancellable;
+    elements.cancelActiveOperationBtn.disabled = operation.controller.signal.aborted;
+    elements.activeOperationProgress.hidden = !hasProgress;
+    elements.activeOperationProgressText.hidden = !hasProgress;
+    elements.activeOperationProgressText.textContent = hasProgress
+      ? `${operation.current} / ${operation.total}`
+      : "";
+    elements.activeOperationProgressBar.style.width = `${percent}%`;
+    elements.activeOperationProgress.setAttribute("aria-valuenow", String(percent));
+  };
+
+  const cancelOperation = (operation: ActiveRuntimeOperation): void => {
+    if (!operation.cancellable || operation.controller.signal.aborted) {
+      return;
+    }
+    operation.detail = "Stopping at the next safe point...";
+    operation.controller.abort(createOperationCancelledError(`${operation.title} stopped`));
+    renderActiveOperation();
   };
 
   const selectedDetectionRects = (): ReturnType<RuntimeCanvasController["raw"]["getObjects"]> => {
@@ -306,7 +404,6 @@ export function createUiManagerAdapter(input: {
 
       manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
       if (task === "automate") {
-        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, true);
         manager.setInspectorTab("automation");
         elements.automationPresetSelect.focus({ preventScroll: true });
       } else {
@@ -936,19 +1033,65 @@ export function createUiManagerAdapter(input: {
       elements.mouseCoordsDisplay.style.visibility = "hidden";
     },
 
+    beginOperation(options: RuntimeOperationOptions): RuntimeOperationHandle {
+      nextOperationId += 1;
+      const id = nextOperationId;
+      const controller = new AbortController();
+      const operation: ActiveRuntimeOperation = {
+        id,
+        title: options.title,
+        detail: options.detail ?? "Preparing operation...",
+        current: options.current ?? null,
+        total: options.total ?? null,
+        cancellable: options.cancellable ?? false,
+        blockCanvas: options.blockCanvas ?? false,
+        startedAt: Date.now(),
+        controller,
+        timer: globalThis.setInterval(renderActiveOperation, 1000)
+      };
+      activeOperations.set(id, operation);
+      syncLoadingOverlay();
+      renderActiveOperation();
+
+      let finished = false;
+      return {
+        signal: controller.signal,
+        update(update): void {
+          if (finished) {
+            return;
+          }
+          operation.title = update.title ?? operation.title;
+          operation.detail = update.detail ?? operation.detail;
+          operation.current = update.current ?? operation.current;
+          operation.total = update.total ?? operation.total;
+          renderActiveOperation();
+          syncLoadingOverlay();
+        },
+        cancel(): void {
+          cancelOperation(operation);
+        },
+        finish(): void {
+          if (finished) {
+            return;
+          }
+          finished = true;
+          globalThis.clearInterval(operation.timer);
+          activeOperations.delete(id);
+          renderActiveOperation();
+          syncLoadingOverlay();
+        }
+      };
+    },
+
     showLoading(message = "Loading workspace..."): void {
       loadingDepth += 1;
       elements.loadingStatusText.textContent = message;
-      showLoadingOverlay(elements.loadingOverlay);
-      elements.loadingOverlay.setAttribute("aria-hidden", "false");
+      syncLoadingOverlay();
     },
 
     hideLoading(): void {
       loadingDepth = Math.max(0, loadingDepth - 1);
-      if (loadingDepth === 0) {
-        hideLoadingOverlay(elements.loadingOverlay);
-        elements.loadingOverlay.setAttribute("aria-hidden", "true");
-      }
+      syncLoadingOverlay();
     },
 
     togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void {
@@ -1035,6 +1178,13 @@ export function createUiManagerAdapter(input: {
       elements.classFileViewerModal.show();
     }
   };
+
+  elements.cancelActiveOperationBtn.addEventListener("click", () => {
+    const operation = latestOperation();
+    if (operation) {
+      cancelOperation(operation);
+    }
+  });
 
   return manager;
 }

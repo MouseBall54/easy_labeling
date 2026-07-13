@@ -24,6 +24,30 @@ function hasEventOffset(event: MouseEvent | WheelEvent): event is MouseEvent | W
     Number.isFinite((event as { offsetY?: unknown }).offsetY);
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== "object") {
+    return false;
+  }
+
+  const element = target as {
+    tagName?: unknown;
+    type?: unknown;
+    isContentEditable?: unknown;
+    closest?: (selector: string) => unknown;
+  };
+  const tagName = typeof element.tagName === "string" ? element.tagName.toUpperCase() : "";
+  if (tagName === "INPUT") {
+    const inputType = typeof element.type === "string" ? element.type.toLowerCase() : "text";
+    return !["button", "checkbox", "file", "hidden", "image", "radio", "reset", "submit"].includes(inputType);
+  }
+  if (tagName === "TEXTAREA" || tagName === "SELECT" || element.isContentEditable === true) {
+    return true;
+  }
+
+  return typeof element.closest === "function"
+    && element.closest("input:not([type='button']):not([type='checkbox']):not([type='file']):not([type='hidden']):not([type='image']):not([type='radio']):not([type='reset']):not([type='submit']), textarea, select, [contenteditable]:not([contenteditable='false'])") !== null;
+}
+
 function invertViewportPoint(point: CanvasPointLike, transform: ViewportTransform): CanvasPointLike | null {
   const [scaleX, skewY, skewX, scaleY, translateX, translateY] = transform;
   const determinant = (scaleX * scaleY) - (skewX * skewY);
@@ -1122,6 +1146,10 @@ export function createEventManagerAdapter(input: {
       });
 
       input.windowRef.addEventListener("keydown", (event) => {
+        if (isEditableKeyboardTarget(event.target) || isEditableKeyboardTarget(input.documentRef?.activeElement ?? null)) {
+          return;
+        }
+
         const templateModalElement = input.documentRef?.getElementById("templateMatchingModal");
         const templateModalVisible = elements.templateMatchingModal?._isShown
           || templateModalElement?.classList.contains("show");
@@ -1135,11 +1163,6 @@ export function createEventManagerAdapter(input: {
           return;
         }
         if (elements.classFileViewerModal._element?.classList.contains("show")) {
-          return;
-        }
-
-        const target = event.target;
-        if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
           return;
         }
 

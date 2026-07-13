@@ -247,6 +247,49 @@ describe("template workspace interaction modes", () => {
     expect(Number.parseFloat(canvas.style.top) - scroller.scrollTop).toBeCloseTo((70 - canvas.height) / 2);
   });
 
+  it("keeps zoom while centering and highlighting a focused match", () => {
+    const canvas = new FakeCanvas(1000, 800);
+    const scroller = new FakeScroller();
+    const zoomInput = { value: "250", addEventListener: vi.fn() } as unknown as HTMLInputElement;
+    const zoomValue = { textContent: "" } as HTMLElement;
+    const workspace = createTemplateWorkspace({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      scroller: scroller as unknown as HTMLElement,
+      stage: new FakeStage() as unknown as HTMLElement,
+      zoomInput,
+      zoomValue,
+      originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
+      processedPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement
+    });
+
+    workspace.bind();
+    workspace.setImage({ naturalWidth: 1000, naturalHeight: 800, width: 1000, height: 800 } as HTMLImageElement);
+    workspace.setMatchResults([{
+      candidate: { score: 0.91, x: 600, y: 400, width: 20, height: 10 },
+      selected: false,
+      classId: "2"
+    }]);
+    workspace.focusMatch(0);
+
+    expect(zoomInput.value).toBe("250");
+    expect(zoomValue.textContent).toBe("250%");
+    expect(canvas.dataset.focusedMatchIndex).toBe("0");
+    expect(scroller.scrollLeft).toBeCloseTo(1575);
+    expect(scroller.scrollTop).toBeCloseTo(1047.5);
+
+    workspace.setMatchResults([{
+      candidate: { score: 0.91, x: 600, y: 400, width: 20, height: 10 },
+      selected: true,
+      classId: "2"
+    }]);
+    expect(canvas.dataset.focusedMatchIndex).toBe("0");
+
+    zoomInput.value = "999";
+    scroller.dispatchWheel(-100);
+    expect(zoomInput.value).toBe("1000");
+    expect(zoomValue.textContent).toBe("1000%");
+  });
+
   it("renders and clears a translucent layout preview at the calculated anchor", () => {
     const canvas = new FakeCanvas(120, 90);
     const workspace = createTemplateWorkspace({

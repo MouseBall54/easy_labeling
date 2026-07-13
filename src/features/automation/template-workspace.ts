@@ -23,6 +23,7 @@ export type TemplateWorkspaceInteractionMode = "template-roi" | "select-results"
 export interface TemplateWorkspace {
   bind(): void;
   fitToView(): void;
+  focusMatch(index: number): void;
   setInteractionMode(mode: TemplateWorkspaceInteractionMode): void;
   getInteractionMode(): TemplateWorkspaceInteractionMode;
   setImage(image: HTMLImageElement, roi?: PixelRect | null): void;
@@ -46,6 +47,8 @@ function requireContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
+
+const MAX_WORKSPACE_ZOOM_PERCENT = 1000;
 
 function normalizeRect(startX: number, startY: number, endX: number, endY: number): PixelRect {
   return {
@@ -90,6 +93,7 @@ export function createTemplateWorkspace(input: {
   let layoutPreview: TemplateWorkspaceLayoutPreview | null = null;
   let layoutPreviewOpacity = 0.1;
   let interactionMode: TemplateWorkspaceInteractionMode = "template-roi";
+  let focusedMatchIndex: number | null = null;
   let stagePaddingX = 0;
   let stagePaddingY = 0;
   let dragStart: { x: number; y: number } | null = null;
@@ -106,7 +110,11 @@ export function createTemplateWorkspace(input: {
 
   const imageWidth = (): number => image?.naturalWidth || image?.width || 0;
   const imageHeight = (): number => image?.naturalHeight || image?.height || 0;
-  const zoomPercent = (): number => clamp(Number.parseInt(input.zoomInput.value, 10) || 100, 1, 400);
+  const zoomPercent = (): number => clamp(
+    Number.parseInt(input.zoomInput.value, 10) || 100,
+    1,
+    MAX_WORKSPACE_ZOOM_PERCENT
+  );
   const zoom = (): number => zoomPercent() / 100;
 
   const eventToImagePoint = (event: Pick<PointerEvent, "clientX" | "clientY">): { x: number; y: number } => {
@@ -180,6 +188,11 @@ export function createTemplateWorkspace(input: {
     input.zoomValue.textContent = `${Math.round(currentZoom * 100)}%`;
     input.canvas.dataset.layoutPreview = String(layoutPreview !== null);
     input.canvas.dataset.layoutPreviewOpacity = layoutPreviewOpacity.toFixed(2);
+    if (focusedMatchIndex === null) {
+      delete input.canvas.dataset.focusedMatchIndex;
+    } else {
+      input.canvas.dataset.focusedMatchIndex = String(focusedMatchIndex);
+    }
     if (!image) {
       context.clearRect(0, 0, input.canvas.width, input.canvas.height);
       syncStage();
@@ -241,14 +254,17 @@ export function createTemplateWorkspace(input: {
       );
     }
     if (matchResults.length > 0) {
-      context.lineWidth = 3 / currentZoom;
       context.setLineDash([]);
       context.font = `${Math.max(10, 12 / currentZoom)}px sans-serif`;
       matchResults.forEach((item, index) => {
         const match = item.candidate;
-        const accent = item.selected ? "#0d6efd" : "#20c997";
+        const focused = index === focusedMatchIndex;
+        const accent = focused ? "#ffc107" : item.selected ? "#0d6efd" : "#20c997";
+        context.lineWidth = (focused ? 5 : 3) / currentZoom;
         context.strokeStyle = accent;
-        context.fillStyle = item.selected ? "rgba(13, 110, 253, 0.20)" : "rgba(32, 201, 151, 0.12)";
+        context.fillStyle = focused
+          ? "rgba(255, 193, 7, 0.28)"
+          : item.selected ? "rgba(13, 110, 253, 0.20)" : "rgba(32, 201, 151, 0.12)";
         context.fillRect(match.x, match.y, match.width, match.height);
         context.strokeRect(match.x, match.y, match.width, match.height);
         const label = `${index + 1} ${(match.score * 100).toFixed(1)}%${item.classId ? ` C${item.classId}` : ""}`;
@@ -256,7 +272,7 @@ export function createTemplateWorkspace(input: {
         const labelWidth = Math.min(match.width, context.measureText(label).width + 8 / currentZoom);
         context.fillStyle = accent;
         context.fillRect(match.x, match.y, labelWidth, labelHeight);
-        context.fillStyle = "#ffffff";
+        context.fillStyle = focused ? "#212529" : "#ffffff";
         context.fillText(label, match.x + 4 / currentZoom, match.y + 13 / currentZoom);
       });
     }
@@ -268,7 +284,7 @@ export function createTemplateWorkspace(input: {
     const scrollerBounds = input.scroller.getBoundingClientRect();
     const viewportX = clientX - scrollerBounds.left;
     const viewportY = clientY - scrollerBounds.top;
-    input.zoomInput.value = String(clamp(Math.round(percent), 1, 400));
+    input.zoomInput.value = String(clamp(Math.round(percent), 1, MAX_WORKSPACE_ZOOM_PERCENT));
     render();
     input.scroller.scrollLeft = stagePaddingX + imagePoint.x * zoom() - viewportX;
     input.scroller.scrollTop = stagePaddingY + imagePoint.y * zoom() - viewportY;
@@ -289,9 +305,21 @@ export function createTemplateWorkspace(input: {
       availableWidth / imageWidth(),
       availableHeight / imageHeight()
     ) * 100);
-    input.zoomInput.value = String(clamp(fittedPercent, 1, 400));
+    input.zoomInput.value = String(clamp(fittedPercent, 1, MAX_WORKSPACE_ZOOM_PERCENT));
     render();
     centerImage();
+  };
+
+  const focusMatch = (index: number): void => {
+    const match = matchResults[index]?.candidate;
+    if (!match) {
+      return;
+    }
+    focusedMatchIndex = index;
+    render();
+    const viewport = viewportSize();
+    input.scroller.scrollLeft = stagePaddingX + (match.x + match.width / 2) * zoom() - viewport.width / 2;
+    input.scroller.scrollTop = stagePaddingY + (match.y + match.height / 2) * zoom() - viewport.height / 2;
   };
 
   const beginPan = (event: PointerEvent, matchIndex: number): void => {
@@ -383,6 +411,7 @@ export function createTemplateWorkspace(input: {
         dragStart = point;
         draftEnd = dragStart;
         matchResults = [];
+        focusedMatchIndex = null;
         layoutPreview = null;
         render();
       });
@@ -413,6 +442,7 @@ export function createTemplateWorkspace(input: {
           panStart = null;
           delete input.canvas.dataset.panning;
           if (!completedPan.moved && completedPan.matchIndex >= 0) {
+            focusMatch(completedPan.matchIndex);
             input.onMatchClicked?.(completedPan.matchIndex);
           }
           return;
@@ -459,6 +489,10 @@ export function createTemplateWorkspace(input: {
       fitWorkspaceToView();
     },
 
+    focusMatch(index): void {
+      focusMatch(index);
+    },
+
     setInteractionMode(mode): void {
       if (interactionMode === mode) {
         syncInteractionMode();
@@ -482,6 +516,7 @@ export function createTemplateWorkspace(input: {
       roi = nextRoi;
       matchResults = [];
       layoutPreview = null;
+      focusedMatchIndex = null;
       storedTemplateImage = null;
       syncRoiState();
       render();
@@ -497,15 +532,31 @@ export function createTemplateWorkspace(input: {
         height: result.height
       }]) : [];
       matchResults = candidates.map((candidate) => ({ candidate, selected: true, classId: null }));
+      focusedMatchIndex = null;
       render();
     },
 
     setMatchResults(results): void {
+      const focusedCandidate = focusedMatchIndex === null
+        ? null
+        : matchResults[focusedMatchIndex]?.candidate ?? null;
       matchResults = results.map((result) => ({
         candidate: { ...result.candidate },
         selected: result.selected,
         classId: result.classId
       }));
+      if (focusedCandidate && focusedMatchIndex !== null) {
+        const nextFocusedCandidate = matchResults[focusedMatchIndex]?.candidate;
+        if (!nextFocusedCandidate
+          || nextFocusedCandidate.x !== focusedCandidate.x
+          || nextFocusedCandidate.y !== focusedCandidate.y
+          || nextFocusedCandidate.width !== focusedCandidate.width
+          || nextFocusedCandidate.height !== focusedCandidate.height) {
+          focusedMatchIndex = null;
+        }
+      } else if (focusedMatchIndex !== null) {
+        focusedMatchIndex = null;
+      }
       render();
     },
 
