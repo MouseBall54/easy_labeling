@@ -191,6 +191,79 @@ export function createAutomationController(input: {
     return library.presets.find((preset) => preset.id === elements.automationPresetSelect.value) ?? null;
   };
 
+  const layoutCaptureScope = (): "selected" | "all" => {
+    return elements.layoutCaptureScopeSelect.value === "all" ? "all" : "selected";
+  };
+
+  const getLayoutCaptureCounts = (): { selected: number; all: number } => ({
+    selected: input.canvasController.raw.getSelectedBoxCount(),
+    all: input.canvasController.raw.getObjects("rect").length
+  });
+
+  const getLayoutCaptureCount = (): number => {
+    const counts = getLayoutCaptureCounts();
+    return layoutCaptureScope() === "all" ? counts.all : counts.selected;
+  };
+
+  const requireUniqueLayoutName = (name: string, exceptLayoutId?: string): string => {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      throw new Error("Layout name is required");
+    }
+    const duplicate = library.layouts.find((layout) => (
+      layout.id !== exceptLayoutId && layout.name.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase()
+    ));
+    if (duplicate) {
+      throw new Error(`A layout named "${normalizedName}" already exists`);
+    }
+    return normalizedName;
+  };
+
+  const captureCurrentLayout = (name: string): BoxLayout => {
+    return input.canvasController.raw.captureBoxLayout(
+      name,
+      input.state.session.currentImageFile?.name ?? "",
+      layoutCaptureScope()
+    );
+  };
+
+  const syncLayoutEditorState = (): void => {
+    const layout = selectedSetupLayout();
+    const counts = getLayoutCaptureCounts();
+    const selectedOption = elements.layoutCaptureScopeSelect.querySelector<HTMLOptionElement>('option[value="selected"]');
+    const allOption = elements.layoutCaptureScopeSelect.querySelector<HTMLOptionElement>('option[value="all"]');
+    if (selectedOption) {
+      selectedOption.textContent = `Selected Boxes (${counts.selected})`;
+    }
+    if (allOption) {
+      allOption.textContent = `All Boxes (${counts.all})`;
+    }
+
+    const captureCount = getLayoutCaptureCount();
+    const hasName = elements.layoutNameInput.value.trim().length > 0;
+    elements.layoutEditorTitle.textContent = layout ? "Edit layout" : "New layout";
+    elements.layoutEditorModeBadge.textContent = layout ? "Editing" : "New";
+    elements.layoutEditorModeBadge.dataset.state = layout ? "editing" : "new";
+    elements.layoutCaptureSummary.textContent = `Selected: ${counts.selected} / Total: ${counts.all} · Capturing: ${captureCount}`;
+    elements.saveBoxLayoutBtn.disabled = layout !== null || !hasName || captureCount === 0;
+    elements.updateBoxLayoutBtn.disabled = layout === null || !hasName || captureCount === 0;
+    elements.duplicateBoxLayoutBtn.disabled = layout === null;
+    elements.renameBoxLayoutBtn.disabled = layout === null;
+    elements.deleteBoxLayoutBtn.disabled = layout === null;
+    elements.applyBoxLayoutFromSetupBtn.disabled = layout === null;
+  };
+
+  const enterNewLayoutMode = (): void => {
+    const counts = getLayoutCaptureCounts();
+    elements.layoutSetupSelect.value = "";
+    elements.layoutNameInput.value = "";
+    elements.layoutCaptureScopeSelect.value = counts.selected > 0 ? "selected" : "all";
+    setLayoutSetupError(null);
+    syncLayoutEditorState();
+    renderLayoutPreview();
+    elements.layoutNameInput.focus();
+  };
+
   const layoutPreview = createAutomationLayoutPreview({
     state: input.state,
     elements,
@@ -211,6 +284,7 @@ export function createAutomationController(input: {
     setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId);
     elements.applyBoxLayoutBtn.disabled = !library.layouts.some((layout) => layout.id === layoutId);
     elements.applyBoxLayoutFromSetupBtn.disabled = elements.applyBoxLayoutBtn.disabled;
+    syncLayoutEditorState();
     renderLayoutGhostPreview();
   };
 
@@ -762,24 +836,62 @@ export function createAutomationController(input: {
       elements.saveBoxLayoutBtn.addEventListener("click", () => {
         void (async () => {
           try {
-            const layout = input.canvasController.raw.captureBoxLayout(
-              elements.layoutNameInput.value,
-              input.state.session.currentImageFile?.name ?? "",
-              elements.layoutCaptureScopeSelect.value === "all" ? "all" : "selected"
-            );
+            if (selectedSetupLayout()) {
+              throw new Error("Click New Layout before saving a new layout");
+            }
+            const name = requireUniqueLayoutName(elements.layoutNameInput.value);
+            const layout = captureCurrentLayout(name);
             library = { ...library, layouts: upsertById(library.layouts, layout) };
             await persistLibrary();
             refreshSelects({ layoutId: layout.id });
             elements.layoutSetupSelect.value = layout.id;
             elements.boxLayoutSelect.value = layout.id;
+            elements.layoutNameInput.value = layout.name;
             renderLayoutPreview();
             setLayoutSetupError(null);
-            input.uiManager.notify("Box layout saved.");
+            syncLayoutEditorState();
+            input.uiManager.notify(`Layout saved with ${layout.boxes.length} boxes.`);
           } catch (error: unknown) {
             setLayoutSetupError(error);
             input.uiManager.notify(error instanceof Error ? error.message : "Unable to save box layout", 5000);
           }
         })();
+      });
+
+      elements.updateBoxLayoutBtn.addEventListener("click", () => {
+        void (async () => {
+          try {
+            const existing = selectedSetupLayout();
+            if (!existing) {
+              throw new Error("Choose a layout to update");
+            }
+            const name = requireUniqueLayoutName(elements.layoutNameInput.value, existing.id);
+            const captured = captureCurrentLayout(name);
+            const updated: BoxLayout = {
+              ...captured,
+              id: existing.id,
+              createdAt: existing.createdAt,
+              updatedAt: new Date().toISOString()
+            };
+            library = { ...library, layouts: upsertById(library.layouts, updated) };
+            await persistLibrary();
+            refreshSelects({ layoutId: updated.id });
+            elements.layoutSetupSelect.value = updated.id;
+            elements.boxLayoutSelect.value = updated.id;
+            elements.layoutNameInput.value = updated.name;
+            renderLayoutPreview();
+            setLayoutSetupError(null);
+            syncLayoutEditorState();
+            input.uiManager.notify(`Layout updated with ${updated.boxes.length} boxes.`);
+          } catch (error: unknown) {
+            setLayoutSetupError(error);
+            input.uiManager.notify(error instanceof Error ? error.message : "Unable to update box layout", 5000);
+          }
+        })();
+      });
+
+      elements.newBoxLayoutBtn.addEventListener("click", () => {
+        enterNewLayoutMode();
       });
 
       elements.renameBoxLayoutBtn.addEventListener("click", () => {
@@ -793,6 +905,7 @@ export function createAutomationController(input: {
           if (!name) {
             return;
           }
+          requireUniqueLayoutName(name, layout.id);
           library = {
             ...library,
             layouts: upsertById(library.layouts, { ...layout, name, updatedAt: new Date().toISOString() })
@@ -800,6 +913,7 @@ export function createAutomationController(input: {
           await persistLibrary();
           refreshSelects({ layoutId: layout.id });
           renderLayoutPreview();
+          syncLayoutEditorState();
         })().catch((error: unknown) => input.uiManager.notify(error instanceof Error ? error.message : "Unable to rename layout"));
       });
 
@@ -824,6 +938,7 @@ export function createAutomationController(input: {
           elements.layoutSetupSelect.value = duplicate.id;
           elements.layoutNameInput.value = duplicate.name;
           renderLayoutPreview();
+          syncLayoutEditorState();
         })().catch((error: unknown) => {
           setLayoutSetupError(error);
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to duplicate layout");
@@ -841,6 +956,7 @@ export function createAutomationController(input: {
           refreshSelects();
           elements.layoutNameInput.value = "";
           renderLayoutPreview();
+          syncLayoutEditorState();
         })().catch((error: unknown) => input.uiManager.notify(error instanceof Error ? error.message : "Unable to delete layout"));
       });
 
@@ -888,25 +1004,50 @@ export function createAutomationController(input: {
           }
           const layoutId = elements.boxLayoutSelect.value || library.layouts[0]?.id || "";
           refreshSelects({ layoutId });
-          elements.layoutSetupSelect.value = layoutId;
           elements.layoutSetupSourceName.textContent = input.state.session.currentImageFile?.name ?? "Current image";
-          elements.layoutNameInput.value = selectedSetupLayout()?.name ?? "";
+          if (input.canvasController.raw.getSelectedBoxCount() > 0) {
+            elements.layoutSetupSelect.value = "";
+            elements.layoutNameInput.value = "";
+            elements.layoutCaptureScopeSelect.value = "selected";
+          } else {
+            elements.layoutSetupSelect.value = layoutId;
+            elements.layoutNameInput.value = selectedSetupLayout()?.name ?? "";
+            elements.layoutCaptureScopeSelect.value = "all";
+          }
           setLayoutSetupError(null);
+          syncLayoutEditorState();
           renderLayoutPreview();
           elements.layoutSetupModal.show();
+          if (!selectedSetupLayout()) {
+            elements.layoutNameInput.focus();
+          }
         } catch (error: unknown) {
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to open layout setup", 5000);
         }
       });
 
       elements.layoutSetupSelect.addEventListener("change", () => {
-        elements.boxLayoutSelect.value = elements.layoutSetupSelect.value;
-        elements.templateLayoutSelect.value = elements.layoutSetupSelect.value;
+        if (elements.layoutSetupSelect.value) {
+          elements.boxLayoutSelect.value = elements.layoutSetupSelect.value;
+          elements.templateLayoutSelect.value = elements.layoutSetupSelect.value;
+        }
         const layout = selectedSetupLayout();
         elements.layoutNameInput.value = layout?.name ?? "";
+        if (!layout) {
+          elements.layoutCaptureScopeSelect.value = input.canvasController.raw.getSelectedBoxCount() > 0 ? "selected" : "all";
+        }
         setLayoutSetupError(null);
+        syncLayoutEditorState();
         renderLayoutPreview();
         renderLayoutGhostPreview();
+      });
+      elements.layoutNameInput.addEventListener("input", () => {
+        setLayoutSetupError(null);
+        syncLayoutEditorState();
+      });
+      elements.layoutCaptureScopeSelect.addEventListener("change", () => {
+        setLayoutSetupError(null);
+        syncLayoutEditorState();
       });
       elements.boxLayoutSelect.addEventListener("change", () => {
         elements.layoutSetupSelect.value = elements.boxLayoutSelect.value;

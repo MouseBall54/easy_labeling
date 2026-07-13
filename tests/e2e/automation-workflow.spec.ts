@@ -135,7 +135,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#layoutNameInput").fill("Reference boxes");
   await page.locator("#layoutCaptureScopeSelect").selectOption("all");
   await page.locator("#saveBoxLayoutBtn").click();
-  await expect(page.locator(".toast-message").last()).toHaveText("Box layout saved.");
+  await expect(page.locator(".toast-message").last()).toHaveText("Layout saved with 2 boxes.");
   await expect(page.locator("#boxLayoutSelect option")).toHaveCount(2);
   await expect(page.locator("#boxLayoutSelect")).not.toHaveValue("");
   await expect(page.locator("#layoutDetails")).toContainText("2 boxes");

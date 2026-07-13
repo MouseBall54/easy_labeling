@@ -50,9 +50,14 @@ export interface UiDomElements {
   selectionMoveYInput: HTMLInputElement;
   moveSelectedBoxesBtn: HTMLButtonElement;
   openLayoutSetupBtn: HTMLButtonElement;
+  newBoxLayoutBtn: HTMLButtonElement;
+  layoutEditorTitle: HTMLElement;
+  layoutEditorModeBadge: HTMLElement;
   layoutNameInput: HTMLInputElement;
   layoutCaptureScopeSelect: HTMLSelectElement;
+  layoutCaptureSummary: HTMLElement;
   saveBoxLayoutBtn: HTMLButtonElement;
+  updateBoxLayoutBtn: HTMLButtonElement;
   boxLayoutSelect: HTMLSelectElement;
   layoutSetupModal: BootstrapModalLike;
   layoutSetupSourceName: HTMLElement;
@@ -316,9 +321,14 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     selectionMoveYInput: requireById<HTMLInputElement>(documentRef, "selectionMoveYInput"),
     moveSelectedBoxesBtn: requireById<HTMLButtonElement>(documentRef, "moveSelectedBoxesBtn"),
     openLayoutSetupBtn: requireById<HTMLButtonElement>(documentRef, "openLayoutSetupBtn"),
+    newBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "newBoxLayoutBtn"),
+    layoutEditorTitle: requireById<HTMLElement>(documentRef, "layoutEditorTitle"),
+    layoutEditorModeBadge: requireById<HTMLElement>(documentRef, "layoutEditorModeBadge"),
     layoutNameInput: requireById<HTMLInputElement>(documentRef, "layoutNameInput"),
     layoutCaptureScopeSelect: requireById<HTMLSelectElement>(documentRef, "layoutCaptureScopeSelect"),
+    layoutCaptureSummary: requireById<HTMLElement>(documentRef, "layoutCaptureSummary"),
     saveBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "saveBoxLayoutBtn"),
+    updateBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "updateBoxLayoutBtn"),
     boxLayoutSelect: requireById<HTMLSelectElement>(documentRef, "boxLayoutSelect"),
     layoutSetupModal: new bootstrapRef.Modal(layoutSetupModalElement),
     layoutSetupSourceName: requireById<HTMLElement>(documentRef, "layoutSetupSourceName"),

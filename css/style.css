@@ -416,6 +416,23 @@ body {
     border-left: 1px solid var(--panel-border-color);
 }
 
+.layout-editor-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.layout-capture-summary {
+    min-height: 32px;
+    padding: 0.45rem 0;
+    color: var(--workbench-muted);
+    border-top: 1px solid var(--panel-border-color);
+    border-bottom: 1px solid var(--panel-border-color);
+    font-size: 0.75rem;
+}
+
 .layout-preview-column {
     display: flex;
     flex-direction: column;

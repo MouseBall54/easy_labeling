@@ -388,6 +388,7 @@
                         <label class="form-label small fw-semibold" for="layoutSetupSelect">Saved layouts</label>
                         <select id="layoutSetupSelect" class="form-select form-select-sm mb-3" size="10" aria-label="Saved layouts"></select>
                         <div class="d-grid gap-2">
+                            <button id="newBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> New Layout</button>
                             <button id="duplicateBoxLayoutBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-copy"></i> Duplicate</button>
                             <div class="btn-group btn-group-sm" role="group" aria-label="Layout rename and delete">
                                 <button id="renameBoxLayoutBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-pencil"></i> Rename</button>
@@ -410,15 +411,22 @@
                         </div>
                     </section>
                     <aside class="layout-create-column">
-                        <h6 class="settings-subtitle mt-0">Create from current image</h6>
+                        <div class="layout-editor-heading">
+                            <h6 id="layoutEditorTitle" class="settings-subtitle mt-0 mb-0">New layout</h6>
+                            <span id="layoutEditorModeBadge" class="status-badge">New</span>
+                        </div>
                         <label class="form-label small" for="layoutNameInput">Layout name</label>
-                        <input id="layoutNameInput" type="text" class="form-control form-control-sm mb-2" placeholder="Station A">
+                        <input id="layoutNameInput" type="text" class="form-control form-control-sm mb-2" placeholder="Enter layout name" autocomplete="off">
                         <label class="form-label small" for="layoutCaptureScopeSelect">Boxes to capture</label>
-                        <select id="layoutCaptureScopeSelect" class="form-select form-select-sm mb-3">
+                        <select id="layoutCaptureScopeSelect" class="form-select form-select-sm mb-2">
                             <option value="selected">Selected Boxes</option>
                             <option value="all">All Boxes</option>
                         </select>
-                        <button id="saveBoxLayoutBtn" type="button" class="btn btn-primary btn-sm w-100"><i class="bi bi-floppy"></i> Save New Layout</button>
+                        <div id="layoutCaptureSummary" class="layout-capture-summary" role="status">Selected: 0 / Total: 0</div>
+                        <div class="d-grid gap-2 mt-3">
+                            <button id="saveBoxLayoutBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-floppy"></i> Save New Layout</button>
+                            <button id="updateBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-arrow-repeat"></i> Update Layout</button>
+                        </div>
                         <div id="layoutSetupError" class="alert alert-danger py-2 px-2 small mt-3 mb-0" hidden></div>
                     </aside>
                 </div>
