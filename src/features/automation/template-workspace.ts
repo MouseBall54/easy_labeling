@@ -1,4 +1,4 @@
-import type { PixelRect, TemplateMatchCandidate, TemplateMatchResult, TemplatePreprocessingSettings } from "./types.js";
+import type { PixelPoint, PixelRect, TemplateMatchCandidate, TemplateMatchResult, TemplatePreprocessingSettings } from "./types.js";
 
 export interface TemplateWorkspaceMatch {
   candidate: TemplateMatchCandidate;
@@ -12,6 +12,12 @@ export interface TemplateMatchContextRequest {
   clientY: number;
 }
 
+export interface TemplateWorkspaceLayoutPreview {
+  matchPoint: PixelPoint;
+  anchor: PixelPoint;
+  boxes: Array<PixelRect & { classId: string }>;
+}
+
 export type TemplateWorkspaceInteractionMode = "template-roi" | "select-results";
 
 export interface TemplateWorkspace {
@@ -21,6 +27,7 @@ export interface TemplateWorkspace {
   setImage(image: HTMLImageElement, roi?: PixelRect | null): void;
   setMatchResult(result: TemplateMatchResult | null): void;
   setMatchResults(results: readonly TemplateWorkspaceMatch[]): void;
+  setLayoutPreview(preview: TemplateWorkspaceLayoutPreview | null): void;
   getRoi(): PixelRect | null;
   setStoredTemplateImage(image: HTMLImageElement | null): void;
   renderPreviews(settings: TemplatePreprocessingSettings): void;
@@ -64,6 +71,7 @@ function drawContainedImage(
 
 export function createTemplateWorkspace(input: {
   canvas: HTMLCanvasElement;
+  scroller: HTMLElement;
   zoomInput: HTMLInputElement;
   zoomValue: HTMLElement;
   originalPreviewCanvas: HTMLCanvasElement;
@@ -76,13 +84,24 @@ export function createTemplateWorkspace(input: {
   let storedTemplateImage: HTMLImageElement | null = null;
   let roi: PixelRect | null = null;
   let matchResults: TemplateWorkspaceMatch[] = [];
+  let layoutPreview: TemplateWorkspaceLayoutPreview | null = null;
   let interactionMode: TemplateWorkspaceInteractionMode = "template-roi";
   let dragStart: { x: number; y: number } | null = null;
   let draftEnd: { x: number; y: number } | null = null;
+  let panStart: {
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    scrollLeft: number;
+    scrollTop: number;
+    matchIndex: number;
+    moved: boolean;
+  } | null = null;
 
   const imageWidth = (): number => image?.naturalWidth || image?.width || 0;
   const imageHeight = (): number => image?.naturalHeight || image?.height || 0;
-  const zoom = (): number => Number.parseInt(input.zoomInput.value, 10) / 100;
+  const zoomPercent = (): number => clamp(Number.parseInt(input.zoomInput.value, 10) || 100, 1, 400);
+  const zoom = (): number => zoomPercent() / 100;
 
   const eventToImagePoint = (event: Pick<PointerEvent, "clientX" | "clientY">): { x: number; y: number } => {
     const bounds = input.canvas.getBoundingClientRect();
@@ -126,6 +145,7 @@ export function createTemplateWorkspace(input: {
     const context = requireContext(input.canvas);
     const currentZoom = zoom();
     input.zoomValue.textContent = `${Math.round(currentZoom * 100)}%`;
+    input.canvas.dataset.layoutPreview = String(layoutPreview !== null);
     if (!image) {
       context.clearRect(0, 0, input.canvas.width, input.canvas.height);
       return;
@@ -154,6 +174,36 @@ export function createTemplateWorkspace(input: {
       context.fillRect(selection.x, selection.y, selection.width, selection.height);
       context.strokeRect(selection.x, selection.y, selection.width, selection.height);
     }
+    if (layoutPreview) {
+      context.lineWidth = 2 / currentZoom;
+      context.setLineDash([7 / currentZoom, 4 / currentZoom]);
+      context.font = `${Math.max(9, 11 / currentZoom)}px sans-serif`;
+      layoutPreview.boxes.forEach((box) => {
+        context.fillStyle = "rgba(13, 110, 253, 0.09)";
+        context.strokeStyle = "rgba(13, 110, 253, 0.85)";
+        context.fillRect(box.x, box.y, box.width, box.height);
+        context.strokeRect(box.x, box.y, box.width, box.height);
+        context.fillStyle = "rgba(13, 110, 253, 0.92)";
+        context.fillText(`C${box.classId}`, box.x + 3 / currentZoom, box.y + 12 / currentZoom);
+      });
+
+      const markerSize = 8 / currentZoom;
+      context.setLineDash([]);
+      context.fillStyle = "rgba(255, 193, 7, 0.95)";
+      context.fillRect(
+        layoutPreview.matchPoint.x - markerSize / 2,
+        layoutPreview.matchPoint.y - markerSize / 2,
+        markerSize,
+        markerSize
+      );
+      context.fillStyle = "rgba(13, 110, 253, 0.95)";
+      context.fillRect(
+        layoutPreview.anchor.x - markerSize / 2,
+        layoutPreview.anchor.y - markerSize / 2,
+        markerSize,
+        markerSize
+      );
+    }
     if (matchResults.length > 0) {
       context.lineWidth = 3 / currentZoom;
       context.setLineDash([]);
@@ -175,6 +225,17 @@ export function createTemplateWorkspace(input: {
       });
     }
     context.restore();
+  };
+
+  const setZoomAt = (percent: number, clientX: number, clientY: number): void => {
+    const imagePoint = eventToImagePoint({ clientX, clientY });
+    const scrollerBounds = input.scroller.getBoundingClientRect();
+    const viewportX = clientX - scrollerBounds.left;
+    const viewportY = clientY - scrollerBounds.top;
+    input.zoomInput.value = String(clamp(Math.round(percent), 1, 400));
+    render();
+    input.scroller.scrollLeft = imagePoint.x * zoom() - viewportX;
+    input.scroller.scrollTop = imagePoint.y * zoom() - viewportY;
   };
 
   const drawRoiPreview = (canvas: HTMLCanvasElement, filter: string): void => {
@@ -221,6 +282,14 @@ export function createTemplateWorkspace(input: {
   return {
     bind(): void {
       input.zoomInput.addEventListener("input", render);
+      input.scroller.addEventListener("wheel", (event) => {
+        if (!event.ctrlKey || !image) {
+          return;
+        }
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+        setZoomAt(zoomPercent() * factor, event.clientX, event.clientY);
+      }, { passive: false });
       input.canvas.addEventListener("pointerdown", (event) => {
         if (!image) {
           return;
@@ -231,19 +300,40 @@ export function createTemplateWorkspace(input: {
           if (event.button !== 0) {
             return;
           }
-          const matchIndex = findMatchIndexAt(point);
-          if (matchIndex >= 0) {
-            input.onMatchClicked?.(matchIndex);
-          }
+          input.canvas.setPointerCapture(event.pointerId);
+          panStart = {
+            pointerId: event.pointerId,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            scrollLeft: input.scroller.scrollLeft,
+            scrollTop: input.scroller.scrollTop,
+            matchIndex: findMatchIndexAt(point),
+            moved: false
+          };
           return;
         }
         input.canvas.setPointerCapture(event.pointerId);
         dragStart = point;
         draftEnd = dragStart;
         matchResults = [];
+        layoutPreview = null;
         render();
       });
       input.canvas.addEventListener("pointermove", (event) => {
+        if (panStart?.pointerId === event.pointerId) {
+          const deltaX = event.clientX - panStart.clientX;
+          const deltaY = event.clientY - panStart.clientY;
+          if (!panStart.moved && Math.hypot(deltaX, deltaY) >= 4) {
+            panStart.moved = true;
+            input.canvas.dataset.panning = "true";
+          }
+          if (panStart.moved) {
+            event.preventDefault();
+            input.scroller.scrollLeft = panStart.scrollLeft - deltaX;
+            input.scroller.scrollTop = panStart.scrollTop - deltaY;
+          }
+          return;
+        }
         if (!dragStart) {
           return;
         }
@@ -251,6 +341,15 @@ export function createTemplateWorkspace(input: {
         render();
       });
       input.canvas.addEventListener("pointerup", (event) => {
+        if (panStart?.pointerId === event.pointerId) {
+          const completedPan = panStart;
+          panStart = null;
+          delete input.canvas.dataset.panning;
+          if (!completedPan.moved && completedPan.matchIndex >= 0) {
+            input.onMatchClicked?.(completedPan.matchIndex);
+          }
+          return;
+        }
         if (!dragStart) {
           return;
         }
@@ -270,6 +369,10 @@ export function createTemplateWorkspace(input: {
           input.onRoiChanged?.(roi);
         }
         render();
+      });
+      input.canvas.addEventListener("pointercancel", () => {
+        panStart = null;
+        delete input.canvas.dataset.panning;
       });
       input.canvas.addEventListener("contextmenu", (event) => {
         if (!image || interactionMode !== "select-results") {
@@ -293,6 +396,8 @@ export function createTemplateWorkspace(input: {
       interactionMode = mode;
       dragStart = null;
       draftEnd = null;
+      panStart = null;
+      delete input.canvas.dataset.panning;
       syncInteractionMode();
       render();
     },
@@ -305,6 +410,7 @@ export function createTemplateWorkspace(input: {
       image = nextImage;
       roi = nextRoi;
       matchResults = [];
+      layoutPreview = null;
       storedTemplateImage = null;
       syncRoiState();
       render();
@@ -328,6 +434,15 @@ export function createTemplateWorkspace(input: {
         selected: result.selected,
         classId: result.classId
       }));
+      render();
+    },
+
+    setLayoutPreview(nextPreview): void {
+      layoutPreview = nextPreview ? {
+        matchPoint: { ...nextPreview.matchPoint },
+        anchor: { ...nextPreview.anchor },
+        boxes: nextPreview.boxes.map((box) => ({ ...box }))
+      } : null;
       render();
     },
 

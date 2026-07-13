@@ -4,6 +4,7 @@ import type { UiDomElements } from "../ui/dom-elements.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 
 export interface AutomationLayoutPreview {
+  bind(): void;
   clearGhost(): void;
   renderGhost(): void;
   renderLibraryPreview(): void;
@@ -25,8 +26,25 @@ export function createAutomationLayoutPreview(input: {
   canvasController: RuntimeCanvasController;
   getSelectedLayout(): BoxLayout | null;
   getSelectedSetupLayout(): BoxLayout | null;
+  getGhostVisible(): boolean;
 }): AutomationLayoutPreview {
   return {
+    bind(): void {
+      input.elements.layoutPreviewZoomInput.addEventListener("input", () => {
+        input.elements.previewBoxLayoutBtn.click();
+      });
+      input.elements.layoutPreviewCanvas.addEventListener("wheel", (event) => {
+        if (!event.ctrlKey) {
+          return;
+        }
+        event.preventDefault();
+        const current = Number.parseInt(input.elements.layoutPreviewZoomInput.value, 10) || 100;
+        const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+        input.elements.layoutPreviewZoomInput.value = String(Math.max(1, Math.min(400, Math.round(current * factor))));
+        input.elements.previewBoxLayoutBtn.click();
+      }, { passive: false });
+    },
+
     clearGhost(): void {
       const canvas = input.elements.layoutGhostCanvas;
       canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
@@ -50,8 +68,10 @@ export function createAutomationLayoutPreview(input: {
       canvas.style.height = `${height}px`;
       context.clearRect(0, 0, width, height);
 
-      if (!layout || !image || input.state.session.workflow !== "detection") {
-        input.elements.layoutPlacementNotice.textContent = "Choose a layout to preview its placement.";
+      if (!input.getGhostVisible() || !layout || !image || input.state.session.workflow !== "detection") {
+        input.elements.layoutPlacementNotice.textContent = layout
+          ? "Layout preview hidden. Select the layout again to show it."
+          : "Choose a layout to preview its placement.";
         input.elements.layoutPlacementNotice.dataset.state = "idle";
         return;
       }
@@ -108,6 +128,9 @@ export function createAutomationLayoutPreview(input: {
       }
       const layout = input.getSelectedSetupLayout();
       const image = input.state.session.currentImage;
+      const zoomPercent = Math.max(1, Math.min(400, Number.parseInt(input.elements.layoutPreviewZoomInput.value, 10) || 100));
+      input.elements.layoutPreviewZoomInput.value = String(zoomPercent);
+      input.elements.layoutPreviewZoomValue.textContent = `${zoomPercent}%`;
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = "#20252a";
       context.fillRect(0, 0, canvas.width, canvas.height);
@@ -127,11 +150,23 @@ export function createAutomationLayoutPreview(input: {
 
       const sourceWidth = image?.naturalWidth || image?.width || layout.sourceImageSize.width;
       const sourceHeight = image?.naturalHeight || image?.height || layout.sourceImageSize.height;
-      const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
+      const placedBoxes = layout.boxes.map((box) => ({
+        ...box,
+        x: layout.sourceAnchor.x + box.relativeX,
+        y: layout.sourceAnchor.y + box.relativeY
+      }));
+      const contentMinX = Math.min(0, ...placedBoxes.map((box) => box.x));
+      const contentMinY = Math.min(0, ...placedBoxes.map((box) => box.y));
+      const contentMaxX = Math.max(sourceWidth, ...placedBoxes.map((box) => box.x + box.width));
+      const contentMaxY = Math.max(sourceHeight, ...placedBoxes.map((box) => box.y + box.height));
+      const contentWidth = Math.max(1, contentMaxX - contentMinX);
+      const contentHeight = Math.max(1, contentMaxY - contentMinY);
+      const fitScale = Math.min((canvas.width - 40) / contentWidth, (canvas.height - 40) / contentHeight);
+      const scale = fitScale * (zoomPercent / 100);
+      const offsetX = canvas.width / 2 - ((contentMinX + contentMaxX) / 2) * scale;
+      const offsetY = canvas.height / 2 - ((contentMinY + contentMaxY) / 2) * scale;
       const drawWidth = sourceWidth * scale;
       const drawHeight = sourceHeight * scale;
-      const offsetX = (canvas.width - drawWidth) / 2;
-      const offsetY = (canvas.height - drawHeight) / 2;
       if (image) {
         context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
       } else {
@@ -140,9 +175,9 @@ export function createAutomationLayoutPreview(input: {
       }
       context.lineWidth = 2;
       context.font = "12px sans-serif";
-      layout.boxes.forEach((box) => {
-        const x = offsetX + (layout.sourceAnchor.x + box.relativeX) * scale;
-        const y = offsetY + (layout.sourceAnchor.y + box.relativeY) * scale;
+      placedBoxes.forEach((box) => {
+        const x = offsetX + box.x * scale;
+        const y = offsetY + box.y * scale;
         const width = box.width * scale;
         const height = box.height * scale;
         context.fillStyle = "rgba(13, 110, 253, 0.2)";

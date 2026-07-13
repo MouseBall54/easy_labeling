@@ -4,6 +4,29 @@ import { createTemplateWorkspace } from "../../../../src/features/automation/tem
 
 type PointerListener = (event: PointerEvent) => void;
 
+class FakeScroller {
+  scrollLeft = 40;
+  scrollTop = 30;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  getBoundingClientRect(): DOMRect {
+    return { left: 0, top: 0, width: 100, height: 70 } as DOMRect;
+  }
+
+  dispatchWheel(deltaY: number, ctrlKey = true): { preventDefault: ReturnType<typeof vi.fn> } {
+    const preventDefault = vi.fn();
+    const event = { deltaY, ctrlKey, clientX: 50, clientY: 35, preventDefault } as unknown as WheelEvent;
+    this.listeners.get("wheel")?.forEach((listener) => listener(event));
+    return { preventDefault };
+  }
+}
+
 class FakeCanvas {
   width: number;
   height: number;
@@ -35,6 +58,10 @@ class FakeCanvas {
 
   getContext(): CanvasRenderingContext2D {
     return this.context as unknown as CanvasRenderingContext2D;
+  }
+
+  getContextMock(): typeof this.context {
+    return this.context;
   }
 
   getBoundingClientRect(): DOMRect {
@@ -75,10 +102,12 @@ describe("template workspace interaction modes", () => {
       addEventListener: vi.fn()
     } as unknown as HTMLInputElement;
     const zoomValue = { textContent: "" } as HTMLElement;
+    const scroller = new FakeScroller();
     const onMatchClicked = vi.fn();
     const onMatchContextRequested = vi.fn();
     const workspace = createTemplateWorkspace({
       canvas: canvas as unknown as HTMLCanvasElement,
+      scroller: scroller as unknown as HTMLElement,
       zoomInput,
       zoomValue,
       originalPreviewCanvas: originalPreview as unknown as HTMLCanvasElement,
@@ -101,9 +130,21 @@ describe("template workspace interaction modes", () => {
     }]);
     workspace.setInteractionMode("select-results");
     canvas.dispatch("pointerdown", 20, 20);
+    canvas.dispatch("pointerup", 20, 20);
     expect(onMatchClicked).toHaveBeenCalledWith(0);
     canvas.dispatch("pointerdown", 20, 20, 2);
     expect(onMatchClicked).toHaveBeenCalledTimes(1);
+    canvas.dispatch("pointerdown", 20, 20);
+    canvas.dispatch("pointermove", 5, 5);
+    canvas.dispatch("pointerup", 5, 5);
+    expect(scroller.scrollLeft).toBe(55);
+    expect(scroller.scrollTop).toBe(45);
+    expect(onMatchClicked).toHaveBeenCalledTimes(1);
+
+    const wheel = scroller.dispatchWheel(-100);
+    expect(wheel.preventDefault).toHaveBeenCalled();
+    expect(zoomInput.value).toBe("110");
+    expect(zoomValue.textContent).toBe("110%");
     canvas.dispatch("contextmenu", 20, 20);
     expect(onMatchContextRequested).toHaveBeenCalledWith({
       matchIndex: 0,
@@ -118,10 +159,37 @@ describe("template workspace interaction modes", () => {
     });
     expect(workspace.getRoi()).toEqual({ x: 12, y: 14, width: 33, height: 36 });
 
+    zoomInput.value = "100";
     workspace.setInteractionMode("template-roi");
     canvas.dispatch("pointerdown", 20, 20);
     canvas.dispatch("pointerup", 60, 65);
     expect(workspace.getRoi()).toEqual({ x: 20, y: 20, width: 40, height: 45 });
     expect(canvas.dataset.interactionMode).toBe("template-roi");
+  });
+
+  it("renders and clears a translucent layout preview at the calculated anchor", () => {
+    const canvas = new FakeCanvas(120, 90);
+    const workspace = createTemplateWorkspace({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      scroller: new FakeScroller() as unknown as HTMLElement,
+      zoomInput: { value: "100", addEventListener: vi.fn() } as unknown as HTMLInputElement,
+      zoomValue: { textContent: "" } as HTMLElement,
+      originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
+      processedPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement
+    });
+
+    workspace.setImage({ naturalWidth: 120, naturalHeight: 90, width: 120, height: 90 } as HTMLImageElement);
+    canvas.getContextMock().fillRect.mockClear();
+    workspace.setLayoutPreview({
+      matchPoint: { x: 10, y: 12 },
+      anchor: { x: 15, y: 18 },
+      boxes: [{ classId: "4", x: 15, y: 18, width: 20, height: 12 }]
+    });
+
+    expect(canvas.dataset.layoutPreview).toBe("true");
+    expect(canvas.getContextMock().fillRect).toHaveBeenCalledWith(15, 18, 20, 12);
+
+    workspace.setLayoutPreview(null);
+    expect(canvas.dataset.layoutPreview).toBe("false");
   });
 });

@@ -449,6 +449,33 @@ body {
     margin-bottom: 0.6rem;
 }
 
+.layout-preview-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.editor-zoom-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--workbench-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.editor-zoom-control input[type="range"] {
+    width: 130px;
+}
+
+.editor-zoom-control span {
+    min-width: 36px;
+    color: var(--workbench-text);
+    text-align: right;
+}
+
 .layout-preview-stage {
     flex: 1;
     min-height: 500px;
@@ -523,7 +550,12 @@ body {
 }
 
 #templateMatchingCanvas[data-interaction-mode="select-results"] {
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
+}
+
+#templateMatchingCanvas[data-interaction-mode="select-results"][data-panning="true"] {
+    cursor: grabbing;
 }
 
 .template-match-context-menu {

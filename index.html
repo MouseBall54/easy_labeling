@@ -305,10 +305,11 @@
                         <section class="inspector-section automation-panel-section" data-ui="automation-controls">
                             <div class="section-heading-row"><h3>Template automation</h3><span id="automationReadyBadge" class="status-badge">Ready</span></div>
                             <button id="openTemplateMatchingBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="bi bi-crosshair2" aria-hidden="true"></i> Template Matching Setup</button>
-                            <label class="form-label small" for="automationPresetSelect">Recent preset</label>
+                            <label class="form-label small" for="automationPresetSelect">Preset</label>
                             <div class="input-group input-group-sm mb-2">
                                 <select id="automationPresetSelect" class="form-select" aria-label="Automation preset"><option value="">Choose preset...</option></select>
-                                <button id="runAutomationBatchBtn" type="button" class="btn btn-success" title="Review and run batch" aria-label="Review and run batch"><i class="bi bi-play-fill" aria-hidden="true"></i></button>
+                                <button id="runAutomationCurrentBtn" type="button" class="btn btn-primary" title="Run preset on current image" aria-label="Run preset on current image"><i class="bi bi-play-fill" aria-hidden="true"></i></button>
+                                <button id="runAutomationBatchBtn" type="button" class="btn btn-success" title="Review and run batch" aria-label="Review and run batch"><i class="bi bi-collection-play-fill" aria-hidden="true"></i></button>
                                 <button id="cancelAutomationBatchBtn" type="button" class="btn btn-outline-danger" title="Cancel after current image" aria-label="Cancel after current image" disabled><i class="bi bi-stop-fill" aria-hidden="true"></i></button>
                             </div>
                             <div id="automationBatchPreflight" class="batch-preflight" hidden>
@@ -404,7 +405,10 @@
                     <section class="layout-preview-column">
                         <div class="layout-preview-toolbar">
                             <div id="layoutDetails" class="small text-muted">Choose a layout to inspect its geometry.</div>
-                            <button id="previewBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> Refresh Preview</button>
+                            <div class="layout-preview-actions">
+                                <label class="editor-zoom-control">Zoom <input id="layoutPreviewZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom preview (Ctrl + mouse wheel)"><span id="layoutPreviewZoomValue">100%</span></label>
+                                <button id="previewBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> Refresh Preview</button>
+                            </div>
                         </div>
                         <div class="layout-preview-stage">
                             <canvas id="layoutPreviewCanvas" width="960" height="560" aria-label="Layout preview"></canvas>
@@ -468,7 +472,7 @@
                                 <input id="templatePointerSelectRadio" type="radio" class="btn-check" name="templatePointerMode" value="select-results" disabled>
                                 <label class="btn btn-outline-secondary" for="templatePointerSelectRadio" title="Select matched result boxes (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
                             </div>
-                            <label class="d-flex align-items-center gap-2 small">Zoom <input id="templateWorkspaceZoomInput" type="range" min="25" max="200" value="100" step="5"><span id="templateWorkspaceZoomValue">100%</span></label>
+                            <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom workspace (Ctrl + mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
                         </div>
                         <div id="templateWorkspaceScroller" class="template-workspace-scroller">
                             <canvas id="templateMatchingCanvas" width="800" height="500" tabindex="0" aria-label="Draw template ROI on reference image"></canvas>
@@ -480,8 +484,10 @@
                         </div>
                     </div>
                     <div class="template-settings-column">
-                        <div class="d-flex gap-2 mb-3">
-                            <button id="newAutomationPresetBtn" type="button" class="btn btn-outline-secondary btn-sm flex-grow-1"><i class="bi bi-plus-lg"></i> New</button>
+                        <label class="form-label small fw-semibold" for="templatePresetSelect">Saved preset</label>
+                        <div class="input-group input-group-sm mb-3">
+                            <select id="templatePresetSelect" class="form-select" aria-label="Saved template matching preset"><option value="">New preset...</option></select>
+                            <button id="newAutomationPresetBtn" type="button" class="btn btn-outline-secondary" title="New preset" aria-label="New preset"><i class="bi bi-plus-lg"></i></button>
                             <button id="deleteAutomationPresetBtn" type="button" class="btn btn-outline-danger btn-sm" title="Delete selected preset"><i class="bi bi-trash"></i></button>
                         </div>
                         <label class="form-label small" for="templateNameInput">Preset and template name</label>
@@ -515,7 +521,7 @@
                                 </div>
                             </div>
                             <div class="automation-coordinate-grid mb-2">
-                                <label class="small">Class ID<input id="templateMultipleClassIdInput" type="text" class="form-control form-control-sm" value="0"></label>
+                                <label class="small">Class ID<input id="templateMultipleClassIdInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-control form-control-sm" value="0"></label>
                                 <label class="small">Maximum<input id="templateMaximumDetectionsInput" type="number" class="form-control form-control-sm" min="1" max="10000" step="1" value="100"></label>
                             </div>
                             <div id="templateMatchSelectionControls" class="template-match-selection-controls mb-2" hidden>
@@ -594,9 +600,10 @@
             </div>
             <label class="small" for="templateMatchContextClassInput">Class ID</label>
             <div class="input-group input-group-sm">
-                <input id="templateMatchContextClassInput" type="text" class="form-control" autocomplete="off">
+                <input id="templateMatchContextClassInput" type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" autocomplete="off" aria-describedby="templateMatchContextClassError">
                 <button id="templateMatchContextAssignBtn" type="button" class="btn btn-outline-primary" title="Assign class ID" aria-label="Assign class ID"><i class="bi bi-tag" aria-hidden="true"></i></button>
             </div>
+            <div id="templateMatchContextClassError" class="small text-danger" hidden></div>
             <div class="dropdown-divider"></div>
             <button id="templateMatchContextDeleteBtn" type="button" class="dropdown-item text-danger"><i class="bi bi-trash" aria-hidden="true"></i><span>Remove result</span></button>
         </div>
@@ -642,7 +649,8 @@
                 </div>
                 <div class="modal-body">
                     <p>Enter a class ID manually or select from the available classes below.</p>
-                    <input type="number" id="labelClassInput" class="form-control mb-3" placeholder="Enter class ID..." min="0">
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" id="labelClassInput" class="form-control" placeholder="Enter class ID..." aria-describedby="labelClassError">
+                    <div id="labelClassError" class="invalid-feedback mb-3" hidden></div>
                     <div id="class-selection-container">
                         <!-- Class buttons will be dynamically inserted here -->
                     </div>

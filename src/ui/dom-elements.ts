@@ -64,6 +64,8 @@ export interface UiDomElements {
   layoutSetupSelect: HTMLSelectElement;
   layoutDetails: HTMLElement;
   layoutPreviewCanvas: HTMLCanvasElement;
+  layoutPreviewZoomInput: HTMLInputElement;
+  layoutPreviewZoomValue: HTMLElement;
   previewBoxLayoutBtn: HTMLButtonElement;
   duplicateBoxLayoutBtn: HTMLButtonElement;
   renameBoxLayoutBtn: HTMLButtonElement;
@@ -76,6 +78,7 @@ export interface UiDomElements {
   importAutomationLibraryBtn: HTMLButtonElement;
   importAutomationLibraryInput: HTMLInputElement;
   automationPresetSelect: HTMLSelectElement;
+  runAutomationCurrentBtn: HTMLButtonElement;
   runAutomationBatchBtn: HTMLButtonElement;
   cancelAutomationBatchBtn: HTMLButtonElement;
   automationBatchProgressGroup: HTMLElement;
@@ -99,6 +102,7 @@ export interface UiDomElements {
   templateWorkspaceZoomInput: HTMLInputElement;
   templateWorkspaceZoomValue: HTMLElement;
   templateWorkspaceScroller: HTMLElement;
+  templatePresetSelect: HTMLSelectElement;
   templateMatchingCanvas: HTMLCanvasElement;
   templateOriginalPreviewCanvas: HTMLCanvasElement;
   templateProcessedPreviewCanvas: HTMLCanvasElement;
@@ -109,6 +113,7 @@ export interface UiDomElements {
   templateMatchContextMenu: HTMLElement;
   templateMatchContextSummary: HTMLElement;
   templateMatchContextClassInput: HTMLInputElement;
+  templateMatchContextClassError: HTMLElement;
   templateMatchContextAssignBtn: HTMLButtonElement;
   templateMatchContextDeleteBtn: HTMLButtonElement;
   newAutomationPresetBtn: HTMLButtonElement;
@@ -191,6 +196,7 @@ export interface UiDomElements {
   expandRightPanelBtn: HTMLElement;
   labelClassModal: BootstrapModalLike;
   labelClassInput: HTMLInputElement;
+  labelClassError: HTMLElement;
   classSelectionContainer: HTMLElement;
   segmentationBrushModeBtn: HTMLElement;
   segmentationEraseModeBtn: HTMLElement;
@@ -335,6 +341,8 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     layoutSetupSelect: requireById<HTMLSelectElement>(documentRef, "layoutSetupSelect"),
     layoutDetails: requireById<HTMLElement>(documentRef, "layoutDetails"),
     layoutPreviewCanvas: requireById<HTMLCanvasElement>(documentRef, "layoutPreviewCanvas"),
+    layoutPreviewZoomInput: requireById<HTMLInputElement>(documentRef, "layoutPreviewZoomInput"),
+    layoutPreviewZoomValue: requireById<HTMLElement>(documentRef, "layoutPreviewZoomValue"),
     previewBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "previewBoxLayoutBtn"),
     duplicateBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "duplicateBoxLayoutBtn"),
     renameBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "renameBoxLayoutBtn"),
@@ -347,6 +355,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     importAutomationLibraryBtn: requireById<HTMLButtonElement>(documentRef, "importAutomationLibraryBtn"),
     importAutomationLibraryInput: requireById<HTMLInputElement>(documentRef, "importAutomationLibraryInput"),
     automationPresetSelect: requireById<HTMLSelectElement>(documentRef, "automationPresetSelect"),
+    runAutomationCurrentBtn: requireById<HTMLButtonElement>(documentRef, "runAutomationCurrentBtn"),
     runAutomationBatchBtn: requireById<HTMLButtonElement>(documentRef, "runAutomationBatchBtn"),
     cancelAutomationBatchBtn: requireById<HTMLButtonElement>(documentRef, "cancelAutomationBatchBtn"),
     automationBatchProgressGroup: requireById<HTMLElement>(documentRef, "automationBatchProgressGroup"),
@@ -370,6 +379,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateWorkspaceZoomInput: requireById<HTMLInputElement>(documentRef, "templateWorkspaceZoomInput"),
     templateWorkspaceZoomValue: requireById<HTMLElement>(documentRef, "templateWorkspaceZoomValue"),
     templateWorkspaceScroller: requireById<HTMLElement>(documentRef, "templateWorkspaceScroller"),
+    templatePresetSelect: requireById<HTMLSelectElement>(documentRef, "templatePresetSelect"),
     templateMatchingCanvas: requireById<HTMLCanvasElement>(documentRef, "templateMatchingCanvas"),
     templateOriginalPreviewCanvas: requireById<HTMLCanvasElement>(documentRef, "templateOriginalPreviewCanvas"),
     templateProcessedPreviewCanvas: requireById<HTMLCanvasElement>(documentRef, "templateProcessedPreviewCanvas"),
@@ -380,6 +390,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateMatchContextMenu: requireById<HTMLElement>(documentRef, "templateMatchContextMenu"),
     templateMatchContextSummary: requireById<HTMLElement>(documentRef, "templateMatchContextSummary"),
     templateMatchContextClassInput: requireById<HTMLInputElement>(documentRef, "templateMatchContextClassInput"),
+    templateMatchContextClassError: requireById<HTMLElement>(documentRef, "templateMatchContextClassError"),
     templateMatchContextAssignBtn: requireById<HTMLButtonElement>(documentRef, "templateMatchContextAssignBtn"),
     templateMatchContextDeleteBtn: requireById<HTMLButtonElement>(documentRef, "templateMatchContextDeleteBtn"),
     newAutomationPresetBtn: requireById<HTMLButtonElement>(documentRef, "newAutomationPresetBtn"),
@@ -462,6 +473,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     expandRightPanelBtn: requireById<HTMLElement>(documentRef, "expand-right-panel-btn"),
     labelClassModal: new bootstrapRef.Modal(labelClassModalElement),
     labelClassInput: requireById<HTMLInputElement>(documentRef, "labelClassInput"),
+    labelClassError: requireById<HTMLElement>(documentRef, "labelClassError"),
     classSelectionContainer: requireById<HTMLElement>(documentRef, "class-selection-container"),
     segmentationBrushModeBtn: requireById<HTMLElement>(documentRef, "segmentationBrushModeBtn"),
     segmentationEraseModeBtn: requireById<HTMLElement>(documentRef, "segmentationEraseModeBtn"),

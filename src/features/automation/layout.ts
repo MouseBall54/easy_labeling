@@ -102,7 +102,10 @@ export function createBoxLayout(input: CreateBoxLayoutInput): BoxLayout {
   };
 }
 
-export function calculateLayoutAnchor(match: TemplateMatchResult, preset: AutomationPreset): PixelPoint {
+export function calculateLayoutAnchor(
+  match: TemplateMatchResult,
+  preset: Pick<AutomationPreset, "relationOffset" | "manualOffset">
+): PixelPoint {
   return {
     x: match.x + preset.relationOffset.x + preset.manualOffset.x,
     y: match.y + preset.relationOffset.y + preset.manualOffset.y

@@ -1,4 +1,5 @@
 import type { AppState } from "../app/state.js";
+import { parseNonNegativeClassId } from "../domain/class-id.js";
 import {
   createEmptyAutomationLibrary,
   deleteLayoutFromLibrary,
@@ -109,13 +110,22 @@ export function createAutomationController(input: {
   let activePresetId: string | null = null;
   let activeTemplateDataUrl: string | null = null;
   let templateRoiDirty = false;
+  let layoutGhostVisible = false;
+  let layoutSelectionArmed = false;
   let lastTemplateMatchResult: TemplateMatchResult | null = null;
   let contextTemplateMatchIndex: number | null = null;
   const selectedTemplateMatchIndices = new Set<number>();
   const assignedTemplateMatchClasses = new Map<number, string>();
 
+  const setTemplateMatchContextError = (error: unknown | null): void => {
+    elements.templateMatchContextClassInput.classList.toggle("is-invalid", error !== null);
+    elements.templateMatchContextClassError.hidden = error === null;
+    elements.templateMatchContextClassError.textContent = error instanceof Error ? error.message : "";
+  };
+
   const hideTemplateMatchContextMenu = (returnFocus = false): void => {
     contextTemplateMatchIndex = null;
+    setTemplateMatchContextError(null);
     elements.templateMatchContextMenu.hidden = true;
     elements.templateMatchContextMenu.classList.remove("show");
     if (returnFocus) {
@@ -269,7 +279,8 @@ export function createAutomationController(input: {
     elements,
     canvasController: input.canvasController,
     getSelectedLayout: selectedLayout,
-    getSelectedSetupLayout: selectedSetupLayout
+    getSelectedSetupLayout: selectedSetupLayout,
+    getGhostVisible: () => layoutGhostVisible
   });
   const renderLayoutGhostPreview = (): void => layoutPreview.renderGhost();
   const clearLayoutGhostPreview = (): void => layoutPreview.clearGhost();
@@ -282,6 +293,7 @@ export function createAutomationController(input: {
     setSelectOptions(input.documentRef, elements.layoutSetupSelect, library.layouts, "Choose layout...", layoutId);
     setSelectOptions(input.documentRef, elements.templateLayoutSelect, library.layouts, "Choose layout...", layoutId);
     setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId);
+    setSelectOptions(input.documentRef, elements.templatePresetSelect, library.presets, "New preset...", presetId);
     elements.applyBoxLayoutBtn.disabled = !library.layouts.some((layout) => layout.id === layoutId);
     elements.applyBoxLayoutFromSetupBtn.disabled = elements.applyBoxLayoutBtn.disabled;
     syncLayoutEditorState();
@@ -315,6 +327,7 @@ export function createAutomationController(input: {
 
   const applyLayout = (layout: BoxLayout): void => {
     const result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+    layoutGhostVisible = false;
     clearLayoutGhostPreview();
     const discarded = result.discardedOutOfBoundsCount > 0
       ? ` ${result.discardedOutOfBoundsCount} outside the image removed.`
@@ -352,12 +365,14 @@ export function createAutomationController(input: {
     elements.templateMatchSelectionSummary.textContent = "0 selected";
     presetForm.clearResult();
     workspace.setMatchResults([]);
+    workspace.setLayoutPreview(null);
     elements.templatePointerSelectRadio.disabled = true;
     setTemplateInteractionMode("template-roi");
   };
 
   const workspace = createTemplateWorkspace({
     canvas: elements.templateMatchingCanvas,
+    scroller: elements.templateWorkspaceScroller,
     zoomInput: elements.templateWorkspaceZoomInput,
     zoomValue: elements.templateWorkspaceZoomValue,
     originalPreviewCanvas: elements.templateOriginalPreviewCanvas,
@@ -390,6 +405,64 @@ export function createAutomationController(input: {
     elements.templatePointerSelectRadio.checked = mode === "select-results";
     workspace.setInteractionMode(mode);
   }
+
+  const formatOffset = (value: number): string => Number.isInteger(value) ? String(value) : value.toFixed(2);
+
+  const renderTemplateLayoutPreview = (): void => {
+    const result = lastTemplateMatchResult;
+    if (!result || readOutputMode() !== "layout-best-match") {
+      workspace.setLayoutPreview(null);
+      return;
+    }
+
+    const baseCoordinates = `Best ${(result.score * 100).toFixed(2)}% at X ${result.x}, Y ${result.y}`;
+    const layout = library.layouts.find((candidate) => candidate.id === elements.templateLayoutSelect.value);
+    if (!layout) {
+      workspace.setLayoutPreview(null);
+      elements.templateMatchCoordinates.textContent = `${baseCoordinates} | Choose a layout to preview`;
+      elements.applyTemplateMatchBtn.disabled = true;
+      return;
+    }
+
+    let relationOffset: { x: number; y: number };
+    let manualOffset: { x: number; y: number };
+    try {
+      relationOffset = {
+        x: readFinite(elements.templateRelationXInput, "Anchor Offset X"),
+        y: readFinite(elements.templateRelationYInput, "Anchor Offset Y")
+      };
+      manualOffset = {
+        x: readFinite(elements.templateManualXInput, "Final Adjustment X"),
+        y: readFinite(elements.templateManualYInput, "Final Adjustment Y")
+      };
+    } catch {
+      workspace.setLayoutPreview(null);
+      elements.templateMatchCoordinates.textContent = `${baseCoordinates} | Enter valid layout offsets to preview`;
+      elements.applyTemplateMatchBtn.disabled = true;
+      return;
+    }
+
+    const anchor = calculateLayoutAnchor(result, { relationOffset, manualOffset });
+    workspace.setLayoutPreview({
+      matchPoint: { x: result.x, y: result.y },
+      anchor,
+      boxes: layout.boxes.map((box) => ({
+        classId: box.classId,
+        x: anchor.x + box.relativeX,
+        y: anchor.y + box.relativeY,
+        width: box.width,
+        height: box.height
+      }))
+    });
+    elements.templateMatchCoordinates.textContent = [
+      baseCoordinates,
+      `Layout ${layout.name}`,
+      `Anchor offset (${formatOffset(relationOffset.x)}, ${formatOffset(relationOffset.y)})`,
+      `Final (${formatOffset(manualOffset.x)}, ${formatOffset(manualOffset.y)})`,
+      `Anchor X ${formatOffset(anchor.x)}, Y ${formatOffset(anchor.y)}`
+    ].join(" | ");
+    elements.applyTemplateMatchBtn.disabled = result.score < Number(elements.templateMinimumScoreInput.value);
+  };
 
   const selectedMatchScope = (): boolean => elements.templateApplySelectedMatchesRadio.checked;
 
@@ -508,6 +581,7 @@ export function createAutomationController(input: {
     elements.templateMatchContextSummary.textContent = `#${request.matchIndex + 1} · X ${candidate.x}, Y ${candidate.y}`;
     elements.templateMatchContextClassInput.value = assignedTemplateMatchClasses.get(request.matchIndex)
       ?? elements.templateMultipleClassIdInput.value.trim();
+    setTemplateMatchContextError(null);
     elements.templateMatchContextMenu.hidden = false;
     elements.templateMatchContextMenu.classList.add("show");
 
@@ -524,17 +598,21 @@ export function createAutomationController(input: {
 
   const assignContextTemplateMatchClass = (): void => {
     const index = contextTemplateMatchIndex;
-    const classId = elements.templateMatchContextClassInput.value.trim();
     if (index === null || !lastTemplateMatchResult?.matches[index]) {
       hideTemplateMatchContextMenu();
       return;
     }
-    if (!classId) {
-      showSettingsError("Class ID is required");
+    let classId: string;
+    try {
+      classId = parseNonNegativeClassId(elements.templateMatchContextClassInput.value);
+    } catch (error: unknown) {
+      setTemplateMatchContextError(error);
       elements.templateMatchContextClassInput.focus();
       return;
     }
+    elements.templateMatchContextClassInput.value = classId;
     assignedTemplateMatchClasses.set(index, classId);
+    setTemplateMatchContextError(null);
     clearSettingsError();
     renderMultipleMatchSelection();
     hideTemplateMatchContextMenu(true);
@@ -602,6 +680,7 @@ export function createAutomationController(input: {
     activePresetId = null;
     activeTemplateDataUrl = null;
     templateRoiDirty = false;
+    elements.templatePresetSelect.value = "";
     presetForm.reset(elements.boxLayoutSelect.value);
     invalidateTemplateMatch();
     clearSettingsError();
@@ -616,6 +695,8 @@ export function createAutomationController(input: {
       throw new Error("The selected preset references a missing template");
     }
     activePresetId = preset.id;
+    elements.automationPresetSelect.value = preset.id;
+    elements.templatePresetSelect.value = preset.id;
     activeTemplateDataUrl = template.pngDataUrl;
     templateRoiDirty = false;
     presetForm.load(preset, template);
@@ -668,6 +749,7 @@ export function createAutomationController(input: {
     elements.templateMatchTimings.textContent = `OpenCV init ${result.timings.engineInitializationMs.toFixed(1)} ms | Match ${result.timings.matchingMs.toFixed(1)} ms | Worker ${result.timings.workerTotalMs.toFixed(1)} ms | Round trip ${result.timings.roundTripMs.toFixed(1)} ms${result.templateCacheHit ? " | Template cache hit" : ""}`;
     elements.templateMatchScore.classList.toggle("text-danger", !accepted || (outputMode === "multiple-detection-boxes" && result.matches.length === 0));
     elements.templateMatchScore.classList.toggle("text-success", accepted && (outputMode !== "multiple-detection-boxes" || result.matches.length > 0));
+    renderTemplateLayoutPreview();
   };
 
   const applyTemplateResult = (): void => {
@@ -819,6 +901,84 @@ export function createAutomationController(input: {
     input.uiManager.notify("Automation preset saved.");
   };
 
+  const runSelectedPresetOnCurrentImage = async (): Promise<void> => {
+    const preset = selectedPreset();
+    const targetImage = input.state.session.currentImage;
+    if (!preset) {
+      throw new Error("Choose an automation preset first");
+    }
+    if (!targetImage || !input.state.session.currentImageFile) {
+      throw new Error("Load an image before running template automation");
+    }
+    if (input.state.session.workflow !== "detection") {
+      throw new Error("Template automation is only available in Detection mode");
+    }
+    if (preset.existingLabelsPolicy === "skip" && input.canvasController.raw.getObjects("rect").length > 0) {
+      input.uiManager.notify("Current image skipped because this preset keeps existing labels.");
+      return;
+    }
+
+    const template = library.templates.find((candidate) => candidate.id === preset.templateId);
+    const layout = preset.layoutId
+      ? library.layouts.find((candidate) => candidate.id === preset.layoutId) ?? null
+      : null;
+    if (!template || (preset.outputMode === "layout-best-match" && !layout)) {
+      throw new Error("The preset references a missing template or layout");
+    }
+
+    setMatchingEngineStatus("loading", "Matching engine: Running");
+    let result: TemplateMatchResult;
+    try {
+      result = await matchWithRecovery({
+        target: imageElementToImageData(targetImage, input.documentRef),
+        template: await pngDataUrlToImageData(template.pngDataUrl, input.documentRef),
+        preprocessing: template.preprocessing,
+        matching: preset.matching,
+        outputMode: preset.outputMode,
+        multipleDetection: preset.multipleDetection
+      });
+    } finally {
+      setMatchingEngineStatus("ready", "Matching engine: Ready");
+    }
+
+    const replaceExisting = preset.existingLabelsPolicy === "replace";
+    let appliedCount = 0;
+    let discardedOutOfBoundsCount = 0;
+    if (preset.outputMode === "layout-best-match") {
+      requireAcceptedMatch(result, preset.matching.minimumScore);
+      if (!layout) {
+        throw new Error("The preset references a missing layout");
+      }
+      const application = input.canvasController.raw.applyBoxLayout(
+        layout,
+        calculateLayoutAnchor(result, preset),
+        { replaceExisting }
+      );
+      appliedCount = application.annotationIds.length;
+      discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
+    } else {
+      if (result.matches.length === 0) {
+        throw new Error(`No matches met the minimum ${(preset.matching.minimumScore * 100).toFixed(1)}% score`);
+      }
+      const application = input.canvasController.raw.applyDetectionBoxes(result.matches.map((candidate) => ({
+        classId: preset.multipleDetection.classId,
+        x: candidate.x,
+        y: candidate.y,
+        width: candidate.width,
+        height: candidate.height
+      })), { replaceExisting });
+      appliedCount = application.annotationIds.length;
+      discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
+    }
+
+    input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
+    input.uiManager.updateLabelList();
+    const discarded = discardedOutOfBoundsCount > 0
+      ? ` ${discardedOutOfBoundsCount} outside the image removed.`
+      : "";
+    input.uiManager.notify(`${preset.name}: ${appliedCount} boxes applied to the current image.${discarded}`);
+  };
+
   const batchController = createAutomationBatchController({
     state: input.state,
     elements,
@@ -831,12 +991,14 @@ export function createAutomationController(input: {
     setRelatedControlsDisabled: (running) => {
       elements.openTemplateMatchingBtn.disabled = running;
       elements.applyBoxLayoutBtn.disabled = running;
+      elements.runAutomationCurrentBtn.disabled = running;
     }
   });
 
   return {
     bind(): void {
       workspace.bind();
+      layoutPreview.bind();
       refreshSelects();
       warmUpMatchingEngineInBackground();
       batchController.bind();
@@ -1057,9 +1219,20 @@ export function createAutomationController(input: {
         setLayoutSetupError(null);
         syncLayoutEditorState();
       });
+      elements.boxLayoutSelect.addEventListener("pointerdown", () => {
+        layoutSelectionArmed = true;
+      });
+      elements.boxLayoutSelect.addEventListener("keydown", () => {
+        layoutSelectionArmed = true;
+      });
+      elements.boxLayoutSelect.addEventListener("blur", () => {
+        layoutSelectionArmed = false;
+      });
       elements.boxLayoutSelect.addEventListener("change", () => {
         elements.layoutSetupSelect.value = elements.boxLayoutSelect.value;
         elements.applyBoxLayoutBtn.disabled = !selectedLayout();
+        layoutGhostVisible = layoutSelectionArmed && Boolean(selectedLayout());
+        layoutSelectionArmed = false;
         renderLayoutGhostPreview();
       });
       elements.previewBoxLayoutBtn.addEventListener("click", () => {
@@ -1108,6 +1281,23 @@ export function createAutomationController(input: {
       });
 
       elements.newAutomationPresetBtn.addEventListener("click", resetPresetForm);
+      elements.templatePresetSelect.addEventListener("change", () => {
+        const presetId = elements.templatePresetSelect.value;
+        elements.automationPresetSelect.value = presetId;
+        activePresetId = presetId || null;
+        batchController.hidePreflight();
+        elements.templatePresetSelect.disabled = true;
+        void (async () => {
+          const preset = library.presets.find((candidate) => candidate.id === presetId);
+          if (preset) {
+            await loadPresetForm(preset);
+          } else {
+            resetPresetForm();
+          }
+        })().catch(showSettingsError).finally(() => {
+          elements.templatePresetSelect.disabled = false;
+        });
+      });
       elements.templateSourceImageSelect.addEventListener("change", () => {
         void (async () => {
           const file = input.state.session.imageFiles.find((candidate) => candidate.name === elements.templateSourceImageSelect.value);
@@ -1221,16 +1411,23 @@ export function createAutomationController(input: {
         renderMultipleMatchSelection();
       });
       elements.assignTemplateMatchClassBtn.addEventListener("click", () => {
-        const classId = elements.templateMultipleClassIdInput.value.trim();
-        if (!classId) {
-          showSettingsError("Class ID is required before assigning selected matches");
+        let classId: string;
+        try {
+          classId = parseNonNegativeClassId(elements.templateMultipleClassIdInput.value);
+        } catch (error: unknown) {
+          elements.templateMultipleClassIdInput.classList.add("is-invalid");
+          showSettingsError(error);
+          elements.templateMultipleClassIdInput.focus();
           return;
         }
+        elements.templateMultipleClassIdInput.value = classId;
+        elements.templateMultipleClassIdInput.classList.remove("is-invalid");
         selectedTemplateMatchIndices.forEach((index) => assignedTemplateMatchClasses.set(index, classId));
         clearSettingsError();
         renderMultipleMatchSelection();
       });
       elements.templateMultipleClassIdInput.addEventListener("input", () => {
+        elements.templateMultipleClassIdInput.classList.remove("is-invalid");
         if (lastTemplateMatchResult && readOutputMode() === "multiple-detection-boxes") {
           renderMultipleMatchSelection();
         }
@@ -1274,16 +1471,22 @@ export function createAutomationController(input: {
         elements.templateStrictNonOverlapToggle,
         elements.templateNmsIouInput,
         elements.templatePaddingXInput,
-        elements.templatePaddingYInput,
+        elements.templatePaddingYInput
+      ];
+      matchingInputs.forEach((element) => {
+        element.addEventListener("input", invalidateTemplateMatch);
+        element.addEventListener("change", invalidateTemplateMatch);
+      });
+      const layoutPreviewInputs: HTMLElement[] = [
         elements.templateLayoutSelect,
         elements.templateRelationXInput,
         elements.templateRelationYInput,
         elements.templateManualXInput,
         elements.templateManualYInput
       ];
-      matchingInputs.forEach((element) => {
-        element.addEventListener("input", invalidateTemplateMatch);
-        element.addEventListener("change", invalidateTemplateMatch);
+      layoutPreviewInputs.forEach((element) => {
+        element.addEventListener("input", renderTemplateLayoutPreview);
+        element.addEventListener("change", renderTemplateLayoutPreview);
       });
       elements.applyTemplateMatchBtn.addEventListener("click", () => {
         try {
@@ -1305,9 +1508,33 @@ export function createAutomationController(input: {
         });
       });
 
+      elements.runAutomationCurrentBtn.addEventListener("click", () => {
+        if (elements.runAutomationCurrentBtn.disabled) {
+          return;
+        }
+        elements.runAutomationCurrentBtn.disabled = true;
+        elements.runAutomationCurrentBtn.setAttribute("aria-busy", "true");
+        elements.runAutomationBatchBtn.disabled = true;
+        elements.openTemplateMatchingBtn.disabled = true;
+        void runSelectedPresetOnCurrentImage().catch((error: unknown) => {
+          input.uiManager.notify(error instanceof Error ? error.message : "Current image automation failed", 7000);
+        }).finally(() => {
+          elements.runAutomationCurrentBtn.disabled = false;
+          elements.runAutomationCurrentBtn.removeAttribute("aria-busy");
+          elements.runAutomationBatchBtn.disabled = false;
+          elements.openTemplateMatchingBtn.disabled = false;
+        });
+      });
+
       elements.automationPresetSelect.addEventListener("change", () => {
-        activePresetId = elements.automationPresetSelect.value || null;
+        const presetId = elements.automationPresetSelect.value;
+        activePresetId = presetId || null;
+        elements.templatePresetSelect.value = presetId;
         batchController.hidePreflight();
+        if (elements.templateMatchingModal._isShown) {
+          const preset = selectedPreset();
+          void (preset ? loadPresetForm(preset) : Promise.resolve(resetPresetForm())).catch(showSettingsError);
+        }
       });
 
       input.windowRef.addEventListener("easy-labeling:canvas-view-change", () => {
@@ -1362,14 +1589,19 @@ export function createAutomationController(input: {
     async refreshLibrary(options = {}): Promise<void> {
       const folder = input.state.session.imageFolderHandle;
       library = folder ? await loadAutomationLibrary(folder as unknown as DirectoryHandleLike) : createEmptyAutomationLibrary();
+      layoutGhostVisible = false;
       if (options.selectFirst) {
         const layoutId = library.layouts[0]?.id ?? "";
         const presetId = library.presets[0]?.id ?? "";
         activePresetId = presetId || null;
         refreshSelects({ layoutId, presetId });
+        layoutGhostVisible = false;
+        renderLayoutGhostPreview();
         return;
       }
       refreshSelects();
+      layoutGhostVisible = false;
+      renderLayoutGhostPreview();
     }
   };
 }

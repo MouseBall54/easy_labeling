@@ -1,6 +1,7 @@
 import type { UIManager, UIManagerDeps } from "../app/contracts.js";
 import type { AppState } from "../app/state.js";
 import { getCurrentDocumentStatus } from "../app/document-status.js";
+import { parseNonNegativeClassId } from "../domain/class-id.js";
 import type { FileHandle } from "../types/files.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import { getDOMElements, type BootstrapLike, type UiDomElements } from "../ui/dom-elements.js";
@@ -45,26 +46,6 @@ function showToast(documentRef: Document, message: string, duration = 3000): voi
     toast.classList.remove("show");
     window.setTimeout(() => toast.remove(), 300);
   }, duration);
-}
-
-function validateLabelClass(input: string | null, notify: (message: string, duration?: number) => void): string | null {
-  if (input === null) {
-    return null;
-  }
-
-  const trimmedInput = input.trim();
-  if (trimmedInput === "") {
-    notify("Label class cannot be empty.");
-    return null;
-  }
-
-  const value = Number(trimmedInput);
-  if (!Number.isInteger(value) || value < 0 || value > 10000) {
-    notify("Invalid Label: Please enter an integer between 0 and 10000.", 4000);
-    return null;
-  }
-
-  return String(value);
 }
 
 const PREVIEW_PLACEHOLDER_SRC = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjAuNTsxOzAuNSIgZHVyPSIxcyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KPC9zdmc+";
@@ -538,6 +519,13 @@ export function createUiManagerAdapter(input: {
         classOptions
       });
 
+      const setLabelClassError = (error: unknown | null): void => {
+        elements.labelClassInput.classList.toggle("is-invalid", error !== null);
+        elements.labelClassError.hidden = error === null;
+        elements.labelClassError.textContent = error instanceof Error ? error.message : "";
+      };
+      setLabelClassError(null);
+
       elements.labelClassModal.show();
       elements.labelClassInput.focus();
       elements.labelClassInput.select();
@@ -547,14 +535,21 @@ export function createUiManagerAdapter(input: {
           elements.saveLabelClassBtn.removeEventListener("click", onSave);
           elements.labelClassModal._element?.removeEventListener("hidden.bs.modal", onHidden as EventListener);
           elements.labelClassInput.removeEventListener("keydown", onKeyDown);
+          elements.labelClassInput.removeEventListener("input", onInput);
         };
 
         const onSave = (): void => {
-          const validated = validateLabelClass(elements.labelClassInput.value, manager.notify);
-          if (validated === null) {
+          let validated: string;
+          try {
+            validated = parseNonNegativeClassId(elements.labelClassInput.value);
+          } catch (error: unknown) {
+            setLabelClassError(error);
+            elements.labelClassInput.focus();
             return;
           }
 
+          setLabelClassError(null);
+          elements.labelClassInput.value = validated;
           cleanup();
           elements.labelClassModal.hide();
           resolve(validated);
@@ -577,9 +572,12 @@ export function createUiManagerAdapter(input: {
           }
         };
 
+        const onInput = (): void => setLabelClassError(null);
+
         elements.saveLabelClassBtn.addEventListener("click", onSave);
         elements.labelClassModal._element?.addEventListener("hidden.bs.modal", onHidden as EventListener, { once: true });
         elements.labelClassInput.addEventListener("keydown", onKeyDown);
+        elements.labelClassInput.addEventListener("input", onInput);
       });
     },
 

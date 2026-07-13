@@ -2,6 +2,7 @@ import {
   DEFAULT_MULTIPLE_DETECTION_SETTINGS,
   validatePreprocessingSettings
 } from "../features/automation/preset-codec.js";
+import { parseNonNegativeClassId } from "../domain/class-id.js";
 import type {
   AutomationOutputMode,
   AutomationPreset,
@@ -78,16 +79,14 @@ export function createAutomationPresetForm(elements: UiDomElements): AutomationP
 
     readMultipleDetection(): MultipleDetectionSettings {
       const settings: MultipleDetectionSettings = {
-        classId: elements.templateMultipleClassIdInput.value.trim(),
+        classId: parseNonNegativeClassId(elements.templateMultipleClassIdInput.value),
         maximumDetections: readFinite(elements.templateMaximumDetectionsInput, "Maximum detections"),
         strictNonOverlap: elements.templateStrictNonOverlapToggle.checked,
         nmsIouThreshold: readFinite(elements.templateNmsIouInput, "NMS IoU threshold"),
         paddingX: readFinite(elements.templatePaddingXInput, "Padding X"),
         paddingY: readFinite(elements.templatePaddingYInput, "Padding Y")
       };
-      if (!settings.classId) {
-        throw new Error("Multiple Detection class ID is required");
-      }
+      elements.templateMultipleClassIdInput.value = settings.classId;
       if (!Number.isInteger(settings.maximumDetections) || settings.maximumDetections < 1 || settings.maximumDetections > 10000) {
         throw new Error("Maximum detections must be an integer between 1 and 10000");
       }
