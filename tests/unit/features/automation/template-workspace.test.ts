@@ -5,6 +5,8 @@ import { createTemplateWorkspace } from "../../../../src/features/automation/tem
 type PointerListener = (event: PointerEvent) => void;
 
 class FakeScroller {
+  readonly clientWidth = 100;
+  readonly clientHeight = 70;
   scrollLeft = 40;
   scrollTop = 30;
   private readonly listeners = new Map<string, EventListener[]>();
@@ -27,10 +29,21 @@ class FakeScroller {
   }
 }
 
+class FakeStage {
+  readonly style = {
+    width: "",
+    height: ""
+  };
+}
+
 class FakeCanvas {
   width: number;
   height: number;
   readonly dataset: Record<string, string> = {};
+  readonly style = {
+    left: "",
+    top: ""
+  };
   readonly attributes = new Map<string, string>();
   private readonly listeners = new Map<string, PointerListener[]>();
   private readonly context = {
@@ -108,6 +121,7 @@ describe("template workspace interaction modes", () => {
     const workspace = createTemplateWorkspace({
       canvas: canvas as unknown as HTMLCanvasElement,
       scroller: scroller as unknown as HTMLElement,
+      stage: new FakeStage() as unknown as HTMLElement,
       zoomInput,
       zoomValue,
       originalPreviewCanvas: originalPreview as unknown as HTMLCanvasElement,
@@ -134,11 +148,12 @@ describe("template workspace interaction modes", () => {
     expect(onMatchClicked).toHaveBeenCalledWith(0);
     canvas.dispatch("pointerdown", 20, 20, 2);
     expect(onMatchClicked).toHaveBeenCalledTimes(1);
+    const scrollBeforePan = { left: scroller.scrollLeft, top: scroller.scrollTop };
     canvas.dispatch("pointerdown", 20, 20);
     canvas.dispatch("pointermove", 5, 5);
     canvas.dispatch("pointerup", 5, 5);
-    expect(scroller.scrollLeft).toBe(55);
-    expect(scroller.scrollTop).toBe(45);
+    expect(scroller.scrollLeft).toBe(scrollBeforePan.left + 15);
+    expect(scroller.scrollTop).toBe(scrollBeforePan.top + 15);
     expect(onMatchClicked).toHaveBeenCalledTimes(1);
 
     const wheel = scroller.dispatchWheel(-100);
@@ -173,6 +188,7 @@ describe("template workspace interaction modes", () => {
     const workspace = createTemplateWorkspace({
       canvas: canvas as unknown as HTMLCanvasElement,
       scroller: scroller as unknown as HTMLElement,
+      stage: new FakeStage() as unknown as HTMLElement,
       zoomInput: { value: "200", addEventListener: vi.fn() } as unknown as HTMLInputElement,
       zoomValue: { textContent: "" } as HTMLElement,
       originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
@@ -182,20 +198,53 @@ describe("template workspace interaction modes", () => {
     workspace.bind();
     workspace.setImage({ naturalWidth: 120, naturalHeight: 90, width: 120, height: 90 } as HTMLImageElement);
     workspace.setInteractionMode("select-results");
+    const selectPanStart = { left: scroller.scrollLeft, top: scroller.scrollTop };
     canvas.dispatch("pointerdown", 80, 60);
     canvas.dispatch("pointermove", 60, 45);
     canvas.dispatch("pointerup", 60, 45);
-    expect(scroller.scrollLeft).toBe(60);
-    expect(scroller.scrollTop).toBe(45);
+    expect(scroller.scrollLeft).toBe(selectPanStart.left + 20);
+    expect(scroller.scrollTop).toBe(selectPanStart.top + 15);
     expect(workspace.getRoi()).toBeNull();
 
     workspace.setInteractionMode("template-roi");
+    const middlePanStart = { left: scroller.scrollLeft, top: scroller.scrollTop };
     canvas.dispatch("pointerdown", 70, 50, 1);
     canvas.dispatch("pointermove", 50, 40);
     canvas.dispatch("pointerup", 50, 40);
-    expect(scroller.scrollLeft).toBe(80);
-    expect(scroller.scrollTop).toBe(55);
+    expect(scroller.scrollLeft).toBe(middlePanStart.left + 20);
+    expect(scroller.scrollTop).toBe(middlePanStart.top + 10);
     expect(workspace.getRoi()).toBeNull();
+  });
+
+  it("adds pan margins and fits the image back to the centered viewport", () => {
+    const canvas = new FakeCanvas(120, 90);
+    const scroller = new FakeScroller();
+    const stage = new FakeStage();
+    const zoomInput = { value: "100", addEventListener: vi.fn() } as unknown as HTMLInputElement;
+    const zoomValue = { textContent: "" } as HTMLElement;
+    const workspace = createTemplateWorkspace({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      scroller: scroller as unknown as HTMLElement,
+      stage: stage as unknown as HTMLElement,
+      zoomInput,
+      zoomValue,
+      originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
+      processedPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement
+    });
+
+    workspace.setImage({ naturalWidth: 120, naturalHeight: 90, width: 120, height: 90 } as HTMLImageElement);
+    expect(stage.style.width).toBe("320px");
+    expect(stage.style.height).toBe("230px");
+    expect(canvas.style.left).toBe("100px");
+    expect(canvas.style.top).toBe("70px");
+
+    workspace.fitToView();
+    expect(zoomInput.value).toBe("42");
+    expect(zoomValue.textContent).toBe("42%");
+    expect(stage.style.width).toBe("250px");
+    expect(stage.style.height).toBe("178px");
+    expect(Number.parseFloat(canvas.style.left) - scroller.scrollLeft).toBeCloseTo((100 - canvas.width) / 2);
+    expect(Number.parseFloat(canvas.style.top) - scroller.scrollTop).toBeCloseTo((70 - canvas.height) / 2);
   });
 
   it("renders and clears a translucent layout preview at the calculated anchor", () => {
@@ -203,6 +252,7 @@ describe("template workspace interaction modes", () => {
     const workspace = createTemplateWorkspace({
       canvas: canvas as unknown as HTMLCanvasElement,
       scroller: new FakeScroller() as unknown as HTMLElement,
+      stage: new FakeStage() as unknown as HTMLElement,
       zoomInput: { value: "100", addEventListener: vi.fn() } as unknown as HTMLInputElement,
       zoomValue: { textContent: "" } as HTMLElement,
       originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,

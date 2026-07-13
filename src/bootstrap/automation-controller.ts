@@ -385,6 +385,7 @@ export function createAutomationController(input: {
   const workspace = createTemplateWorkspace({
     canvas: elements.templateMatchingCanvas,
     scroller: elements.templateWorkspaceScroller,
+    stage: elements.templateWorkspaceStage,
     zoomInput: elements.templateWorkspaceZoomInput,
     zoomValue: elements.templateWorkspaceZoomValue,
     originalPreviewCanvas: elements.templateOriginalPreviewCanvas,
@@ -1020,6 +1021,7 @@ export function createAutomationController(input: {
   return {
     bind(): void {
       workspace.bind();
+      elements.templateWorkspaceFitBtn.addEventListener("click", () => workspace.fitToView());
       layoutPreview.bind();
       syncTemplateLayoutOpacity();
       refreshSelects();
@@ -1382,6 +1384,9 @@ export function createAutomationController(input: {
       });
       input.documentRef.getElementById("templateMatchingModal")?.addEventListener("hidden.bs.modal", () => {
         hideTemplateMatchContextMenu();
+      });
+      input.documentRef.getElementById("templateMatchingModal")?.addEventListener("shown.bs.modal", () => {
+        workspace.fitToView();
       });
       elements.templateMatchContextAssignBtn.addEventListener("click", assignContextTemplateMatchClass);
       elements.templateMatchContextMenu.addEventListener("keydown", (event) => {

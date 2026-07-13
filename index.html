@@ -472,10 +472,15 @@
                                 <input id="templatePointerSelectRadio" type="radio" class="btn-check" name="templatePointerMode" value="select-results">
                                 <label class="btn btn-outline-secondary" for="templatePointerSelectRadio" title="Select results or drag to pan (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
                             </div>
-                            <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom workspace (Ctrl + mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
+                            <div class="template-workspace-view-controls">
+                                <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom workspace (Ctrl + mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
+                                <button id="templateWorkspaceFitBtn" type="button" class="panel-icon-button" title="Fit image to workspace" aria-label="Fit image to workspace"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i></button>
+                            </div>
                         </div>
                         <div id="templateWorkspaceScroller" class="template-workspace-scroller">
-                            <canvas id="templateMatchingCanvas" width="800" height="500" tabindex="0" aria-label="Draw template ROI on reference image"></canvas>
+                            <div id="templateWorkspaceStage" class="template-workspace-stage">
+                                <canvas id="templateMatchingCanvas" width="800" height="500" tabindex="0" aria-label="Draw template ROI on reference image"></canvas>
+                            </div>
                         </div>
                         <div class="template-preview-strip">
                             <div><div class="small text-muted mb-1">Selected template</div><canvas id="templateOriginalPreviewCanvas" width="240" height="140"></canvas></div>

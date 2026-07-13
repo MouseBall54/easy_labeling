@@ -101,7 +101,9 @@ export interface UiDomElements {
   templatePointerSelectRadio: HTMLInputElement;
   templateWorkspaceZoomInput: HTMLInputElement;
   templateWorkspaceZoomValue: HTMLElement;
+  templateWorkspaceFitBtn: HTMLButtonElement;
   templateWorkspaceScroller: HTMLElement;
+  templateWorkspaceStage: HTMLElement;
   templatePresetSelect: HTMLSelectElement;
   templateMatchingCanvas: HTMLCanvasElement;
   templateOriginalPreviewCanvas: HTMLCanvasElement;
@@ -380,7 +382,9 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templatePointerSelectRadio: requireById<HTMLInputElement>(documentRef, "templatePointerSelectRadio"),
     templateWorkspaceZoomInput: requireById<HTMLInputElement>(documentRef, "templateWorkspaceZoomInput"),
     templateWorkspaceZoomValue: requireById<HTMLElement>(documentRef, "templateWorkspaceZoomValue"),
+    templateWorkspaceFitBtn: requireById<HTMLButtonElement>(documentRef, "templateWorkspaceFitBtn"),
     templateWorkspaceScroller: requireById<HTMLElement>(documentRef, "templateWorkspaceScroller"),
+    templateWorkspaceStage: requireById<HTMLElement>(documentRef, "templateWorkspaceStage"),
     templatePresetSelect: requireById<HTMLSelectElement>(documentRef, "templatePresetSelect"),
     templateMatchingCanvas: requireById<HTMLCanvasElement>(documentRef, "templateMatchingCanvas"),
     templateOriginalPreviewCanvas: requireById<HTMLCanvasElement>(documentRef, "templateOriginalPreviewCanvas"),

@@ -535,15 +535,30 @@ body {
     width: min(260px, 28vw);
 }
 
+.template-workspace-view-controls {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.4rem;
+}
+
 .template-workspace-scroller {
     height: 470px;
     overflow: auto;
+    overscroll-behavior: contain;
     background: #15191d;
     border: 1px solid var(--panel-border-color);
     border-radius: 4px;
 }
 
+.template-workspace-stage {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+}
+
 #templateMatchingCanvas {
+    position: absolute;
     display: block;
     cursor: crosshair;
     background: #20252a;

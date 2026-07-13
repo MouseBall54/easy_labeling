@@ -22,6 +22,7 @@ export type TemplateWorkspaceInteractionMode = "template-roi" | "select-results"
 
 export interface TemplateWorkspace {
   bind(): void;
+  fitToView(): void;
   setInteractionMode(mode: TemplateWorkspaceInteractionMode): void;
   getInteractionMode(): TemplateWorkspaceInteractionMode;
   setImage(image: HTMLImageElement, roi?: PixelRect | null): void;
@@ -73,6 +74,7 @@ function drawContainedImage(
 export function createTemplateWorkspace(input: {
   canvas: HTMLCanvasElement;
   scroller: HTMLElement;
+  stage: HTMLElement;
   zoomInput: HTMLInputElement;
   zoomValue: HTMLElement;
   originalPreviewCanvas: HTMLCanvasElement;
@@ -88,6 +90,8 @@ export function createTemplateWorkspace(input: {
   let layoutPreview: TemplateWorkspaceLayoutPreview | null = null;
   let layoutPreviewOpacity = 0.1;
   let interactionMode: TemplateWorkspaceInteractionMode = "template-roi";
+  let stagePaddingX = 0;
+  let stagePaddingY = 0;
   let dragStart: { x: number; y: number } | null = null;
   let draftEnd: { x: number; y: number } | null = null;
   let panStart: {
@@ -143,6 +147,33 @@ export function createTemplateWorkspace(input: {
     input.canvas.dataset.roiReady = String(roi !== null);
   };
 
+  const viewportSize = (): { width: number; height: number } => {
+    const bounds = input.scroller.getBoundingClientRect();
+    return {
+      width: Math.max(0, input.scroller.clientWidth || Math.round(bounds.width)),
+      height: Math.max(0, input.scroller.clientHeight || Math.round(bounds.height))
+    };
+  };
+
+  const syncStage = (): void => {
+    const viewport = viewportSize();
+    stagePaddingX = viewport.width;
+    stagePaddingY = viewport.height;
+    input.stage.style.width = `${input.canvas.width + stagePaddingX * 2}px`;
+    input.stage.style.height = `${input.canvas.height + stagePaddingY * 2}px`;
+    input.canvas.style.left = `${stagePaddingX}px`;
+    input.canvas.style.top = `${stagePaddingY}px`;
+  };
+
+  const centerImage = (): void => {
+    const viewport = viewportSize();
+    if (viewport.width <= 0 || viewport.height <= 0) {
+      return;
+    }
+    input.scroller.scrollLeft = stagePaddingX + input.canvas.width / 2 - viewport.width / 2;
+    input.scroller.scrollTop = stagePaddingY + input.canvas.height / 2 - viewport.height / 2;
+  };
+
   const render = (): void => {
     const context = requireContext(input.canvas);
     const currentZoom = zoom();
@@ -151,6 +182,7 @@ export function createTemplateWorkspace(input: {
     input.canvas.dataset.layoutPreviewOpacity = layoutPreviewOpacity.toFixed(2);
     if (!image) {
       context.clearRect(0, 0, input.canvas.width, input.canvas.height);
+      syncStage();
       return;
     }
 
@@ -162,6 +194,7 @@ export function createTemplateWorkspace(input: {
     if (input.canvas.height !== nextCanvasHeight) {
       input.canvas.height = nextCanvasHeight;
     }
+    syncStage();
     context.drawImage(image, 0, 0, input.canvas.width, input.canvas.height);
     context.save();
     context.scale(currentZoom, currentZoom);
@@ -237,8 +270,28 @@ export function createTemplateWorkspace(input: {
     const viewportY = clientY - scrollerBounds.top;
     input.zoomInput.value = String(clamp(Math.round(percent), 1, 400));
     render();
-    input.scroller.scrollLeft = imagePoint.x * zoom() - viewportX;
-    input.scroller.scrollTop = imagePoint.y * zoom() - viewportY;
+    input.scroller.scrollLeft = stagePaddingX + imagePoint.x * zoom() - viewportX;
+    input.scroller.scrollTop = stagePaddingY + imagePoint.y * zoom() - viewportY;
+  };
+
+  const fitWorkspaceToView = (): void => {
+    if (!image) {
+      return;
+    }
+    const viewport = viewportSize();
+    if (viewport.width <= 0 || viewport.height <= 0) {
+      return;
+    }
+    const inset = 16;
+    const availableWidth = Math.max(1, viewport.width - inset * 2);
+    const availableHeight = Math.max(1, viewport.height - inset * 2);
+    const fittedPercent = Math.floor(Math.min(
+      availableWidth / imageWidth(),
+      availableHeight / imageHeight()
+    ) * 100);
+    input.zoomInput.value = String(clamp(fittedPercent, 1, 400));
+    render();
+    centerImage();
   };
 
   const beginPan = (event: PointerEvent, matchIndex: number): void => {
@@ -402,6 +455,10 @@ export function createTemplateWorkspace(input: {
       });
     },
 
+    fitToView(): void {
+      fitWorkspaceToView();
+    },
+
     setInteractionMode(mode): void {
       if (interactionMode === mode) {
         syncInteractionMode();
@@ -428,6 +485,7 @@ export function createTemplateWorkspace(input: {
       storedTemplateImage = null;
       syncRoiState();
       render();
+      centerImage();
     },
 
     setMatchResult(result): void {

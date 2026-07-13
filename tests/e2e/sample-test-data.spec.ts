@@ -87,11 +87,14 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#templatePresetSelect").selectOption("sample-layout-preset");
   await expect(page.locator("#templateNameInput")).toHaveValue("Sample Pink Anchor + Layout");
   await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("min", "1");
+  await expect(page.locator("#templateWorkspaceFitBtn")).toBeVisible();
+  const templateZoomBeforeWheel = Number(await page.locator("#templateWorkspaceZoomInput").inputValue());
   await page.locator("#templateWorkspaceScroller").hover();
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, -100);
   await page.keyboard.up("Control");
-  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveValue("110");
+  await expect.poll(async () => Number(await page.locator("#templateWorkspaceZoomInput").inputValue()))
+    .toBeGreaterThan(templateZoomBeforeWheel);
   await expect.poll(async () => page.evaluate(() => {
     return document.querySelector("#templateMatchingModal")?.contains(document.activeElement) ?? false;
   })).toBe(true);
@@ -192,26 +195,48 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   });
   await page.locator('label[for="templatePointerSelectRadio"]').click();
   const templateScroller = page.locator("#templateWorkspaceScroller");
-  await templateScroller.evaluate((element) => {
-    element.scrollLeft = 150;
-    element.scrollTop = 80;
+  const scrollBeforePan = await templateScroller.evaluate((element) => {
+    const canvas = element.querySelector<HTMLCanvasElement>("#templateMatchingCanvas");
+    if (!canvas) {
+      throw new Error("Template canvas is unavailable");
+    }
+    element.scrollLeft = Number.parseFloat(canvas.style.left);
+    element.scrollTop = Number.parseFloat(canvas.style.top);
+    return { left: element.scrollLeft, top: element.scrollTop };
   });
-  const scrollBeforePan = await templateScroller.evaluate((element) => ({
-    left: element.scrollLeft,
-    top: element.scrollTop
-  }));
   const scrollerBounds = await templateScroller.boundingBox();
   if (!scrollerBounds) {
     throw new Error("Template workspace scroller is unavailable");
   }
-  await page.mouse.move(scrollerBounds.x + scrollerBounds.width * 0.7, scrollerBounds.y + scrollerBounds.height * 0.5);
+  await page.mouse.move(scrollerBounds.x + scrollerBounds.width * 0.4, scrollerBounds.y + scrollerBounds.height * 0.4);
   await page.mouse.down();
-  await page.mouse.move(scrollerBounds.x + scrollerBounds.width * 0.4, scrollerBounds.y + scrollerBounds.height * 0.4, { steps: 5 });
+  await page.mouse.move(scrollerBounds.x + scrollerBounds.width * 0.6, scrollerBounds.y + scrollerBounds.height * 0.55, { steps: 5 });
   await page.mouse.up();
-  await expect.poll(async () => templateScroller.evaluate((element) => ({
-    left: element.scrollLeft,
-    top: element.scrollTop
-  }))).not.toEqual(scrollBeforePan);
+  await expect.poll(async () => templateScroller.evaluate((element) => element.scrollLeft))
+    .toBeLessThan(scrollBeforePan.left);
+  await expect.poll(async () => templateScroller.evaluate((element) => element.scrollTop))
+    .toBeLessThan(scrollBeforePan.top);
+
+  await page.locator("#templateWorkspaceFitBtn").click();
+  await expect.poll(async () => templateScroller.evaluate((element) => {
+    const canvas = element.querySelector<HTMLCanvasElement>("#templateMatchingCanvas");
+    if (!canvas) {
+      return false;
+    }
+    const viewport = element.getBoundingClientRect();
+    const image = canvas.getBoundingClientRect();
+    const contentLeft = viewport.left + element.clientLeft;
+    const contentTop = viewport.top + element.clientTop;
+    const contentRight = contentLeft + element.clientWidth;
+    const contentBottom = contentTop + element.clientHeight;
+    const horizontallyCentered = Math.abs((image.left + image.right) / 2 - (contentLeft + contentRight) / 2) <= 1;
+    const verticallyCentered = Math.abs((image.top + image.bottom) / 2 - (contentTop + contentBottom) / 2) <= 1;
+    return horizontallyCentered && verticallyCentered
+      && image.left >= contentLeft
+      && image.top >= contentTop
+      && image.right <= contentRight + 1
+      && image.bottom <= contentBottom + 1;
+  })).toBe(true);
 
   await page.locator('#templateMatchingModal .modal-footer [data-bs-dismiss="modal"]').click();
   await expect(page.locator("#templateMatchingModal")).toBeHidden();
