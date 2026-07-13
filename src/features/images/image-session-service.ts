@@ -46,6 +46,7 @@ export interface DecodeImageInput {
 
 export interface ImageSessionServiceDeps {
   decodeImage(input: DecodeImageInput): Promise<unknown>;
+  removeCurrentLabelsOutsideImageBounds?(): number;
   readCurrentLabelsAsYolo(): string;
   readCurrentSegmentationSnapshot(): SegmentationDocumentSnapshot | null;
   applyLoadedYolo(yoloData: string): Promise<void> | void;
@@ -64,6 +65,7 @@ export interface SaveLabelsResult {
   saved: boolean;
   primaryFilePath: string | null;
   hasLabels: boolean;
+  removedOutOfBoundsCount: number;
 }
 
 export interface ImageSessionService {
@@ -344,7 +346,8 @@ export function createImageSessionService(
         return {
           saved: false,
           primaryFilePath: null,
-          hasLabels: false
+          hasLabels: false,
+          removedOutOfBoundsCount: 0
         };
       }
 
@@ -353,10 +356,12 @@ export function createImageSessionService(
           return {
             saved: false,
             primaryFilePath: null,
-            hasLabels: false
+            hasLabels: false,
+            removedOutOfBoundsCount: 0
           };
         }
 
+        const removedOutOfBoundsCount = deps.removeCurrentLabelsOutsideImageBounds?.() ?? 0;
         const yoloString = deps.readCurrentLabelsAsYolo();
         const trimmedYolo = yoloString.trim();
         const primaryFilePath = resolveAnnotationAssetPaths("detection", imageFileNameToBaseName(state.currentImageFile.name)).primaryFilePath;
@@ -372,7 +377,8 @@ export function createImageSessionService(
         return {
           saved: true,
           primaryFilePath,
-          hasLabels
+          hasLabels,
+          removedOutOfBoundsCount
         };
       }
 
@@ -380,7 +386,8 @@ export function createImageSessionService(
         return {
           saved: false,
           primaryFilePath: null,
-          hasLabels: false
+          hasLabels: false,
+          removedOutOfBoundsCount: 0
         };
       }
 
@@ -389,7 +396,8 @@ export function createImageSessionService(
         return {
           saved: false,
           primaryFilePath: null,
-          hasLabels: false
+          hasLabels: false,
+          removedOutOfBoundsCount: 0
         };
       }
 
@@ -417,7 +425,8 @@ export function createImageSessionService(
       return {
         saved: true,
         primaryFilePath: assets[0]?.path ?? null,
-        hasLabels: hasMask
+        hasLabels: hasMask,
+        removedOutOfBoundsCount: 0
       };
     }
   };

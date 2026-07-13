@@ -213,8 +213,10 @@ describe("features/images/image-session-service", () => {
       .withFile(new MockFileHandle("1.jpg"));
 
     const state = createState();
+    const removeCurrentLabelsOutsideImageBounds = vi.fn(() => 1);
     const service = createImageSessionService(state, {
       decodeImage: vi.fn(async () => "decoded"),
+      removeCurrentLabelsOutsideImageBounds,
       readCurrentLabelsAsYolo: () => "0 0.5 0.5 0.2 0.2",
       readCurrentSegmentationSnapshot: () => null,
       applyLoadedYolo: vi.fn(),
@@ -235,5 +237,7 @@ describe("features/images/image-session-service", () => {
     expect(result.primaryFilePath).toBe(detectionPath);
     expect(await saved.text()).toBe("0 0.5 0.5 0.2 0.2");
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
+    expect(removeCurrentLabelsOutsideImageBounds).toHaveBeenCalledOnce();
+    expect(result.removedOutOfBoundsCount).toBe(1);
   });
 });

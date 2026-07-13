@@ -106,6 +106,40 @@ describe("automation batch label generation", () => {
     expect(serializeAutomationBoxes(boxes, { width: 100, height: 100 }).split("\n").filter(Boolean)).toHaveLength(2);
   });
 
+  it("removes layout and multiple-match boxes that cross target image bounds", () => {
+    const layout = createBoxLayout({
+      id: "layout-1",
+      name: "edge fixture",
+      sourceImageName: "ref.png",
+      sourceImageSize: { width: 100, height: 100 },
+      boxes: [
+        { classId: "2", left: 10, top: 10, width: 20, height: 20 },
+        { classId: "7", left: 40, top: 10, width: 20, height: 20 }
+      ]
+    });
+    const layoutBoxes = createAutomationDetectionBoxes({
+      preset: createPreset({ relationOffset: { x: 0, y: 0 }, manualOffset: { x: 0, y: 0 } }),
+      layout,
+      match: createMatch({ x: 60, y: 60 }),
+      imageSize: { width: 100, height: 100 }
+    });
+    expect(layoutBoxes.map((box) => box.classId)).toEqual(["2"]);
+
+    const multipleBoxes = createAutomationDetectionBoxes({
+      preset: createPreset({ outputMode: "multiple-detection-boxes", layoutId: null }),
+      layout: null,
+      match: createMatch({
+        matches: [
+          { score: 0.95, x: 10, y: 10, width: 20, height: 20 },
+          { score: 0.90, x: 90, y: 10, width: 20, height: 20 }
+        ]
+      }),
+      imageSize: { width: 100, height: 100 }
+    });
+    expect(multipleBoxes).toHaveLength(1);
+    expect(multipleBoxes[0]).toMatchObject({ x: 10, y: 10 });
+  });
+
   it("supports Append and Replace without rewriting an existing label on failed processing", () => {
     const existing = "9 0.500000000000000 0.500000000000000 0.100000000000000 0.100000000000000";
     const generated = "2 0.200000000000000 0.300000000000000 0.100000000000000 0.100000000000000\n";

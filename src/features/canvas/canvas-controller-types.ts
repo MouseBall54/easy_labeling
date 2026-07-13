@@ -14,6 +14,7 @@ import type { BoxLayout, PixelPoint } from "../automation/types.js";
 export interface AppliedBoxLayout {
   instanceId: string;
   annotationIds: string[];
+  discardedOutOfBoundsCount: number;
 }
 
 export interface DetectionBoxInput {
@@ -26,6 +27,7 @@ export interface DetectionBoxInput {
 
 export interface AppliedDetectionBoxes {
   annotationIds: string[];
+  discardedOutOfBoundsCount: number;
 }
 
 export interface CanvasControllerState {
@@ -86,6 +88,7 @@ export interface CanvasController {
   setMode(mode: AppMode): void;
   addLabelsFromYolo(yoloData: string): void;
   getLabelsAsYolo(): string;
+  removeBoxesOutsideImageBounds?(): number;
   captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): BoxLayout;
   applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean }): AppliedBoxLayout;
   applyDetectionBoxes(boxes: readonly DetectionBoxInput[], options?: { replaceExisting?: boolean }): AppliedDetectionBoxes;

@@ -1144,6 +1144,27 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getObjects("rect")).toHaveLength(4);
   });
 
+  it("drops out-of-bounds layout boxes and removes existing outside boxes before save", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const sourceInside = createRect({ left: 10, top: 10, width: 20, height: 10, labelClass: "1" });
+    const sourceOutside = createRect({ left: 50, top: 10, width: 20, height: 10, labelClass: "2" });
+    controller.canvas.add(sourceInside, sourceOutside);
+    const layout = controller.captureBoxLayout("edge", "reference.png", "all");
+
+    const application = controller.applyBoxLayout(layout, { x: 150, y: 20 });
+    expect(application.annotationIds).toHaveLength(1);
+    expect(application.discardedOutOfBoundsCount).toBe(1);
+
+    const manuallyOutside = createRect({ left: 195, top: 20, width: 10, height: 10, labelClass: "3" });
+    controller.canvas.add(manuallyOutside);
+    expect(controller.removeBoxesOutsideImageBounds?.()).toBe(1);
+    expect(controller.getObjects("rect")).not.toContain(manuallyOutside);
+
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(4);
+  });
+
   it("moves an applied layout together and restores the move with one undo", () => {
     const history = createCanvasHistoryService();
     const controller = createCanvasController(createState(), createDeps({ historyService: history }));

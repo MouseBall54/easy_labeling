@@ -66,14 +66,19 @@ describe("automation layout", () => {
     expect(anchor).toEqual({ x: 73, y: 42 });
   });
 
-  it("rejects a placement if any box leaves the image", () => {
+  it("drops boxes outside the image without rejecting the complete layout placement", () => {
     const layout = createBoxLayout({
       name: "edge",
       sourceImageName: "reference.png",
       sourceImageSize: { width: 100, height: 100 },
-      boxes: [{ classId: "0", left: 10, top: 10, width: 20, height: 20 }]
+      boxes: [
+        { id: "inside", classId: "0", left: 10, top: 10, width: 20, height: 20 },
+        { id: "outside", classId: "1", left: 30, top: 10, width: 20, height: 20 }
+      ]
     });
 
-    expect(() => placeBoxLayout(layout, { x: 85, y: 85 }, { width: 100, height: 100 })).toThrow(/outside the image bounds/);
+    expect(placeBoxLayout(layout, { x: 65, y: 65 }, { width: 100, height: 100 })).toEqual([
+      expect.objectContaining({ layoutBoxId: "inside", x: 65, y: 65 })
+    ]);
   });
 });

@@ -9,7 +9,7 @@ test("folder-switch: autosave persists current labels before switching folders",
     let pickerCalls = 0;
     Object.defineProperty(window, "__mockWrites", { value: writes, configurable: true });
 
-    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgN6f3QAAAABJRU5ErkJggg==";
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADtSURBVHhe7dExAQAADMOg+Tfd2eAIFriFUgimEEwhmEIwhWAKwRSCKQRTCKYQTCGYQjCFYArBFIIpBFMIphBMIZhCMIVgCsEUgikEUwimEEwhmEIwhWAKwRSCKQRTCKYQTCGYQjCFYArBFIIpBFMIphBMIZhCMIVgCsEUgikEUwimEEwhmEIwhWAKwRSCKQRTCKYQTCGYQjCFYArBFIIpBFMIphBMIZhCMIVgCsEUgikEUwimEEwhmEIwhWAKwRSCKQRTCKYQTCGYQjCFYArBFIIpBFMIphBMIZhCMIVgCsEUgikEUwimEEwhlO0B+Cus1uREjpsAAAAASUVORK5CYII=";
     const pngBinary = atob(pngBase64);
     const pngBuffer = new ArrayBuffer(pngBinary.length);
     const pngBytes = new Uint8Array(pngBuffer);
@@ -84,7 +84,10 @@ test("folder-switch: autosave persists current labels before switching folders",
     const firstFolder = new MockDirectoryHandle("images-a");
     firstFolder.setEntry("img1.png", new MockFileHandle("img1.png", pngBuffer));
     const firstLabelFolder = new MockDirectoryHandle("label");
-    firstLabelFolder.setEntry("img1.txt", new MockFileHandle("img1.txt", "0 0.5 0.5 1 1\n"));
+    firstLabelFolder.setEntry("img1.txt", new MockFileHandle("img1.txt", [
+      "0 0.5 0.5 0.5 0.5",
+      "1 1.2 0.5 0.2 0.2"
+    ].join("\n")));
     firstFolder.setEntry("label", firstLabelFolder);
 
     const secondFolder = new MockDirectoryHandle("images-b");
@@ -122,4 +125,6 @@ test("folder-switch: autosave persists current labels before switching folders",
   });
 
   expect(writes[0]).toMatchObject({ fileName: "img1.txt" });
+  expect(writes[0]?.content.trim().split("\n")).toHaveLength(1);
+  expect(writes[0]?.content.trim()).toMatch(/^0 /);
 });

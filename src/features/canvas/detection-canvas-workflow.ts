@@ -1,5 +1,5 @@
 import { parseYoloRows, serializeRectsToYolo } from "../../domain/yolo/yolo.js";
-import { createBoxLayout, placeBoxLayout } from "../automation/layout.js";
+import { createBoxLayout, isPixelRectInsideImageBounds, placeBoxLayout } from "../automation/layout.js";
 import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
@@ -496,6 +496,43 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       return serializeRectsToYolo(rects, image.width, image.height);
     },
 
+    removeBoxesOutsideImageBounds(): number {
+      const image = state.currentImage;
+      if (!image) {
+        return 0;
+      }
+
+      const outsideRects = canvas.getObjects("rect").filter(isRectObject).filter((rect) => {
+        rect.setCoords();
+        const center = rect.getCenterPoint();
+        const width = rect.getScaledWidth();
+        const height = rect.getScaledHeight();
+        return !isPixelRectInsideImageBounds({
+          x: center.x - width / 2,
+          y: center.y - height / 2,
+          width,
+          height
+        }, { width: image.width, height: image.height });
+      });
+      if (outsideRects.length === 0) {
+        return 0;
+      }
+
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      outsideRects.forEach(removeRectInternal);
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+      deps.updateLabelList();
+      pushHistoryIfRectsChanged({
+        before,
+        after: captureRectSnapshots(),
+        selectionBefore,
+        selectionAfter: captureSelectionSnapshot()
+      });
+      return outsideRects.length;
+    },
+
     captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): ReturnType<typeof createBoxLayout> {
       const image = state.currentImage;
       if (!image) {
@@ -528,7 +565,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
     },
 
-    applyBoxLayout(layout, anchor, options = {}): { instanceId: string; annotationIds: string[] } {
+    applyBoxLayout(layout, anchor, options = {}): { instanceId: string; annotationIds: string[]; discardedOutOfBoundsCount: number } {
       const image = state.currentImage;
       if (!image) {
         throw new Error("Load an image before applying a layout");
@@ -590,11 +627,12 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       return {
         instanceId,
-        annotationIds: createdRects.map((rect) => ensureAnnotationId(rect))
+        annotationIds: createdRects.map((rect) => ensureAnnotationId(rect)),
+        discardedOutOfBoundsCount: layout.boxes.length - placedBoxes.length
       };
     },
 
-    applyDetectionBoxes(boxes, options = {}): { annotationIds: string[] } {
+    applyDetectionBoxes(boxes, options = {}): { annotationIds: string[]; discardedOutOfBoundsCount: number } {
       const image = state.currentImage;
       if (!image) {
         throw new Error("Load an image before applying detection boxes");
@@ -610,10 +648,11 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         if (!box.classId.trim()) {
           throw new Error(`Detection box ${index + 1} requires a class ID`);
         }
-        if (box.x < 0 || box.y < 0 || box.x + box.width > image.width || box.y + box.height > image.height) {
-          throw new Error(`Detection box ${index + 1} falls outside the image bounds`);
-        }
       });
+      const validBoxes = boxes.filter((box) => isPixelRectInsideImageBounds(box, {
+        width: image.width,
+        height: image.height
+      }));
 
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
@@ -622,7 +661,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         canvas.getObjects("rect").filter(isRectObject).forEach(removeRectInternal);
       }
 
-      const createdRects = boxes.map((box) => {
+      const createdRects = validBoxes.map((box) => {
         const classId = box.classId.trim();
         const color = colorForClass(classId);
         const rect = new deps.fabric.Rect({
@@ -663,7 +702,10 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         selectionAfter: captureSelectionSnapshot()
       });
 
-      return { annotationIds: createdRects.map((rect) => ensureAnnotationId(rect)) };
+      return {
+        annotationIds: createdRects.map((rect) => ensureAnnotationId(rect)),
+        discardedOutOfBoundsCount: boxes.length - validBoxes.length
+      };
     },
 
     translateLayoutInstance(instanceId: string, delta: PixelPoint): void {

@@ -10,6 +10,7 @@ export interface BatchProcessOutcome {
   reason: string | null;
   matchCount?: number;
   minimumMatchedScore?: number | null;
+  discardedOutOfBoundsCount?: number;
   durationMs?: number;
   decodeMs?: number;
   imageDataMs?: number;

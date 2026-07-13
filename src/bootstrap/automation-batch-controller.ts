@@ -63,8 +63,11 @@ export function createAutomationBatchController(input: {
       const score = item.score == null ? "" : ` ${(item.score * 100).toFixed(1)}%`;
       const minimum = item.minimumMatchedScore == null ? "" : `-${(item.minimumMatchedScore * 100).toFixed(1)}%`;
       const matches = item.matchCount == null ? "" : ` | ${item.matchCount} match${item.matchCount === 1 ? "" : "es"}`;
+      const discarded = item.discardedOutOfBoundsCount
+        ? ` | ${item.discardedOutOfBoundsCount} outside removed`
+        : "";
       const duration = item.durationMs == null ? "" : ` | ${item.durationMs.toFixed(0)} ms`;
-      state.textContent = `${item.state}${score}${minimum}${matches}${duration}`;
+      state.textContent = `${item.state}${score}${minimum}${matches}${discarded}${duration}`;
       state.title = item.durationMs == null
         ? item.reason ?? ""
         : `Decode ${(item.decodeMs ?? 0).toFixed(1)} ms | ImageData ${(item.imageDataMs ?? 0).toFixed(1)} ms | Worker ${(item.workerMs ?? 0).toFixed(1)} ms | Save ${(item.saveMs ?? 0).toFixed(1)} ms`;
@@ -175,9 +178,10 @@ export function createAutomationBatchController(input: {
                 height: targetImage.naturalHeight || targetImage.height
               };
               const boxes = createAutomationDetectionBoxes({ preset: activePreset, layout, match, imageSize });
-              if (boxes.length === 0) {
-                throw new Error("Automation produced no Detection boxes");
-              }
+              const sourceBoxCount = activePreset.outputMode === "layout-best-match"
+                ? layout?.boxes.length ?? 0
+                : match.matches.length;
+              const discardedOutOfBoundsCount = sourceBoxCount - boxes.length;
               const generatedYolo = serializeAutomationBoxes(boxes, imageSize);
               const existingYolo = policy === "append" ? await input.fileSystem.readDetectionLabels(file.name) : "";
               const yolo = mergeDetectionLabels(existingYolo, generatedYolo, policy === "append" ? "append" : "replace");
@@ -194,9 +198,12 @@ export function createAutomationBatchController(input: {
                 score: match.score,
                 x: match.x,
                 y: match.y,
-                reason: null,
+                reason: discardedOutOfBoundsCount > 0
+                  ? `${discardedOutOfBoundsCount} generated box${discardedOutOfBoundsCount === 1 ? " was" : "es were"} outside the image and removed before saving`
+                  : null,
                 matchCount: scores.length,
                 minimumMatchedScore: Math.min(...scores),
+                discardedOutOfBoundsCount,
                 durationMs: (globalThis.performance?.now() ?? Date.now()) - startedAt,
                 decodeMs,
                 imageDataMs,

@@ -220,6 +220,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.mouse.up();
   await expect(canvas).toHaveAttribute("data-roi-ready", "true");
 
+  await page.locator("#templateManualXInput").fill("200");
   await page.locator("#saveAutomationPresetBtn").click();
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(2);
   await page.locator("#testTemplateMatchBtn").click();
@@ -266,10 +267,11 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Skipped 1");
   await expect(page.locator("#automationBatchResultList .automation-batch-result-row")).toHaveCount(2);
   await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("scene-b.png");
+  await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("2 outside removed");
   await expect.poll(async () => page.evaluate(() => {
     const fixture = Reflect.get(window, "__automationFixture") as { readLabel?: (name: string) => string | null } | undefined;
     return fixture?.readLabel?.("scene-b.txt") ?? null;
-  })).not.toBeNull();
+  })).toBe("");
   await expect(page.locator("#current-image-name")).toContainText("scene-a.png");
 
   await page.locator("#openTemplateMatchingBtn").click();

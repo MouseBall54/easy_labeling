@@ -3,6 +3,7 @@ import {
   type AutomationPreset,
   type BoxLayout,
   type PixelPoint,
+  type PixelRect,
   type PixelSize,
   type PlacedLayoutBox,
   type TemplateMatchResult
@@ -108,6 +109,24 @@ export function calculateLayoutAnchor(match: TemplateMatchResult, preset: Automa
   };
 }
 
+export function isPixelRectInsideImageBounds(rect: PixelRect, imageSize: PixelSize): boolean {
+  return [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
+    && rect.width > 0
+    && rect.height > 0
+    && rect.x >= 0
+    && rect.y >= 0
+    && rect.x + rect.width <= imageSize.width
+    && rect.y + rect.height <= imageSize.height;
+}
+
+export function filterPixelRectsInsideImageBounds<T extends PixelRect>(
+  rects: readonly T[],
+  imageSize: PixelSize
+): T[] {
+  validateSize(imageSize, "imageSize");
+  return rects.filter((rect) => isPixelRectInsideImageBounds(rect, imageSize));
+}
+
 export function placeBoxLayout(layout: BoxLayout, anchor: PixelPoint, imageSize: PixelSize): PlacedLayoutBox[] {
   validateBoxLayout(layout);
   validateSize(imageSize, "imageSize");
@@ -124,13 +143,7 @@ export function placeBoxLayout(layout: BoxLayout, anchor: PixelPoint, imageSize:
     order: box.order
   }));
 
-  const invalid = boxes.find((box) => (
-    box.x < 0 || box.y < 0 || box.x + box.width > imageSize.width || box.y + box.height > imageSize.height
-  ));
-  if (invalid) {
-    throw new Error(`Layout box ${invalid.layoutBoxId} falls outside the image bounds`);
-  }
-  return boxes;
+  return filterPixelRectsInsideImageBounds(boxes, imageSize);
 }
 
 export function validateBoxLayout(layout: BoxLayout): void {

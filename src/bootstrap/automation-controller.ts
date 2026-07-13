@@ -314,9 +314,12 @@ export function createAutomationController(input: {
   };
 
   const applyLayout = (layout: BoxLayout): void => {
-    input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+    const result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
     clearLayoutGhostPreview();
-    elements.layoutPlacementNotice.textContent = `${layout.boxes.length} boxes applied. Undo is available.`;
+    const discarded = result.discardedOutOfBoundsCount > 0
+      ? ` ${result.discardedOutOfBoundsCount} outside the image removed.`
+      : "";
+    elements.layoutPlacementNotice.textContent = `${result.annotationIds.length} boxes applied.${discarded} Undo is available.`;
     elements.layoutPlacementNotice.dataset.state = "applied";
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
     input.uiManager.updateLabelList();
@@ -681,6 +684,7 @@ export function createAutomationController(input: {
     if (policy === "replace" && existingCount > 0 && !input.windowRef.confirm("Replace existing Detection labels on the current image?")) {
       return;
     }
+    let discardedOutOfBoundsCount = 0;
     if (outputMode === "multiple-detection-boxes") {
       const multiple = readMultipleDetection();
       const matchesToApply = result.matches.flatMap((candidate, index) => {
@@ -700,7 +704,8 @@ export function createAutomationController(input: {
           ? "Select at least one match to apply"
           : "No non-overlapping matches are available to apply");
       }
-      input.canvasController.raw.applyDetectionBoxes(matchesToApply, { replaceExisting: policy === "replace" });
+      const application = input.canvasController.raw.applyDetectionBoxes(matchesToApply, { replaceExisting: policy === "replace" });
+      discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
     } else {
       requireAcceptedMatch(result, readMatching().minimumScore);
       const layout = library.layouts.find((candidate) => candidate.id === elements.templateLayoutSelect.value);
@@ -728,12 +733,15 @@ export function createAutomationController(input: {
         createdAt: "",
         updatedAt: ""
       };
-      input.canvasController.raw.applyBoxLayout(layout, calculateLayoutAnchor(result, temporaryPreset), {
+      const application = input.canvasController.raw.applyBoxLayout(layout, calculateLayoutAnchor(result, temporaryPreset), {
         replaceExisting: policy === "replace"
       });
+      discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
     }
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
-    input.uiManager.notify("Template match result applied.");
+    input.uiManager.notify(discardedOutOfBoundsCount > 0
+      ? `Template match result applied. ${discardedOutOfBoundsCount} out-of-bounds box${discardedOutOfBoundsCount === 1 ? " was" : "es were"} removed.`
+      : "Template match result applied.");
   };
 
   const savePreset = async (): Promise<void> => {

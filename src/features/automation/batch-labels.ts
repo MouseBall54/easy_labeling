@@ -1,5 +1,9 @@
 import { serializeRectsToYolo, type YoloRectLike } from "../../domain/yolo/yolo.js";
-import { calculateLayoutAnchor, placeBoxLayout } from "./layout.js";
+import {
+  calculateLayoutAnchor,
+  filterPixelRectsInsideImageBounds,
+  placeBoxLayout
+} from "./layout.js";
 import type {
   AutomationPreset,
   BoxLayout,
@@ -23,14 +27,14 @@ export function createAutomationDetectionBoxes(input: {
   imageSize: PixelSize;
 }): GeneratedDetectionBox[] {
   if (input.preset.outputMode === "multiple-detection-boxes") {
-    return input.match.matches.map((candidate) => ({
+    return filterPixelRectsInsideImageBounds(input.match.matches.map((candidate) => ({
       classId: input.preset.multipleDetection.classId,
       x: candidate.x,
       y: candidate.y,
       width: candidate.width,
       height: candidate.height,
       score: candidate.score
-    }));
+    })), input.imageSize);
   }
 
   if (!input.layout) {

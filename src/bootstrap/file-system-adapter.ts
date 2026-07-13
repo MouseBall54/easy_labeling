@@ -272,6 +272,19 @@ export function createFileSystemAdapter(input: {
 
   const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
     decodeImage: async ({ fileHandle }) => decodeImage(fileHandle),
+    removeCurrentLabelsOutsideImageBounds: () => {
+      if (!connectedDeps) {
+        return 0;
+      }
+      const count = (connectedDeps.canvasController as RuntimeCanvasController).raw.removeBoxesOutsideImageBounds?.() ?? 0;
+      if (count > 0) {
+        (connectedDeps.uiManager as RuntimeUiManager).notify(
+          `${count} box${count === 1 ? "" : "es"} outside the image ${count === 1 ? "was" : "were"} removed before saving.`,
+          5000
+        );
+      }
+      return count;
+    },
     readCurrentLabelsAsYolo: () => {
       if (!connectedDeps) {
         return "";
