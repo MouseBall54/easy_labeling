@@ -558,6 +558,29 @@ body {
     cursor: grabbing;
 }
 
+#templateMatchingCanvas[data-panning="true"] {
+    cursor: grabbing;
+}
+
+.template-layout-opacity-control {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+}
+
+.template-layout-opacity-control output {
+    min-width: 34px;
+    color: var(--workbench-muted);
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+.template-layout-opacity-control input[type="range"] {
+    grid-column: 1 / -1;
+    width: 100%;
+}
+
 .template-match-context-menu {
     position: fixed;
     z-index: 1090;

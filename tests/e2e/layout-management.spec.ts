@@ -35,6 +35,8 @@ test("layout setup creates from selected boxes and updates the saved layout", as
 
   const modal = page.locator("#layoutSetupModal");
   await expect(modal).toBeVisible();
+  await expect(page.locator("#layoutEditorTitle")).toHaveText("Edit layout");
+  await page.locator("#newBoxLayoutBtn").click();
   await expect(page.locator("#layoutSetupSelect")).toHaveValue("");
   await expect(page.locator("#layoutEditorTitle")).toHaveText("New layout");
   await expect(page.locator("#layoutNameInput")).toHaveValue("");
@@ -71,9 +73,8 @@ test("layout setup creates from selected boxes and updates the saved layout", as
     api?.selectRectsByIndex?.([0, 1]);
   });
   await page.locator("#openLayoutSetupBtn").click();
-  await expect(page.locator("#layoutEditorTitle")).toHaveText("New layout");
-  await page.locator("#layoutSetupSelect").selectOption({ label: "Selected trio" });
   await expect(page.locator("#layoutEditorTitle")).toHaveText("Edit layout");
+  await expect(page.locator("#layoutSetupSelect option:checked")).toHaveText("Selected trio");
   await expect(page.locator("#layoutNameInput")).toHaveValue("Selected trio");
   await expect(page.locator('#layoutCaptureScopeSelect option[value="selected"]')).toHaveText("Selected Boxes (2)");
   await page.locator("#layoutNameInput").fill("Updated pair");

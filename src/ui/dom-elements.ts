@@ -124,6 +124,8 @@ export interface UiDomElements {
   templateLayoutOutputSettings: HTMLElement;
   templateMultipleOutputSettings: HTMLElement;
   templateLayoutSelect: HTMLSelectElement;
+  templateLayoutOpacityInput: HTMLInputElement;
+  templateLayoutOpacityValue: HTMLElement;
   templateApplyAllMatchesRadio: HTMLInputElement;
   templateApplySelectedMatchesRadio: HTMLInputElement;
   templateMultipleClassIdInput: HTMLInputElement;
@@ -401,6 +403,8 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateLayoutOutputSettings: requireById<HTMLElement>(documentRef, "templateLayoutOutputSettings"),
     templateMultipleOutputSettings: requireById<HTMLElement>(documentRef, "templateMultipleOutputSettings"),
     templateLayoutSelect: requireById<HTMLSelectElement>(documentRef, "templateLayoutSelect"),
+    templateLayoutOpacityInput: requireById<HTMLInputElement>(documentRef, "templateLayoutOpacityInput"),
+    templateLayoutOpacityValue: requireById<HTMLElement>(documentRef, "templateLayoutOpacityValue"),
     templateApplyAllMatchesRadio: requireById<HTMLInputElement>(documentRef, "templateApplyAllMatchesRadio"),
     templateApplySelectedMatchesRadio: requireById<HTMLInputElement>(documentRef, "templateApplySelectedMatchesRadio"),
     templateMultipleClassIdInput: requireById<HTMLInputElement>(documentRef, "templateMultipleClassIdInput"),

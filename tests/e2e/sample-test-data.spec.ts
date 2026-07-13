@@ -101,6 +101,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
       return document.querySelector("#templateMatchingModal")?.contains(document.activeElement) ?? false;
     })).toBe(true);
   }
+  await expect(templateSetupButton).toBeEnabled({ timeout: 30_000 });
   await page.keyboard.press("Escape");
   await expect(keyboardTemplateModal).toBeHidden();
   await expect(templateSetupButton).toBeFocused();
@@ -149,12 +150,23 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(page.locator("#templateMatchCoordinates")).toContainText("Anchor offset");
   await expect(page.locator("#templateMatchingCanvas")).toHaveAttribute("data-layout-preview", "true");
   await expect(page.locator("#applyTemplateMatchBtn")).toBeEnabled();
+  await page.locator("#templateLayoutOpacityInput").evaluate((element) => {
+    const input = element as HTMLInputElement;
+    input.value = "35";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("#templateLayoutOpacityValue")).toHaveText("35%");
+  await expect(page.locator("#templateMatchingCanvas")).toHaveAttribute("data-layout-preview-opacity", "0.35");
   const matchScoreBeforeOffset = await page.locator("#templateMatchScore").textContent();
   await page.locator("#templateManualXInput").fill("7");
   await expect(page.locator("#templateMatchCoordinates")).toContainText("Final (7, 0)");
   await expect(page.locator("#templateMatchScore")).toHaveText(matchScoreBeforeOffset ?? "");
   await expect(page.locator("#applyTemplateMatchBtn")).toBeEnabled();
   await page.locator("#applyTemplateMatchBtn").click();
+  await expect(page.locator("#templateMatchingCanvas")).toHaveAttribute("data-layout-preview", "false");
+  await expect(page.locator("#editMode")).toBeChecked();
+  await expect(page.locator("#inspectorTransformPane")).toBeVisible();
+  await expect(page.locator("#selectedAnnotationCount")).toHaveText("4");
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
@@ -203,9 +215,12 @@ test("bundled sample test loads labeled cars and applies the prepared template l
 
   await page.locator('#templateMatchingModal .modal-footer [data-bs-dismiss="modal"]').click();
   await expect(page.locator("#templateMatchingModal")).toBeHidden();
+  await expect(page.locator("#inspectorTransformPane")).toBeVisible();
+  await expect(page.locator("#selectedAnnotationCount")).toHaveText("4");
   await expect(page.locator('[data-ui="history-undo"]')).toBeEnabled();
   await page.locator('[data-ui="history-undo"]').click();
   await expectSampleImage("sample_1.jpg", 52);
+  await page.locator("#taskAutomateBtn").click();
   await page.locator("#runAutomationCurrentBtn").click();
   await expectSampleImage("sample_1.jpg", 56);
   await page.locator("#appBrand").click();

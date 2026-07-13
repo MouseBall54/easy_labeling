@@ -469,8 +469,8 @@
                             <div class="btn-group btn-group-sm template-pointer-mode" role="group" aria-label="Template canvas mouse mode">
                                 <input id="templatePointerRoiRadio" type="radio" class="btn-check" name="templatePointerMode" value="template-roi" checked>
                                 <label class="btn btn-outline-secondary" for="templatePointerRoiRadio" title="Drag to define the template region (Ctrl+Q)"><i class="bi bi-crop" aria-hidden="true"></i> Template ROI</label>
-                                <input id="templatePointerSelectRadio" type="radio" class="btn-check" name="templatePointerMode" value="select-results" disabled>
-                                <label class="btn btn-outline-secondary" for="templatePointerSelectRadio" title="Select matched result boxes (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
+                                <input id="templatePointerSelectRadio" type="radio" class="btn-check" name="templatePointerMode" value="select-results">
+                                <label class="btn btn-outline-secondary" for="templatePointerSelectRadio" title="Select results or drag to pan (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
                             </div>
                             <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom workspace (Ctrl + mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
                         </div>
@@ -508,6 +508,11 @@
                                 <label class="small">Anchor Offset Y<input id="templateRelationYInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
                                 <label class="small">Final Adjustment X<input id="templateManualXInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
                                 <label class="small">Final Adjustment Y<input id="templateManualYInput" type="number" class="form-control form-control-sm" step="1" value="0"></label>
+                            </div>
+                            <div class="template-layout-opacity-control mb-2">
+                                <label class="small" for="templateLayoutOpacityInput">Layout preview opacity</label>
+                                <output id="templateLayoutOpacityValue" for="templateLayoutOpacityInput">10%</output>
+                                <input id="templateLayoutOpacityInput" type="range" min="0" max="60" step="1" value="10" aria-label="Layout preview opacity">
                             </div>
                         </div>
                         <div id="templateMultipleOutputSettings" hidden>
@@ -548,7 +553,7 @@
                         <div class="form-check form-switch mb-2"><input id="templateGrayscaleToggle" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="templateGrayscaleToggle">Grayscale</label></div>
                         <div class="form-check form-switch mb-2"><input id="templateBlurToggle" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="templateBlurToggle">Gaussian Blur</label></div>
                         <div class="automation-coordinate-grid mb-2">
-                            <label class="small">Kernel<input id="templateBlurKernelInput" type="number" class="form-control form-control-sm" min="1" max="99" step="2" value="21"></label>
+                            <label class="small">Kernel<input id="templateBlurKernelInput" type="number" class="form-control form-control-sm" min="1" max="99" step="2" value="13"></label>
                             <label class="small">Sigma<input id="templateBlurSigmaInput" type="number" class="form-control form-control-sm" min="0" step="0.1" value="0"></label>
                         </div>
                         <div class="form-check form-switch mb-2"><input id="templateNoiseToggle" class="form-check-input" type="checkbox"><label class="form-check-label" for="templateNoiseToggle">Gaussian Noise Simulation</label></div>

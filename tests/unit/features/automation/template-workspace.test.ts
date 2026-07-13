@@ -167,6 +167,37 @@ describe("template workspace interaction modes", () => {
     expect(canvas.dataset.interactionMode).toBe("template-roi");
   });
 
+  it("pans before matches exist and supports middle-button pan in ROI mode", () => {
+    const canvas = new FakeCanvas(120, 90);
+    const scroller = new FakeScroller();
+    const workspace = createTemplateWorkspace({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      scroller: scroller as unknown as HTMLElement,
+      zoomInput: { value: "200", addEventListener: vi.fn() } as unknown as HTMLInputElement,
+      zoomValue: { textContent: "" } as HTMLElement,
+      originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
+      processedPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement
+    });
+
+    workspace.bind();
+    workspace.setImage({ naturalWidth: 120, naturalHeight: 90, width: 120, height: 90 } as HTMLImageElement);
+    workspace.setInteractionMode("select-results");
+    canvas.dispatch("pointerdown", 80, 60);
+    canvas.dispatch("pointermove", 60, 45);
+    canvas.dispatch("pointerup", 60, 45);
+    expect(scroller.scrollLeft).toBe(60);
+    expect(scroller.scrollTop).toBe(45);
+    expect(workspace.getRoi()).toBeNull();
+
+    workspace.setInteractionMode("template-roi");
+    canvas.dispatch("pointerdown", 70, 50, 1);
+    canvas.dispatch("pointermove", 50, 40);
+    canvas.dispatch("pointerup", 50, 40);
+    expect(scroller.scrollLeft).toBe(80);
+    expect(scroller.scrollTop).toBe(55);
+    expect(workspace.getRoi()).toBeNull();
+  });
+
   it("renders and clears a translucent layout preview at the calculated anchor", () => {
     const canvas = new FakeCanvas(120, 90);
     const workspace = createTemplateWorkspace({
@@ -188,6 +219,9 @@ describe("template workspace interaction modes", () => {
 
     expect(canvas.dataset.layoutPreview).toBe("true");
     expect(canvas.getContextMock().fillRect).toHaveBeenCalledWith(15, 18, 20, 12);
+
+    workspace.setLayoutPreviewOpacity(0.35);
+    expect(canvas.dataset.layoutPreviewOpacity).toBe("0.35");
 
     workspace.setLayoutPreview(null);
     expect(canvas.dataset.layoutPreview).toBe("false");

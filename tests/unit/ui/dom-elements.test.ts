@@ -122,6 +122,8 @@ const REQUIRED_IDS = [
   "templateLayoutOutputSettings",
   "templateMultipleOutputSettings",
   "templateLayoutSelect",
+  "templateLayoutOpacityInput",
+  "templateLayoutOpacityValue",
   "templateApplyAllMatchesRadio",
   "templateApplySelectedMatchesRadio",
   "templateMultipleClassIdInput",

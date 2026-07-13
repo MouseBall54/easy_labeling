@@ -117,7 +117,7 @@ export function createAutomationPresetForm(elements: UiDomElements): AutomationP
       elements.templateMatchingFastRadio.checked = false;
       elements.templateGrayscaleToggle.checked = true;
       elements.templateBlurToggle.checked = true;
-      elements.templateBlurKernelInput.value = "21";
+      elements.templateBlurKernelInput.value = "13";
       elements.templateBlurSigmaInput.value = "0";
       elements.templateNoiseToggle.checked = false;
       elements.templateNoiseSigmaInput.value = "0";

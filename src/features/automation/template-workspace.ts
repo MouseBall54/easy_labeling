@@ -28,6 +28,7 @@ export interface TemplateWorkspace {
   setMatchResult(result: TemplateMatchResult | null): void;
   setMatchResults(results: readonly TemplateWorkspaceMatch[]): void;
   setLayoutPreview(preview: TemplateWorkspaceLayoutPreview | null): void;
+  setLayoutPreviewOpacity(opacity: number): void;
   getRoi(): PixelRect | null;
   setStoredTemplateImage(image: HTMLImageElement | null): void;
   renderPreviews(settings: TemplatePreprocessingSettings): void;
@@ -85,6 +86,7 @@ export function createTemplateWorkspace(input: {
   let roi: PixelRect | null = null;
   let matchResults: TemplateWorkspaceMatch[] = [];
   let layoutPreview: TemplateWorkspaceLayoutPreview | null = null;
+  let layoutPreviewOpacity = 0.1;
   let interactionMode: TemplateWorkspaceInteractionMode = "template-roi";
   let dragStart: { x: number; y: number } | null = null;
   let draftEnd: { x: number; y: number } | null = null;
@@ -146,6 +148,7 @@ export function createTemplateWorkspace(input: {
     const currentZoom = zoom();
     input.zoomValue.textContent = `${Math.round(currentZoom * 100)}%`;
     input.canvas.dataset.layoutPreview = String(layoutPreview !== null);
+    input.canvas.dataset.layoutPreviewOpacity = layoutPreviewOpacity.toFixed(2);
     if (!image) {
       context.clearRect(0, 0, input.canvas.width, input.canvas.height);
       return;
@@ -179,11 +182,11 @@ export function createTemplateWorkspace(input: {
       context.setLineDash([7 / currentZoom, 4 / currentZoom]);
       context.font = `${Math.max(9, 11 / currentZoom)}px sans-serif`;
       layoutPreview.boxes.forEach((box) => {
-        context.fillStyle = "rgba(13, 110, 253, 0.09)";
-        context.strokeStyle = "rgba(13, 110, 253, 0.85)";
+        context.fillStyle = `rgba(13, 110, 253, ${layoutPreviewOpacity})`;
+        context.strokeStyle = `rgba(13, 110, 253, ${clamp(layoutPreviewOpacity + 0.45, 0.35, 0.9)})`;
         context.fillRect(box.x, box.y, box.width, box.height);
         context.strokeRect(box.x, box.y, box.width, box.height);
-        context.fillStyle = "rgba(13, 110, 253, 0.92)";
+        context.fillStyle = `rgba(13, 110, 253, ${clamp(layoutPreviewOpacity + 0.65, 0.55, 0.95)})`;
         context.fillText(`C${box.classId}`, box.x + 3 / currentZoom, box.y + 12 / currentZoom);
       });
 
@@ -236,6 +239,20 @@ export function createTemplateWorkspace(input: {
     render();
     input.scroller.scrollLeft = imagePoint.x * zoom() - viewportX;
     input.scroller.scrollTop = imagePoint.y * zoom() - viewportY;
+  };
+
+  const beginPan = (event: PointerEvent, matchIndex: number): void => {
+    event.preventDefault();
+    input.canvas.setPointerCapture(event.pointerId);
+    panStart = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      scrollLeft: input.scroller.scrollLeft,
+      scrollTop: input.scroller.scrollTop,
+      matchIndex,
+      moved: false
+    };
   };
 
   const drawRoiPreview = (canvas: HTMLCanvasElement, filter: string): void => {
@@ -295,21 +312,18 @@ export function createTemplateWorkspace(input: {
           return;
         }
         const point = eventToImagePoint(event);
+        if (event.button === 1) {
+          beginPan(event, -1);
+          return;
+        }
         if (interactionMode === "select-results") {
-          event.preventDefault();
           if (event.button !== 0) {
             return;
           }
-          input.canvas.setPointerCapture(event.pointerId);
-          panStart = {
-            pointerId: event.pointerId,
-            clientX: event.clientX,
-            clientY: event.clientY,
-            scrollLeft: input.scroller.scrollLeft,
-            scrollTop: input.scroller.scrollTop,
-            matchIndex: findMatchIndexAt(point),
-            moved: false
-          };
+          beginPan(event, findMatchIndexAt(point));
+          return;
+        }
+        if (event.button !== 0) {
           return;
         }
         input.canvas.setPointerCapture(event.pointerId);
@@ -443,6 +457,11 @@ export function createTemplateWorkspace(input: {
         anchor: { ...nextPreview.anchor },
         boxes: nextPreview.boxes.map((box) => ({ ...box }))
       } : null;
+      render();
+    },
+
+    setLayoutPreviewOpacity(opacity): void {
+      layoutPreviewOpacity = clamp(opacity, 0, 1);
       render();
     },
 

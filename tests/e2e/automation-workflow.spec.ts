@@ -184,8 +184,16 @@ test("layout and automation: modal management, both matching modes, and offscree
   const modal = page.locator("#templateMatchingModal");
   await expect(modal).toBeVisible();
   await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
-  await expect(page.locator("#templatePointerSelectRadio")).toBeDisabled();
+  await expect(page.locator("#templatePointerSelectRadio")).toBeEnabled();
+  await page.locator('label[for="templatePointerSelectRadio"]').click();
+  await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
+  await page.locator('label[for="templatePointerRoiRadio"]').click();
   await modal.locator(".template-advanced-settings > summary").click();
+  await expect(page.locator("#templateBlurKernelInput")).toHaveValue("13");
   await expect(page.locator("#templateSourceImageSelect option")).toHaveCount(2);
   await expect(page.locator("#templateSourceImageSelect")).toHaveValue("scene-a.png");
   await expect(page.locator("#templateSearchRoiToggle")).not.toBeChecked();
@@ -375,6 +383,7 @@ test("layout and automation: modal management, both matching modes, and offscree
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
   })).toBe(2);
+  await page.locator("#taskAutomateBtn").click();
   await page.locator("#runAutomationBatchBtn").click();
   await page.locator("#confirmAutomationBatchBtn").click();
   await expect(page.locator("#automationBatchCounts")).toHaveText("2 / 2", { timeout: 30_000 });

@@ -325,7 +325,21 @@ export function createAutomationController(input: {
     elements.layoutSetupError.textContent = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   };
 
+  const enterCanvasEditMode = (): void => {
+    elements.drawModeBtn.checked = false;
+    elements.editModeBtn.checked = true;
+    input.canvasController.raw.setMode("edit");
+  };
+
+  const showAppliedAnnotationsInTransform = (): void => {
+    input.uiManager.setActiveTask("annotate");
+    input.uiManager.setInspectorTab("transform");
+    input.uiManager.updateLabelList();
+    input.uiManager.syncWorkspaceState();
+  };
+
   const applyLayout = (layout: BoxLayout): void => {
+    enterCanvasEditMode();
     const result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
     layoutGhostVisible = false;
     clearLayoutGhostPreview();
@@ -335,7 +349,7 @@ export function createAutomationController(input: {
     elements.layoutPlacementNotice.textContent = `${result.annotationIds.length} boxes applied.${discarded} Undo is available.`;
     elements.layoutPlacementNotice.dataset.state = "applied";
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
-    input.uiManager.updateLabelList();
+    showAppliedAnnotationsInTransform();
   };
 
   const showSettingsError = (error: unknown): void => {
@@ -366,8 +380,6 @@ export function createAutomationController(input: {
     presetForm.clearResult();
     workspace.setMatchResults([]);
     workspace.setLayoutPreview(null);
-    elements.templatePointerSelectRadio.disabled = true;
-    setTemplateInteractionMode("template-roi");
   };
 
   const workspace = createTemplateWorkspace({
@@ -398,13 +410,17 @@ export function createAutomationController(input: {
   });
 
   function setTemplateInteractionMode(mode: TemplateWorkspaceInteractionMode): void {
-    if (mode === "select-results" && elements.templatePointerSelectRadio.disabled) {
-      return;
-    }
     elements.templatePointerRoiRadio.checked = mode === "template-roi";
     elements.templatePointerSelectRadio.checked = mode === "select-results";
     workspace.setInteractionMode(mode);
   }
+
+  const syncTemplateLayoutOpacity = (): void => {
+    const percent = Math.max(0, Math.min(60, Number(elements.templateLayoutOpacityInput.value) || 0));
+    elements.templateLayoutOpacityInput.value = String(percent);
+    elements.templateLayoutOpacityValue.textContent = `${Math.round(percent)}%`;
+    workspace.setLayoutPreviewOpacity(percent / 100);
+  };
 
   const formatOffset = (value: number): string => Number.isInteger(value) ? String(value) : value.toFixed(2);
 
@@ -650,11 +666,7 @@ export function createAutomationController(input: {
       : "No matches remain";
     elements.templateMatchScore.classList.toggle("text-danger", matches.length === 0);
     elements.templateMatchScore.classList.toggle("text-success", matches.length > 0);
-    elements.templatePointerSelectRadio.disabled = matches.length === 0;
     hideTemplateMatchContextMenu();
-    if (matches.length === 0) {
-      setTemplateInteractionMode("template-roi");
-    }
     renderMultipleMatchSelection();
     elements.templateMatchingCanvas.focus();
   };
@@ -671,8 +683,6 @@ export function createAutomationController(input: {
   const renderSingleMatchResult = (candidate: TemplateMatchCandidate): void => {
     elements.templateMatchSelectionControls.hidden = true;
     elements.templateMatchCandidates.replaceChildren();
-    elements.templatePointerSelectRadio.disabled = true;
-    setTemplateInteractionMode("template-roi");
     workspace.setMatchResults([{ candidate, selected: true, classId: null }]);
   };
 
@@ -700,6 +710,11 @@ export function createAutomationController(input: {
     activeTemplateDataUrl = template.pngDataUrl;
     templateRoiDirty = false;
     presetForm.load(preset, template);
+    if (preset.layoutId && library.layouts.some((layout) => layout.id === preset.layoutId)) {
+      elements.boxLayoutSelect.value = preset.layoutId;
+      elements.layoutSetupSelect.value = preset.layoutId;
+      elements.applyBoxLayoutBtn.disabled = false;
+    }
     if (input.state.session.currentImage) {
       workspace.setImage(input.state.session.currentImage, template.roi);
     }
@@ -736,8 +751,9 @@ export function createAutomationController(input: {
     const accepted = result.score >= matching.minimumScore;
     if (outputMode === "multiple-detection-boxes") {
       renderMultipleMatchSelection();
-      elements.templatePointerSelectRadio.disabled = result.matches.length === 0;
-      setTemplateInteractionMode(result.matches.length > 0 ? "select-results" : "template-roi");
+      if (result.matches.length > 0) {
+        setTemplateInteractionMode("select-results");
+      }
     } else {
       elements.applyTemplateMatchBtn.disabled = !accepted;
       renderSingleMatchResult(result);
@@ -786,6 +802,7 @@ export function createAutomationController(input: {
           ? "Select at least one match to apply"
           : "No non-overlapping matches are available to apply");
       }
+      enterCanvasEditMode();
       const application = input.canvasController.raw.applyDetectionBoxes(matchesToApply, { replaceExisting: policy === "replace" });
       discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
     } else {
@@ -815,12 +832,17 @@ export function createAutomationController(input: {
         createdAt: "",
         updatedAt: ""
       };
+      enterCanvasEditMode();
       const application = input.canvasController.raw.applyBoxLayout(layout, calculateLayoutAnchor(result, temporaryPreset), {
         replaceExisting: policy === "replace"
       });
       discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
     }
+    layoutGhostVisible = false;
+    clearLayoutGhostPreview();
+    workspace.setLayoutPreview(null);
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
+    showAppliedAnnotationsInTransform();
     input.uiManager.notify(discardedOutOfBoundsCount > 0
       ? `Template match result applied. ${discardedOutOfBoundsCount} out-of-bounds box${discardedOutOfBoundsCount === 1 ? " was" : "es were"} removed.`
       : "Template match result applied.");
@@ -999,6 +1021,7 @@ export function createAutomationController(input: {
     bind(): void {
       workspace.bind();
       layoutPreview.bind();
+      syncTemplateLayoutOpacity();
       refreshSelects();
       warmUpMatchingEngineInBackground();
       batchController.bind();
@@ -1175,15 +1198,9 @@ export function createAutomationController(input: {
           const layoutId = elements.boxLayoutSelect.value || library.layouts[0]?.id || "";
           refreshSelects({ layoutId });
           elements.layoutSetupSourceName.textContent = input.state.session.currentImageFile?.name ?? "Current image";
-          if (input.canvasController.raw.getSelectedBoxCount() > 0) {
-            elements.layoutSetupSelect.value = "";
-            elements.layoutNameInput.value = "";
-            elements.layoutCaptureScopeSelect.value = "selected";
-          } else {
-            elements.layoutSetupSelect.value = layoutId;
-            elements.layoutNameInput.value = selectedSetupLayout()?.name ?? "";
-            elements.layoutCaptureScopeSelect.value = "all";
-          }
+          elements.layoutSetupSelect.value = layoutId;
+          elements.layoutNameInput.value = selectedSetupLayout()?.name ?? "";
+          elements.layoutCaptureScopeSelect.value = input.canvasController.raw.getSelectedBoxCount() > 0 ? "selected" : "all";
           setLayoutSetupError(null);
           syncLayoutEditorState();
           renderLayoutPreview();
@@ -1354,6 +1371,7 @@ export function createAutomationController(input: {
           setTemplateInteractionMode("select-results");
         }
       });
+      elements.templateLayoutOpacityInput.addEventListener("input", syncTemplateLayoutOpacity);
       input.windowRef.addEventListener("easy-labeling:toggle-template-pointer-mode", toggleTemplateInteractionMode);
       input.documentRef.addEventListener("pointerdown", (event) => {
         if (!elements.templateMatchContextMenu.hidden
@@ -1477,8 +1495,19 @@ export function createAutomationController(input: {
         element.addEventListener("input", invalidateTemplateMatch);
         element.addEventListener("change", invalidateTemplateMatch);
       });
+      elements.templateLayoutSelect.addEventListener("change", () => {
+        const layoutId = elements.templateLayoutSelect.value;
+        elements.boxLayoutSelect.value = layoutId;
+        elements.layoutSetupSelect.value = layoutId;
+        elements.applyBoxLayoutBtn.disabled = !selectedLayout();
+        elements.applyBoxLayoutFromSetupBtn.disabled = !selectedSetupLayout();
+        elements.layoutNameInput.value = selectedSetupLayout()?.name ?? "";
+        layoutGhostVisible = false;
+        clearLayoutGhostPreview();
+        syncLayoutEditorState();
+        renderTemplateLayoutPreview();
+      });
       const layoutPreviewInputs: HTMLElement[] = [
-        elements.templateLayoutSelect,
         elements.templateRelationXInput,
         elements.templateRelationYInput,
         elements.templateManualXInput,
