@@ -231,35 +231,6 @@ body {
     gap: 0.2rem;
 }
 
-.app-sample-test-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.7rem;
-    height: 1.7rem;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: 0.3rem;
-    color: rgba(255, 255, 255, 0.48);
-    background: transparent;
-}
-
-.app-sample-test-btn:hover,
-.app-sample-test-btn:focus-visible {
-    color: rgba(255, 255, 255, 0.9);
-    border-color: rgba(255, 255, 255, 0.28);
-    background: rgba(255, 255, 255, 0.08);
-}
-
-.app-sample-test-btn:focus-visible {
-    box-shadow: 0 0 0 0.15rem rgba(110, 168, 254, 0.35);
-}
-
-.app-sample-test-btn .bi {
-    font-size: 0.9rem;
-    line-height: 1;
-}
-
 .app-brand-icon {
     width: 2.7rem;
     height: 2.7rem;
@@ -401,8 +372,15 @@ body {
 }
 
 .automation-batch-progress .progress {
-    height: 0.45rem;
+    height: 0.75rem;
+    overflow: hidden;
     border-radius: 3px;
+}
+
+.automation-batch-progress .progress-bar {
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 0.75rem;
 }
 
 #automationBatchResultSummary {
@@ -411,16 +389,24 @@ body {
 }
 
 .automation-batch-result-list {
-    max-height: 9rem;
+    height: clamp(18rem, 34vh, 32rem);
+    max-height: none;
     overflow-y: auto;
     border-top: 1px solid var(--panel-border-color);
+    border-bottom: 1px solid var(--panel-border-color);
+    scrollbar-gutter: stable;
 }
 
 .automation-batch-result-row {
     min-width: 0;
-    padding: 0.4rem 0;
+    padding: 0.65rem 0.15rem;
     border-bottom: 1px solid var(--panel-border-color);
     font-size: 0.72rem;
+    transition: background-color 120ms ease;
+}
+
+.automation-batch-result-row:hover {
+    background: var(--workbench-surface-muted);
 }
 
 .automation-result-heading {
@@ -452,11 +438,66 @@ body {
 
 .automation-result-details {
     min-width: 0;
-    margin-top: 0.2rem;
+    margin-top: 0.45rem;
     color: var(--workbench-text-muted);
     font-size: 0.68rem;
     line-height: 1.35;
     overflow-wrap: anywhere;
+}
+
+.automation-result-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem 0.65rem;
+    margin: 0;
+}
+
+.automation-result-metric {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.35rem;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.automation-result-metric dt,
+.automation-result-metric dd {
+    margin: 0;
+}
+
+.automation-result-metric dt {
+    color: var(--workbench-text-muted);
+    font-size: 0.62rem;
+}
+
+.automation-result-metric dd {
+    color: var(--workbench-text);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.automation-result-message {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+    padding: 0.4rem 0.45rem;
+    background: var(--workbench-surface-muted);
+    border-left: 2px solid var(--workbench-border-strong);
+    border-radius: 2px;
+}
+
+.automation-result-message-label {
+    color: var(--workbench-text);
+    font-size: 0.62rem;
+    font-weight: 700;
+}
+
+.automation-batch-result-row[data-state="failed"] .automation-result-message {
+    background: rgba(220, 53, 69, 0.08);
+    border-left-color: #dc3545;
 }
 
 .automation-batch-result-row[data-state="success"] .automation-result-state {
@@ -1512,14 +1553,6 @@ body {
     border-color: var(--workbench-primary);
 }
 
-.app-sample-test-btn {
-    width: 28px;
-    min-width: 28px;
-    height: 28px;
-    color: rgba(255, 255, 255, 0.48);
-    border-color: transparent;
-}
-
 .workflow-tabs .btn {
     min-height: 34px;
     padding: 0.35rem 0.8rem;
@@ -1755,10 +1788,6 @@ body {
 
 .app-workspace[data-active-task="annotate"] .inspector-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.app-workspace[data-active-task="automate"] .shared-tool-section {
-    display: none;
 }
 
 .dataset-panel {
@@ -2787,7 +2816,6 @@ summary {
     .app-navbar-workflow { grid-column: 2; grid-row: 1; }
     .image-navigation { grid-column: 3; grid-row: 1; }
     .canvas-toolbar { grid-column: 1 / 4; grid-row: 2; justify-self: stretch; justify-content: center; }
-    .app-sample-test-btn { display: none; }
     .workflow-tabs .btn { font-size: 0.68rem; }
     .history-controls { display: none; }
     .current-image-name { display: none; }

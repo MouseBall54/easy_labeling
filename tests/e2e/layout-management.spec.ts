@@ -12,7 +12,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   });
 
   await page.goto("/index.html");
-  await page.locator("#loadSampleTestBtn").click();
+  await page.locator("#emptyLoadSampleBtn").click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
       getCurrentImageName?: () => string;

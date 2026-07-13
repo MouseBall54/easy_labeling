@@ -14,7 +14,9 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   });
 
   await page.goto("/index.html");
-  await page.locator("#loadSampleTestBtn").click();
+  await expect(page.locator("#loadSampleTestBtn")).toHaveCount(0);
+  await expect(page.locator("#emptyLoadSampleBtn")).toBeVisible();
+  await page.locator("#emptyLoadSampleBtn").click();
 
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {

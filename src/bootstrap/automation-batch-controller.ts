@@ -108,15 +108,50 @@ export function createAutomationBatchController(input: {
       heading.append(file, state);
       const details = input.documentRef.createElement("div");
       details.className = "automation-result-details";
-      const detailParts = [
-        item.score == null ? null : `Best ${(item.score * 100).toFixed(1)}%`,
-        item.minimumMatchedScore == null ? null : `Lowest ${(item.minimumMatchedScore * 100).toFixed(1)}%`,
-        item.matchCount == null ? null : `${item.matchCount} match${item.matchCount === 1 ? "" : "es"}`,
-        item.discardedOutOfBoundsCount ? `${item.discardedOutOfBoundsCount} outside removed` : null,
-        item.durationMs == null ? null : `${item.durationMs.toFixed(0)} ms`,
-        item.reason
-      ].filter((part): part is string => Boolean(part));
-      details.textContent = detailParts.join(" · ") || "No additional details";
+      const metrics = input.documentRef.createElement("dl");
+      metrics.className = "automation-result-metrics";
+      const appendMetric = (label: string, value: string): void => {
+        const metric = input.documentRef.createElement("div");
+        metric.className = "automation-result-metric";
+        const term = input.documentRef.createElement("dt");
+        term.textContent = label;
+        const description = input.documentRef.createElement("dd");
+        description.textContent = value;
+        metric.append(term, description);
+        metrics.appendChild(metric);
+      };
+      if (item.score != null) {
+        appendMetric("Best", `${(item.score * 100).toFixed(1)}%`);
+      }
+      if (item.minimumMatchedScore != null) {
+        appendMetric("Lowest", `${(item.minimumMatchedScore * 100).toFixed(1)}%`);
+      }
+      if (item.matchCount != null) {
+        appendMetric("Matches", String(item.matchCount));
+      }
+      if (item.discardedOutOfBoundsCount) {
+        appendMetric("Removed", `${item.discardedOutOfBoundsCount} outside`);
+      }
+      if (item.durationMs != null) {
+        appendMetric("Time", `${item.durationMs.toFixed(0)} ms`);
+      }
+      if (metrics.childElementCount > 0) {
+        details.appendChild(metrics);
+      }
+      if (item.reason) {
+        const message = input.documentRef.createElement("div");
+        message.className = "automation-result-message";
+        const messageLabel = input.documentRef.createElement("span");
+        messageLabel.className = "automation-result-message-label";
+        messageLabel.textContent = item.state === "success" ? "Note" : "Reason";
+        const messageText = input.documentRef.createElement("span");
+        messageText.textContent = item.reason;
+        message.append(messageLabel, messageText);
+        details.appendChild(message);
+      }
+      if (!details.hasChildNodes()) {
+        details.textContent = "No additional details";
+      }
       row.append(heading, details);
       elements.automationBatchResultList.appendChild(row);
     });

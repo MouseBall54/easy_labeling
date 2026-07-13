@@ -126,6 +126,10 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#taskAutomateBtn").click();
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel .shared-tool-section")).toBeVisible();
+  await expect(page.locator("#drawMode + label")).toBeVisible();
+  await expect(page.locator("#editMode + label")).toBeVisible();
+  await expect(page.locator("#crosshairToggle")).toBeAttached();
   await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Automation Workspace");
   await page.locator("#taskAnnotateBtn").click();
@@ -355,7 +359,16 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Skipped 1");
   await expect(page.locator("#automationBatchResultList .automation-batch-result-row")).toHaveCount(2);
   await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("scene-b.png");
-  await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("2 outside removed");
+  await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"] .automation-result-metrics')).toContainText("Matches");
+  await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"] .automation-result-metrics')).toContainText("2 outside");
+  const batchDimensions = await page.locator("#automationBatchProgressGroup").evaluate((group) => {
+    const progress = group.querySelector<HTMLElement>(".progress")?.getBoundingClientRect();
+    const list = group.querySelector<HTMLElement>(".automation-batch-result-list")?.getBoundingClientRect();
+    return progress && list ? { progressHeight: progress.height, listHeight: list.height } : null;
+  });
+  expect(batchDimensions).not.toBeNull();
+  expect(batchDimensions?.progressHeight ?? 0).toBeGreaterThanOrEqual(11);
+  expect(batchDimensions?.listHeight ?? 0).toBeGreaterThanOrEqual(288);
   const resultLayout = await page.locator("#automationBatchResultList .automation-batch-result-row").first().evaluate((row) => {
     const heading = row.querySelector<HTMLElement>(".automation-result-heading")?.getBoundingClientRect();
     const file = row.querySelector<HTMLElement>(".automation-result-file")?.getBoundingClientRect();

@@ -10,7 +10,6 @@ import { createFakeDocumentFromHtmlFragment } from "./test-dom.js";
 const REQUIRED_IDS = [
   "appBrand",
   "selectImageFolderBtn",
-  "loadSampleTestBtn",
   "selectLabelFolderBtn",
   "loadClassInfoFolderBtn",
   "class-file-select",

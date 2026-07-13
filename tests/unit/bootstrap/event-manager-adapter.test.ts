@@ -104,7 +104,6 @@ function createElements() {
   return {
     appBrand: new FakeHtmlElement(),
     selectImageFolderBtn: new FakeHtmlElement(),
-    loadSampleTestBtn: new FakeHtmlElement(),
     selectLabelFolderBtn: new FakeHtmlElement(),
     loadClassInfoFolderBtn: new FakeHtmlElement(),
     classFileSelect: new FakeInputElement(),
@@ -1698,7 +1697,7 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(elements.undoBtn.disabled).toBe(true);
 
     canUndo = true;
-    elements.loadSampleTestBtn.dispatch("click", {});
+    elements.emptyLoadSampleBtn.dispatch("click", {});
     await Promise.resolve();
     await Promise.resolve();
     expect(loadSampleTestData).toHaveBeenCalledTimes(1);

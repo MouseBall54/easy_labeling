@@ -12,7 +12,6 @@ export interface BootstrapLike {
 export interface UiDomElements {
   appBrand: HTMLAnchorElement;
   selectImageFolderBtn: HTMLElement;
-  loadSampleTestBtn: HTMLElement;
   selectLabelFolderBtn: HTMLElement;
   loadClassInfoFolderBtn: HTMLElement;
   classFileSelect: HTMLSelectElement;
@@ -306,7 +305,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
   return {
     appBrand: requireById<HTMLAnchorElement>(documentRef, "appBrand"),
     selectImageFolderBtn: requireById<HTMLElement>(documentRef, "selectImageFolderBtn"),
-    loadSampleTestBtn: requireById<HTMLElement>(documentRef, "loadSampleTestBtn"),
     selectLabelFolderBtn: requireById<HTMLElement>(documentRef, "selectLabelFolderBtn"),
     loadClassInfoFolderBtn: requireById<HTMLElement>(documentRef, "loadClassInfoFolderBtn"),
     classFileSelect: requireById<HTMLSelectElement>(documentRef, "class-file-select"),

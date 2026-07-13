@@ -477,7 +477,14 @@ export function createEventManagerAdapter(input: {
       });
       elements.inspectorAutomationTabBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
       elements.emptyOpenDatasetBtn.addEventListener("click", () => elements.selectImageFolderBtn.click());
-      elements.emptyLoadSampleBtn.addEventListener("click", () => elements.loadSampleTestBtn.click());
+      elements.emptyLoadSampleBtn.addEventListener("click", () => {
+        runExclusive("load-sample", automationController
+          ? async () => {
+            await input.fileSystem.loadSampleTestData();
+            await automationController.refreshLibrary({ selectFirst: true });
+          }
+          : () => input.fileSystem.loadSampleTestData(), elements.emptyLoadSampleBtn);
+      });
       elements.refreshDatasetBtn.addEventListener("click", () => {
         runExclusive("refresh-dataset", () => input.fileSystem.refreshDataset(), elements.refreshDatasetBtn);
       });
@@ -537,15 +544,6 @@ export function createEventManagerAdapter(input: {
             await automationController.refreshLibrary();
           }
           : () => input.fileSystem.selectImageFolder(), elements.selectImageFolderBtn as HTMLButtonElement);
-      });
-
-      elements.loadSampleTestBtn.addEventListener("click", () => {
-        runExclusive("load-sample", automationController
-          ? async () => {
-            await input.fileSystem.loadSampleTestData();
-            await automationController.refreshLibrary({ selectFirst: true });
-          }
-          : () => input.fileSystem.loadSampleTestData(), elements.loadSampleTestBtn as HTMLButtonElement);
       });
 
       elements.selectLabelFolderBtn.addEventListener("click", () => {
