@@ -72,6 +72,7 @@ export interface UiDomElements {
   deleteBoxLayoutBtn: HTMLButtonElement;
   applyBoxLayoutBtn: HTMLButtonElement;
   applyBoxLayoutFromSetupBtn: HTMLButtonElement;
+  layoutOperationStatus: HTMLElement;
   layoutSetupError: HTMLElement;
   openTemplateMatchingBtn: HTMLButtonElement;
   exportAutomationLibraryBtn: HTMLButtonElement;
@@ -89,6 +90,7 @@ export interface UiDomElements {
   confirmAutomationBatchBtn: HTMLButtonElement;
   closeAutomationPreflightBtn: HTMLButtonElement;
   automationBatchCurrentFile: HTMLElement;
+  automationBatchStage: HTMLElement;
   automationBatchCounts: HTMLElement;
   automationBatchProgressBar: HTMLElement;
   automationBatchResultSummary: HTMLElement;
@@ -353,6 +355,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     deleteBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "deleteBoxLayoutBtn"),
     applyBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "applyBoxLayoutBtn"),
     applyBoxLayoutFromSetupBtn: requireById<HTMLButtonElement>(documentRef, "applyBoxLayoutFromSetupBtn"),
+    layoutOperationStatus: requireById<HTMLElement>(documentRef, "layoutOperationStatus"),
     layoutSetupError: requireById<HTMLElement>(documentRef, "layoutSetupError"),
     openTemplateMatchingBtn: requireById<HTMLButtonElement>(documentRef, "openTemplateMatchingBtn"),
     exportAutomationLibraryBtn: requireById<HTMLButtonElement>(documentRef, "exportAutomationLibraryBtn"),
@@ -370,6 +373,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     confirmAutomationBatchBtn: requireById<HTMLButtonElement>(documentRef, "confirmAutomationBatchBtn"),
     closeAutomationPreflightBtn: requireById<HTMLButtonElement>(documentRef, "closeAutomationPreflightBtn"),
     automationBatchCurrentFile: requireById<HTMLElement>(documentRef, "automationBatchCurrentFile"),
+    automationBatchStage: requireById<HTMLElement>(documentRef, "automationBatchStage"),
     automationBatchCounts: requireById<HTMLElement>(documentRef, "automationBatchCounts"),
     automationBatchProgressBar: requireById<HTMLElement>(documentRef, "automationBatchProgressBar"),
     automationBatchResultSummary: requireById<HTMLElement>(documentRef, "automationBatchResultSummary"),

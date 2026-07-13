@@ -70,7 +70,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator('#image-list [data-file-name="sample_1.jpg"]').click();
   await expectSampleImage("sample_1.jpg", 52);
 
-  await page.locator("#inspectorAutomationTabBtn").focus();
+  await page.locator("#taskAutomateBtn").focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
 
@@ -88,6 +88,8 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(page.locator("#templateNameInput")).toHaveValue("Sample Pink Anchor + Layout");
   await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("min", "1");
   await expect(page.locator("#templateWorkspaceFitBtn")).toBeVisible();
+  await expect.poll(async () => Number(await page.locator("#templateWorkspaceZoomInput").inputValue()))
+    .toBeLessThan(100);
   const templateZoomBeforeWheel = Number(await page.locator("#templateWorkspaceZoomInput").inputValue());
   await page.locator("#templateWorkspaceScroller").hover();
   await page.keyboard.down("Control");
@@ -109,6 +111,8 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(keyboardTemplateModal).toBeHidden();
   await expect(templateSetupButton).toBeFocused();
 
+  await page.locator("#taskAnnotateBtn").focus();
+  await page.keyboard.press("Enter");
   await page.locator("#inspectorTransformTabBtn").focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#inspectorTransformPane")).toBeVisible();
@@ -138,7 +142,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator('[data-ui="history-undo"]').click();
   await expectSampleImage("sample_1.jpg", 52);
 
-  await page.locator("#inspectorAutomationTabBtn").click();
+  await page.locator("#taskAutomateBtn").click();
   await page.locator("#openTemplateMatchingBtn").click();
   await expect(page.locator("#templateMatchingModal")).toBeVisible();
   await expect(page.locator("#templateNameInput")).toHaveValue("Sample Pink Anchor + Layout");
@@ -271,6 +275,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
     return api?.getRectCount?.() ?? -1;
   })).toBe(52);
   await expect(page.locator("#documentStatus")).toContainText("Unsaved changes");
+  await page.locator("#taskFilesBtn").click();
   await page.locator("#saveLabelsBtn").click();
   await expect(page.locator("#documentStatus")).toContainText("Saved");
 

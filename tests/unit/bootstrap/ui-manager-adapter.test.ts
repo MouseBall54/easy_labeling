@@ -236,6 +236,14 @@ function createElements() {
   segmentationEdgeGlowSlider.value = "70";
   const segmentationToolSizeSlider = new FakeElement("input");
   segmentationToolSizeSlider.value = "6";
+  const taskFilesBtn = new FakeElement("button");
+  taskFilesBtn.dataset.task = "files";
+  const taskAnnotateBtn = new FakeElement("button");
+  taskAnnotateBtn.dataset.task = "annotate";
+  const taskAutomateBtn = new FakeElement("button");
+  taskAutomateBtn.dataset.task = "automate";
+  const matchingEngineStatus = new FakeElement("div");
+  matchingEngineStatus.dataset.state = "ready";
 
   return {
     labelList: new FakeElement("div"),
@@ -302,9 +310,11 @@ function createElements() {
     duplicateSelectionBtn: new FakeElement("button"),
     hideSelectionBtn: new FakeElement("button"),
     deleteSelectionBtn: new FakeElement("button"),
-    taskFilesBtn: new FakeElement("button"),
-    taskAnnotateBtn: new FakeElement("button"),
-    taskAutomateBtn: new FakeElement("button"),
+    taskFilesBtn,
+    taskAnnotateBtn,
+    taskAutomateBtn,
+    automationPresetSelect: new FakeElement("select"),
+    matchingEngineStatus,
     leftPanel: new FakeElement("aside"),
     rightPanel: new FakeElement("aside"),
     leftSplitter: new FakeElement("div"),
@@ -610,5 +620,37 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     expect(elements.segmentationEdgeHighlightToggle.checked).toBe(false);
     expect(elements.segmentationEdgeGlowSlider.value).toBe("35");
     expect(elements.segmentationEdgeGlowValue.textContent).toBe("35");
+  });
+});
+
+describe("bootstrap/ui-manager-adapter task workspaces", () => {
+  beforeEach(() => {
+    getDOMElementsMock.mockReset();
+    renderImageListMock.mockClear();
+    renderPreviewListMock.mockClear();
+    renderWorkflowPanelsMock.mockClear();
+  });
+
+  it("switches panel composition instead of only changing inspector tabs", () => {
+    const { manager, elements } = createManagerWithRects({ rects: [] });
+
+    manager.setActiveTask("files");
+    expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
+    expect(elements.leftPanel.classList.contains("task-focus")).toBe(true);
+    expect(elements.rightPanel.classList.contains("collapsed")).toBe(true);
+
+    manager.setActiveTask("automate");
+    expect(elements.leftPanel.classList.contains("collapsed")).toBe(true);
+    expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
+    expect(elements.rightPanel.classList.contains("task-focus")).toBe(true);
+    expect(elements.inspectorAutomationPane.hidden).toBe(false);
+    expect(elements.inspectorTitle.textContent).toBe("Automation Workspace");
+    expect(elements.inspectorSubtitle.textContent).toBe("Matching engine ready");
+
+    manager.setActiveTask("annotate");
+    expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
+    expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
+    expect(elements.inspectorAnnotationPane.hidden).toBe(false);
+    expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
   });
 });

@@ -57,7 +57,7 @@ describe("automation layout preview", () => {
       layoutPreviewZoomInput: { value: "100", addEventListener: vi.fn() },
       layoutPreviewZoomValue: { textContent: "" },
       layoutDetails: { textContent: "" },
-      layoutPlacementNotice: { textContent: "", dataset: {} },
+      layoutPlacementNotice: { textContent: "", dataset: {} as Record<string, string> },
       previewBoxLayoutBtn: { click: vi.fn(), addEventListener: vi.fn() }
     };
     const preview = createAutomationLayoutPreview({
@@ -93,5 +93,62 @@ describe("automation layout preview", () => {
     preview.renderGhost();
     expect(ghostCanvas.context.strokeRect).not.toHaveBeenCalled();
     expect(elements.layoutPlacementNotice.textContent).toContain("preview hidden");
+  });
+
+  it("renders dense collision warnings without comparing every box pair", () => {
+    const previewCanvas = createCanvas(960, 560);
+    const ghostCanvas = createCanvas(960, 560);
+    const layout: BoxLayout = {
+      schemaVersion: LAYOUT_SCHEMA_VERSION,
+      id: "dense-layout",
+      name: "Dense layout",
+      sourceImageName: "source.png",
+      sourceImageSize: { width: 1000, height: 1000 },
+      sourceAnchor: { x: 0, y: 0 },
+      boxes: Array.from({ length: 300 }, (_, index) => ({
+        id: `box-${index}`,
+        classId: "1",
+        relativeX: 100,
+        relativeY: 100,
+        width: 40,
+        height: 40,
+        order: index
+      })),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    };
+    const elements = {
+      layoutPreviewCanvas: previewCanvas.canvas,
+      layoutGhostCanvas: ghostCanvas.canvas,
+      layoutPreviewZoomInput: { value: "100", addEventListener: vi.fn() },
+      layoutPreviewZoomValue: { textContent: "" },
+      layoutDetails: { textContent: "" },
+      layoutPlacementNotice: { textContent: "", dataset: {} as Record<string, string> },
+      previewBoxLayoutBtn: { click: vi.fn(), addEventListener: vi.fn() }
+    };
+    const preview = createAutomationLayoutPreview({
+      state: {
+        session: {
+          currentImage: { width: 1000, height: 1000, naturalWidth: 1000, naturalHeight: 1000 },
+          workflow: "detection"
+        }
+      } as never,
+      elements: elements as never,
+      canvasController: {
+        raw: {
+          canvas: { getWidth: () => 960, getHeight: () => 560, viewportTransform: [1, 0, 0, 1, 0, 0] },
+          getObjects: () => []
+        }
+      } as never,
+      getSelectedLayout: () => layout,
+      getSelectedSetupLayout: () => layout,
+      getGhostVisible: () => true
+    });
+
+    preview.renderGhost();
+
+    expect(ghostCanvas.context.strokeRect).toHaveBeenCalledTimes(300);
+    expect(elements.layoutPlacementNotice.dataset.state).toBe("warning");
+    expect(elements.layoutPlacementNotice.textContent).toContain("299 overlap layout");
   });
 });

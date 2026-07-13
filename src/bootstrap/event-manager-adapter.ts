@@ -443,9 +443,15 @@ export function createEventManagerAdapter(input: {
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
       elements.taskAnnotateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("annotate"));
       elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
-      elements.inspectorAnnotationTabBtn.addEventListener("click", () => input.uiManager.setInspectorTab?.("annotation"));
-      elements.inspectorTransformTabBtn.addEventListener("click", () => input.uiManager.setInspectorTab?.("transform"));
-      elements.inspectorAutomationTabBtn.addEventListener("click", () => input.uiManager.setInspectorTab?.("automation"));
+      elements.inspectorAnnotationTabBtn.addEventListener("click", () => {
+        input.uiManager.setActiveTask?.("annotate");
+        input.uiManager.setInspectorTab?.("annotation");
+      });
+      elements.inspectorTransformTabBtn.addEventListener("click", () => {
+        input.uiManager.setActiveTask?.("annotate");
+        input.uiManager.setInspectorTab?.("transform");
+      });
+      elements.inspectorAutomationTabBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
       elements.emptyOpenDatasetBtn.addEventListener("click", () => elements.selectImageFolderBtn.click());
       elements.emptyLoadSampleBtn.addEventListener("click", () => elements.loadSampleTestBtn.click());
       elements.refreshDatasetBtn.addEventListener("click", () => {

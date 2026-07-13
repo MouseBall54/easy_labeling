@@ -353,9 +353,61 @@ body {
     min-width: 0;
 }
 
+.automation-batch-progress {
+    min-width: 0;
+}
+
+.automation-batch-progress-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+}
+
+#automationBatchCurrentFile {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#automationBatchCounts {
+    color: var(--workbench-text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.automation-batch-stage {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    margin-bottom: 0.4rem;
+    color: var(--workbench-text-muted);
+    font-size: 0.7rem;
+    line-height: 1.25;
+}
+
+.automation-batch-stage > span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.automation-batch-progress[data-state="running"] .automation-batch-stage {
+    color: var(--workbench-primary);
+}
+
 .automation-batch-progress .progress {
     height: 0.45rem;
     border-radius: 3px;
+}
+
+#automationBatchResultSummary {
+    overflow-wrap: anywhere;
+    line-height: 1.35;
 }
 
 .automation-batch-result-list {
@@ -365,12 +417,46 @@ body {
 }
 
 .automation-batch-result-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.5rem;
-    padding: 0.25rem 0;
+    min-width: 0;
+    padding: 0.4rem 0;
     border-bottom: 1px solid var(--panel-border-color);
     font-size: 0.72rem;
+}
+
+.automation-result-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.automation-result-file {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.automation-result-state {
+    padding: 1px 5px;
+    background: var(--workbench-surface-muted);
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 1.35;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.automation-result-details {
+    min-width: 0;
+    margin-top: 0.2rem;
+    color: var(--workbench-text-muted);
+    font-size: 0.68rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 
 .automation-batch-result-row[data-state="success"] .automation-result-state {
@@ -1569,6 +1655,7 @@ body {
 }
 
 .task-rail-button {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1583,19 +1670,59 @@ body {
     border-radius: 5px;
     font-size: 0.72rem;
     line-height: 1.1;
+    transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.task-rail-button::before {
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    left: -6px;
+    width: 3px;
+    background: var(--workbench-primary);
+    border-radius: 0 2px 2px 0;
+    content: "";
+    opacity: 0;
 }
 
 .task-rail-button i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
     font-size: 1.45rem;
 }
 
 .task-rail-button:hover,
-.task-rail-button:focus-visible,
+.task-rail-button:focus-visible {
+    color: #fff;
+    background: #2b343b;
+    border-color: #46515a;
+    transform: translateY(-1px);
+}
+
 .task-rail-button.active,
 .btn-check:checked + .task-rail-button {
     color: #fff;
+    background: rgba(13, 110, 253, 0.18);
+    border-color: rgba(80, 151, 255, 0.55);
+}
+
+.task-rail-button.active::before,
+.btn-check:checked + .task-rail-button::before {
+    opacity: 1;
+}
+
+.task-rail-button.active i,
+.btn-check:checked + .task-rail-button i {
+    color: #fff;
     background: #1769e0;
-    border-color: #2f7bea;
+    border-radius: 4px;
+}
+
+.task-rail-button.active span {
+    font-weight: 700;
 }
 
 .task-rail-footer .task-rail-button {
@@ -1614,7 +1741,20 @@ body {
     color: var(--workbench-text);
     background: var(--workbench-surface);
     border-color: var(--workbench-border);
-    transition: width 160ms ease, transform 160ms ease;
+    transition: width 180ms ease, min-width 180ms ease, padding 180ms ease, transform 180ms ease;
+}
+
+.control-panel.task-focus .panel-header {
+    box-shadow: inset 0 -2px 0 var(--workbench-primary);
+}
+
+.app-workspace[data-active-task="annotate"] .inspector-tab[data-inspector-tab="automation"],
+.app-workspace[data-active-task="automate"] .inspector-tabs {
+    display: none;
+}
+
+.app-workspace[data-active-task="automate"] .shared-tool-section {
+    display: none;
 }
 
 .dataset-panel {
@@ -2268,11 +2408,58 @@ body {
 .placement-notice[data-state="ready"] { color: #146c43; border-color: #75b798; background: #eaf7f0; }
 .placement-notice[data-state="warning"] { color: #842029; border-color: #ea868f; background: #fbeaec; }
 .placement-notice[data-state="applied"] { color: #084298; border-color: #9ec5fe; background: #e9f2ff; }
+.placement-notice[data-state="busy"] { color: #084298; border-color: #9ec5fe; background: #e9f2ff; }
 
 body.dark-mode .placement-notice[data-state="ready"],
 body.dark-mode .placement-notice[data-state="warning"],
-body.dark-mode .placement-notice[data-state="applied"] {
+body.dark-mode .placement-notice[data-state="applied"],
+body.dark-mode .placement-notice[data-state="busy"] {
     background: var(--workbench-surface-muted);
+}
+
+.layout-operation-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+    margin-right: auto;
+    color: var(--workbench-text-muted);
+    font-size: 0.75rem;
+}
+
+.layout-operation-status > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.layout-operation-indicator {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    background: currentColor;
+    border-radius: 50%;
+}
+
+.layout-operation-status[data-state="busy"] {
+    color: var(--workbench-primary);
+}
+
+.layout-operation-status[data-state="busy"] .layout-operation-indicator {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    animation: layout-operation-spin 700ms linear infinite;
+}
+
+.layout-operation-status[data-state="success"] { color: #198754; }
+.layout-operation-status[data-state="error"] { color: #dc3545; }
+
+@keyframes layout-operation-spin {
+    to { transform: rotate(360deg); }
 }
 
 .batch-preflight {

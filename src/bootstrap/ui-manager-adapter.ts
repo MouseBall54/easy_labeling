@@ -99,6 +99,8 @@ export function createUiManagerAdapter(input: {
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
   let directoryPickerAvailable = true;
+  let activeTask: "files" | "annotate" | "automate" = "annotate";
+  let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   const initializedDenseLabelGroups = new Set<string>();
 
   const setStatusText = (element: HTMLElement, text: string): void => {
@@ -276,10 +278,12 @@ export function createUiManagerAdapter(input: {
     },
 
     setActiveTask(task: "files" | "annotate" | "automate"): void {
+      activeTask = task;
       const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, elements.taskAutomateBtn];
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
         button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
         if (active) {
           button.setAttribute("aria-current", "page");
         } else {
@@ -289,18 +293,31 @@ export function createUiManagerAdapter(input: {
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
       elements.leftPanel.classList.toggle("mobile-open", task === "files");
       elements.rightPanel.classList.toggle("mobile-open", task !== "files");
+      elements.leftPanel.classList.toggle("task-focus", task === "files");
+      elements.rightPanel.classList.toggle("task-focus", task !== "files");
 
       if (task === "files") {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
+        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, true);
         elements.imageSearchInput.focus({ preventScroll: true });
+        manager.syncWorkspaceState();
         return;
       }
 
       manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
-      manager.setInspectorTab(task === "automate" ? "automation" : "annotation");
+      if (task === "automate") {
+        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, true);
+        manager.setInspectorTab("automation");
+        elements.automationPresetSelect.focus({ preventScroll: true });
+      } else {
+        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
+        manager.setInspectorTab(activeInspectorTab === "transform" ? "transform" : "annotation");
+      }
+      manager.syncWorkspaceState();
     },
 
     setInspectorTab(tab: "annotation" | "transform" | "automation"): void {
+      activeInspectorTab = tab;
       const controls = [
         { id: "annotation", button: elements.inspectorAnnotationTabBtn, pane: elements.inspectorAnnotationPane },
         { id: "transform", button: elements.inspectorTransformTabBtn, pane: elements.inspectorTransformPane },
@@ -334,11 +351,13 @@ export function createUiManagerAdapter(input: {
       elements.selectedAnnotationCount.textContent = String(selectionCount);
       elements.selectionEmptyState.hidden = selectionCount > 0;
       elements.selectionDetails.hidden = selectionCount === 0;
-      elements.inspectorSubtitle.textContent = input.state.session.workflow === "segmentation"
-        ? "Paint and inspect mask regions"
-        : selectionCount === 0
-          ? "No annotation selected"
-          : `${selectionCount} annotation${selectionCount === 1 ? "" : "s"} selected`;
+      if (activeTask !== "automate") {
+        elements.inspectorSubtitle.textContent = input.state.session.workflow === "segmentation"
+          ? "Paint and inspect mask regions"
+          : selectionCount === 0
+            ? "No annotation selected"
+            : `${selectionCount} annotation${selectionCount === 1 ? "" : "s"} selected`;
+      }
 
       const availableClasses = [...new Set([
         ...input.state.session.classNames.keys(),
@@ -437,7 +456,17 @@ export function createUiManagerAdapter(input: {
         ? `Annotations: ${annotationCount}`
         : `Mask classes: ${annotationCount}`);
       setStatusText(elements.statusMode, `${input.state.session.workflow === "detection" ? "Detection" : "Segmentation"} · ${input.state.view.currentMode === "draw" ? "Draw" : "Edit"} · ${input.state.session.workflow === "detection" ? "TXT" : "PNG/JSON"}`);
-      elements.inspectorTitle.textContent = input.state.session.workflow === "detection" ? "Annotation Inspector" : "Mask Inspector";
+      if (activeTask === "automate") {
+        const engineState = elements.matchingEngineStatus.dataset.state;
+        elements.inspectorTitle.textContent = "Automation Workspace";
+        elements.inspectorSubtitle.textContent = engineState === "ready"
+          ? "Matching engine ready"
+          : engineState === "error"
+            ? "Matching engine requires retry"
+            : "Matching engine loading";
+      } else {
+        elements.inspectorTitle.textContent = input.state.session.workflow === "detection" ? "Annotation Inspector" : "Mask Inspector";
+      }
       elements.activeToolSummary.textContent = input.state.view.currentMode === "draw"
         ? (input.state.session.workflow === "segmentation" ? segmentationSummary?.activeTool ?? "Brush" : "Draw")
         : "Edit";
@@ -923,9 +952,18 @@ export function createUiManagerAdapter(input: {
     },
 
     togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void {
-      panel.style.display = collapse ? "none" : "";
+      panel.style.display = "";
+      panel.classList.toggle("collapsed", collapse);
+      panel.setAttribute("aria-hidden", String(collapse));
       splitter.style.display = collapse ? "none" : "";
       expandButton.style.display = collapse ? "inline-flex" : "none";
+      const resizeCanvas = (): void => {
+        const canvasController = getCanvasController();
+        canvasController?.raw.resizeCanvas?.();
+        canvasController?.raw.renderAll?.();
+      };
+      globalThis.setTimeout(resizeCanvas, 0);
+      globalThis.setTimeout(resizeCanvas, 200);
     },
 
     setupSplitters(): void {

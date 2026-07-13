@@ -67,16 +67,16 @@
         </div>
     </nav>
 
-    <div class="app-workspace">
+    <div class="app-workspace" data-active-task="annotate">
         <nav class="task-rail" aria-label="Workspace tasks">
             <div class="task-rail-primary">
-                <button id="taskFilesBtn" type="button" class="task-rail-button" data-task="files" title="Files" aria-label="Files">
+                <button id="taskFilesBtn" type="button" class="task-rail-button" data-task="files" title="Files workspace" aria-label="Files workspace" aria-pressed="false">
                     <i class="bi bi-folder2-open" aria-hidden="true"></i><span>Files</span>
                 </button>
-                <button id="taskAnnotateBtn" type="button" class="task-rail-button active" data-task="annotate" title="Annotate" aria-label="Annotate" aria-current="page">
+                <button id="taskAnnotateBtn" type="button" class="task-rail-button active" data-task="annotate" title="Annotation workspace" aria-label="Annotation workspace" aria-current="page" aria-pressed="true">
                     <i class="bi bi-tag" aria-hidden="true"></i><span>Annotate</span>
                 </button>
-                <button id="taskAutomateBtn" type="button" class="task-rail-button" data-task="automate" title="Automate" aria-label="Automate">
+                <button id="taskAutomateBtn" type="button" class="task-rail-button" data-task="automate" title="Automation workspace" aria-label="Automation workspace" aria-pressed="false">
                     <i class="bi bi-robot" aria-hidden="true"></i><span>Automate</span>
                 </button>
             </div>
@@ -322,7 +322,8 @@
                                 <button id="confirmAutomationBatchBtn" type="button" class="btn btn-success btn-sm w-100"><i class="bi bi-play-fill" aria-hidden="true"></i> Run batch</button>
                             </div>
                             <div id="automationBatchProgressGroup" class="automation-batch-progress" hidden>
-                                <div class="d-flex justify-content-between small mb-1"><span id="automationBatchCurrentFile">Waiting</span><span id="automationBatchCounts">0 / 0</span></div>
+                                <div class="automation-batch-progress-heading"><span id="automationBatchCurrentFile" title="Waiting">Waiting</span><span id="automationBatchCounts">0 / 0</span></div>
+                                <div id="automationBatchStage" class="automation-batch-stage" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span>Waiting to start</span></div>
                                 <div class="progress" role="progressbar" aria-label="Batch automation progress"><div id="automationBatchProgressBar" class="progress-bar" style="width: 0%"></div></div>
                                 <div id="automationBatchResultSummary" class="small text-muted mt-1"></div>
                                 <div id="automationBatchResultList" class="automation-batch-result-list mt-1" aria-live="polite"></div>
@@ -435,6 +436,7 @@
                     </aside>
                 </div>
                 <div class="modal-footer">
+                    <div id="layoutOperationStatus" class="layout-operation-status" data-state="idle" role="status" aria-live="polite"><span class="layout-operation-indicator" aria-hidden="true"></span><span>Ready</span></div>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     <button id="applyBoxLayoutFromSetupBtn" type="button" class="btn btn-primary"><i class="bi bi-layers"></i> Apply to Current Image</button>
                 </div>

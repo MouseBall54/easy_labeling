@@ -120,6 +120,18 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.goto("/index.html");
   await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
   await expect(page.locator("#right-panel #layoutNameInput")).toHaveCount(0);
+  await page.locator("#taskFilesBtn").click();
+  await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
+  await page.locator("#taskAutomateBtn").click();
+  await expect(page.locator("#left-panel")).toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
+  await expect(page.locator("#inspectorTitle")).toHaveText("Automation Workspace");
+  await page.locator("#taskAnnotateBtn").click();
+  await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
   await page.locator("#inspectorTransformTabBtn").click();
   await expect(page.locator("#right-panel #openLayoutSetupBtn")).toBeVisible();
 
@@ -136,6 +148,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#layoutCaptureScopeSelect").selectOption("all");
   await page.locator("#saveBoxLayoutBtn").click();
   await expect(page.locator(".toast-message").last()).toHaveText("Layout saved with 2 boxes.");
+  await expect(page.locator("#layoutOperationStatus")).toContainText("Saved 2 boxes");
   await expect(page.locator("#boxLayoutSelect option")).toHaveCount(2);
   await expect(page.locator("#boxLayoutSelect")).not.toHaveValue("");
   await expect(page.locator("#layoutDetails")).toContainText("2 boxes");
@@ -179,7 +192,7 @@ test("layout and automation: modal management, both matching modes, and offscree
     return api?.getRectCount?.() ?? -1;
   })).toBe(2);
 
-  await page.locator("#inspectorAutomationTabBtn").click();
+  await page.locator("#taskAutomateBtn").click();
   await page.locator("#openTemplateMatchingBtn").click();
   const modal = page.locator("#templateMatchingModal");
   await expect(modal).toBeVisible();
@@ -203,6 +216,23 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#templateSearchWidthInput").fill("68");
   await page.locator("#templateSearchHeightInput").fill("90");
   const canvas = page.locator("#templateMatchingCanvas");
+  const sourceImageSize = { width: 120, height: 90 };
+  const drawTemplateRoi = async (roi: { x: number; y: number; width: number; height: number }): Promise<void> => {
+    const currentBounds = await canvas.boundingBox();
+    if (!currentBounds) {
+      throw new Error("Template canvas bounds are unavailable");
+    }
+    const scaleX = currentBounds.width / sourceImageSize.width;
+    const scaleY = currentBounds.height / sourceImageSize.height;
+    await page.mouse.move(currentBounds.x + roi.x * scaleX, currentBounds.y + roi.y * scaleY);
+    await page.mouse.down();
+    await page.mouse.move(
+      currentBounds.x + (roi.x + roi.width) * scaleX,
+      currentBounds.y + (roi.y + roi.height) * scaleY,
+      { steps: 5 }
+    );
+    await page.mouse.up();
+  };
   await canvas.scrollIntoViewIfNeeded();
   const bounds = await canvas.boundingBox();
   expect(bounds).not.toBeNull();
@@ -222,10 +252,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   if (canvasHit.hit?.id !== "templateMatchingCanvas") {
     throw new Error(`Template canvas is not hit-testable: ${JSON.stringify({ canvasHit, bounds })}`);
   }
-  await page.mouse.move(bounds.x + 12, bounds.y + 12);
-  await page.mouse.down();
-  await page.mouse.move(bounds.x + 45, bounds.y + 48, { steps: 5 });
-  await page.mouse.up();
+  await drawTemplateRoi({ x: 10, y: 12, width: 32, height: 32 });
   await expect(canvas).toHaveAttribute("data-roi-ready", "true");
 
   await page.locator("#templateManualXInput").fill("200");
@@ -271,11 +298,24 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#runAutomationBatchBtn").click();
   await page.locator("#confirmAutomationBatchBtn").click();
   await expect(page.locator("#automationBatchCounts")).toHaveText("2 / 2", { timeout: 30_000 });
+  await expect(page.locator("#automationBatchStage")).toContainText("Batch complete");
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Success 1");
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Skipped 1");
   await expect(page.locator("#automationBatchResultList .automation-batch-result-row")).toHaveCount(2);
   await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("scene-b.png");
   await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("2 outside removed");
+  const resultLayout = await page.locator("#automationBatchResultList .automation-batch-result-row").first().evaluate((row) => {
+    const heading = row.querySelector<HTMLElement>(".automation-result-heading")?.getBoundingClientRect();
+    const file = row.querySelector<HTMLElement>(".automation-result-file")?.getBoundingClientRect();
+    const state = row.querySelector<HTMLElement>(".automation-result-state")?.getBoundingClientRect();
+    const details = row.querySelector<HTMLElement>(".automation-result-details")?.getBoundingClientRect();
+    return heading && file && state && details
+      ? { headingBottom: heading.bottom, fileRight: file.right, stateLeft: state.left, detailsTop: details.top }
+      : null;
+  });
+  expect(resultLayout).not.toBeNull();
+  expect(resultLayout?.fileRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual((resultLayout?.stateLeft ?? 0) + 1);
+  expect(resultLayout?.headingBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual((resultLayout?.detailsTop ?? 0) + 1);
   await expect.poll(async () => page.evaluate(() => {
     const fixture = Reflect.get(window, "__automationFixture") as { readLabel?: (name: string) => string | null } | undefined;
     return fixture?.readLabel?.("scene-b.txt") ?? null;
@@ -285,6 +325,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#openTemplateMatchingBtn").click();
   await expect(modal).toBeVisible();
   await page.locator("#newAutomationPresetBtn").click();
+  await page.locator('label[for="templatePointerRoiRadio"]').click();
   await page.locator('label[for="templateOutputMultipleRadio"]').click();
   await expect(page.locator("#templateMultipleOutputSettings")).toBeVisible();
   await expect(page.locator("#templateLayoutOutputSettings")).toBeHidden();
@@ -298,10 +339,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   if (!multiBounds) {
     throw new Error("Template canvas bounds are unavailable");
   }
-  await page.mouse.move(multiBounds.x + 12, multiBounds.y + 12);
-  await page.mouse.down();
-  await page.mouse.move(multiBounds.x + 45, multiBounds.y + 48, { steps: 5 });
-  await page.mouse.up();
+  await drawTemplateRoi({ x: 10, y: 12, width: 32, height: 32 });
   await page.locator("#testTemplateMatchBtn").click();
   await expect(page.locator("#templateMatchScore")).toContainText("matches", { timeout: 30_000 });
   await expect(page.locator("#templateMatchCandidates > .template-match-candidate-row")).toHaveCount(2, { timeout: 30_000 });
@@ -326,13 +364,9 @@ test("layout and automation: modal management, both matching modes, and offscree
     if (!currentBounds) {
       throw new Error("Template canvas bounds are unavailable for result context menu");
     }
-    const canvasSize = await canvas.evaluate((element) => ({
-      width: (element as HTMLCanvasElement).width,
-      height: (element as HTMLCanvasElement).height
-    }));
     await page.mouse.click(
-      currentBounds.x + ((geometry.x + geometry.width / 2) * currentBounds.width / canvasSize.width),
-      currentBounds.y + ((geometry.y + geometry.height / 2) * currentBounds.height / canvasSize.height),
+      currentBounds.x + ((geometry.x + geometry.width / 2) * currentBounds.width / sourceImageSize.width),
+      currentBounds.y + ((geometry.y + geometry.height / 2) * currentBounds.height / sourceImageSize.height),
       { button: "right" }
     );
   };

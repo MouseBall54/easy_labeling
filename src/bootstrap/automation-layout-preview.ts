@@ -20,6 +20,54 @@ function intersects(
     left.y + left.height > right.y;
 }
 
+type RectBounds = { x: number; y: number; width: number; height: number };
+
+function createRectSpatialIndex(initialRects: readonly RectBounds[] = []): {
+  add(rect: RectBounds): void;
+  intersectsAny(rect: RectBounds): boolean;
+} {
+  const cellSize = 128;
+  const cells = new Map<string, RectBounds[]>();
+  const cellKeys = (rect: RectBounds): string[] => {
+    const left = Math.floor(rect.x / cellSize);
+    const top = Math.floor(rect.y / cellSize);
+    const right = Math.floor((rect.x + Math.max(0, rect.width)) / cellSize);
+    const bottom = Math.floor((rect.y + Math.max(0, rect.height)) / cellSize);
+    const keys: string[] = [];
+    for (let row = top; row <= bottom; row += 1) {
+      for (let column = left; column <= right; column += 1) {
+        keys.push(`${column}:${row}`);
+      }
+    }
+    return keys;
+  };
+  const add = (rect: RectBounds): void => {
+    cellKeys(rect).forEach((key) => {
+      const bucket = cells.get(key) ?? [];
+      bucket.push(rect);
+      cells.set(key, bucket);
+    });
+  };
+  initialRects.forEach(add);
+  return {
+    add,
+    intersectsAny(rect): boolean {
+      const visited = new Set<RectBounds>();
+      for (const key of cellKeys(rect)) {
+        for (const candidate of cells.get(key) ?? []) {
+          if (!visited.has(candidate)) {
+            visited.add(candidate);
+            if (intersects(rect, candidate)) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+  };
+}
+
 export function createAutomationLayoutPreview(input: {
   state: AppState;
   elements: UiDomElements;
@@ -85,17 +133,33 @@ export function createAutomationLayoutPreview(input: {
         const bounds = object.getBoundingRect(true);
         return { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height };
       });
-      const outsideCount = placed.filter((box) => box.x < 0 || box.y < 0 || box.x + box.width > image.width || box.y + box.height > image.height).length;
-      const existingCollisionCount = placed.filter((box) => existing.some((rect) => intersects(box, rect))).length;
-      const internalCollisionCount = placed.filter((box, index) => placed.some((candidate, candidateIndex) => candidateIndex < index && intersects(box, candidate))).length;
+      const outsideIndices = new Set<number>();
+      const existingCollisionIndices = new Set<number>();
+      const internalCollisionIndices = new Set<number>();
+      const existingIndex = createRectSpatialIndex(existing);
+      const placedIndex = createRectSpatialIndex();
+      placed.forEach((box, index) => {
+        if (box.x < 0 || box.y < 0 || box.x + box.width > image.width || box.y + box.height > image.height) {
+          outsideIndices.add(index);
+        }
+        if (existingIndex.intersectsAny(box)) {
+          existingCollisionIndices.add(index);
+        }
+        if (placedIndex.intersectsAny(box)) {
+          internalCollisionIndices.add(index);
+        }
+        placedIndex.add(box);
+      });
       const viewport = fabricCanvas.viewportTransform;
 
       context.save();
       context.setLineDash([7, 5]);
       context.lineWidth = 2;
       context.font = "600 11px system-ui, sans-serif";
-      placed.forEach((box) => {
-        const isWarning = box.x < 0 || box.y < 0 || box.x + box.width > image.width || box.y + box.height > image.height || existing.some((rect) => intersects(box, rect));
+      placed.forEach((box, index) => {
+        const isWarning = outsideIndices.has(index)
+          || existingCollisionIndices.has(index)
+          || internalCollisionIndices.has(index);
         const screenX = viewport[0] * box.x + viewport[2] * box.y + viewport[4];
         const screenY = viewport[1] * box.x + viewport[3] * box.y + viewport[5];
         const screenWidth = Math.abs(viewport[0] * box.width);
@@ -110,9 +174,9 @@ export function createAutomationLayoutPreview(input: {
       context.restore();
 
       const warnings = [
-        outsideCount > 0 ? `${outsideCount} outside image` : null,
-        existingCollisionCount > 0 ? `${existingCollisionCount} overlap existing` : null,
-        internalCollisionCount > 0 ? `${internalCollisionCount} overlap layout` : null
+        outsideIndices.size > 0 ? `${outsideIndices.size} outside image` : null,
+        existingCollisionIndices.size > 0 ? `${existingCollisionIndices.size} overlap existing` : null,
+        internalCollisionIndices.size > 0 ? `${internalCollisionIndices.size} overlap layout` : null
       ].filter(Boolean);
       input.elements.layoutPlacementNotice.dataset.state = warnings.length > 0 ? "warning" : "ready";
       input.elements.layoutPlacementNotice.textContent = warnings.length > 0

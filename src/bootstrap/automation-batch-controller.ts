@@ -38,10 +38,37 @@ export function createAutomationBatchController(input: {
   let running = false;
   let lastFailedFileNames = new Set<string>();
 
+  const setBatchStage = (
+    fileName: string,
+    message: string,
+    state: "running" | "complete" | "error" = "running"
+  ): void => {
+    const elements = input.elements;
+    elements.automationBatchCurrentFile.textContent = fileName;
+    elements.automationBatchCurrentFile.title = fileName;
+    elements.automationBatchProgressGroup.dataset.state = state;
+    const messageElement = elements.automationBatchStage.querySelector<HTMLElement>("span:last-child");
+    if (messageElement) {
+      messageElement.textContent = message;
+    } else {
+      elements.automationBatchStage.textContent = message;
+    }
+  };
+
+  const yieldToUi = (): Promise<void> => new Promise((resolve) => {
+    globalThis.setTimeout(resolve, 0);
+  });
+
   const updateUi = (summary: BatchSummary, currentFile = "Complete", dryRun = false): void => {
     const elements = input.elements;
     elements.automationBatchProgressGroup.hidden = false;
-    elements.automationBatchCurrentFile.textContent = currentFile;
+    setBatchStage(
+      currentFile,
+      currentFile === "Complete"
+        ? summary.cancelled ? "Cancelled after current image" : "Batch complete"
+        : "Image complete",
+      currentFile === "Complete" ? "complete" : "running"
+    );
     elements.automationBatchCounts.textContent = `${summary.processed} / ${summary.total}`;
     const percent = summary.total === 0 ? 0 : Math.round((summary.processed / summary.total) * 100);
     elements.automationBatchProgressBar.style.width = `${percent}%`;
@@ -55,23 +82,31 @@ export function createAutomationBatchController(input: {
       const row = input.documentRef.createElement("div");
       row.className = "automation-batch-result-row";
       row.dataset.state = item.state;
+      const heading = input.documentRef.createElement("div");
+      heading.className = "automation-result-heading";
       const file = input.documentRef.createElement("span");
+      file.className = "automation-result-file";
       file.textContent = item.fileName;
       file.title = item.reason ?? "";
       const state = input.documentRef.createElement("span");
       state.className = "automation-result-state";
-      const score = item.score == null ? "" : ` ${(item.score * 100).toFixed(1)}%`;
-      const minimum = item.minimumMatchedScore == null ? "" : `-${(item.minimumMatchedScore * 100).toFixed(1)}%`;
-      const matches = item.matchCount == null ? "" : ` | ${item.matchCount} match${item.matchCount === 1 ? "" : "es"}`;
-      const discarded = item.discardedOutOfBoundsCount
-        ? ` | ${item.discardedOutOfBoundsCount} outside removed`
-        : "";
-      const duration = item.durationMs == null ? "" : ` | ${item.durationMs.toFixed(0)} ms`;
-      state.textContent = `${item.state}${score}${minimum}${matches}${discarded}${duration}`;
+      state.textContent = item.state;
       state.title = item.durationMs == null
         ? item.reason ?? ""
         : `Decode ${(item.decodeMs ?? 0).toFixed(1)} ms | ImageData ${(item.imageDataMs ?? 0).toFixed(1)} ms | Worker ${(item.workerMs ?? 0).toFixed(1)} ms | Save ${(item.saveMs ?? 0).toFixed(1)} ms`;
-      row.append(file, state);
+      heading.append(file, state);
+      const details = input.documentRef.createElement("div");
+      details.className = "automation-result-details";
+      const detailParts = [
+        item.score == null ? null : `Best ${(item.score * 100).toFixed(1)}%`,
+        item.minimumMatchedScore == null ? null : `Lowest ${(item.minimumMatchedScore * 100).toFixed(1)}%`,
+        item.matchCount == null ? null : `${item.matchCount} match${item.matchCount === 1 ? "" : "es"}`,
+        item.discardedOutOfBoundsCount ? `${item.discardedOutOfBoundsCount} outside removed` : null,
+        item.durationMs == null ? null : `${item.durationMs.toFixed(0)} ms`,
+        item.reason
+      ].filter((part): part is string => Boolean(part));
+      details.textContent = detailParts.join(" · ") || "No additional details";
+      row.append(heading, details);
       elements.automationBatchResultList.appendChild(row);
     });
     if (currentFile === "Complete") {
@@ -110,14 +145,20 @@ export function createAutomationBatchController(input: {
       throw new Error("Batch automation is only available in Detection mode");
     }
 
-    const templateImageData = await pngDataUrlToImageData(template.pngDataUrl, input.documentRef);
     const dryRun = options.dryRun ?? false;
     const files = options.files ?? [...input.state.session.imageFiles];
     cancellationRequested = false;
     setRunning(true);
     input.elements.automationBatchProgressGroup.hidden = false;
+    input.elements.automationBatchCounts.textContent = `0 / ${files.length}`;
+    input.elements.automationBatchProgressBar.style.width = "0%";
+    input.elements.automationBatchProgressBar.textContent = "";
+    input.elements.automationBatchResultSummary.textContent = dryRun ? "Preparing dry run..." : "Preparing batch...";
+    setBatchStage("Preparing batch", "Decoding template image");
 
     try {
+      await yieldToUi();
+      const templateImageData = await pngDataUrlToImageData(template.pngDataUrl, input.documentRef);
       const summary = await runSequentialBatch({
         files,
         preset,
@@ -136,12 +177,17 @@ export function createAutomationBatchController(input: {
             let matchX: number | null = null;
             let matchY: number | null = null;
             try {
+              setBatchStage(file.name, "Decoding image");
+              await yieldToUi();
               const decodeStartedAt = globalThis.performance?.now() ?? Date.now();
               const targetImage = await input.fileSystem.decodeImageForAutomation(file);
               decodeMs = (globalThis.performance?.now() ?? Date.now()) - decodeStartedAt;
+              setBatchStage(file.name, "Preparing image pixels");
+              await yieldToUi();
               const imageDataStartedAt = globalThis.performance?.now() ?? Date.now();
               const targetImageData = imageElementToImageData(targetImage, input.documentRef);
               imageDataMs = (globalThis.performance?.now() ?? Date.now()) - imageDataStartedAt;
+              setBatchStage(file.name, "Matching template");
               const match = await input.match({
                 target: targetImageData,
                 template: templateImageData,
@@ -173,6 +219,8 @@ export function createAutomationBatchController(input: {
                 };
               }
 
+              setBatchStage(file.name, "Generating detection labels");
+              await yieldToUi();
               const imageSize = {
                 width: targetImage.naturalWidth || targetImage.width,
                 height: targetImage.naturalHeight || targetImage.height
@@ -186,9 +234,12 @@ export function createAutomationBatchController(input: {
               const existingYolo = policy === "append" ? await input.fileSystem.readDetectionLabels(file.name) : "";
               const yolo = mergeDetectionLabels(existingYolo, generatedYolo, policy === "append" ? "append" : "replace");
               if (!dryRun) {
+                setBatchStage(file.name, "Saving labels");
                 const saveStartedAt = globalThis.performance?.now() ?? Date.now();
                 await input.fileSystem.writeDetectionLabels(file.name, yolo);
                 saveMs = (globalThis.performance?.now() ?? Date.now()) - saveStartedAt;
+              } else {
+                setBatchStage(file.name, "Checking dry-run result");
               }
               const scores = activePreset.outputMode === "multiple-detection-boxes"
                 ? match.matches.map((candidate) => candidate.score)
@@ -232,6 +283,13 @@ export function createAutomationBatchController(input: {
       updateUi(summary, "Complete", dryRun);
       input.uiManager.renderImageList();
       input.uiManager.renderPreviewList();
+    } catch (error: unknown) {
+      setBatchStage(
+        input.elements.automationBatchCurrentFile.textContent || "Batch stopped",
+        error instanceof Error ? error.message : "Batch automation failed",
+        "error"
+      );
+      throw error;
     } finally {
       setRunning(false);
     }
@@ -287,7 +345,10 @@ export function createAutomationBatchController(input: {
       });
       input.elements.cancelAutomationBatchBtn.addEventListener("click", () => {
         cancellationRequested = true;
-        input.elements.automationBatchCurrentFile.textContent = "Cancelling after current image...";
+        setBatchStage(
+          input.elements.automationBatchCurrentFile.textContent || "Current image",
+          "Cancelling after current image..."
+        );
       });
     },
 

@@ -112,10 +112,27 @@ export function createAutomationController(input: {
   let templateRoiDirty = false;
   let layoutGhostVisible = false;
   let layoutSelectionArmed = false;
+  let layoutOperationRunning = false;
   let lastTemplateMatchResult: TemplateMatchResult | null = null;
   let contextTemplateMatchIndex: number | null = null;
   const selectedTemplateMatchIndices = new Set<number>();
   const assignedTemplateMatchClasses = new Map<number, string>();
+  const layoutOperationControls: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
+    elements.layoutSetupSelect,
+    elements.layoutNameInput,
+    elements.layoutCaptureScopeSelect,
+    elements.newBoxLayoutBtn,
+    elements.saveBoxLayoutBtn,
+    elements.updateBoxLayoutBtn,
+    elements.previewBoxLayoutBtn,
+    elements.duplicateBoxLayoutBtn,
+    elements.renameBoxLayoutBtn,
+    elements.deleteBoxLayoutBtn,
+    elements.applyBoxLayoutBtn,
+    elements.applyBoxLayoutFromSetupBtn,
+    elements.exportAutomationLibraryBtn,
+    elements.importAutomationLibraryBtn
+  ];
 
   const setTemplateMatchContextError = (error: unknown | null): void => {
     elements.templateMatchContextClassInput.classList.toggle("is-invalid", error !== null);
@@ -261,6 +278,11 @@ export function createAutomationController(input: {
     elements.renameBoxLayoutBtn.disabled = layout === null;
     elements.deleteBoxLayoutBtn.disabled = layout === null;
     elements.applyBoxLayoutFromSetupBtn.disabled = layout === null;
+    if (layoutOperationRunning) {
+      layoutOperationControls.forEach((control) => {
+        control.disabled = true;
+      });
+    }
   };
 
   const enterNewLayoutMode = (): void => {
@@ -269,6 +291,7 @@ export function createAutomationController(input: {
     elements.layoutNameInput.value = "";
     elements.layoutCaptureScopeSelect.value = counts.selected > 0 ? "selected" : "all";
     setLayoutSetupError(null);
+    setLayoutOperationStatus("idle", "Ready to save a new layout");
     syncLayoutEditorState();
     renderLayoutPreview();
     elements.layoutNameInput.focus();
@@ -325,6 +348,63 @@ export function createAutomationController(input: {
     elements.layoutSetupError.textContent = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   };
 
+  const setLayoutOperationStatus = (
+    state: "idle" | "busy" | "success" | "error",
+    message: string
+  ): void => {
+    elements.layoutOperationStatus.dataset.state = state;
+    const label = elements.layoutOperationStatus.querySelector<HTMLElement>("span:last-child");
+    if (label) {
+      label.textContent = message;
+    } else {
+      elements.layoutOperationStatus.textContent = message;
+    }
+  };
+
+  const yieldToUi = (): Promise<void> => new Promise((resolve) => {
+    globalThis.setTimeout(resolve, 0);
+  });
+
+  const runLayoutOperation = async (
+    sourceButton: HTMLButtonElement,
+    pendingMessage: string,
+    fallbackErrorMessage: string,
+    operation: () => Promise<string> | string
+  ): Promise<void> => {
+    if (layoutOperationRunning) {
+      return;
+    }
+    layoutOperationRunning = true;
+    const disabledStates = layoutOperationControls.map((control) => control.disabled);
+    layoutOperationControls.forEach((control) => {
+      control.disabled = true;
+    });
+    sourceButton.setAttribute("aria-busy", "true");
+    setLayoutSetupError(null);
+    setLayoutOperationStatus("busy", pendingMessage);
+    try {
+      await yieldToUi();
+      const successMessage = await operation();
+      setLayoutOperationStatus("success", successMessage);
+    } catch (error: unknown) {
+      setLayoutSetupError(error);
+      setLayoutOperationStatus(
+        "error",
+        error instanceof Error ? error.message : fallbackErrorMessage
+      );
+      input.uiManager.notify(error instanceof Error ? error.message : fallbackErrorMessage, 5000);
+    } finally {
+      layoutOperationRunning = false;
+      layoutOperationControls.forEach((control, index) => {
+        control.disabled = disabledStates[index] ?? false;
+      });
+      sourceButton.removeAttribute("aria-busy");
+      syncLayoutEditorState();
+      elements.applyBoxLayoutBtn.disabled = selectedLayout() === null;
+      elements.applyBoxLayoutFromSetupBtn.disabled = selectedSetupLayout() === null;
+    }
+  };
+
   const enterCanvasEditMode = (): void => {
     elements.drawModeBtn.checked = false;
     elements.editModeBtn.checked = true;
@@ -338,7 +418,7 @@ export function createAutomationController(input: {
     input.uiManager.syncWorkspaceState();
   };
 
-  const applyLayout = (layout: BoxLayout): void => {
+  const applyLayout = (layout: BoxLayout): string => {
     enterCanvasEditMode();
     const result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
     layoutGhostVisible = false;
@@ -346,10 +426,12 @@ export function createAutomationController(input: {
     const discarded = result.discardedOutOfBoundsCount > 0
       ? ` ${result.discardedOutOfBoundsCount} outside the image removed.`
       : "";
-    elements.layoutPlacementNotice.textContent = `${result.annotationIds.length} boxes applied.${discarded} Undo is available.`;
+    const message = `${result.annotationIds.length} boxes applied.${discarded}`;
+    elements.layoutPlacementNotice.textContent = `${message} Undo is available.`;
     elements.layoutPlacementNotice.dataset.state = "applied";
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
     showAppliedAnnotationsInTransform();
+    return message;
   };
 
   const showSettingsError = (error: unknown): void => {
@@ -1029,8 +1111,11 @@ export function createAutomationController(input: {
       batchController.bind();
 
       elements.saveBoxLayoutBtn.addEventListener("click", () => {
-        void (async () => {
-          try {
+        void runLayoutOperation(
+          elements.saveBoxLayoutBtn,
+          "Saving layout...",
+          "Unable to save box layout",
+          async () => {
             if (selectedSetupLayout()) {
               throw new Error("Click New Layout before saving a new layout");
             }
@@ -1046,16 +1131,17 @@ export function createAutomationController(input: {
             setLayoutSetupError(null);
             syncLayoutEditorState();
             input.uiManager.notify(`Layout saved with ${layout.boxes.length} boxes.`);
-          } catch (error: unknown) {
-            setLayoutSetupError(error);
-            input.uiManager.notify(error instanceof Error ? error.message : "Unable to save box layout", 5000);
+            return `Saved ${layout.boxes.length} boxes`;
           }
-        })();
+        );
       });
 
       elements.updateBoxLayoutBtn.addEventListener("click", () => {
-        void (async () => {
-          try {
+        void runLayoutOperation(
+          elements.updateBoxLayoutBtn,
+          "Updating layout...",
+          "Unable to update box layout",
+          async () => {
             const existing = selectedSetupLayout();
             if (!existing) {
               throw new Error("Choose a layout to update");
@@ -1078,11 +1164,9 @@ export function createAutomationController(input: {
             setLayoutSetupError(null);
             syncLayoutEditorState();
             input.uiManager.notify(`Layout updated with ${updated.boxes.length} boxes.`);
-          } catch (error: unknown) {
-            setLayoutSetupError(error);
-            input.uiManager.notify(error instanceof Error ? error.message : "Unable to update box layout", 5000);
+            return `Updated ${updated.boxes.length} boxes`;
           }
-        })();
+        );
       });
 
       elements.newBoxLayoutBtn.addEventListener("click", () => {
@@ -1090,94 +1174,133 @@ export function createAutomationController(input: {
       });
 
       elements.renameBoxLayoutBtn.addEventListener("click", () => {
-        void (async () => {
-          const layout = selectedSetupLayout();
-          if (!layout) {
-            input.uiManager.notify("Choose a layout to rename.");
-            return;
+        const layout = selectedSetupLayout();
+        if (!layout) {
+          setLayoutSetupError("Choose a layout to rename");
+          input.uiManager.notify("Choose a layout to rename.");
+          return;
+        }
+        const name = (elements.layoutNameInput.value.trim() || input.windowRef.prompt("Layout name:", layout.name)?.trim()) ?? "";
+        if (!name) {
+          return;
+        }
+        void runLayoutOperation(
+          elements.renameBoxLayoutBtn,
+          "Renaming layout...",
+          "Unable to rename layout",
+          async () => {
+            requireUniqueLayoutName(name, layout.id);
+            library = {
+              ...library,
+              layouts: upsertById(library.layouts, { ...layout, name, updatedAt: new Date().toISOString() })
+            };
+            await persistLibrary();
+            refreshSelects({ layoutId: layout.id });
+            renderLayoutPreview();
+            syncLayoutEditorState();
+            return `Renamed to ${name}`;
           }
-          const name = (elements.layoutNameInput.value.trim() || input.windowRef.prompt("Layout name:", layout.name)?.trim()) ?? "";
-          if (!name) {
-            return;
-          }
-          requireUniqueLayoutName(name, layout.id);
-          library = {
-            ...library,
-            layouts: upsertById(library.layouts, { ...layout, name, updatedAt: new Date().toISOString() })
-          };
-          await persistLibrary();
-          refreshSelects({ layoutId: layout.id });
-          renderLayoutPreview();
-          syncLayoutEditorState();
-        })().catch((error: unknown) => input.uiManager.notify(error instanceof Error ? error.message : "Unable to rename layout"));
+        );
       });
 
       elements.duplicateBoxLayoutBtn.addEventListener("click", () => {
-        void (async () => {
-          const layout = selectedSetupLayout();
-          if (!layout) {
-            throw new Error("Choose a layout to duplicate");
+        void runLayoutOperation(
+          elements.duplicateBoxLayoutBtn,
+          "Duplicating layout...",
+          "Unable to duplicate layout",
+          async () => {
+            const layout = selectedSetupLayout();
+            if (!layout) {
+              throw new Error("Choose a layout to duplicate");
+            }
+            const now = new Date().toISOString();
+            const duplicate: BoxLayout = {
+              ...layout,
+              id: createId("layout"),
+              name: `${layout.name} Copy`,
+              boxes: layout.boxes.map((box) => ({ ...box, id: createId("layout-box") })),
+              createdAt: now,
+              updatedAt: now
+            };
+            library = { ...library, layouts: [...library.layouts, duplicate] };
+            await persistLibrary();
+            refreshSelects({ layoutId: duplicate.id });
+            elements.layoutSetupSelect.value = duplicate.id;
+            elements.layoutNameInput.value = duplicate.name;
+            renderLayoutPreview();
+            syncLayoutEditorState();
+            return `Duplicated ${duplicate.boxes.length} boxes`;
           }
-          const now = new Date().toISOString();
-          const duplicate: BoxLayout = {
-            ...layout,
-            id: createId("layout"),
-            name: `${layout.name} Copy`,
-            boxes: layout.boxes.map((box) => ({ ...box, id: createId("layout-box") })),
-            createdAt: now,
-            updatedAt: now
-          };
-          library = { ...library, layouts: [...library.layouts, duplicate] };
-          await persistLibrary();
-          refreshSelects({ layoutId: duplicate.id });
-          elements.layoutSetupSelect.value = duplicate.id;
-          elements.layoutNameInput.value = duplicate.name;
-          renderLayoutPreview();
-          syncLayoutEditorState();
-        })().catch((error: unknown) => {
-          setLayoutSetupError(error);
-          input.uiManager.notify(error instanceof Error ? error.message : "Unable to duplicate layout");
-        });
+        );
       });
 
       elements.deleteBoxLayoutBtn.addEventListener("click", () => {
-        void (async () => {
-          const layout = selectedSetupLayout();
-          if (!layout || !input.windowRef.confirm(`Delete layout "${layout.name}" and its presets?`)) {
-            return;
+        const layout = selectedSetupLayout();
+        if (!layout) {
+          setLayoutSetupError("Choose a layout to delete");
+          input.uiManager.notify("Choose a layout to delete.");
+          return;
+        }
+        if (!input.windowRef.confirm(`Delete layout "${layout.name}" and its presets?`)) {
+          return;
+        }
+        void runLayoutOperation(
+          elements.deleteBoxLayoutBtn,
+          "Deleting layout...",
+          "Unable to delete layout",
+          async () => {
+            library = deleteLayoutFromLibrary(library, layout.id);
+            await persistLibrary();
+            refreshSelects();
+            elements.layoutNameInput.value = "";
+            renderLayoutPreview();
+            syncLayoutEditorState();
+            return `Deleted ${layout.name}`;
           }
-          library = deleteLayoutFromLibrary(library, layout.id);
-          await persistLibrary();
-          refreshSelects();
-          elements.layoutNameInput.value = "";
-          renderLayoutPreview();
-          syncLayoutEditorState();
-        })().catch((error: unknown) => input.uiManager.notify(error instanceof Error ? error.message : "Unable to delete layout"));
+        );
       });
 
       elements.applyBoxLayoutBtn.addEventListener("click", () => {
-        try {
-          const layout = selectedLayout();
-          if (!layout) {
-            throw new Error("Choose a box layout first");
-          }
-          applyLayout(layout);
-        } catch (error: unknown) {
-          input.uiManager.notify(error instanceof Error ? error.message : "Unable to apply box layout", 5000);
+        const layout = selectedLayout();
+        if (!layout) {
+          input.uiManager.notify("Choose a box layout first", 5000);
+          return;
         }
+        void runLayoutOperation(
+          elements.applyBoxLayoutBtn,
+          `Applying ${layout.boxes.length} boxes...`,
+          "Unable to apply box layout",
+          async () => {
+            elements.layoutPlacementNotice.textContent = `Applying ${layout.boxes.length} boxes...`;
+            elements.layoutPlacementNotice.dataset.state = "busy";
+            await yieldToUi();
+            const message = applyLayout(layout);
+            input.uiManager.notify(message);
+            return message;
+          }
+        );
       });
 
       elements.applyBoxLayoutFromSetupBtn.addEventListener("click", () => {
-        try {
-          const layout = selectedSetupLayout();
-          if (!layout) {
-            throw new Error("Choose a box layout first");
-          }
-          applyLayout(layout);
-        } catch (error: unknown) {
-          setLayoutSetupError(error);
-          input.uiManager.notify(error instanceof Error ? error.message : "Unable to apply box layout", 5000);
+        const layout = selectedSetupLayout();
+        if (!layout) {
+          setLayoutSetupError("Choose a box layout first");
+          input.uiManager.notify("Choose a box layout first", 5000);
+          return;
         }
+        void runLayoutOperation(
+          elements.applyBoxLayoutFromSetupBtn,
+          `Applying ${layout.boxes.length} boxes...`,
+          "Unable to apply box layout",
+          async () => {
+            elements.layoutPlacementNotice.textContent = `Applying ${layout.boxes.length} boxes...`;
+            elements.layoutPlacementNotice.dataset.state = "busy";
+            await yieldToUi();
+            const message = applyLayout(layout);
+            input.uiManager.notify(message);
+            return message;
+          }
+        );
       });
 
       elements.moveSelectedBoxesBtn.addEventListener("click", () => {
@@ -1204,6 +1327,7 @@ export function createAutomationController(input: {
           elements.layoutNameInput.value = selectedSetupLayout()?.name ?? "";
           elements.layoutCaptureScopeSelect.value = input.canvasController.raw.getSelectedBoxCount() > 0 ? "selected" : "all";
           setLayoutSetupError(null);
+          setLayoutOperationStatus("idle", "Ready");
           syncLayoutEditorState();
           renderLayoutPreview();
           elements.layoutSetupModal.show();
