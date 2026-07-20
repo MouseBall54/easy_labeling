@@ -112,7 +112,7 @@ export interface FabricCircleLike extends FabricObjectLike {
   type: "circle";
   radius: number;
   opacity?: number;
-  animate(property: string, value: number, options: FabricAnimationOptions): void;
+  animate(properties: Record<string, number>, options: FabricAnimationOptions): void;
 }
 
 export interface FabricActiveSelectionLike extends FabricObjectLike {

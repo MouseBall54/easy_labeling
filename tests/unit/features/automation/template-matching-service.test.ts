@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createTemplateMatchingService, requireAcceptedMatch } from "../../../../src/features/automation/template-matching-service.js";
 
@@ -205,5 +205,23 @@ describe("template matching service", () => {
       preprocessing,
       matching
     })).resolves.toMatchObject({ score: 0.91, x: 3, y: 4 });
+  });
+
+  it("terminates a pending worker once and rejects new work", async () => {
+    const worker = {
+      onmessage: null,
+      onerror: null,
+      postMessage: vi.fn(),
+      terminate: vi.fn()
+    };
+    const service = createTemplateMatchingService(() => worker as never);
+    const warmup = service.warmUp();
+
+    service.terminate();
+    service.terminate();
+
+    await expect(warmup).rejects.toThrow("Template matching service terminated");
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(() => service.warmUp()).toThrow("Template matching service terminated");
   });
 });

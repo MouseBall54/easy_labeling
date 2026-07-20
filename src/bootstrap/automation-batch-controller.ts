@@ -22,6 +22,7 @@ import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adap
 export interface AutomationBatchController {
   bind(): void;
   hidePreflight(): void;
+  cancel(): void;
 }
 
 export function createAutomationBatchController(input: {
@@ -433,6 +434,10 @@ export function createAutomationBatchController(input: {
 
     hidePreflight(): void {
       input.elements.automationBatchPreflight.hidden = true;
+    },
+
+    cancel(): void {
+      activeOperation?.cancel();
     }
   };
 }

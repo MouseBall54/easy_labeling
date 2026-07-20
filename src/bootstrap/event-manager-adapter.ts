@@ -95,6 +95,7 @@ export function createEventManagerAdapter(input: {
     prompt: Window["prompt"];
     dispatchEvent: Window["dispatchEvent"];
     URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
+    easyLabelingDesktop: Window["easyLabelingDesktop"];
   }>;
   documentRef?: Document;
 }): EventManager {
@@ -1360,18 +1361,25 @@ export function createEventManagerAdapter(input: {
         }
       });
 
+      const syncDesktopDirtyState = (): void => {
+        input.windowRef.easyLabelingDesktop?.setHasUnsavedChanges(hasDirtyDocuments(input.state));
+      };
       input.windowRef.addEventListener("easy-labeling:document-status-change", () => {
         input.uiManager.syncWorkspaceState?.();
+        syncDesktopDirtyState();
       });
       input.windowRef.addEventListener("easy-labeling:history-reset", () => {
         syncToolbarActionState();
       });
       input.windowRef.addEventListener("beforeunload", (event) => {
-        if (!hasDirtyDocuments(input.state)) {
+        if (input.windowRef.easyLabelingDesktop || !hasDirtyDocuments(input.state)) {
           return;
         }
         event.preventDefault();
         (event as BeforeUnloadEvent).returnValue = "";
+      });
+      input.windowRef.addEventListener("unload", () => {
+        automationController?.dispose();
       });
 
       syncViewControls();
@@ -1379,6 +1387,7 @@ export function createEventManagerAdapter(input: {
       input.uiManager.setInspectorTab?.("annotation");
       input.uiManager.setActiveTask?.("annotate");
       input.uiManager.syncWorkspaceState?.();
+      syncDesktopDirtyState();
     }
   };
 }

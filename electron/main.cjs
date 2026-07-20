@@ -1,11 +1,13 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { createWindowCloseController } = require("./window-close-controller.cjs");
 
 const PICK_DIRECTORY_CHANNEL = "easy-labeling:pick-directory";
 const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
 const OPEN_LIBRARY_FILE_CHANNEL = "easy-labeling:open-library-file";
 const SAVE_LIBRARY_FILE_CHANNEL = "easy-labeling:save-library-file";
+const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 
 const PROFILE_DIRECTORY_NAMES = {
   preset: "Template Presets",
@@ -51,6 +53,17 @@ function createMainWindow() {
       contextIsolation: false,
       sandbox: false
     }
+  });
+
+  const closeController = createWindowCloseController(window, dialog);
+  const updateDirtyState = (event, hasUnsavedChanges) => {
+    if (event.sender === window.webContents) {
+      closeController.setHasUnsavedChanges(hasUnsavedChanges);
+    }
+  };
+  ipcMain.on(DOCUMENT_DIRTY_CHANNEL, updateDirtyState);
+  window.on("closed", () => {
+    ipcMain.removeListener(DOCUMENT_DIRTY_CHANNEL, updateDirtyState);
   });
 
   window.loadFile(path.resolve(__dirname, "..", "index.html"));

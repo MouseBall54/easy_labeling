@@ -46,6 +46,7 @@ import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adap
 export interface AutomationController {
   bind(): void;
   refreshLibrary(options?: { selectFirst?: boolean }): Promise<void>;
+  dispose(): void;
 }
 
 export interface AutomationWindow {
@@ -118,6 +119,7 @@ export function createAutomationController(input: {
   const elements = input.uiManager.elements;
   let library = createEmptyAutomationLibrary();
   let matchingService: TemplateMatchingService | null = null;
+  let disposed = false;
   let activePresetId: string | null = null;
   let activeTemplateDataUrl: string | null = null;
   let templateRoiDirty = false;
@@ -173,6 +175,9 @@ export function createAutomationController(input: {
   };
 
   const getMatchingService = (): TemplateMatchingService => {
+    if (disposed) {
+      throw new Error("Automation controller disposed");
+    }
     matchingService ??= input.createMatchingService?.() ?? createTemplateMatchingService();
     return matchingService;
   };
@@ -1222,6 +1227,16 @@ export function createAutomationController(input: {
   };
 
   return {
+    dispose(): void {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      batchController.cancel();
+      matchingService?.terminate();
+      matchingService = null;
+    },
+
     bind(): void {
       workspace.bind();
       elements.templateWorkspaceFitBtn.addEventListener("click", () => workspace.fitToView());

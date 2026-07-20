@@ -42,6 +42,8 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
 
   const history = deps.historyService ?? createCanvasHistoryService();
   let baseImageObject: FabricObjectLike | null = null;
+  let coordinateHighlightObjects: FabricObjectLike[] = [];
+  let coordinateHighlightTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
   const syncCanvasOffset = (): void => {
     canvas.calcOffset?.();
@@ -54,6 +56,19 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
     }
 
     canvas.add(imageObject);
+  };
+
+  const clearCoordinateHighlight = (objects = coordinateHighlightObjects): void => {
+    const clearingCurrentHighlight = objects === coordinateHighlightObjects;
+    if (clearingCurrentHighlight && coordinateHighlightTimer !== null) {
+      globalThis.clearTimeout(coordinateHighlightTimer);
+      coordinateHighlightTimer = null;
+    }
+    objects.forEach((object) => canvas.remove(object));
+    if (clearingCurrentHighlight) {
+      coordinateHighlightObjects = [];
+    }
+    canvas.requestRenderAll();
   };
 
   const shell: CanvasShell = {
@@ -113,6 +128,7 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
     },
 
     clear(): void {
+      clearCoordinateHighlight();
       canvas.clear();
       baseImageObject = null;
       crosshairState.crosshairX = null;
@@ -227,29 +243,89 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
 
     highlightPoint(x: number, y: number): void {
       const zoomLevel = canvas.getZoom();
-      const highlightCircle = new deps.fabric.Circle({
+      const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      const startRadius = (reducedMotion ? 28 : 10) / zoomLevel;
+      const targetRadius = 46 / zoomLevel;
+      clearCoordinateHighlight();
+
+      const contrastRing = new deps.fabric.Circle({
         left: x,
         top: y,
-        radius: 0,
+        radius: startRadius,
         fill: "transparent",
-        stroke: "yellow",
+        stroke: "rgba(255, 255, 255, 0.96)",
+        strokeWidth: 7 / zoomLevel,
+        originX: "center",
+        originY: "center",
+        selectable: false,
+        evented: false,
+        opacity: 0.92
+      });
+      const pulseRing = new deps.fabric.Circle({
+        left: x,
+        top: y,
+        radius: startRadius,
+        fill: "transparent",
+        stroke: "#ff4d32",
         strokeWidth: 3 / zoomLevel,
+        shadow: "0 0 10px rgba(255, 77, 50, 0.85)",
+        originX: "center",
+        originY: "center",
+        selectable: false,
+        evented: false
+      });
+      const centerDot = new deps.fabric.Circle({
+        left: x,
+        top: y,
+        radius: (reducedMotion ? 5 : 3) / zoomLevel,
+        fill: "#ff4d32",
+        stroke: "#ffffff",
+        strokeWidth: 2 / zoomLevel,
+        shadow: "0 0 7px rgba(0, 0, 0, 0.6)",
         originX: "center",
         originY: "center",
         selectable: false,
         evented: false
       });
 
-      canvas.add(highlightCircle);
-      highlightCircle.animate("radius", 50 / zoomLevel, {
-        onChange: this.renderAll.bind(this),
-        duration: 500,
+      coordinateHighlightObjects = [contrastRing, pulseRing, centerDot];
+      const highlightObjects = coordinateHighlightObjects;
+      canvas.add(...coordinateHighlightObjects);
+      this.renderAll();
+
+      if (reducedMotion) {
+        coordinateHighlightTimer = globalThis.setTimeout(() => clearCoordinateHighlight(highlightObjects), 900);
+        return;
+      }
+
+      const render = this.renderAll.bind(this);
+      contrastRing.animate({ radius: targetRadius }, {
+        onChange: render,
+        duration: 620,
+        easing: deps.fabric.util.ease.easeOutQuad
+      });
+      centerDot.animate({ radius: 6 / zoomLevel }, {
+        onChange: render,
+        duration: 220,
+        easing: deps.fabric.util.ease.easeOutQuad
+      });
+      pulseRing.animate({ radius: targetRadius }, {
+        onChange: render,
+        duration: 620,
         easing: deps.fabric.util.ease.easeOutQuad,
         onComplete: () => {
-          (highlightCircle as FabricCircleLike).animate("opacity", 0, {
-            onChange: this.renderAll.bind(this),
-            duration: 300,
-            onComplete: () => canvas.remove(highlightCircle)
+          let remaining = highlightObjects.length;
+          highlightObjects.forEach((object) => {
+            (object as FabricCircleLike).animate({ opacity: 0 }, {
+              onChange: render,
+              duration: 280,
+              onComplete: () => {
+                remaining -= 1;
+                if (remaining === 0) {
+                  clearCoordinateHighlight(highlightObjects);
+                }
+              }
+            });
           });
         }
       });

@@ -6,6 +6,13 @@ const PICK_DIRECTORY_CHANNEL = "easy-labeling:pick-directory";
 const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
 const OPEN_LIBRARY_FILE_CHANNEL = "easy-labeling:open-library-file";
 const SAVE_LIBRARY_FILE_CHANNEL = "easy-labeling:save-library-file";
+const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
+
+window.easyLabelingDesktop = Object.freeze({
+  setHasUnsavedChanges(hasUnsavedChanges) {
+    ipcRenderer.send(DOCUMENT_DIRTY_CHANNEL, Boolean(hasUnsavedChanges));
+  }
+});
 
 function createDomException(name, message) {
   const error = new Error(message);

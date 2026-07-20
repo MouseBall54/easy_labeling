@@ -294,6 +294,23 @@ describe("features/canvas/canvas-controller", () => {
     expect(canvas.calcOffsetCalls).toBe(6);
   });
 
+  it("centers coordinate jumps and renders a zoom-stable target pulse", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    const canvas = controller.canvas as FakeCanvas;
+    canvas.setZoom(2);
+
+    controller.goToCoords(25, 30);
+
+    expect(canvas.viewportTransform).toEqual([2, 0, 0, 2, 350, 240]);
+    const highlights = canvas.removedObjects.filter((object) => object.type === "circle");
+    expect(highlights).toHaveLength(3);
+    expect(highlights.map((object) => object.left)).toEqual([25, 25, 25]);
+    expect(highlights.map((object) => object.top)).toEqual([30, 30, 30]);
+    expect(highlights.map((object) => object.stroke)).toContain("#ff4d32");
+    expect(highlights.map((object) => object.fill)).toContain("#ff4d32");
+    expect(highlights.filter((object) => (object as { radius?: number }).radius === 23)).toHaveLength(2);
+  });
+
   it("anchors label text to bounding rect coordinates even during active selection grouping", () => {
     const controller = createCanvasController(createState(), createDeps());
     const rect = createRect({ left: 10, top: 20, width: 30, height: 40, labelClass: "2" });

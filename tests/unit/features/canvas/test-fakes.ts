@@ -230,11 +230,18 @@ class FakeFabricCircle extends FakeFabricObject<"circle"> implements FabricCircl
     this.radius = Number(options.radius ?? 0);
     this.stroke = options.stroke as string | undefined;
     this.fill = options.fill as string | undefined;
+    this.strokeWidth = Number(options.strokeWidth ?? 0);
+    this.opacity = Number(options.opacity ?? 1);
+    this.shadow = options.shadow;
+    this.selectable = Boolean(options.selectable ?? false);
+    this.evented = Boolean(options.evented ?? false);
   }
 
-  animate(property: string, value: number, options: FabricAnimationOptions): void {
+  animate(properties: Record<string, number>, options: FabricAnimationOptions): void {
     const mutable = this as unknown as Record<KnownFabricProperty, unknown>;
-    mutable[property as KnownFabricProperty] = value;
+    Object.entries(properties).forEach(([property, value]) => {
+      mutable[property as KnownFabricProperty] = value;
+    });
     options.onChange?.();
     options.onComplete?.();
   }
@@ -347,6 +354,7 @@ export class FakeCanvas implements FabricCanvasLike {
   public requestRenderAllCalls = 0;
   public calcOffsetCalls = 0;
   public objects: FabricObjectLike[] = [];
+  public removedObjects: FabricObjectLike[] = [];
   public activeObject: FabricObjectLike | null = null;
   public backgroundImage: unknown = null;
   private zoom = 1;
@@ -371,6 +379,7 @@ export class FakeCanvas implements FabricCanvasLike {
   }
 
   remove(object: FabricObjectLike): void {
+    this.removedObjects.push(object);
     this.objects = this.objects.filter((candidate) => candidate !== object);
     if (this.activeObject === object) {
       this.activeObject = null;
