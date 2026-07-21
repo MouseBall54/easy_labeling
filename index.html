@@ -605,18 +605,20 @@
                         </div>
                         </div>
                         </details>
-                        <label class="form-label small" for="templateExistingPolicySelect">Existing labels</label>
-                        <select id="templateExistingPolicySelect" class="form-select form-select-sm mb-2">
-                            <option value="skip">Skip labeled (recommended)</option>
-                            <option value="append">Append</option>
-                            <option value="replace">Replace</option>
-                        </select>
                         <div class="small text-muted">Fixed-scale matching only. Rotation and scale changes are not included.</div>
                         <div id="templateSettingsError" class="alert alert-danger py-2 px-2 small mt-2 mb-0" hidden></div>
                     </div>
                 </div>
                 <div class="modal-footer" data-step="5">
                     <span class="modal-footer-step"><span class="step-inline">5</span> Save, apply, or batch</span>
+                    <div class="template-existing-policy">
+                        <label for="templateExistingPolicySelect">Existing labels</label>
+                        <select id="templateExistingPolicySelect" class="form-select form-select-sm">
+                            <option value="skip">Skip labeled</option>
+                            <option value="append" selected>Append</option>
+                            <option value="replace">Replace</option>
+                        </select>
+                    </div>
                     <button id="testTemplateMatchBtn" type="button" class="btn btn-outline-primary"><i class="bi bi-bullseye"></i> Preview Match</button>
                     <button id="applyTemplateMatchBtn" type="button" class="btn btn-outline-success" disabled><i class="bi bi-check2-square"></i> Apply Result</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>

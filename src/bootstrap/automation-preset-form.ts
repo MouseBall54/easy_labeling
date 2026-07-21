@@ -135,7 +135,7 @@ export function createAutomationPresetForm(elements: UiDomElements): AutomationP
       elements.templateNmsIouInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.nmsIouThreshold);
       elements.templatePaddingXInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.paddingX);
       elements.templatePaddingYInput.value = String(DEFAULT_MULTIPLE_DETECTION_SETTINGS.paddingY);
-      elements.templateExistingPolicySelect.value = "skip";
+      elements.templateExistingPolicySelect.value = "append";
       form.clearResult();
       form.syncOutputMode();
     },

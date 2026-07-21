@@ -200,6 +200,8 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#openTemplateMatchingBtn").click();
   const modal = page.locator("#templateMatchingModal");
   await expect(modal).toBeVisible();
+  await expect(page.locator("#templateExistingPolicySelect")).toHaveValue("append");
+  await page.locator("#templateExistingPolicySelect").selectOption("skip");
   await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
   await expect(page.locator("#templatePointerSelectRadio")).toBeEnabled();
   await page.locator('label[for="templatePointerSelectRadio"]').click();
@@ -390,6 +392,25 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#openTemplateMatchingBtn").click();
   await expect(modal).toBeVisible();
   await page.locator("#newAutomationPresetBtn").click();
+  await expect(page.locator("#templateExistingPolicySelect")).toHaveValue("append");
+  const footerControlLayout = await page.locator("#templateExistingPolicySelect").evaluate((select) => {
+    const policy = select.closest<HTMLElement>(".template-existing-policy")?.getBoundingClientRect();
+    const preview = document.querySelector<HTMLElement>("#testTemplateMatchBtn")?.getBoundingClientRect();
+    const footer = document.querySelector<HTMLElement>("#templateMatchingModal .modal-footer")?.getBoundingClientRect();
+    return policy && preview
+      ? {
+          policyRight: policy.right,
+          previewLeft: preview.left,
+          sameRow: policy.top < preview.bottom && policy.bottom > preview.top,
+          footerBottom: footer?.bottom ?? Number.POSITIVE_INFINITY,
+          viewportHeight: window.innerHeight
+        }
+      : null;
+  });
+  expect(footerControlLayout).not.toBeNull();
+  expect(footerControlLayout?.policyRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual((footerControlLayout?.previewLeft ?? 0) + 1);
+  expect(footerControlLayout?.sameRow).toBe(true);
+  expect(footerControlLayout?.footerBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(footerControlLayout?.viewportHeight ?? 0);
   await page.locator('label[for="templatePointerRoiRadio"]').click();
   await page.locator('label[for="templateOutputMultipleRadio"]').click();
   await expect(page.locator("#templateMultipleOutputSettings")).toBeVisible();
@@ -398,7 +419,6 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#templateMultipleClassIdInput").fill("8");
   await page.locator("#templateMinimumScoreInput").fill("0.40");
   await page.locator("#templateMaximumDetectionsInput").fill("10");
-  await page.locator("#templateExistingPolicySelect").selectOption("append");
   await canvas.scrollIntoViewIfNeeded();
   const multiBounds = await canvas.boundingBox();
   if (!multiBounds) {

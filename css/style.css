@@ -624,7 +624,7 @@ body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 310px;
     gap: 1rem;
-    min-height: 640px;
+    min-height: min(640px, calc(100vh - 12rem));
     padding: 0;
 }
 
@@ -2655,6 +2655,19 @@ body.dark-mode .placement-notice[data-state="busy"] {
 .summary-hint { margin-left: auto; font-size: 0.62rem; font-weight: 500; }
 .advanced-disclosure-body { padding-top: 10px; }
 .modal-footer-step { margin-right: auto; color: var(--workbench-text-muted); font-size: 0.72rem; }
+
+.template-existing-policy {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--workbench-text-muted);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.template-existing-policy .form-select {
+    width: 118px;
+}
 
 .active-class-summary {
     width: 100%;
