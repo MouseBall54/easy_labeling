@@ -400,11 +400,21 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body layout-setup-body">
-                    <aside class="layout-library-column">
+                    <ol class="template-stepper layout-stepper" aria-label="Layout setup steps">
+                        <li data-layout-step="1"><span>1</span>Select</li>
+                        <li data-layout-step="2"><span>2</span>Configure</li>
+                        <li data-layout-step="3"><span>3</span>Review</li>
+                        <li data-layout-step="4"><span>4</span>Apply</li>
+                    </ol>
+                    <aside class="layout-library-column" data-layout-section="choose">
+                        <div class="template-step-heading layout-step-heading">
+                            <span>1</span>
+                            <div><strong>Select a layout</strong></div>
+                        </div>
+                        <button id="newBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm w-100 layout-new-button"><i class="bi bi-plus-lg"></i> Create New Layout</button>
                         <label class="form-label small fw-semibold" for="layoutSetupSelect">Saved layouts</label>
-                        <select id="layoutSetupSelect" class="form-select form-select-sm mb-3" size="10" aria-label="Saved layouts"></select>
-                        <div class="d-grid gap-2">
-                            <button id="newBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> New Layout</button>
+                        <select id="layoutSetupSelect" class="form-select form-select-sm" size="9" aria-label="Saved layouts"></select>
+                        <div class="layout-library-actions">
                             <button id="duplicateBoxLayoutBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-copy"></i> Duplicate</button>
                             <div class="btn-group btn-group-sm" role="group" aria-label="Layout rename and delete">
                                 <button id="renameBoxLayoutBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-pencil"></i> Rename</button>
@@ -417,21 +427,12 @@
                             <input id="importAutomationLibraryInput" type="file" accept="application/json,.json" hidden>
                         </div>
                     </aside>
-                    <section class="layout-preview-column">
-                        <div class="layout-preview-toolbar">
-                            <div id="layoutDetails" class="small text-muted">Choose a layout to inspect its geometry.</div>
-                            <div class="layout-preview-actions">
-                                <label class="editor-zoom-control">Zoom <input id="layoutPreviewZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom preview (Ctrl + mouse wheel)"><span id="layoutPreviewZoomValue">100%</span></label>
-                                <button id="previewBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> Refresh Preview</button>
-                            </div>
-                        </div>
-                        <div class="layout-preview-stage">
-                            <canvas id="layoutPreviewCanvas" width="960" height="560" aria-label="Layout preview"></canvas>
-                        </div>
-                    </section>
-                    <aside class="layout-create-column">
+                    <aside class="layout-create-column" data-layout-section="save">
                         <div class="layout-editor-heading">
-                            <h6 id="layoutEditorTitle" class="settings-subtitle mt-0 mb-0">New layout</h6>
+                            <div class="template-step-heading layout-step-heading mb-0">
+                                <span>2</span>
+                                <div><h6 id="layoutEditorTitle" class="settings-subtitle mt-0 mb-0">New layout</h6></div>
+                            </div>
                             <span id="layoutEditorModeBadge" class="status-badge">New</span>
                         </div>
                         <label class="form-label small" for="layoutNameInput">Layout name</label>
@@ -448,11 +449,28 @@
                         </div>
                         <div id="layoutSetupError" class="alert alert-danger py-2 px-2 small mt-3 mb-0" hidden></div>
                     </aside>
+                    <section class="layout-preview-column" data-layout-section="preview">
+                        <div class="template-step-heading layout-step-heading">
+                            <span>3</span>
+                            <div><strong>Layout preview</strong></div>
+                        </div>
+                        <div class="layout-preview-toolbar">
+                            <div id="layoutDetails" class="small text-muted">Choose a layout to inspect its geometry.</div>
+                            <div class="layout-preview-actions">
+                                <label class="editor-zoom-control">Zoom <input id="layoutPreviewZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom preview (Ctrl + mouse wheel)"><span id="layoutPreviewZoomValue">100%</span></label>
+                                <button id="previewBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> Refresh Preview</button>
+                            </div>
+                        </div>
+                        <div class="layout-preview-stage">
+                            <canvas id="layoutPreviewCanvas" width="960" height="560" aria-label="Layout preview"></canvas>
+                        </div>
+                    </section>
                 </div>
-                <div class="modal-footer">
+                <div class="modal-footer layout-setup-footer">
+                    <div class="layout-footer-step" data-layout-step="4"><span class="step-inline">4</span><strong>Apply layout</strong></div>
                     <div id="layoutOperationStatus" class="layout-operation-status" data-state="idle" role="status" aria-live="polite"><span class="layout-operation-indicator" aria-hidden="true"></span><span>Ready</span></div>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button id="applyBoxLayoutFromSetupBtn" type="button" class="btn btn-primary"><i class="bi bi-layers"></i> Apply to Current Image</button>
+                    <button id="applyBoxLayoutFromSetupBtn" type="button" class="btn btn-primary"><i class="bi bi-layers"></i> Apply Selected Layout</button>
                 </div>
             </div>
         </div>

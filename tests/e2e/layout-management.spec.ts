@@ -35,6 +35,42 @@ test("layout setup creates from selected boxes and updates the saved layout", as
 
   const modal = page.locator("#layoutSetupModal");
   await expect(modal).toBeVisible();
+  await expect(page.locator(".layout-stepper [data-layout-step]")).toHaveText(["1Select", "2Configure", "3Review", "4Apply"]);
+  await expect(page.locator('[data-layout-section="choose"]')).toContainText("Select a layout");
+  await expect(page.locator("#newBoxLayoutBtn")).toHaveText(/Create New Layout/);
+  await expect(page.locator('[data-layout-section="preview"]')).toContainText("Layout preview");
+  await expect(page.locator(".layout-footer-step")).toContainText("Apply layout");
+  await expect(page.locator("#layoutSetupModal .layout-step-heading small, #layoutSetupModal .layout-field-hint")).toHaveCount(0);
+  const guidedLayout = await modal.evaluate((element) => {
+    const sections = ["choose", "preview", "save"].map((name) => (
+      element.querySelector<HTMLElement>(`[data-layout-section="${name}"]`)?.getBoundingClientRect()
+    ));
+    const footer = element.querySelector<HTMLElement>(".layout-setup-footer")?.getBoundingClientRect();
+    return sections.every(Boolean) && footer
+      ? {
+          lefts: sections.map((section) => section?.left ?? Number.POSITIVE_INFINITY),
+          footerBottom: footer.bottom,
+          viewportHeight: window.innerHeight
+        }
+      : null;
+  });
+  expect(guidedLayout).not.toBeNull();
+  expect(guidedLayout?.lefts[0] ?? 0).toBeLessThan(guidedLayout?.lefts[2] ?? 0);
+  expect(guidedLayout?.lefts[2] ?? 0).toBeLessThan(guidedLayout?.lefts[1] ?? 0);
+  expect(guidedLayout?.footerBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(guidedLayout?.viewportHeight ?? 0);
+  await page.setViewportSize({ width: 1080, height: 720 });
+  const minimumPreviewLayout = await page.evaluate(() => {
+    const refresh = document.querySelector<HTMLElement>("#previewBoxLayoutBtn")?.getBoundingClientRect();
+    const stage = document.querySelector<HTMLElement>(".layout-preview-stage")?.getBoundingClientRect();
+    const footer = document.querySelector<HTMLElement>(".layout-setup-footer")?.getBoundingClientRect();
+    return refresh && stage && footer
+      ? { refreshBottom: refresh.bottom, stageTop: stage.top, footerBottom: footer.bottom, viewportHeight: window.innerHeight }
+      : null;
+  });
+  expect(minimumPreviewLayout).not.toBeNull();
+  expect(minimumPreviewLayout?.refreshBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(minimumPreviewLayout?.stageTop ?? 0);
+  expect(minimumPreviewLayout?.footerBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(minimumPreviewLayout?.viewportHeight ?? 0);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.locator("#layoutEditorTitle")).toHaveText("Edit layout");
   await page.locator("#newBoxLayoutBtn").click();
   await expect(page.locator("#layoutSetupSelect")).toHaveValue("");
