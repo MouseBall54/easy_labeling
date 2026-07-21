@@ -163,7 +163,6 @@ interface FileSystemWindowRuntime {
   showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
   getEasyLabelingSampleDirectory?: (signal?: AbortSignal) => Promise<FileSystemDirectoryHandle>;
   clearTimeout: typeof window.clearTimeout;
-  confirm: (message?: string) => boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
   dispatchEvent?: (event: Event) => boolean;
 }
@@ -412,8 +411,11 @@ export function createFileSystemAdapter(input: {
     revokePreviewUrl: (url) => {
       input.windowRef.URL.revokeObjectURL(url);
     },
-    shouldCreateMissingLabelFolder: () => {
-      return input.windowRef.confirm('"label" subfolder not found. Do you want to create it?');
+    shouldCreateMissingLabelFolder: async () => {
+      if (!connectedDeps) {
+        throw new Error("The UI is not ready to confirm label folder creation.");
+      }
+      return (connectedDeps.uiManager as RuntimeUiManager).confirmMissingLabelFolderCreation();
     }
   });
 

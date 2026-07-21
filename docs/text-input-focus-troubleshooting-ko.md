@@ -4,16 +4,16 @@
 
 대상 현상은 프로그램 실행 후 일정 시간 동안 여러 텍스트 또는 숫자 입력란에서 마우스로 커서를 놓거나 키보드로 값을 입력할 수 없고, 버튼이나 숫자 입력란의 증감 버튼만 동작하다가 나중에 정상화되는 문제다.
 
-2026-07-21 현재 체크아웃(`easy_labeling` 26.7.21, Electron 41.3.0)에서 새 Electron 프로세스를 실행해 다음을 확인했다.
+2026-07-21 현재 체크아웃(`easy_labeling` 26.7.21, Electron 41.3.0)에서 데이터셋 조건을 좁혀 원인을 확인하고 수정했다.
 
-- 실행 약 0.5초, 2초, 7초 후 `#imageSearchInput`과 `#classSearchInput`을 실제 클릭하고 키를 입력했다.
-- 모든 시점에서 `document.activeElement`는 클릭한 입력란이었고 `keydown`, `beforeinput`, `input` 이벤트가 취소되지 않은 채 순서대로 발생했다.
-- `disabled=false`, `isEditable=true`였으며 입력값도 즉시 변경됐다.
-- `window.alert()`와 `window.confirm()`을 닫은 직후에도 같은 검사는 통과했다.
+- 재현 조건은 Detection 데이터셋에 `label` 폴더가 없는 경우였다.
+- 이 경우 `src/bootstrap/file-system-adapter.ts`의 `shouldCreateMissingLabelFolder`가 렌더러 프로세스에서 동기식 `window.confirm()`을 호출했다.
+- Windows의 Electron/Chromium 네이티브 JavaScript 대화상자 종료 후 BrowserWindow와 입력 요소 사이의 포커스가 복구되지 않는 경로가 있어, 증감 버튼은 동작하지만 키 입력이 전달되지 않는 현상과 일치했다.
+- 설정 JSON의 유무 자체가 입력을 비활성화하지는 않았다. 설정 파일과 `label` 폴더가 모두 없는 신규 데이터셋에서 `label` 폴더 확인창이 실행되는 것이 실제 분기 조건이었다.
 - 전역 단축키 처리기는 입력 가능한 이벤트 대상 또는 현재 활성 요소를 먼저 제외한다. 위치: `src/bootstrap/event-manager-adapter.ts`의 `isEditableKeyboardTarget()` 및 전역 `keydown` 처리기.
 - 로딩 오버레이는 활성 작업이 있을 때만 표시된다. 위치: `src/bootstrap/ui-manager-adapter.ts`의 `syncLoadingOverlay()`.
 
-따라서 현재 소스만으로는 시작 시 일정 시간 동안 입력을 의도적으로 막는 코드가 확인되지 않았다. 재현 PC에서 아래 절차로 어느 계층이 입력을 잃는지 먼저 확정해야 한다. 시간 경과만으로 원인을 추정해 타이머나 강제 `focus()`를 추가하면 실제 결함을 가릴 수 있다.
+수정은 네이티브 `window.confirm()`을 앱 내부 Bootstrap 모달 `#missingLabelFolderModal`로 교체하는 방식으로 적용했다. 확인 결과는 비동기 `Promise<boolean>`로 이미지 세션에 전달하며, 모달 종료 시 공용 포커스 관리 코드가 데이터셋 열기 버튼으로 포커스를 복원한다. 임의의 지연 타이머나 반복 `focus()`는 추가하지 않았다.
 
 별도로 `window.prompt()`는 현재 Electron 런타임에서 `Error: prompt() is not supported.`를 발생시키는 확정 결함이다. 현재 사용 위치는 다음과 같다.
 
@@ -103,14 +103,20 @@ for (const type of ["focusin", "focusout", "keydown", "beforeinput", "input"]) {
 - Enter는 확인, Escape는 취소로 동작한다.
 - 중복 모달을 만들지 말고 공용 단일 텍스트 요청 모달을 사용한다.
 
-### 5.2 네이티브 대화상자와 포커스 상관관계 확인
+### 5.2 누락된 `label` 폴더 확인창 수정 사항
 
-Electron의 Windows 네이티브 `alert/confirm` 종료 후 입력이 반응하지 않는 보고가 있었으므로, 재현 로그에서 직전 동작이 이 경로인지 확인한다.
+다음 세 부분을 하나의 변경 단위로 유지한다.
+
+- `index.html`: `#missingLabelFolderModal`과 생성/계속 버튼
+- `src/bootstrap/ui-manager-adapter.ts`: `confirmMissingLabelFolderCreation()` 및 모달 포커스 복원 등록
+- `src/bootstrap/file-system-adapter.ts`: 동기식 `window.confirm()` 대신 위 비동기 메서드 호출
+
+Electron의 Windows 네이티브 `alert/confirm` 종료 후 입력이 반응하지 않는 관련 사례는 다음과 같다.
 
 - Electron issue #19977: https://github.com/electron/electron/issues/19977
 - Electron issue #31917: https://github.com/electron/electron/issues/31917
 
-상관관계가 확인되면 `alert/confirm`도 앱 내부 Bootstrap 모달 또는 main process의 비동기 `dialog.showMessageBox()`로 교체한다. 창 `blur()`/`focus()` 강제 전환은 화면 깜빡임과 다른 입력 손실을 만들 수 있으므로 마지막 수단으로만 사용하고, 해당 대화상자 종료 직후로 범위를 제한한다.
+다른 `alert/confirm`에서 같은 현상이 확인되면 동일한 앱 내부 비동기 모달 방식으로 교체한다. 창 `blur()`/`focus()` 강제 전환은 화면 깜빡임과 다른 입력 손실을 만들 수 있으므로 사용하지 않는다.
 
 ### 5.3 전역 키보드 처리 회귀 방지
 
@@ -133,8 +139,8 @@ if (isEditableKeyboardTarget(event.target)
 
 수정은 다음 조건을 모두 만족해야 완료로 본다.
 
-1. 새 Electron 프로세스 실행 후 0초, 1초, 5초, 15초에 검색 및 숫자 입력이 즉시 반영된다.
-2. 라벨 클래스 입력, 클래스 파일 생성, 폴더 선택, 덮어쓰기 확인을 각각 취소/확인한 직후 입력이 된다.
+1. `label` 폴더와 설정 JSON이 없는 데이터셋을 열고 폴더 생성을 확인한 직후 검색 및 숫자 입력이 즉시 반영된다.
+2. 모달을 취소하고 폴더 없이 계속한 직후에도 입력이 된다.
 3. 한글 IME 조합 입력과 영문 입력이 모두 된다.
 4. 모달 내부 입력과 모달 종료 후 원래 트리거의 포커스가 올바르다.
 5. `Alt+Tab`, 최소화/복원 후에도 첫 클릭으로 입력된다.
@@ -146,6 +152,6 @@ if (isEditableKeyboardTarget(event.target)
 npm run typecheck
 npm run build
 npm test
-npm run test:e2e -- tests/e2e/automation-workflow.spec.ts
+npx playwright test tests/e2e/missing-label-folder-focus.spec.ts --project=chromium
 npm run electron:dev
 ```

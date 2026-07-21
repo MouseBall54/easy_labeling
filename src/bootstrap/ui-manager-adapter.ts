@@ -5,7 +5,12 @@ import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
 import type { FileHandle } from "../types/files.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
-import { getDOMElements, type BootstrapLike, type UiDomElements } from "../ui/dom-elements.js";
+import {
+  getDOMElements,
+  type BootstrapLike,
+  type BootstrapModalLike,
+  type UiDomElements
+} from "../ui/dom-elements.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
@@ -59,6 +64,7 @@ export interface RuntimeUiManager extends UIManager {
   togglePreviewBarVisibility(hidden: boolean): void;
   setWorkflow(workflow: WorkflowType): void;
   promptForLabelClass(defaultValue: string): Promise<string>;
+  confirmMissingLabelFolderCreation(): Promise<boolean>;
   notify(message: string, duration?: number): void;
   updateZoomDisplay(zoomLevel?: number): void;
   applyDarkMode(enabled: boolean): void;
@@ -129,7 +135,8 @@ export function createUiManagerAdapter(input: {
     "layoutSetupModal",
     "templateMatchingModal",
     "classFileViewerModal",
-    "labelClassModal"
+    "labelClassModal",
+    "missingLabelFolderModal"
   ]);
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
@@ -138,6 +145,7 @@ export function createUiManagerAdapter(input: {
   let directoryPickerAvailable = true;
   let activeTask: "files" | "annotate" | "automate" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
+  let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
 
   const setStatusText = (element: HTMLElement, text: string): void => {
@@ -704,6 +712,41 @@ export function createUiManagerAdapter(input: {
         elements.labelClassModal._element?.addEventListener("hidden.bs.modal", onHidden as EventListener, { once: true });
         elements.labelClassInput.addEventListener("keydown", onKeyDown);
         elements.labelClassInput.addEventListener("input", onInput);
+      });
+    },
+
+    confirmMissingLabelFolderCreation(): Promise<boolean> {
+      const modalElement = input.documentRef.getElementById("missingLabelFolderModal");
+      const createButton = input.documentRef.getElementById("createMissingLabelFolderBtn");
+      if (!modalElement || !createButton) {
+        throw new Error("The missing label folder confirmation dialog is unavailable.");
+      }
+
+      missingLabelFolderModal ??= new input.bootstrapRef.Modal(modalElement, { backdrop: "static", keyboard: true });
+      const modal = missingLabelFolderModal;
+      return new Promise<boolean>((resolve) => {
+        let settled = false;
+        const cleanup = (): void => {
+          createButton.removeEventListener("click", onCreate);
+          modalElement.removeEventListener("hidden.bs.modal", onHidden);
+        };
+        const settle = (value: boolean): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          resolve(value);
+        };
+        const onCreate = (): void => {
+          modal.hide();
+          settle(true);
+        };
+        const onHidden = (): void => settle(false);
+
+        createButton.addEventListener("click", onCreate);
+        modalElement.addEventListener("hidden.bs.modal", onHidden);
+        modal.show();
       });
     },
 

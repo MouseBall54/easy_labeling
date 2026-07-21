@@ -660,6 +660,24 @@
         </div>
     </div>
 
+    <div class="modal fade" id="missingLabelFolderModal" tabindex="-1" aria-labelledby="missingLabelFolderModalLabel" aria-hidden="true" data-focus-return="selectImageFolderBtn">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="missingLabelFolderModalLabel">Create label folder?</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    This dataset does not contain a <code>label</code> folder. Create it now to save detection labels in this dataset.
+                </div>
+                <div class="modal-footer">
+                    <button id="continueWithoutLabelFolderBtn" type="button" class="btn btn-secondary" data-bs-dismiss="modal">Continue without folder</button>
+                    <button id="createMissingLabelFolderBtn" type="button" class="btn btn-primary">Create label folder</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
