@@ -142,7 +142,6 @@ function bootstrapBrowserRuntime(): void {
   appResult.app.init();
 
   appResult.app.canvasController.setMode?.(appResult.app.state.view.currentMode);
-  appResult.app.uiManager.togglePreviewBarVisibility?.(true);
   appResult.app.uiManager.updateLabelFolderButton?.(false);
 
   const runtimeUiManager = appResult.app.uiManager as RuntimeUiManager;

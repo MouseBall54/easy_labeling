@@ -190,14 +190,6 @@ export interface UiDomElements {
   classFileEditorBody: HTMLElement;
   addClassRowBtn: HTMLElement;
   saveClassFileBtn: HTMLElement;
-  previewPrevBtn: HTMLElement;
-  previewNextBtn: HTMLElement;
-  previewListWrapper: HTMLElement;
-  previewList: HTMLElement;
-  bottomPanel: HTMLElement;
-  bottomSplitter: HTMLElement;
-  previewBarHeader: HTMLElement;
-  togglePreviewBtn: HTMLElement;
   collapseLeftPanelBtn: HTMLElement;
   expandLeftPanelBtn: HTMLElement;
   collapseRightPanelBtn: HTMLElement;
@@ -229,7 +221,15 @@ export interface UiDomElements {
   ctxEditLabel: HTMLElement;
   ctxDeleteLabel: HTMLElement;
   loadingOverlay: HTMLElement;
+  loadingDefaultIndicator: HTMLElement;
   loadingStatusText: HTMLElement;
+  workspaceStandbyPanel: HTMLElement;
+  workspaceStandbyTitle: HTMLElement;
+  workspaceStandbySummary: HTMLElement;
+  workspaceStandbySteps: HTMLElement;
+  workspaceStandbyActions: HTMLElement;
+  retryWorkspaceStandbyBtn: HTMLButtonElement;
+  dismissWorkspaceStandbyBtn: HTMLButtonElement;
   activeOperationPanel: HTMLElement;
   activeOperationTitle: HTMLElement;
   activeOperationDetail: HTMLElement;
@@ -483,14 +483,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     classFileEditorBody: requireById<HTMLElement>(documentRef, "classFileEditorBody"),
     addClassRowBtn: requireById<HTMLElement>(documentRef, "addClassRowBtn"),
     saveClassFileBtn: requireById<HTMLElement>(documentRef, "saveClassFileBtn"),
-    previewPrevBtn: requireById<HTMLElement>(documentRef, "preview-prev-btn"),
-    previewNextBtn: requireById<HTMLElement>(documentRef, "preview-next-btn"),
-    previewListWrapper: requireById<HTMLElement>(documentRef, "preview-list-wrapper"),
-    previewList: requireById<HTMLElement>(documentRef, "preview-list"),
-    bottomPanel: requireById<HTMLElement>(documentRef, "bottom-panel"),
-    bottomSplitter: requireById<HTMLElement>(documentRef, "bottom-splitter"),
-    previewBarHeader: requireById<HTMLElement>(documentRef, "preview-bar-header"),
-    togglePreviewBtn: requireById<HTMLElement>(documentRef, "toggle-preview-btn"),
     collapseLeftPanelBtn: requireById<HTMLElement>(documentRef, "collapse-left-panel-btn"),
     expandLeftPanelBtn: requireById<HTMLElement>(documentRef, "expand-left-panel-btn"),
     collapseRightPanelBtn: requireById<HTMLElement>(documentRef, "collapse-right-panel-btn"),
@@ -522,7 +514,15 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     ctxEditLabel: requireById<HTMLElement>(documentRef, "ctx-edit-label"),
     ctxDeleteLabel: requireById<HTMLElement>(documentRef, "ctx-delete-label"),
     loadingOverlay: requireById<HTMLElement>(documentRef, "loading-overlay"),
+    loadingDefaultIndicator: requireById<HTMLElement>(documentRef, "loadingDefaultIndicator"),
     loadingStatusText: requireById<HTMLElement>(documentRef, "loadingStatusText"),
+    workspaceStandbyPanel: requireById<HTMLElement>(documentRef, "workspaceStandbyPanel"),
+    workspaceStandbyTitle: requireById<HTMLElement>(documentRef, "workspaceStandbyTitle"),
+    workspaceStandbySummary: requireById<HTMLElement>(documentRef, "workspaceStandbySummary"),
+    workspaceStandbySteps: requireById<HTMLElement>(documentRef, "workspaceStandbySteps"),
+    workspaceStandbyActions: requireById<HTMLElement>(documentRef, "workspaceStandbyActions"),
+    retryWorkspaceStandbyBtn: requireById<HTMLButtonElement>(documentRef, "retryWorkspaceStandbyBtn"),
+    dismissWorkspaceStandbyBtn: requireById<HTMLButtonElement>(documentRef, "dismissWorkspaceStandbyBtn"),
     activeOperationPanel: requireById<HTMLElement>(documentRef, "activeOperationPanel"),
     activeOperationTitle: requireById<HTMLElement>(documentRef, "activeOperationTitle"),
     activeOperationDetail: requireById<HTMLElement>(documentRef, "activeOperationDetail"),

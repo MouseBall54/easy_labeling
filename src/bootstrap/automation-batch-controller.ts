@@ -353,8 +353,10 @@ export function createAutomationBatchController(input: {
         }
       });
       updateUi(summary, "Complete", dryRun);
+      if (!dryRun) {
+        await input.fileSystem.imageSessionService.refreshImageWorkflowStatus();
+      }
       input.uiManager.renderImageList();
-      input.uiManager.renderPreviewList();
     } catch (error: unknown) {
       if (cancellationRequested || isOperationCancelledError(error)) {
         setBatchStage(

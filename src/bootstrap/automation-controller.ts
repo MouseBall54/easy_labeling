@@ -3,10 +3,14 @@ import { isOperationCancelledError, throwIfOperationCancelled } from "../app/ope
 import { parseNonNegativeClassId } from "../domain/class-id.js";
 import {
   createEmptyAutomationLibrary,
+  createDatasetAutomationLibrary,
   createPresetFileDocument,
   deleteLayoutFromLibrary,
+  loadAutomationProfileFiles,
   loadAutomationLibrary,
+  mergeAutomationLibraries,
   mergePresetFileDocument,
+  resolveAutomationSelectionId,
   saveAutomationLibrary,
   upsertById
 } from "../features/automation/automation-library-service.js";
@@ -46,6 +50,7 @@ import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adap
 export interface AutomationController {
   bind(): void;
   refreshLibrary(options?: { selectFirst?: boolean }): Promise<void>;
+  prepareMatchingEngine(): Promise<void>;
   dispose(): void;
 }
 
@@ -56,6 +61,7 @@ export interface AutomationWindow {
   dispatchEvent(event: Event): boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
   openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
+  listEasyLabelingLibraryFiles?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile[]>;
   saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
 }
 
@@ -118,7 +124,9 @@ export function createAutomationController(input: {
 }): AutomationController {
   const elements = input.uiManager.elements;
   let library = createEmptyAutomationLibrary();
+  let profileLibrary = createEmptyAutomationLibrary();
   let matchingService: TemplateMatchingService | null = null;
+  let matchingWarmUpPromise: Promise<void> | null = null;
   let disposed = false;
   let activePresetId: string | null = null;
   let activeTemplateDataUrl: string | null = null;
@@ -182,10 +190,13 @@ export function createAutomationController(input: {
     return matchingService;
   };
 
-  const warmUpMatchingEngineInBackground = (): void => {
+  const prepareMatchingEngine = (): Promise<void> => {
+    if (matchingWarmUpPromise) {
+      return matchingWarmUpPromise;
+    }
     let service: TemplateMatchingService | null = null;
     setMatchingEngineStatus("loading", "Matching engine: Loading");
-    void Promise.resolve()
+    matchingWarmUpPromise = Promise.resolve()
       .then(() => {
         service = getMatchingService();
         return service.warmUp();
@@ -198,10 +209,13 @@ export function createAutomationController(input: {
         if (matchingService === service) {
           matchingService = null;
         }
+        matchingWarmUpPromise = null;
         const message = error instanceof Error ? error.message : "Engine initialization failed";
         elements.matchingEngineStatus.title = message;
         setMatchingEngineStatus("error", "Matching engine: Retry on use");
+        throw error;
       });
+    return matchingWarmUpPromise;
   };
 
   const matchWithRecovery = async (matchInput: TemplateMatchInput): Promise<TemplateMatchResult> => {
@@ -386,7 +400,10 @@ export function createAutomationController(input: {
     if (!folder) {
       throw new Error("Load an image folder before saving automation settings");
     }
-    await saveAutomationLibrary(folder as unknown as DirectoryHandleLike, library);
+    await saveAutomationLibrary(
+      folder as unknown as DirectoryHandleLike,
+      createDatasetAutomationLibrary(library, profileLibrary)
+    );
   };
 
   const downloadJsonFile = (contents: string, fileName: string): void => {
@@ -1235,7 +1252,10 @@ export function createAutomationController(input: {
       batchController.cancel();
       matchingService?.terminate();
       matchingService = null;
+      matchingWarmUpPromise = null;
     },
+
+    prepareMatchingEngine,
 
     bind(): void {
       workspace.bind();
@@ -1243,7 +1263,9 @@ export function createAutomationController(input: {
       layoutPreview.bind();
       syncTemplateLayoutOpacity();
       refreshSelects();
-      warmUpMatchingEngineInBackground();
+      void prepareMatchingEngine().catch(() => {
+        // The readiness panel and first use provide a visible retry path.
+      });
       batchController.bind();
 
       elements.saveBoxLayoutBtn.addEventListener("click", () => {
@@ -1375,6 +1397,11 @@ export function createAutomationController(input: {
         if (!layout) {
           setLayoutSetupError("Choose a layout to delete");
           input.uiManager.notify("Choose a layout to delete.");
+          return;
+        }
+        if (profileLibrary.layouts.some((candidate) => candidate.id === layout.id)) {
+          setLayoutSetupError("Saved profile layouts are read-only. Delete the JSON file from the Layouts folder instead.");
+          input.uiManager.notify("This layout comes from the saved Layouts folder and cannot be deleted here.", 6000);
           return;
         }
         if (!input.windowRef.confirm(`Delete layout "${layout.name}" and its presets?`)) {
@@ -1614,6 +1641,9 @@ export function createAutomationController(input: {
       elements.deleteAutomationPresetBtn.addEventListener("click", () => {
         void (async () => {
           const preset = activePresetId ? library.presets.find((candidate) => candidate.id === activePresetId) : null;
+          if (preset && profileLibrary.presets.some((candidate) => candidate.id === preset.id)) {
+            throw new Error("This preset comes from the saved Template Presets folder. Delete its JSON file there instead.");
+          }
           if (!preset || !input.windowRef.confirm(`Delete preset "${preset.name}"?`)) {
             return;
           }
@@ -1948,18 +1978,40 @@ export function createAutomationController(input: {
 
     async refreshLibrary(options = {}): Promise<void> {
       const folder = input.state.session.imageFolderHandle;
-      library = folder ? await loadAutomationLibrary(folder as unknown as DirectoryHandleLike) : createEmptyAutomationLibrary();
-      layoutGhostVisible = false;
-      if (options.selectFirst) {
-        const layoutId = library.layouts[0]?.id ?? "";
-        const presetId = library.presets[0]?.id ?? "";
-        activePresetId = presetId || null;
-        refreshSelects({ layoutId, presetId });
-        layoutGhostVisible = false;
-        renderLayoutGhostPreview();
-        return;
+      const selectedLayoutId = elements.boxLayoutSelect.value;
+      const selectedPresetId = elements.automationPresetSelect.value;
+      const datasetLibrary = folder
+        ? await loadAutomationLibrary(folder as unknown as DirectoryHandleLike)
+        : createEmptyAutomationLibrary();
+      profileLibrary = createEmptyAutomationLibrary();
+      library = datasetLibrary;
+      if (input.windowRef.listEasyLabelingLibraryFiles) {
+        try {
+          const [layoutFiles, presetFiles] = await Promise.all([
+            input.windowRef.listEasyLabelingLibraryFiles("layout"),
+            input.windowRef.listEasyLabelingLibraryFiles("preset")
+          ]);
+          const profile = loadAutomationProfileFiles(layoutFiles, presetFiles);
+          profileLibrary = profile.document;
+          library = mergeAutomationLibraries(profileLibrary, datasetLibrary);
+          if (profile.errors.length > 0) {
+            input.uiManager.notify(
+              `Some saved automation files were skipped:\n${profile.errors.join("\n")}`,
+              8000
+            );
+          }
+        } catch (error: unknown) {
+          input.uiManager.notify(
+            `Unable to scan saved automation files: ${error instanceof Error ? error.message : String(error)}`,
+            6000
+          );
+        }
       }
-      refreshSelects();
+      layoutGhostVisible = false;
+      const layoutId = resolveAutomationSelectionId(library.layouts, selectedLayoutId, options.selectFirst ?? false);
+      const presetId = resolveAutomationSelectionId(library.presets, selectedPresetId, options.selectFirst ?? false);
+      activePresetId = presetId || null;
+      refreshSelects({ layoutId, presetId });
       layoutGhostVisible = false;
       renderLayoutGhostPreview();
     }

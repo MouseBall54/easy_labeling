@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   createEmptyAutomationLibrary,
+  createDatasetAutomationLibrary,
   createPresetFileDocument,
-  mergePresetFileDocument
+  loadAutomationProfileFiles,
+  mergeAutomationLibraries,
+  mergePresetFileDocument,
+  resolveAutomationSelectionId
 } from "../../../../src/features/automation/automation-library-service.js";
 import { DEFAULT_MULTIPLE_DETECTION_SETTINGS } from "../../../../src/features/automation/preset-codec.js";
 import {
@@ -96,5 +100,85 @@ describe("automation preset files", () => {
   it("rejects files that do not contain exactly one preset", () => {
     expect(() => mergePresetFileDocument(createEmptyAutomationLibrary(), createEmptyAutomationLibrary()))
       .toThrow(/exactly one preset/);
+  });
+
+  it("loads saved layouts and self-contained presets while skipping invalid files", () => {
+    const presetFile = createPresetFileDocument(createLibrary(), "preset-1");
+    const result = loadAutomationProfileFiles(
+      [
+        { name: "10-layout.json", contents: JSON.stringify(createLayout("layout-10")) },
+        { name: "2-layout.json", contents: JSON.stringify(createLayout("layout-2")) },
+        { name: "broken-layout.json", contents: "{" }
+      ],
+      [
+        { name: "preset.json", contents: JSON.stringify(presetFile) },
+        { name: "broken-preset.json", contents: JSON.stringify(createEmptyAutomationLibrary()) }
+      ]
+    );
+
+    expect(result.document.layouts.map((layout) => layout.id)).toEqual([
+      "layout-2",
+      "layout-10",
+      "layout-used"
+    ]);
+    expect(result.document.templates.map((template) => template.id)).toEqual(["template-used"]);
+    expect(result.document.presets.map((preset) => preset.id)).toEqual(["preset-1"]);
+    expect(result.errors).toHaveLength(2);
+    expect(result.errors.join("\n")).toMatch(/broken-layout\.json/);
+    expect(result.errors.join("\n")).toMatch(/broken-preset\.json/);
+  });
+
+  it("lets dataset entries override matching profile ids without collapsing different ids with the same name", () => {
+    const profileLayout = createLayout("shared");
+    profileLayout.name = "Same name";
+    const otherProfileLayout = createLayout("profile-only");
+    otherProfileLayout.name = "Same name";
+    const localLayout = createLayout("shared");
+    localLayout.name = "Dataset override";
+
+    const profile = {
+      ...createEmptyAutomationLibrary(),
+      layouts: [profileLayout, otherProfileLayout]
+    };
+    const local = {
+      ...createEmptyAutomationLibrary(),
+      layouts: [localLayout]
+    };
+    const merged = mergeAutomationLibraries(profile, local);
+
+    expect(merged.layouts.map((layout) => [layout.id, layout.name])).toEqual([
+      ["shared", "Dataset override"],
+      ["profile-only", "Same name"]
+    ]);
+  });
+
+  it("preserves an existing selection and selects the first item only when requested", () => {
+    const items = [{ id: "first" }, { id: "selected" }];
+
+    expect(resolveAutomationSelectionId(items, "selected", true)).toBe("selected");
+    expect(resolveAutomationSelectionId(items, "missing", false)).toBe("");
+    expect(resolveAutomationSelectionId(items, "missing", true)).toBe("first");
+  });
+
+  it("persists only dataset overrides while keeping preset dependencies self-contained", () => {
+    const profile = createLibrary();
+    const editedPreset = {
+      ...profile.presets[0]!,
+      name: "Dataset preset override"
+    };
+    const localLayout = createLayout("dataset-layout");
+    const runtime = {
+      ...profile,
+      layouts: [...profile.layouts, localLayout],
+      presets: [editedPreset]
+    };
+
+    const dataset = createDatasetAutomationLibrary(runtime, profile);
+
+    expect(dataset.layouts.map((layout) => layout.id)).toEqual(["dataset-layout", "layout-used"]);
+    expect(dataset.templates.map((template) => template.id)).toEqual(["template-used"]);
+    expect(dataset.presets.map((preset) => preset.name)).toEqual(["Dataset preset override"]);
+    expect(dataset.layouts.some((layout) => layout.id === "layout-unused")).toBe(false);
+    expect(dataset.templates.some((template) => template.id === "template-unused")).toBe(false);
   });
 });

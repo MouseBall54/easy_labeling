@@ -5,8 +5,8 @@ import type { AppState } from "../app/state.js";
 import { isActiveSelectionObject, isRectObject, type FabricObjectLike } from "../features/canvas/fabric-types.js";
 import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
-import type { RuntimeFileSystem } from "./file-system-adapter.js";
-import type { RuntimeUiManager } from "./ui-manager-adapter.js";
+import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
+import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
 import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
 
 type CanvasPointLike = { x: number; y: number };
@@ -147,6 +147,80 @@ export function createEventManagerAdapter(input: {
             input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
           }
         });
+      };
+
+      let lastWorkspaceStandbyRetry: (() => void) | null = null;
+      const prepareWorkspace = async (options: {
+        title: string;
+        summary: string;
+        loadDataset?: (reportProgress: WorkspaceLoadProgressReporter) => Promise<void>;
+        selectFirstAutomation?: boolean;
+      }): Promise<void> => {
+        let activeStep: WorkspaceStandbyStep = "interface";
+        let hasWarning = false;
+        input.uiManager.startWorkspaceStandby(options.title, options.summary);
+        input.uiManager.updateWorkspaceStandbyStep("interface", "ready", "Interface ready");
+
+        const reportProgress: WorkspaceLoadProgressReporter = (step, state, detail) => {
+          activeStep = step;
+          hasWarning ||= state === "warning";
+          input.uiManager.updateWorkspaceStandbyStep(step, state, detail);
+        };
+
+        if (!options.loadDataset) {
+          input.uiManager.updateWorkspaceStandbyStep("dataset", "pending", "Waiting for a dataset");
+          input.uiManager.updateWorkspaceStandbyStep("labels", "pending", "Waiting for a dataset");
+          input.uiManager.updateWorkspaceStandbyStep("images", "pending", "Waiting for a dataset");
+          input.uiManager.updateWorkspaceStandbyStep("classes", "pending", "Waiting for a dataset");
+        } else {
+          input.uiManager.updateWorkspaceStandbyStep("dataset", "loading", "Preparing dataset access");
+        }
+
+        lastWorkspaceStandbyRetry = () => {
+          runExclusive("retry-workspace-standby", () => prepareWorkspace(options), elements.retryWorkspaceStandbyBtn);
+        };
+
+        try {
+          await options.loadDataset?.(reportProgress);
+
+          if (automationController) {
+            activeStep = "automation";
+            input.uiManager.updateWorkspaceStandbyStep("automation", "loading", "Loading saved layouts and presets");
+            await automationController.refreshLibrary({ selectFirst: options.selectFirstAutomation });
+            const layoutCount = Math.max(0, elements.boxLayoutSelect.options.length - 1);
+            const presetCount = Math.max(0, elements.automationPresetSelect.options.length - 1);
+            input.uiManager.updateWorkspaceStandbyStep(
+              "automation",
+              "ready",
+              layoutCount + presetCount > 0
+                ? `${layoutCount} layout${layoutCount === 1 ? "" : "s"}, ${presetCount} preset${presetCount === 1 ? "" : "s"}`
+                : "No saved items; empty library ready"
+            );
+
+            activeStep = "matching";
+            input.uiManager.updateWorkspaceStandbyStep("matching", "loading", "Starting the matching engine");
+            await automationController.prepareMatchingEngine();
+            input.uiManager.updateWorkspaceStandbyStep("matching", "ready", "Matching engine ready");
+          } else {
+            input.uiManager.updateWorkspaceStandbyStep("automation", "warning", "Automation UI unavailable");
+            input.uiManager.updateWorkspaceStandbyStep("matching", "warning", "Matching engine unavailable");
+            hasWarning = true;
+          }
+
+          input.uiManager.finishWorkspaceStandby(
+            hasWarning ? "warning" : "ready",
+            hasWarning
+              ? "Workspace loaded with limits. Review the highlighted item before continuing."
+              : options.loadDataset
+                ? "Workspace ready. All labeling features are available."
+                : "Core tools ready. Open a dataset to begin labeling."
+          );
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : "Initialization failed";
+          input.uiManager.updateWorkspaceStandbyStep(activeStep, "error", message);
+          input.uiManager.finishWorkspaceStandby("error", "Workspace preparation did not finish. Retry when ready.");
+          throw error;
+        }
       };
 
       const runAsyncAndSyncToolbar = (action: () => Promise<void>): void => {
@@ -370,7 +444,6 @@ export function createEventManagerAdapter(input: {
 
       const renderLists = (): void => {
         input.uiManager.renderImageList();
-        input.uiManager.renderPreviewList();
         input.uiManager.updateLabelList();
       };
 
@@ -468,6 +541,8 @@ export function createEventManagerAdapter(input: {
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
       elements.taskAnnotateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("annotate"));
       elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
+      elements.retryWorkspaceStandbyBtn.addEventListener("click", () => lastWorkspaceStandbyRetry?.());
+      elements.dismissWorkspaceStandbyBtn.addEventListener("click", () => input.uiManager.hideWorkspaceStandby());
       elements.inspectorAnnotationTabBtn.addEventListener("click", () => {
         input.uiManager.setActiveTask?.("annotate");
         input.uiManager.setInspectorTab?.("annotation");
@@ -480,14 +555,22 @@ export function createEventManagerAdapter(input: {
       elements.emptyOpenDatasetBtn.addEventListener("click", () => elements.selectImageFolderBtn.click());
       elements.emptyLoadSampleBtn.addEventListener("click", () => {
         runExclusive("load-sample", automationController
-          ? async () => {
-            await input.fileSystem.loadSampleTestData();
-            await automationController.refreshLibrary({ selectFirst: true });
-          }
+          ? () => prepareWorkspace({
+            title: "Preparing sample workspace",
+            summary: "Loading the sample dataset and checking each labeling feature.",
+            loadDataset: (reportProgress) => input.fileSystem.loadSampleTestData(reportProgress),
+            selectFirstAutomation: true
+          })
           : () => input.fileSystem.loadSampleTestData(), elements.emptyLoadSampleBtn);
       });
       elements.refreshDatasetBtn.addEventListener("click", () => {
-        runExclusive("refresh-dataset", () => input.fileSystem.refreshDataset(), elements.refreshDatasetBtn);
+        runExclusive("refresh-dataset", automationController
+          ? () => prepareWorkspace({
+            title: "Refreshing workspace",
+            summary: "Rechecking dataset files and labeling features.",
+            loadDataset: (reportProgress) => input.fileSystem.refreshDataset(reportProgress)
+          })
+          : () => input.fileSystem.refreshDataset(), elements.refreshDatasetBtn);
       });
       elements.classSearchInput.addEventListener("input", filterClassControls);
       elements.addClassShortcutBtn.addEventListener("click", () => {
@@ -540,10 +623,11 @@ export function createEventManagerAdapter(input: {
 
       elements.selectImageFolderBtn.addEventListener("click", () => {
         runExclusive("open-dataset", automationController
-          ? async () => {
-            await input.fileSystem.selectImageFolder();
-            await automationController.refreshLibrary();
-          }
+          ? () => prepareWorkspace({
+            title: "Preparing dataset workspace",
+            summary: "Connecting the dataset and checking each labeling feature.",
+            loadDataset: (reportProgress) => input.fileSystem.selectImageFolder(reportProgress)
+          })
           : () => input.fileSystem.selectImageFolder(), elements.selectImageFolderBtn as HTMLButtonElement);
       });
 
@@ -611,13 +695,6 @@ export function createEventManagerAdapter(input: {
       });
       elements.nextImageBtn.addEventListener("click", () => {
         runExclusive("navigate-image", () => input.fileSystem.navigateImage(1), elements.nextImageBtn as HTMLButtonElement);
-      });
-
-      elements.previewPrevBtn.addEventListener("click", () => {
-        runExclusive("navigate-image", () => input.fileSystem.navigateImage(-1), elements.previewPrevBtn as HTMLButtonElement);
-      });
-      elements.previewNextBtn.addEventListener("click", () => {
-        runExclusive("navigate-image", () => input.fileSystem.navigateImage(1), elements.previewNextBtn as HTMLButtonElement);
       });
 
       elements.imageSearchInput.addEventListener("input", renderLists);
@@ -830,17 +907,6 @@ export function createEventManagerAdapter(input: {
       });
       elements.redoBtn.addEventListener("click", () => {
         runRedo();
-      });
-
-      elements.previewBarHeader.addEventListener("click", () => {
-        input.uiManager.togglePreviewBarVisibility?.(!input.state.view.isPreviewBarHidden);
-        input.uiManager.renderPreviewList();
-      });
-
-      elements.togglePreviewBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        input.uiManager.togglePreviewBarVisibility?.(!input.state.view.isPreviewBarHidden);
-        input.uiManager.renderPreviewList();
       });
 
       elements.selectByClassBtn.addEventListener("click", () => {
@@ -1388,6 +1454,12 @@ export function createEventManagerAdapter(input: {
       input.uiManager.setActiveTask?.("annotate");
       input.uiManager.syncWorkspaceState?.();
       syncDesktopDirtyState();
+      if (automationController) {
+        runAsync(() => prepareWorkspace({
+          title: "Starting Easy Labeling",
+          summary: "Checking saved tools and the matching engine before use."
+        }));
+      }
     }
   };
 }

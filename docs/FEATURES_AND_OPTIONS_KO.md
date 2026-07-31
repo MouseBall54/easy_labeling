@@ -254,6 +254,8 @@ Layout은 여러 Detection 박스의 클래스, 크기, 순서, 상대 위치를
 - 저장된 레이아웃을 선택해 클래스 수, 앵커, 전체 크기, 원본 이미지 크기를 미리 볼 수 있다.
 - New, Duplicate, Rename, Delete로 레이아웃을 관리한다.
 - Save File/Load File로 단일 레이아웃 JSON을 데이터셋 밖에 저장하거나 불러올 수 있다.
+- Electron 앱은 `문서/Easy Labeling/Layouts`와 `문서/Easy Labeling/Template Presets`의 JSON을 자동으로 찾아 선택 목록에 추가한다.
+- 기본 폴더와 데이터셋의 ID가 같으면 데이터셋의 `.easy-labeling/automation-library.json` 항목이 우선한다.
 - 레이아웃을 삭제하면 그 레이아웃을 참조하는 프리셋도 함께 제거된다.
 
 ### 4.3 Transform 탭의 Layout 적용
@@ -363,7 +365,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 ### 7.2 이미지 이동과 미리보기
 
 - 상단 이전/다음 버튼 또는 `A`/`D`로 이미지를 이동한다.
-- 하단 Image Previews에서 썸네일을 선택할 수 있다.
+- 왼쪽 Images 목록에서 이미지별 Detection 박스 수를 확인하고 이미지를 선택할 수 있다.
 - 현재 이미지 이름과 크기, Annotation 수, 저장 상태는 상단/하단 상태 영역에 표시된다.
 
 ### 7.3 클래스 정보 파일
@@ -403,11 +405,15 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 
 ### 8.4 작업 상태와 강제 중지
 
+- 첫 실행과 데이터셋 연결 시 Standby 패널이 Interface, Dataset access, Label workspace, Images & annotations, Classes, Layouts & presets, Matching engine 준비 상태를 순서대로 확인한다.
+- 모든 필수 단계가 준비될 때까지 작업 화면 입력을 잠근다. 준비가 끝나면 패널이 자동으로 닫힌다.
+- 라벨 폴더 없이 계속하거나 지원 이미지가 없는 경우에는 제한 상태와 원인을 표시하고 Retry 또는 Continue with limits를 제공한다.
+- 클래스 파일, Layout, Preset이 하나도 없는 것은 오류가 아니며 빈 상태로 준비 완료 처리한다.
 - 시간이 걸리는 폴더 스캔, 이미지 로딩, OpenCV 초기화, 매칭, 배치 작업은 Active operation 패널에 현재 단계와 경과 시간을 표시한다.
 - 중지 가능한 작업은 Stop 버튼으로 취소를 요청할 수 있다.
 - 일부 동기 처리 구간은 즉시 끊기지 않고 다음 취소 확인 지점에서 멈출 수 있다.
 - 하단 상태 바에서 Matching engine의 Loading/Ready 상태를 확인할 수 있다.
-- 매칭 엔진은 앱 시작 후 백그라운드에서 warm-up되어 첫 실행 대기 시간을 줄인다.
+- 매칭 엔진은 앱 시작 Standby 단계에서 warm-up되며 Ready가 된 뒤 전체 기능 사용이 가능하다.
 
 ## 9. Template Automation과 배치 처리
 

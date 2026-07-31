@@ -122,14 +122,6 @@ class LiveImageSessionState implements ImageSessionServiceState {
     this.appState.session.classNames = value;
   }
 
-  get previewImageCache() {
-    return this.appState.runtime.previewImageCache;
-  }
-
-  set previewImageCache(value) {
-    this.appState.runtime.previewImageCache = value;
-  }
-
   get saveTimeout() {
     return this.appState.runtime.saveTimeout;
   }
@@ -140,9 +132,9 @@ class LiveImageSessionState implements ImageSessionServiceState {
 }
 
 export interface RuntimeFileSystem extends FileSystem {
-  selectImageFolder(): Promise<void>;
-  refreshDataset(): Promise<void>;
-  loadSampleTestData(): Promise<void>;
+  selectImageFolder(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
+  refreshDataset(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
+  loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   selectLabelFolder(): Promise<void>;
   selectClassInfoFolder(): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
@@ -158,6 +150,14 @@ export interface RuntimeFileSystem extends FileSystem {
   createNewClassFile(): Promise<void>;
   readonly imageSessionService: ImageSessionService;
 }
+
+export type WorkspaceLoadStep = "dataset" | "labels" | "images" | "classes";
+export type WorkspaceLoadStepState = "loading" | "ready" | "warning";
+export type WorkspaceLoadProgressReporter = (
+  step: WorkspaceLoadStep,
+  state: WorkspaceLoadStepState,
+  detail: string
+) => void;
 
 interface FileSystemWindowRuntime {
   showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
@@ -197,12 +197,6 @@ export function createFileSystemAdapter(input: {
 
   const restoreSessionSnapshot = (snapshot: ReturnType<typeof captureSessionSnapshot>): void => {
     input.state.runtime.currentLoadToken += 1;
-    input.state.runtime.previewImageCache.forEach((url) => {
-      if (url.startsWith("blob:")) {
-        input.windowRef.URL.revokeObjectURL(url);
-      }
-    });
-    input.state.runtime.previewImageCache = new Map();
     input.state.session.imageFolderHandle = snapshot.imageFolderHandle;
     input.state.session.labelFolderHandle = snapshot.labelFolderHandle;
     input.state.session.classInfoFolderHandle = snapshot.classInfoFolderHandle;
@@ -224,7 +218,6 @@ export function createFileSystemAdapter(input: {
       uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
       uiManager.renderClassFileSelect();
       uiManager.renderImageList();
-      uiManager.renderPreviewList();
       uiManager.updateLabelList();
     }
   };
@@ -298,7 +291,6 @@ export function createFileSystemAdapter(input: {
     uiManager.updateCurrentImageName();
     uiManager.updateZoomDisplay(canvasController.raw.canvas.getZoom());
     uiManager.renderImageList();
-    uiManager.renderPreviewList();
     uiManager.updateLabelList();
     uiManager.setWorkflow?.(input.state.session.workflow);
     input.windowRef.dispatchEvent?.(new CustomEvent("easy-labeling:history-reset"));
@@ -408,9 +400,6 @@ export function createFileSystemAdapter(input: {
         input.windowRef.clearTimeout(timeout);
       }
     },
-    revokePreviewUrl: (url) => {
-      input.windowRef.URL.revokeObjectURL(url);
-    },
     shouldCreateMissingLabelFolder: async () => {
       if (!connectedDeps) {
         throw new Error("The UI is not ready to confirm label folder creation.");
@@ -421,20 +410,47 @@ export function createFileSystemAdapter(input: {
 
   const activateImageFolder = async (
     imageFolderHandle: DirectoryHandleLike,
-    operation: RuntimeOperationHandle | null = null
+    operation: RuntimeOperationHandle | null = null,
+    reportProgress?: WorkspaceLoadProgressReporter
   ): Promise<void> => {
     pendingLoadedYolo = null;
     operation?.update({ detail: "Scanning images and annotation files" });
-    await imageSessionService.selectImageFolder(imageFolderHandle);
+    reportProgress?.("labels", "loading", "Checking the label workspace");
+    reportProgress?.("images", "loading", "Scanning images and annotations");
+    const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
     throwIfOperationCancelled(operation?.signal);
+    reportProgress?.(
+      "labels",
+      labelSelection.labelFolderStatus === "missing" ? "warning" : "ready",
+      labelSelection.labelFolderStatus === "created"
+        ? "Created the label folder"
+        : labelSelection.labelFolderStatus === "auto"
+          ? "Connected the label folder"
+          : "No label folder; saving is limited"
+    );
+    reportProgress?.(
+      "images",
+      input.state.session.imageFiles.length > 0 ? "ready" : "warning",
+      input.state.session.imageFiles.length > 0
+        ? `${input.state.session.imageFiles.length} image${input.state.session.imageFiles.length === 1 ? "" : "s"} ready`
+        : "No supported images found"
+    );
     input.state.view.hiddenLabelClasses = deriveHiddenLabelClassesForResetScope({
       scope: "session-replacement",
       hiddenLabelClasses: input.state.view.hiddenLabelClasses,
       persistFilterStateAcrossImageNavigation: input.state.view.persistFilterStateAcrossImageNavigation,
       resetFilterStateOnSessionReplacement: input.state.view.resetFilterStateOnSessionReplacement
     });
+    reportProgress?.("classes", "loading", "Loading class information");
     await refreshClassFileStateFromAvailableFolder(operation);
     throwIfOperationCancelled(operation?.signal);
+    reportProgress?.(
+      "classes",
+      "ready",
+      input.state.session.classFiles.length > 0
+        ? `${input.state.session.classFiles.length} class file${input.state.session.classFiles.length === 1 ? "" : "s"} ready`
+        : "Empty class set ready"
+    );
     applyCurrentImageToCanvas();
 
     if (!connectedDeps) {
@@ -444,7 +460,6 @@ export function createFileSystemAdapter(input: {
     uiManager.elements.selectLabelFolderBtn.removeAttribute("disabled");
     uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
     uiManager.renderImageList();
-    uiManager.renderPreviewList();
   };
 
   const fileSystem: RuntimeFileSystem = {
@@ -454,7 +469,7 @@ export function createFileSystemAdapter(input: {
         connectedDeps = deps;
       },
 
-      async selectImageFolder(): Promise<void> {
+      async selectImageFolder(reportProgress?: WorkspaceLoadProgressReporter): Promise<void> {
         await enqueueOperation(async () => {
           await runTrackedOperation({
             title: "Opening dataset",
@@ -472,15 +487,17 @@ export function createFileSystemAdapter(input: {
               throwIfOperationCancelled(operation?.signal);
             }
 
+            reportProgress?.("dataset", "loading", "Waiting for folder selection");
             operation?.update({ detail: "Waiting for folder selection" });
             const imageFolderHandle = await picker();
             throwIfOperationCancelled(operation?.signal);
-            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation);
+            reportProgress?.("dataset", "ready", imageFolderHandle.name || "Dataset connected");
+            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation, reportProgress);
           });
         });
       },
 
-      async refreshDataset(): Promise<void> {
+      async refreshDataset(reportProgress?: WorkspaceLoadProgressReporter): Promise<void> {
         await enqueueOperation(async () => {
           const folder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
           if (!folder) {
@@ -493,8 +510,27 @@ export function createFileSystemAdapter(input: {
             detail: "Scanning images and annotation files",
             stoppedMessage: "Dataset refresh stopped."
           }, async (operation) => {
-            await imageSessionService.selectImageFolder(folder);
+            reportProgress?.("dataset", "ready", folder.name || "Dataset connected");
+            reportProgress?.("labels", "loading", "Checking the label workspace");
+            reportProgress?.("images", "loading", "Scanning images and annotations");
+            const labelSelection = await imageSessionService.selectImageFolder(folder);
             throwIfOperationCancelled(operation?.signal);
+            reportProgress?.(
+              "labels",
+              labelSelection.labelFolderStatus === "missing" ? "warning" : "ready",
+              labelSelection.labelFolderStatus === "created"
+                ? "Created the label folder"
+                : labelSelection.labelFolderStatus === "auto"
+                  ? "Connected the label folder"
+                  : "No label folder; saving is limited"
+            );
+            reportProgress?.(
+              "images",
+              input.state.session.imageFiles.length > 0 ? "ready" : "warning",
+              input.state.session.imageFiles.length > 0
+                ? `${input.state.session.imageFiles.length} image${input.state.session.imageFiles.length === 1 ? "" : "s"} ready`
+                : "No supported images found"
+            );
             const target = currentImageName
               ? input.state.session.imageFiles.find((file) => file.name === currentImageName)
               : null;
@@ -505,15 +541,23 @@ export function createFileSystemAdapter(input: {
               await imageSessionService.loadImageAndLabels(target as unknown as FileHandleLike);
               throwIfOperationCancelled(operation?.signal);
             }
+            reportProgress?.("classes", "loading", "Loading class information");
             await refreshClassFileStateFromAvailableFolder(operation);
             throwIfOperationCancelled(operation?.signal);
+            reportProgress?.(
+              "classes",
+              "ready",
+              input.state.session.classFiles.length > 0
+                ? `${input.state.session.classFiles.length} class file${input.state.session.classFiles.length === 1 ? "" : "s"} ready`
+                : "Empty class set ready"
+            );
             applyCurrentImageToCanvas();
             uiManager?.notify("Dataset refreshed.");
           });
         });
       },
 
-      async loadSampleTestData(): Promise<void> {
+      async loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void> {
         await enqueueOperation(async () => {
           const uiManager = connectedDeps ? (connectedDeps.uiManager as RuntimeUiManager) : null;
           await runTrackedOperation({
@@ -531,7 +575,8 @@ export function createFileSystemAdapter(input: {
               ? await input.windowRef.getEasyLabelingSampleDirectory(operation?.signal)
               : await createBundledSampleDirectory({ signal: operation?.signal });
             throwIfOperationCancelled(operation?.signal);
-            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation);
+            reportProgress?.("dataset", "ready", imageFolderHandle.name || "Sample workspace connected");
+            await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation, reportProgress);
             uiManager?.notify("Sample test data loaded: 3 images, color labels, layouts, and template presets.", 5000);
           });
         });
@@ -560,7 +605,6 @@ export function createFileSystemAdapter(input: {
               const uiManager = connectedDeps.uiManager as RuntimeUiManager;
               uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
               uiManager.renderImageList();
-              uiManager.renderPreviewList();
             }
           });
         });
@@ -606,7 +650,6 @@ export function createFileSystemAdapter(input: {
             if (connectedDeps) {
               const uiManager = connectedDeps.uiManager as RuntimeUiManager;
               uiManager.renderImageList();
-              uiManager.renderPreviewList();
             }
           } catch (error: unknown) {
             markDocumentSaveError(input.state, imageName, workflow, error);

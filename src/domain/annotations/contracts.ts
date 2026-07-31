@@ -38,15 +38,20 @@ export interface WorkflowAnnotationStatus {
   hasAnnotation: boolean;
 }
 
+export interface DetectionAnnotationStatus extends WorkflowAnnotationStatus {
+  boxCount: number;
+}
+
 export interface ImageWorkflowStatus {
-  detection: WorkflowAnnotationStatus;
+  detection: DetectionAnnotationStatus;
   segmentation: WorkflowAnnotationStatus;
 }
 
 export function createEmptyImageWorkflowStatus(): ImageWorkflowStatus {
   return {
     detection: {
-      hasAnnotation: false
+      hasAnnotation: false,
+      boxCount: 0
     },
     segmentation: {
       hasAnnotation: false

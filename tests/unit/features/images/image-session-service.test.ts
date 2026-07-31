@@ -145,14 +145,15 @@ function createState(): ImageSessionServiceState {
     workflow: "detection",
     classFiles: [new MockFileHandle("old.yaml")],
     classNames: new Map<string, string>([["0", "old"]]),
-    previewImageCache: new Map<string, string>(),
     saveTimeout: null
   };
 }
 
 describe("features/images/image-session-service", () => {
   it("loads image folder and initializes detection/segmentation annotation status", async () => {
-    const labelDir = new MockDirectoryHandle("label").withFile(new MockFileHandle("1.txt", "0 0.5 0.5 0.1 0.1"));
+    const labelDir = new MockDirectoryHandle("label")
+      .withFile(new MockFileHandle("1.txt", "0 0.5 0.5 0.1 0.1\n2 0.25 0.25 0.2 0.2\n"))
+      .withFile(new MockFileHandle("2.txt", "\n"));
     const maskDir = new MockDirectoryHandle("mask").withFile(new MockFileHandle("2.png", new Uint8Array([1, 2, 3])));
     const imageDir = new MockDirectoryHandle("images")
       .withDirectory(labelDir)
@@ -169,16 +170,17 @@ describe("features/images/image-session-service", () => {
       readCurrentSegmentationSnapshot: () => null,
       applyLoadedYolo: vi.fn(),
       applyLoadedSegmentationSnapshot: vi.fn(),
-      clearPendingSaveTimeout: vi.fn(),
-      revokePreviewUrl: vi.fn()
+      clearPendingSaveTimeout: vi.fn()
     });
 
     await service.selectImageFolder(imageDir);
 
     expect(state.imageFiles.map((file) => file.name)).toEqual(["1.jpg", "2.jpg"]);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
+    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(2);
     expect(state.imageWorkflowStatus.get("1.jpg")?.segmentation.hasAnnotation).toBe(false);
     expect(state.imageWorkflowStatus.get("2.jpg")?.detection.hasAnnotation).toBe(false);
+    expect(state.imageWorkflowStatus.get("2.jpg")?.detection.boxCount).toBe(0);
     expect(state.imageWorkflowStatus.get("2.jpg")?.segmentation.hasAnnotation).toBe(true);
     expect(decodeImage).toHaveBeenCalled();
   });
@@ -198,8 +200,7 @@ describe("features/images/image-session-service", () => {
       readCurrentSegmentationSnapshot: () => null,
       applyLoadedYolo,
       applyLoadedSegmentationSnapshot: vi.fn(),
-      clearPendingSaveTimeout: vi.fn(),
-      revokePreviewUrl: vi.fn()
+      clearPendingSaveTimeout: vi.fn()
     });
 
     await service.selectImageFolder(imageDir);
@@ -213,16 +214,16 @@ describe("features/images/image-session-service", () => {
       .withFile(new MockFileHandle("1.jpg"));
 
     const state = createState();
+    let currentYolo = "0 0.5 0.5 0.2 0.2";
     const removeCurrentLabelsOutsideImageBounds = vi.fn(() => 1);
     const service = createImageSessionService(state, {
       decodeImage: vi.fn(async () => "decoded"),
       removeCurrentLabelsOutsideImageBounds,
-      readCurrentLabelsAsYolo: () => "0 0.5 0.5 0.2 0.2",
+      readCurrentLabelsAsYolo: () => currentYolo,
       readCurrentSegmentationSnapshot: () => null,
       applyLoadedYolo: vi.fn(),
       applyLoadedSegmentationSnapshot: vi.fn(),
-      clearPendingSaveTimeout: vi.fn(),
-      revokePreviewUrl: vi.fn()
+      clearPendingSaveTimeout: vi.fn()
     });
 
     await service.selectImageFolder(imageDir);
@@ -234,10 +235,16 @@ describe("features/images/image-session-service", () => {
     const saved = await (await labelDir.getFileHandle(fileName)).getFile();
 
     expect(result.saved).toBe(true);
+    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(1);
     expect(result.primaryFilePath).toBe(detectionPath);
     expect(await saved.text()).toBe("0 0.5 0.5 0.2 0.2");
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
     expect(removeCurrentLabelsOutsideImageBounds).toHaveBeenCalledOnce();
     expect(result.removedOutOfBoundsCount).toBe(1);
+
+    currentYolo = "";
+    await service.saveLabels(false);
+    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(false);
+    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(0);
   });
 });

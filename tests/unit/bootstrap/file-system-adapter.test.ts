@@ -162,7 +162,6 @@ function createConnectedDeps() {
       updateCurrentImageName: vi.fn(),
       updateZoomDisplay: vi.fn(),
       renderImageList: vi.fn(),
-      renderPreviewList: vi.fn(),
       updateLabelList: vi.fn(),
       renderClassFileSelect: vi.fn(),
       showClassFileContentModal: vi.fn(),
@@ -258,14 +257,22 @@ describe("bootstrap/file-system-adapter", () => {
         });
         const deps = createConnectedDeps();
         fileSystem.connect(deps as never);
+        const progress = vi.fn();
 
-        await fileSystem.loadSampleTestData();
+        await fileSystem.loadSampleTestData(progress);
 
         expect(windowRef.getEasyLabelingSampleDirectory).toHaveBeenCalledTimes(1);
         expect(windowRef.showDirectoryPicker).not.toHaveBeenCalled();
         expect(state.session.imageFolderHandle).toBe(sampleFolder);
         expect(state.session.labelFolderHandle).toBe(labelFolder);
         expect(state.session.classNames).toEqual(new Map([["0", "Light / White"], ["1", "Dark / Gray"]]));
+        expect(progress.mock.calls).toEqual(expect.arrayContaining([
+          ["dataset", "ready", "Easy Labeling Sample Test"],
+          ["labels", "loading", "Checking the label workspace"],
+          ["labels", "ready", "Connected the label folder"],
+          ["images", "warning", "No supported images found"],
+          ["classes", "ready", "1 class file ready"]
+        ]));
         expect(deps.uiManager.notify).toHaveBeenCalledWith(expect.stringContaining("Sample test data loaded"), 5000);
       } finally {
         if (previousHtmlImageElement === undefined) {
@@ -346,7 +353,6 @@ describe("bootstrap/file-system-adapter", () => {
     expect(await savedHandle.getFile().then((file) => file.text())).toBe("0 0.5 0.5 1 1");
     expect(deps.canvasController.raw.getLabelsAsYolo).toHaveBeenCalledTimes(1);
     expect(deps.uiManager.renderImageList).toHaveBeenCalledTimes(1);
-    expect(deps.uiManager.renderPreviewList).toHaveBeenCalledTimes(1);
   });
 
   it("writes only a segmentation mask png instead of detection txt when segmentation workflow is active", async () => {

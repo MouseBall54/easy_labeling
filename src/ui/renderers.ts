@@ -18,18 +18,6 @@ export interface ImageListRenderInput {
   onImageClick?: (file: FileHandle) => void;
 }
 
-export interface PreviewListRenderInput {
-  bottomPanelElement: HTMLElement;
-  previewListElement: HTMLElement;
-  previewListWrapperElement: HTMLElement;
-  imageFiles: FileHandle[];
-  imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
-  activeWorkflow: WorkflowType;
-  currentImageFile: FileHandle | null;
-  isPreviewBarHidden: boolean;
-  onPreviewClick?: (file: FileHandle) => void;
-}
-
 export interface LabelRectLike {
   labelClass: string;
 }
@@ -86,7 +74,8 @@ function compareFileNames(a: FileHandle, b: FileHandle): number {
 function getDefaultWorkflowStatus(): ImageWorkflowStatus {
   return {
     detection: {
-      hasAnnotation: false
+      hasAnnotation: false,
+      boxCount: 0
     },
     segmentation: {
       hasAnnotation: false
@@ -141,7 +130,21 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     item.dataset.fileName = file.name;
     item.dataset.testid = `image-list-item-${file.name}`;
     item.dataset.status = badge.statusKey;
-    item.innerHTML = `${icon}<span>${file.name}</span>`;
+    item.innerHTML = icon;
+
+    const name = document.createElement("span");
+    name.className = "image-list-item-name";
+    name.textContent = file.name;
+
+    const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount ?? 0;
+    const count = document.createElement("span");
+    count.className = "badge rounded-pill image-box-count";
+    count.dataset.ui = "image-box-count";
+    count.setAttribute("aria-label", `${boxCount} detection boxes`);
+    count.title = `${boxCount} detection boxes`;
+    count.textContent = String(boxCount);
+    item.appendChild(name);
+    item.appendChild(count);
 
     if (input.currentImageFile && file.name === input.currentImageFile.name) {
       item.classList.add("active");
@@ -270,71 +273,4 @@ export function bindLabelFilterEvents(input: LabelFilterBindingInput): void {
       input.onSelectAll();
     });
   });
-}
-
-export function renderPreviewList(input: PreviewListRenderInput): FileHandle[] {
-  if (input.isPreviewBarHidden) {
-    return [];
-  }
-
-  if (!input.currentImageFile) {
-    input.bottomPanelElement.style.display = "none";
-    return [];
-  }
-
-  input.bottomPanelElement.style.display = "flex";
-  input.previewListElement.innerHTML = "";
-
-  const containerWidth = input.previewListWrapperElement.offsetWidth;
-  const itemWidth = 90 + 10;
-  const minPreviews = 10;
-  const numPreviews = Math.max(minPreviews, Math.floor(containerWidth / itemWidth));
-  const halfPreviews = Math.floor(numPreviews / 2);
-
-  const currentIndex = input.imageFiles.findIndex((file) => file.name === input.currentImageFile?.name);
-  let startIndex = Math.max(0, currentIndex - halfPreviews);
-  let endIndex = Math.min(input.imageFiles.length - 1, currentIndex + halfPreviews);
-
-  if (endIndex - startIndex + 1 < numPreviews) {
-    if (startIndex === 0) {
-      endIndex = Math.min(input.imageFiles.length - 1, numPreviews - 1);
-    } else if (endIndex === input.imageFiles.length - 1) {
-      startIndex = Math.max(0, input.imageFiles.length - numPreviews);
-    }
-  }
-
-  const filesToPreview = input.imageFiles.slice(startIndex, endIndex + 1);
-
-  for (const file of filesToPreview) {
-    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
-    const item = document.createElement("div");
-    item.className = "preview-item preview-list-item";
-    item.dataset.ui = "preview-list-item";
-    item.dataset.fileName = file.name;
-    item.dataset.status = badge.statusKey;
-    if (file.name === input.currentImageFile.name) {
-      item.classList.add("active");
-    }
-
-    const image = document.createElement("img");
-    image.alt = file.name;
-    item.appendChild(image);
-
-    const badgeElement = document.createElement("span");
-    badgeElement.className = "preview-status-badge position-absolute top-0 end-0 m-1";
-    badgeElement.dataset.ui = "preview-status-badge";
-    badgeElement.dataset.status = badge.statusKey;
-    badgeElement.innerHTML = `<i class="${badge.iconClassName}" aria-label="${badge.label}"></i>`;
-    item.appendChild(badgeElement);
-
-    input.previewListElement.appendChild(item);
-
-    if (input.onPreviewClick) {
-      item.addEventListener("click", () => {
-        input.onPreviewClick?.(file);
-      });
-    }
-  }
-
-  return filesToPreview;
 }

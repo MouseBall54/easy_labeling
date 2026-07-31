@@ -26,7 +26,6 @@ export interface CanvasController {
 export interface UIManager {
   connect(deps: UIManagerDeps): void;
   updateLabelFolderButton?(hasLabelFolder: boolean): void;
-  togglePreviewBarVisibility?(hidden: boolean): void;
   setWorkflow?(workflow: WorkflowType): void;
 }
 

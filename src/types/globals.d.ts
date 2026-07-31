@@ -16,6 +16,7 @@ declare global {
     showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
     getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
     openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
+    listEasyLabelingLibraryFiles?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile[]>;
     saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
     easyLabelingDesktop?: {
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;

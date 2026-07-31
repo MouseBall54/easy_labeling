@@ -7,7 +7,6 @@ import {
   renderClassFileSelect,
   renderImageList,
   renderLabelFilters,
-  renderPreviewList,
   renderWorkflowPanels,
   showLoadingOverlay
 } from "../../../src/ui/renderers.js";
@@ -21,11 +20,13 @@ function fileHandle(name: string): FileHandle {
 
 function workflowStatus(input: Partial<{
   detectionAnnotation: boolean;
+  detectionBoxCount: number;
   segmentationAnnotation: boolean;
 }> = {}) {
   return {
     detection: {
-      hasAnnotation: input.detectionAnnotation ?? false
+      hasAnnotation: input.detectionAnnotation ?? false,
+      boxCount: input.detectionBoxCount ?? 0
     },
     segmentation: {
       hasAnnotation: input.segmentationAnnotation ?? false
@@ -60,7 +61,7 @@ describe("ui/renderers", () => {
     const imageListElement = new FakeElement("div");
     const files = [fileHandle("img10.jpg"), fileHandle("img2.jpg"), fileHandle("zebra.jpg")];
     const status = new Map([
-      ["img10.jpg", workflowStatus({ detectionAnnotation: true })],
+      ["img10.jpg", workflowStatus({ detectionAnnotation: true, detectionBoxCount: 12 })],
       ["img2.jpg", workflowStatus({ detectionAnnotation: false })],
       ["zebra.jpg", workflowStatus({ detectionAnnotation: true })]
     ]);
@@ -84,13 +85,17 @@ describe("ui/renderers", () => {
     expect(imageListElement.children[0]?.classList.contains("active")).toBe(true);
     expect(imageListElement.children[0]?.innerHTML.includes("bi-check-circle-fill")).toBe(true);
     expect(imageListElement.children[0]?.dataset.status).toBe("detection-present");
+    expect(imageListElement.children[0]?.children[0]?.textContent).toBe("img10.jpg");
+    expect(imageListElement.children[0]?.children[1]?.dataset.ui).toBe("image-box-count");
+    expect(imageListElement.children[0]?.children[1]?.textContent).toBe("12");
+    expect(imageListElement.children[0]?.children[1]?.getAttribute("aria-label")).toBe("12 detection boxes");
   });
 
   it("derives segmentation badges from the active workflow", () => {
     const segmentationListElement = new FakeElement("div");
     const files = [fileHandle("img1.jpg"), fileHandle("img2.jpg")];
     const status = new Map([
-      ["img1.jpg", workflowStatus({ segmentationAnnotation: true })],
+      ["img1.jpg", workflowStatus({ detectionBoxCount: 7, segmentationAnnotation: true })],
       ["img2.jpg", workflowStatus({ detectionAnnotation: false })]
     ]);
 
@@ -106,60 +111,8 @@ describe("ui/renderers", () => {
     });
     expect(segmentationRendered.map((file) => file.name)).toEqual(["img1.jpg"]);
     expect(segmentationListElement.children[0]?.dataset.status).toBe("segmentation-present");
+    expect(segmentationListElement.children[0]?.children[1]?.textContent).toBe("7");
   });
-  it("renders preview list structure, workflow badges, and respects hidden-state", () => {
-    const bottomPanelElement = new FakeElement("div");
-    const previewListElement = new FakeElement("div");
-    const previewListWrapperElement = new FakeElement("div");
-    previewListWrapperElement.offsetWidth = 800;
-
-    const files = [
-      fileHandle("1.jpg"),
-      fileHandle("2.jpg"),
-      fileHandle("3.jpg"),
-      fileHandle("4.jpg"),
-      fileHandle("5.jpg")
-    ];
-    const statuses = new Map([
-      ["3.jpg", workflowStatus({ detectionAnnotation: true })]
-    ]);
-
-    const hiddenResult = renderPreviewList({
-      bottomPanelElement: bottomPanelElement as unknown as HTMLElement,
-      previewListElement: previewListElement as unknown as HTMLElement,
-      previewListWrapperElement: previewListWrapperElement as unknown as HTMLElement,
-      imageFiles: files,
-      imageWorkflowStatus: statuses,
-      activeWorkflow: "detection",
-      currentImageFile: fileHandle("3.jpg"),
-      isPreviewBarHidden: true
-    });
-    expect(hiddenResult).toEqual([]);
-    expect(previewListElement.children).toHaveLength(0);
-
-    const shownResult = renderPreviewList({
-      bottomPanelElement: bottomPanelElement as unknown as HTMLElement,
-      previewListElement: previewListElement as unknown as HTMLElement,
-      previewListWrapperElement: previewListWrapperElement as unknown as HTMLElement,
-      imageFiles: files,
-      imageWorkflowStatus: statuses,
-      activeWorkflow: "detection",
-      currentImageFile: fileHandle("3.jpg"),
-      isPreviewBarHidden: false
-    });
-
-    expect(bottomPanelElement.style.display).toBe("flex");
-    expect(shownResult.map((file) => file.name)).toEqual(["1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg"]);
-    expect(previewListElement.children).toHaveLength(5);
-    expect(previewListElement.children[2]?.dataset.ui).toBe("preview-list-item");
-    expect(previewListElement.children[2]?.dataset.fileName).toBe("3.jpg");
-    expect(previewListElement.children[2]?.classList.contains("active")).toBe(true);
-    expect(previewListElement.children[2]?.children[0]?.tagName).toBe("img");
-    expect(previewListElement.children[2]?.children[0]?.alt).toBe("3.jpg");
-    expect(previewListElement.children[2]?.children[1]?.dataset.ui).toBe("preview-status-badge");
-    expect(previewListElement.children[2]?.children[1]?.dataset.status).toBe("detection-present");
-  });
-
   it("toggles loading overlay show class", () => {
     const loadingOverlayElement = new FakeElement("div");
 

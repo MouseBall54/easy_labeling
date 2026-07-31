@@ -14,7 +14,6 @@ const renderLabelFiltersMock = vi.fn((input: {
 });
 const renderSelectByClassDropdownMock = vi.fn();
 const renderImageListMock = vi.fn((input: unknown) => { void input; return []; });
-const renderPreviewListMock = vi.fn((input: unknown) => { void input; return []; });
 const renderWorkflowPanelsMock = vi.fn((input: unknown) => { void input; });
 
 vi.mock("../../../src/ui/dom-elements.js", () => ({
@@ -28,7 +27,6 @@ vi.mock("../../../src/ui/renderers.js", () => ({
   renderLabelFilters: (input: unknown) => {
     renderLabelFiltersMock(input as { labelFiltersElement: FakeElement; rects: Array<{ labelClass: string }> });
   },
-  renderPreviewList: (input: unknown) => renderPreviewListMock(input),
   renderSelectByClassDropdown: (...args: unknown[]) => renderSelectByClassDropdownMock(...args),
   renderWorkflowPanels: (input: unknown) => renderWorkflowPanelsMock(input),
   showLoadingOverlay: vi.fn(),
@@ -170,11 +168,21 @@ class FakeElement {
     });
   }
 
-  querySelector(_selector: string): FakeElement | null {
+  querySelector(selector: string): FakeElement | null {
+    if (selector === "small") {
+      return this.children.find((child) => child.tagName === "small") ?? null;
+    }
+    const standbyMatch = selector.match(/^\[data-standby-step="([^"]+)"\]$/);
+    if (standbyMatch) {
+      return this.children.find((child) => child.dataset.standbyStep === standbyMatch[1]) ?? null;
+    }
     return null;
   }
 
-  querySelectorAll(_selector: string): FakeElement[] {
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector === "[data-standby-step]") {
+      return this.children.filter((child) => Boolean(child.dataset.standbyStep));
+    }
     return [];
   }
 
@@ -190,6 +198,8 @@ class FakeElement {
 }
 
 class FakeDocument {
+  readonly body = new FakeElement("body");
+
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
   }
@@ -244,6 +254,13 @@ function createElements() {
   taskAutomateBtn.dataset.task = "automate";
   const matchingEngineStatus = new FakeElement("div");
   matchingEngineStatus.dataset.state = "ready";
+  const workspaceStandbySteps = new FakeElement("ol");
+  ["interface", "dataset", "labels", "images", "classes", "automation", "matching"].forEach((step) => {
+    const item = new FakeElement("li");
+    item.dataset.standbyStep = step;
+    item.appendChild(new FakeElement("small"));
+    workspaceStandbySteps.appendChild(item);
+  });
 
   return {
     labelList: new FakeElement("div"),
@@ -256,9 +273,6 @@ function createElements() {
     classSearchInput,
     showLabeledCheckbox,
     showUnlabeledCheckbox,
-    bottomPanel: new FakeElement("div"),
-    previewList: new FakeElement("div"),
-    previewListWrapper: new FakeElement("div"),
     segmentationActiveClassSummary: new FakeElement("div"),
     segmentationRelabelRegionBtn: new FakeElement("button"),
     segmentationBrushModeBtn: new FakeElement("button"),
@@ -316,7 +330,15 @@ function createElements() {
     automationPresetSelect: new FakeElement("select"),
     matchingEngineStatus,
     loadingOverlay: new FakeElement("div"),
+    loadingDefaultIndicator: new FakeElement("div"),
     loadingStatusText: new FakeElement("strong"),
+    workspaceStandbyPanel: new FakeElement("section"),
+    workspaceStandbyTitle: new FakeElement("strong"),
+    workspaceStandbySummary: new FakeElement("span"),
+    workspaceStandbySteps,
+    workspaceStandbyActions: new FakeElement("div"),
+    retryWorkspaceStandbyBtn: new FakeElement("button"),
+    dismissWorkspaceStandbyBtn: new FakeElement("button"),
     activeOperationPanel: new FakeElement("section"),
     activeOperationTitle: new FakeElement("strong"),
     activeOperationDetail: new FakeElement("span"),
@@ -414,7 +436,6 @@ describe("bootstrap/ui-manager-adapter updateLabelList", () => {
     renderLabelFiltersMock.mockClear();
     renderSelectByClassDropdownMock.mockClear();
     renderImageListMock.mockClear();
-    renderPreviewListMock.mockClear();
     renderWorkflowPanelsMock.mockClear();
   });
 
@@ -548,7 +569,6 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
   beforeEach(() => {
     getDOMElementsMock.mockReset();
     renderImageListMock.mockClear();
-    renderPreviewListMock.mockClear();
     renderWorkflowPanelsMock.mockClear();
   });
 
@@ -579,7 +599,6 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
       activeWorkflow: "segmentation"
     });
     expect(renderImageListMock).toHaveBeenCalledTimes(1);
-    expect(renderPreviewListMock).toHaveBeenCalledTimes(1);
   });
 
   it("syncs segmentation auto-fill toggle from controller getter", () => {
@@ -634,6 +653,35 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
 });
 
 describe("bootstrap/ui-manager-adapter operation status", () => {
+  it("tracks feature readiness and keeps limited workspaces visible", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const documentRef = new FakeDocument();
+    getDOMElementsMock.mockReturnValue(elements);
+    const manager = createUiManagerAdapter({
+      state,
+      documentRef: documentRef as unknown as Document,
+      bootstrapRef: {} as never,
+      windowRef: { prompt: () => null },
+      storage: { getItem: () => null, setItem: () => undefined }
+    });
+
+    manager.startWorkspaceStandby("Preparing dataset", "Checking required features");
+    manager.updateWorkspaceStandbyStep("labels", "warning", "No label folder; saving is limited");
+    manager.finishWorkspaceStandby("warning", "Workspace loaded with limits.");
+
+    const labelStep = elements.workspaceStandbySteps.querySelector('[data-standby-step="labels"]');
+    expect(elements.workspaceStandbyPanel.hidden).toBe(false);
+    expect(documentRef.body.classList.contains("workspace-standby-active")).toBe(true);
+    expect(labelStep?.dataset.state).toBe("warning");
+    expect(labelStep?.querySelector("small")?.textContent).toContain("saving is limited");
+    expect(elements.workspaceStandbyActions.hidden).toBe(false);
+
+    manager.hideWorkspaceStandby();
+    expect(elements.workspaceStandbyPanel.hidden).toBe(true);
+    expect(documentRef.body.classList.contains("workspace-standby-active")).toBe(false);
+  });
+
   it("shows progress and aborts the active operation from the stop button", () => {
     const state = createInitialAppState();
     const elements = createElements();
@@ -678,7 +726,6 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
   beforeEach(() => {
     getDOMElementsMock.mockReset();
     renderImageListMock.mockClear();
-    renderPreviewListMock.mockClear();
     renderWorkflowPanelsMock.mockClear();
   });
 

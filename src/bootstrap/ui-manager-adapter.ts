@@ -3,7 +3,6 @@ import { createOperationCancelledError } from "../app/operation.js";
 import type { AppState } from "../app/state.js";
 import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
-import type { FileHandle } from "../types/files.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import {
   getDOMElements,
@@ -20,7 +19,6 @@ import {
   renderClassFileSelect,
   renderImageList,
   renderLabelFilters,
-  renderPreviewList,
   renderSelectByClassDropdown,
   renderWorkflowPanels,
   showLoadingOverlay,
@@ -54,14 +52,11 @@ function showToast(documentRef: Document, message: string, duration = 3000): voi
   }, duration);
 }
 
-const PREVIEW_PLACEHOLDER_SRC = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNlZWVlZWUiLz4KICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjAuNTsxOzAuNSIgZHVyPSIxcyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KPC9zdmc+";
-
 export interface RuntimeUiManager extends UIManager {
   readonly elements: UiDomElements;
   connect(deps: UIManagerDeps): void;
   getDisplayNameForClass(labelClass: string | undefined): string;
   updateLabelFolderButton(hasLabelFolder: boolean): void;
-  togglePreviewBarVisibility(hidden: boolean): void;
   setWorkflow(workflow: WorkflowType): void;
   promptForLabelClass(defaultValue: string): Promise<string>;
   confirmMissingLabelFolderCreation(): Promise<boolean>;
@@ -70,7 +65,6 @@ export interface RuntimeUiManager extends UIManager {
   applyDarkMode(enabled: boolean): void;
   restoreDarkModeFromStorage(): void;
   renderImageList(): void;
-  renderPreviewList(): void;
   renderClassFileSelect(): void;
   updateLabelList(): void;
   updateCurrentImageName(): void;
@@ -79,6 +73,10 @@ export interface RuntimeUiManager extends UIManager {
   beginOperation(options: RuntimeOperationOptions): RuntimeOperationHandle;
   showLoading(message?: string): void;
   hideLoading(): void;
+  startWorkspaceStandby(title: string, summary: string): void;
+  updateWorkspaceStandbyStep(step: WorkspaceStandbyStep, state: WorkspaceStandbyStepState, detail: string): void;
+  finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void;
+  hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
   setActiveTask(task: "files" | "annotate" | "automate"): void;
   setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
@@ -89,6 +87,17 @@ export interface RuntimeUiManager extends UIManager {
   setupSplitters(): void;
   showClassFileContentModal(): void;
 }
+
+export type WorkspaceStandbyStep =
+  | "interface"
+  | "dataset"
+  | "labels"
+  | "images"
+  | "classes"
+  | "automation"
+  | "matching";
+
+export type WorkspaceStandbyStepState = "pending" | "loading" | "ready" | "warning" | "error";
 
 export interface RuntimeOperationUpdate {
   title?: string;
@@ -140,6 +149,8 @@ export function createUiManagerAdapter(input: {
   ]);
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
+  let workspaceStandbyActive = false;
+  let workspaceStandbyHideTimer: ReturnType<typeof setTimeout> | null = null;
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
@@ -164,10 +175,13 @@ export function createUiManagerAdapter(input: {
 
   const syncLoadingOverlay = (): void => {
     const blockingOperation = [...activeOperations.values()].reverse().find((operation) => operation.blockCanvas);
-    const visible = loadingDepth > 0 || Boolean(blockingOperation);
+    const visible = loadingDepth > 0 || Boolean(blockingOperation) || workspaceStandbyActive;
     if (blockingOperation) {
       elements.loadingStatusText.textContent = blockingOperation.title;
     }
+    elements.loadingDefaultIndicator.hidden = workspaceStandbyActive;
+    elements.workspaceStandbyPanel.hidden = !workspaceStandbyActive;
+    input.documentRef.body.classList.toggle("workspace-standby-active", workspaceStandbyActive);
     if (visible) {
       showLoadingOverlay(elements.loadingOverlay);
       elements.loadingOverlay.setAttribute("aria-hidden", "false");
@@ -240,26 +254,6 @@ export function createUiManagerAdapter(input: {
 
   const getFileSystem = (): RuntimeFileSystem | null => {
     return deps?.fileSystem as RuntimeFileSystem | null;
-  };
-
-  const ensurePreviewImage = async (file: FileHandle, imageElement: HTMLImageElement): Promise<void> => {
-    const cached = input.state.runtime.previewImageCache.get(file.name);
-    if (cached) {
-      imageElement.src = cached;
-      return;
-    }
-
-    imageElement.src = PREVIEW_PLACEHOLDER_SRC;
-    try {
-      const blob = await file.getFile();
-      const objectUrl = URL.createObjectURL(blob);
-      input.state.runtime.previewImageCache.set(file.name, objectUrl);
-      if (elements.previewList.contains(imageElement)) {
-        imageElement.src = objectUrl;
-      }
-    } catch {
-      imageElement.src = PREVIEW_PLACEHOLDER_SRC;
-    }
   };
 
   const syncSegmentationPanelState = (): void => {
@@ -607,19 +601,6 @@ export function createUiManagerAdapter(input: {
       button.innerHTML = '<i class="bi bi-folder-x" aria-hidden="true"></i>';
     },
 
-    togglePreviewBarVisibility(hidden: boolean): void {
-      input.state.view.isPreviewBarHidden = hidden;
-      elements.bottomPanel.classList.toggle("show", !hidden);
-
-      const icon = elements.togglePreviewBtn.querySelector("i");
-      if (!icon) {
-        return;
-      }
-
-      icon.classList.toggle("bi-chevron-down", !hidden);
-      icon.classList.toggle("bi-chevron-up", hidden);
-    },
-
     setWorkflow(workflow: WorkflowType): void {
       input.state.session.workflow = workflow;
       syncWorkflowPanels();
@@ -632,7 +613,6 @@ export function createUiManagerAdapter(input: {
         manager.updateLabelList();
       }
       manager.renderImageList();
-      manager.renderPreviewList();
       manager.syncWorkspaceState();
     },
 
@@ -801,34 +781,6 @@ export function createUiManagerAdapter(input: {
         }
       });
       manager.syncWorkspaceState();
-    },
-
-    renderPreviewList(): void {
-      const fileSystem = getFileSystem();
-      const filesToPreview = renderPreviewList({
-        bottomPanelElement: elements.bottomPanel,
-        previewListElement: elements.previewList,
-        previewListWrapperElement: elements.previewListWrapper,
-        imageFiles: input.state.session.imageFiles,
-        imageWorkflowStatus: input.state.session.imageWorkflowStatus,
-        activeWorkflow: input.state.session.workflow,
-        currentImageFile: input.state.session.currentImageFile,
-        isPreviewBarHidden: input.state.view.isPreviewBarHidden,
-        onPreviewClick: (file) => {
-          fileSystem?.loadImage(file).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : "Unexpected error";
-            manager.notify(message, 4000);
-          });
-        }
-      });
-
-      filesToPreview.forEach((file) => {
-        const previewItem = elements.previewList.querySelector<HTMLElement>(`.preview-item[data-file-name="${CSS.escape(file.name)}"]`);
-        const imageElement = previewItem?.querySelector<HTMLImageElement>("img");
-        if (imageElement) {
-          void ensurePreviewImage(file, imageElement);
-        }
-      });
     },
 
     renderClassFileSelect(): void {
@@ -1137,6 +1089,65 @@ export function createUiManagerAdapter(input: {
       syncLoadingOverlay();
     },
 
+    startWorkspaceStandby(title: string, summary: string): void {
+      if (workspaceStandbyHideTimer) {
+        globalThis.clearTimeout(workspaceStandbyHideTimer);
+        workspaceStandbyHideTimer = null;
+      }
+      workspaceStandbyActive = true;
+      elements.workspaceStandbyPanel.dataset.state = "loading";
+      elements.workspaceStandbyTitle.textContent = title;
+      elements.workspaceStandbySummary.textContent = summary;
+      elements.workspaceStandbyActions.hidden = true;
+      elements.workspaceStandbySteps.querySelectorAll<HTMLElement>("[data-standby-step]").forEach((step) => {
+        step.dataset.state = "pending";
+        const detailElement = step.querySelector<HTMLElement>("small");
+        if (detailElement) {
+          const stepId = step.dataset.standbyStep as WorkspaceStandbyStep | undefined;
+          const waitingForDataset = stepId === "dataset" || stepId === "labels" || stepId === "images" || stepId === "classes";
+          detailElement.textContent = waitingForDataset ? "Waiting for a dataset" : "Waiting";
+          detailElement.title = detailElement.textContent;
+        }
+      });
+      syncLoadingOverlay();
+    },
+
+    updateWorkspaceStandbyStep(step: WorkspaceStandbyStep, state: WorkspaceStandbyStepState, detail: string): void {
+      const stepElement = elements.workspaceStandbySteps.querySelector<HTMLElement>(`[data-standby-step="${step}"]`);
+      if (!stepElement) {
+        return;
+      }
+      stepElement.dataset.state = state;
+      const detailElement = stepElement.querySelector<HTMLElement>("small");
+      if (detailElement) {
+        detailElement.textContent = detail;
+        detailElement.title = detail;
+      }
+    },
+
+    finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void {
+      elements.workspaceStandbyPanel.dataset.state = state;
+      elements.workspaceStandbySummary.textContent = summary;
+      elements.workspaceStandbyActions.hidden = state === "ready";
+      if (state !== "ready") {
+        syncLoadingOverlay();
+        return;
+      }
+      workspaceStandbyHideTimer = globalThis.setTimeout(() => {
+        workspaceStandbyHideTimer = null;
+        manager.hideWorkspaceStandby();
+      }, 650);
+    },
+
+    hideWorkspaceStandby(): void {
+      if (workspaceStandbyHideTimer) {
+        globalThis.clearTimeout(workspaceStandbyHideTimer);
+        workspaceStandbyHideTimer = null;
+      }
+      workspaceStandbyActive = false;
+      syncLoadingOverlay();
+    },
+
     togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void {
       panel.style.display = "";
       panel.classList.toggle("collapsed", collapse);
@@ -1189,32 +1200,8 @@ export function createUiManagerAdapter(input: {
         });
       };
 
-      const setupBottomSplitter = (): void => {
-        elements.bottomSplitter.addEventListener("mousedown", (event) => {
-          event.preventDefault();
-          const bottomPanel = elements.bottomPanel;
-          const initialHeight = bottomPanel.getBoundingClientRect().height;
-          const startY = event.clientY;
-
-          const onMouseMove = (moveEvent: MouseEvent) => {
-            const delta = startY - moveEvent.clientY;
-            const nextHeight = Math.max(80, Math.min(400, initialHeight + delta));
-            bottomPanel.style.height = `${nextHeight}px`;
-          };
-
-          const onMouseUp = () => {
-            document.removeEventListener("mousemove", onMouseMove);
-            document.removeEventListener("mouseup", onMouseUp);
-          };
-
-          document.addEventListener("mousemove", onMouseMove);
-          document.addEventListener("mouseup", onMouseUp);
-        });
-      };
-
       setup(elements.leftSplitter, elements.leftPanel, "left");
       setup(elements.rightSplitter, elements.rightPanel, "right");
-      setupBottomSplitter();
     },
 
     showClassFileContentModal(): void {

@@ -152,11 +152,33 @@
         <main id="canvas-container" class="canvas-container" aria-label="Annotation canvas">
             <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
             <div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite" aria-hidden="true">
-                <div class="loading-indicator">
+                <div id="loadingDefaultIndicator" class="loading-indicator">
                     <div class="spinner-border text-primary" aria-hidden="true"></div>
                     <strong id="loadingStatusText">Loading workspace...</strong>
                     <span>This may take a moment for large images.</span>
                 </div>
+                <section id="workspaceStandbyPanel" class="workspace-standby-panel" aria-labelledby="workspaceStandbyTitle" hidden>
+                    <div class="workspace-standby-heading">
+                        <div class="workspace-standby-mark" aria-hidden="true"><i class="bi bi-grid-1x2-fill"></i></div>
+                        <div>
+                            <strong id="workspaceStandbyTitle">Preparing workspace</strong>
+                            <span id="workspaceStandbySummary">Checking the features required for labeling.</span>
+                        </div>
+                    </div>
+                    <ol id="workspaceStandbySteps" class="workspace-standby-steps">
+                        <li data-standby-step="interface" data-state="pending"><i aria-hidden="true"></i><span><strong>Interface</strong><small>Waiting</small></span></li>
+                        <li data-standby-step="dataset" data-state="pending"><i aria-hidden="true"></i><span><strong>Dataset access</strong><small>Waiting for a dataset</small></span></li>
+                        <li data-standby-step="labels" data-state="pending"><i aria-hidden="true"></i><span><strong>Label workspace</strong><small>Waiting for a dataset</small></span></li>
+                        <li data-standby-step="images" data-state="pending"><i aria-hidden="true"></i><span><strong>Images &amp; annotations</strong><small>Waiting for a dataset</small></span></li>
+                        <li data-standby-step="classes" data-state="pending"><i aria-hidden="true"></i><span><strong>Classes</strong><small>Waiting for a dataset</small></span></li>
+                        <li data-standby-step="automation" data-state="pending"><i aria-hidden="true"></i><span><strong>Layouts &amp; presets</strong><small>Waiting</small></span></li>
+                        <li data-standby-step="matching" data-state="pending"><i aria-hidden="true"></i><span><strong>Matching engine</strong><small>Waiting</small></span></li>
+                    </ol>
+                    <div id="workspaceStandbyActions" class="workspace-standby-actions" hidden>
+                        <button id="retryWorkspaceStandbyBtn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Retry</button>
+                        <button id="dismissWorkspaceStandbyBtn" type="button" class="btn btn-outline-secondary btn-sm">Continue with limits</button>
+                    </div>
+                </section>
             </div>
             <div id="canvasEmptyState" class="canvas-empty-state">
                 <img src="assets/icons/easy-labeling.png" alt="" aria-hidden="true">
@@ -172,25 +194,6 @@
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             <button id="expand-right-panel-btn" type="button" class="panel-expand-btn" title="Expand inspector" aria-label="Expand inspector" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
-            <!-- Bottom Preview Panel -->
-             <div id="bottom-panel" class="preview-panel" data-ui="preview-panel">
-                <div id="bottom-splitter"></div>
-                <div id="preview-bar-container">
-                     <div id="preview-bar-header" class="preview-panel-header" data-ui="preview-panel-header">
-                         <span class="preview-panel-title" data-ui="preview-panel-title"><i class="bi bi-images"></i> Image Previews</span>
-                         <button id="toggle-preview-btn" type="button" class="btn btn-sm btn-outline-secondary" data-ui="toggle-preview-panel" title="Toggle Preview Panel">
-                             <i class="bi bi-chevron-down"></i>
-                         </button>
-                     </div>
-                     <div id="preview-bar" class="preview-bar-content" data-ui="preview-bar-content">
-                         <button id="preview-prev-btn" type="button" class="btn btn-dark btn-sm" data-ui="preview-nav-prev" title="Previous preview" aria-label="Previous preview"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
-                         <div id="preview-list-wrapper">
-                             <div id="preview-list"></div>
-                         </div>
-                         <button id="preview-next-btn" type="button" class="btn btn-dark btn-sm" data-ui="preview-nav-next" title="Next preview" aria-label="Next preview"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
-                     </div>
-                 </div>
-             </div>
         </main>
 
         <div id="right-splitter" class="panel-splitter"></div>

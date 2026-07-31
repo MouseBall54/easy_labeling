@@ -33,7 +33,6 @@ function createFactorySpies() {
       labelFontSize: 14,
       lastMousePosition: { x: 0, y: 0 },
       labelSortOrder: "asc",
-      isPreviewBarHidden: false,
       isCrosshairVisible: false,
       contextTarget: null,
       collapsedLabelGroups: new Set<string>(),
@@ -45,8 +44,7 @@ function createFactorySpies() {
     runtime: {
       saveTimeout: null,
       currentLoadToken: 0,
-      clipboard: null,
-      previewImageCache: new Map<string, string>()
+      clipboard: null
     }
   }));
 

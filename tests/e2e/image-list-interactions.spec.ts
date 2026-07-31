@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 type MockFileInit = string | ArrayBuffer;
 
-test("preview-list: search filters images and preview click navigates", async ({ page }) => {
+test("image-list: search, box counts, and image navigation work together", async ({ page }) => {
   await page.addInitScript(() => {
     const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgN6f3QAAAABJRU5ErkJggg==";
     const pngBinary = atob(pngBase64);
@@ -83,6 +83,10 @@ test("preview-list: search filters images and preview click navigates", async ({
     imageFolder.setEntry("beta-2.png", new MockFileHandle("beta-2.png", pngBuffer));
     imageFolder.setEntry("gamma-3.png", new MockFileHandle("gamma-3.png", pngBuffer));
     const labelFolder = new MockDirectoryHandle("label");
+    labelFolder.setEntry("beta-2.txt", new MockFileHandle(
+      "beta-2.txt",
+      "0 0.5 0.5 0.2 0.2\n2 0.25 0.25 0.1 0.1\n"
+    ));
     imageFolder.setEntry("label", labelFolder);
 
     Object.defineProperty(window, "showDirectoryPicker", {
@@ -97,14 +101,11 @@ test("preview-list: search filters images and preview click navigates", async ({
 
   await page.locator("#imageSearchInput").fill("beta");
   await expect(page.locator("#image-list .list-group-item")).toHaveCount(1);
-  await expect(page.locator("#image-list .list-group-item span")).toContainText(["beta-2.png"]);
+  await expect(page.locator("#image-list .image-list-item-name")).toHaveText("beta-2.png");
+  await expect(page.locator("#image-list [data-ui='image-box-count']")).toHaveText("2");
 
   await page.locator("#imageSearchInput").fill("");
-  await page.locator("#toggle-preview-btn").click();
-  await expect.poll(async () => page.locator("#preview-list .preview-item").count()).toBeGreaterThan(0);
-  await expect(page.locator("#preview-list .preview-item img").first()).toHaveAttribute("src", /^(blob:|data:image\/svg\+xml;base64,)/);
-
-  await page.locator('#preview-list .preview-item[data-file-name="gamma-3.png"]').click();
+  await page.locator('#image-list [data-file-name="gamma-3.png"]').click();
   await expect
     .poll(async () => {
       return page.evaluate(() => {

@@ -6,7 +6,8 @@ import {
 } from "../../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../../types/files.js";
 import { parseAutomationLibrary, serializeAutomationLibrary, validateAutomationLibrary } from "./preset-codec.js";
-import { AUTOMATION_SCHEMA_VERSION, type AutomationLibraryDocument } from "./types.js";
+import { validateBoxLayout } from "./layout.js";
+import { AUTOMATION_SCHEMA_VERSION, type AutomationLibraryDocument, type BoxLayout } from "./types.js";
 
 export const AUTOMATION_DIRECTORY_NAME = ".easy-labeling";
 export const AUTOMATION_LIBRARY_FILE_NAME = "automation-library.json";
@@ -103,6 +104,113 @@ export function upsertById<T extends { id: string }>(items: readonly T[], next: 
     return [...items, next];
   }
   return items.map((item, index) => index === existingIndex ? next : item);
+}
+
+export interface AutomationProfileFile {
+  name: string;
+  contents: string;
+}
+
+export interface AutomationProfileLoadResult {
+  document: AutomationLibraryDocument;
+  errors: string[];
+}
+
+export function loadAutomationProfileFiles(
+  layoutFiles: readonly AutomationProfileFile[],
+  presetFiles: readonly AutomationProfileFile[]
+): AutomationProfileLoadResult {
+  let document = createEmptyAutomationLibrary();
+  const errors: string[] = [];
+  const sorted = (files: readonly AutomationProfileFile[]) => [...files]
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }));
+
+  sorted(layoutFiles).forEach((file) => {
+    try {
+      const layout = JSON.parse(file.contents) as BoxLayout;
+      validateBoxLayout(layout);
+      document = {
+        ...document,
+        layouts: upsertById(document.layouts, layout)
+      };
+    } catch (error: unknown) {
+      errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  sorted(presetFiles).forEach((file) => {
+    try {
+      document = mergePresetFileDocument(document, parseAutomationLibrary(file.contents));
+    } catch (error: unknown) {
+      errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  return { document, errors };
+}
+
+export function mergeAutomationLibraries(
+  base: AutomationLibraryDocument,
+  overrides: AutomationLibraryDocument
+): AutomationLibraryDocument {
+  validateAutomationLibrary(base);
+  validateAutomationLibrary(overrides);
+  const merged: AutomationLibraryDocument = {
+    schemaVersion: AUTOMATION_SCHEMA_VERSION,
+    layouts: overrides.layouts.reduce((items, item) => upsertById(items, item), [...base.layouts]),
+    templates: overrides.templates.reduce((items, item) => upsertById(items, item), [...base.templates]),
+    presets: overrides.presets.reduce((items, item) => upsertById(items, item), [...base.presets])
+  };
+  validateAutomationLibrary(merged);
+  return merged;
+}
+
+export function createDatasetAutomationLibrary(
+  runtime: AutomationLibraryDocument,
+  profile: AutomationLibraryDocument
+): AutomationLibraryDocument {
+  validateAutomationLibrary(runtime);
+  validateAutomationLibrary(profile);
+  const differsFromProfile = <T extends { id: string }>(item: T, profileItems: readonly T[]): boolean => {
+    const profileItem = profileItems.find((candidate) => candidate.id === item.id);
+    return !profileItem || JSON.stringify(profileItem) !== JSON.stringify(item);
+  };
+
+  const presets = runtime.presets.filter((preset) => differsFromProfile(preset, profile.presets));
+  let layouts = runtime.layouts.filter((layout) => differsFromProfile(layout, profile.layouts));
+  let templates = runtime.templates.filter((template) => differsFromProfile(template, profile.templates));
+  presets.forEach((preset) => {
+    const template = runtime.templates.find((candidate) => candidate.id === preset.templateId);
+    const layout = preset.layoutId
+      ? runtime.layouts.find((candidate) => candidate.id === preset.layoutId)
+      : null;
+    if (template) {
+      templates = upsertById(templates, template);
+    }
+    if (layout) {
+      layouts = upsertById(layouts, layout);
+    }
+  });
+
+  const dataset: AutomationLibraryDocument = {
+    schemaVersion: AUTOMATION_SCHEMA_VERSION,
+    layouts,
+    templates,
+    presets
+  };
+  validateAutomationLibrary(dataset);
+  return dataset;
+}
+
+export function resolveAutomationSelectionId(
+  items: readonly { id: string }[],
+  selectedId: string,
+  selectFirst: boolean
+): string {
+  if (items.some((item) => item.id === selectedId)) {
+    return selectedId;
+  }
+  return selectFirst ? items[0]?.id ?? "" : "";
 }
 
 export function deleteLayoutFromLibrary(document: AutomationLibraryDocument, layoutId: string): AutomationLibraryDocument {

@@ -10,6 +10,7 @@ import {
 } from "../../domain/annotations/contracts.js";
 import { resolveAnnotationAssetPaths } from "../../domain/annotations/paths.js";
 import { createSegmentationAnnotationCodec } from "../../domain/annotations/segmentation-codec.js";
+import { parseYoloRows } from "../../domain/yolo/yolo.js";
 import type { SegmentationDocumentSnapshot } from "../../features/segmentation/types.js";
 import {
   getSubdirectoryHandle,
@@ -36,7 +37,6 @@ export interface ImageSessionServiceState {
   workflow: WorkflowType;
   classFiles: FileHandleLike[];
   classNames: Map<string, string>;
-  previewImageCache: Map<string, string>;
   saveTimeout: ReturnType<typeof setTimeout> | null;
 }
 
@@ -52,7 +52,6 @@ export interface ImageSessionServiceDeps {
   applyLoadedYolo(yoloData: string): Promise<void> | void;
   applyLoadedSegmentationSnapshot(snapshot: SegmentationDocumentSnapshot | null): Promise<void> | void;
   clearPendingSaveTimeout(timeout: ReturnType<typeof setTimeout> | null): void;
-  revokePreviewUrl(url: string): void;
   shouldCreateMissingLabelFolder?(): Promise<boolean> | boolean;
 }
 
@@ -154,18 +153,9 @@ async function listRelativeFilePaths(
   return new Set([...fileNames].map((fileName) => `${prefix}/${fileName}`));
 }
 
-function clearPreviewCache(state: ImageSessionServiceState, revokePreviewUrl: (url: string) => void): void {
-  state.previewImageCache.forEach((url) => {
-    if (url.startsWith("blob:")) {
-      revokePreviewUrl(url);
-    }
-  });
-  state.previewImageCache.clear();
-}
-
 function deriveImageWorkflowStatus(
   imageFileName: string,
-  detectionAnnotationFileNames: ReadonlySet<string>,
+  detectionBoxCounts: ReadonlyMap<string, number>,
   segmentationAnnotationPaths: ReadonlySet<string>
 ): ImageWorkflowStatus {
   const imageBaseName = imageFileNameToBaseName(imageFileName);
@@ -173,7 +163,9 @@ function deriveImageWorkflowStatus(
   const detectionPaths = resolveAnnotationAssetPaths("detection", imageBaseName);
   const segmentationPaths = resolveAnnotationAssetPaths("segmentation", imageBaseName);
 
-  status.detection.hasAnnotation = detectionAnnotationFileNames.has(detectionPaths.primaryFilePath.split("/").pop() ?? `${imageBaseName}.txt`);
+  const detectionFileName = detectionPaths.primaryFilePath.split("/").pop() ?? `${imageBaseName}.txt`;
+  status.detection.boxCount = detectionBoxCounts.get(detectionFileName) ?? 0;
+  status.detection.hasAnnotation = status.detection.boxCount > 0;
   status.segmentation.hasAnnotation = segmentationAnnotationPaths.has(segmentationPaths.primaryFilePath);
 
   return status;
@@ -209,7 +201,6 @@ export function createImageSessionService(
       );
       state.labelFolderHandle = labelSelection.labelFolderHandle;
 
-      clearPreviewCache(state, deps.revokePreviewUrl);
       await this.listImageFiles();
 
       return labelSelection;
@@ -235,6 +226,14 @@ export function createImageSessionService(
 
     async refreshImageWorkflowStatus(): Promise<void> {
       const detectionAnnotationFileNames = await listFileNames(state.labelFolderHandle, (fileName) => fileName.endsWith(".txt"));
+      const detectionBoxCounts = new Map<string, number>();
+      await Promise.all([...detectionAnnotationFileNames].map(async (fileName) => {
+        if (!state.labelFolderHandle) {
+          return;
+        }
+        const yoloText = await readTextFileByName(state.labelFolderHandle, fileName);
+        detectionBoxCounts.set(fileName, parseYoloRows(yoloText, 1, 1).length);
+      }));
       const segmentationAnnotationPaths = await listRelativeFilePaths(state.imageFolderHandle, ["mask"], (fileName) => {
         return fileName.endsWith(".png");
       });
@@ -245,7 +244,7 @@ export function createImageSessionService(
           fileHandle.name,
           deriveImageWorkflowStatus(
             fileHandle.name,
-            detectionAnnotationFileNames,
+            detectionBoxCounts,
             segmentationAnnotationPaths
           )
         );
@@ -372,6 +371,7 @@ export function createImageSessionService(
         const hasLabels = trimmedYolo.length > 0;
         const imageStatus = ensureImageWorkflowStatus(state, state.currentImageFile.name);
         imageStatus.detection.hasAnnotation = hasLabels;
+        imageStatus.detection.boxCount = parseYoloRows(trimmedYolo, 1, 1).length;
         state.imageWorkflowStatus.set(state.currentImageFile.name, imageStatus);
 
         return {

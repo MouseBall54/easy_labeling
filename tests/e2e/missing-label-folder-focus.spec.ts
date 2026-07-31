@@ -2,13 +2,22 @@ import { expect, test } from "@playwright/test";
 
 test("keeps text and numeric inputs editable immediately after creating a missing label folder", async ({ page }) => {
   await page.addInitScript(() => {
-    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgN6f3QAAAABJRU5ErkJggg=="), (character) => character.charCodeAt(0));
+    const pngBytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgN6f3QAAAABJRU5ErkJggg=="), (character) => character.charCodeAt(0));
+    const png = pngBytes.buffer;
 
     class MockFileHandle {
       kind = "file" as const;
       constructor(public name: string, private content: BlobPart) {}
       async getFile(): Promise<File> {
         return new File([this.content], this.name, { type: "image/png" });
+      }
+      async createWritable(): Promise<{ write(data: BlobPart): Promise<void>; close(): Promise<void> }> {
+        return {
+          write: async (data) => {
+            this.content = data;
+          },
+          close: async () => undefined
+        };
       }
     }
 
@@ -35,6 +44,18 @@ test("keeps text and numeric inputs editable immediately after creating a missin
         }
         throw new DOMException(`Directory ${name} not found`, "NotFoundError");
       }
+      async getFileHandle(name: string, options?: { create?: boolean }): Promise<MockFileHandle> {
+        const existing = this.entries.get(name);
+        if (existing instanceof MockFileHandle) {
+          return existing;
+        }
+        if (options?.create) {
+          const created = new MockFileHandle(name, "");
+          this.entries.set(name, created);
+          return created;
+        }
+        throw new DOMException(`File ${name} not found`, "NotFoundError");
+      }
     }
 
     const dataset = new MockDirectoryHandle("dataset-without-settings");
@@ -56,6 +77,12 @@ test("keeps text and numeric inputs editable immediately after creating a missin
   await page.locator("#createMissingLabelFolderBtn").click();
   await expect(page.locator("#missingLabelFolderModal")).toBeHidden();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__missingLabelFolderCreated"))).toBe(true);
+  await expect(page.locator('[data-standby-step="labels"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator('[data-standby-step="images"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator('[data-standby-step="classes"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator('[data-standby-step="automation"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator('[data-standby-step="matching"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden();
 
   const searchInput = page.locator("#imageSearchInput");
   await searchInput.click();
@@ -78,6 +105,10 @@ test("keeps text and numeric inputs editable immediately after creating a missin
   await expect(page.locator("#missingLabelFolderModal")).toBeVisible();
   await page.locator("#continueWithoutLabelFolderBtn").click();
   await expect(page.locator("#missingLabelFolderModal")).toBeHidden();
+  await expect(page.locator('[data-standby-step="labels"]')).toHaveAttribute("data-state", "warning");
+  await expect(page.locator("#workspaceStandbyActions")).toBeVisible();
+  await page.locator("#dismissWorkspaceStandbyBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden();
 
   await searchInput.click();
   await searchInput.press("ControlOrMeta+A");

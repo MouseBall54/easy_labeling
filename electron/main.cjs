@@ -7,6 +7,7 @@ const PICK_DIRECTORY_CHANNEL = "easy-labeling:pick-directory";
 const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
 const OPEN_LIBRARY_FILE_CHANNEL = "easy-labeling:open-library-file";
 const SAVE_LIBRARY_FILE_CHANNEL = "easy-labeling:save-library-file";
+const LIST_LIBRARY_FILES_CHANNEL = "easy-labeling:list-library-files";
 const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 
 const PROFILE_DIRECTORY_NAMES = {
@@ -106,6 +107,22 @@ function registerIpcHandlers() {
       name: path.basename(filePath),
       contents: await fs.readFile(filePath, "utf8")
     };
+  });
+  ipcMain.handle(LIST_LIBRARY_FILES_CHANNEL, async (_event, kind) => {
+    const directoryPath = await ensureProfileDirectory(kind);
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    const fileNames = entries
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".json"))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" }));
+    return await Promise.all(fileNames.map(async (name) => {
+      const filePath = path.join(directoryPath, name);
+      return {
+        filePath,
+        name,
+        contents: await fs.readFile(filePath, "utf8")
+      };
+    }));
   });
   ipcMain.handle(SAVE_LIBRARY_FILE_CHANNEL, async (_event, options) => {
     if (!options || typeof options.contents !== "string") {

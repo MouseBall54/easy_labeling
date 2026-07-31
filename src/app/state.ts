@@ -41,7 +41,6 @@ export interface AppViewState {
   labelFontSize: number;
   lastMousePosition: CanvasPoint;
   labelSortOrder: LabelSortOrder;
-  isPreviewBarHidden: boolean;
   isCrosshairVisible: boolean;
   contextTarget: EventTarget | null;
   collapsedLabelGroups: Set<string>;
@@ -55,7 +54,6 @@ export interface AppRuntimeState {
   saveTimeout: ReturnType<typeof setTimeout> | null;
   currentLoadToken: number;
   clipboard: unknown;
-  previewImageCache: Map<string, string>;
 }
 
 export interface AppState {
@@ -88,7 +86,6 @@ export function createInitialAppState(): AppState {
       labelFontSize: 14,
       lastMousePosition: { x: 0, y: 0 },
       labelSortOrder: "asc",
-      isPreviewBarHidden: false,
       isCrosshairVisible: false,
       contextTarget: null,
       collapsedLabelGroups: new Set<string>(),
@@ -100,8 +97,7 @@ export function createInitialAppState(): AppState {
     runtime: {
       saveTimeout: null,
       currentLoadToken: 0,
-      clipboard: null,
-      previewImageCache: new Map<string, string>()
+      clipboard: null
     }
   };
 }
