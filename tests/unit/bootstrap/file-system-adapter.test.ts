@@ -168,6 +168,7 @@ function createConnectedDeps() {
       updateLabelFolderButton: vi.fn(),
       elements: {
         classFileEditorBody,
+        classFileSelect: { value: "" },
         selectLabelFolderBtn: { removeAttribute: vi.fn() }
       }
     },
@@ -326,6 +327,58 @@ describe("bootstrap/file-system-adapter", () => {
 
     expect(deps.uiManager.notify).toHaveBeenCalledWith("Please select a class file first.");
     expect(deps.uiManager.showClassFileContentModal).not.toHaveBeenCalled();
+  });
+
+  it("loads class files from the default Class Info profile before dataset-local files", async () => {
+    const profileFolder = new MockDirectoryHandle("Class Info")
+      .withFile(new MockFileHandle("profile.yaml", "0: profile class"));
+    const labelFolder = new MockDirectoryHandle("label")
+      .withFile(new MockFileHandle("dataset.yaml", "0: dataset class"));
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = labelFolder as never;
+    const windowRef = {
+      ...createWindowRef(labelFolder),
+      getEasyLabelingProfileDirectory: vi.fn(async () => profileFolder)
+    };
+    const fileSystem = createFileSystemAdapter({
+      state,
+      windowRef: windowRef as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
+      tiffRef: null
+    });
+    fileSystem.connect(createConnectedDeps() as never);
+
+    await fileSystem.loadDefaultClassInfo();
+
+    expect(windowRef.getEasyLabelingProfileDirectory).toHaveBeenCalledWith("class-info");
+    expect(state.session.classInfoFolderHandle).toBe(profileFolder);
+    expect(state.session.classFiles.map((file) => file.name)).toEqual(["profile.yaml"]);
+    expect(state.session.classNames).toEqual(new Map([["0", "profile class"]]));
+  });
+
+  it("creates a default class file and opens the table editor from the create option", async () => {
+    await withDocumentMock(async () => {
+      const profileFolder = new MockDirectoryHandle("Class Info");
+      const state = createInitialAppState();
+      const windowRef = {
+        ...createWindowRef(profileFolder),
+        getEasyLabelingProfileDirectory: vi.fn(async () => profileFolder)
+      };
+      const fileSystem = createFileSystemAdapter({
+        state,
+        windowRef: windowRef as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
+        tiffRef: null
+      });
+      const deps = createConnectedDeps();
+      deps.uiManager.elements.classFileSelect.value = "__CREATE_NEW__";
+      fileSystem.connect(deps as never);
+
+      await fileSystem.showClassFileContent();
+
+      expect(state.session.selectedClassFile?.name).toBe("classes.yaml");
+      expect(state.session.classFiles.map((file) => file.name)).toEqual(["classes.yaml"]);
+      expect(deps.uiManager.showClassFileContentModal).toHaveBeenCalledTimes(1);
+      expect(deps.uiManager.elements.classFileEditorBody.querySelectorAll("tr").length).toBeGreaterThan(0);
+    });
   });
 
   it("saves only the active workflow and skips detection txt writes in segmentation mode", async () => {

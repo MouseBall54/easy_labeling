@@ -181,6 +181,7 @@ export function createEventManagerAdapter(input: {
         };
 
         try {
+          await input.fileSystem.loadDefaultClassInfo();
           await options.loadDataset?.(reportProgress);
 
           if (automationController) {
@@ -678,7 +679,6 @@ export function createEventManagerAdapter(input: {
       elements.classFileSelect.addEventListener("change", () => {
         const selectedFileName = elements.classFileSelect.value;
         if (selectedFileName === "__CREATE_NEW__") {
-          runAsync(() => input.fileSystem.createNewClassFile());
           return;
         }
         if (!selectedFileName) {

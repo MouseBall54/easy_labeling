@@ -194,14 +194,15 @@ test("filter visibility: class toggles, reset, persistence, and stability", asyn
 
   for (let count = 0; count < 4; count += 1) {
     await page.locator('[data-ui="filter-all"]').click();
+    const shouldBeVisible = count % 2 === 1;
     await expect.poll(async () => readVisibilitySnapshot(page)).toEqual({
       imageName: "scene-b.png",
-      visibleRectCount: 3,
-      visibleClassKeys: ["1", "2"],
-      visibleLabelRowCount: 3
+      visibleRectCount: shouldBeVisible ? 3 : 0,
+      visibleClassKeys: shouldBeVisible ? ["1", "2"] : [],
+      visibleLabelRowCount: shouldBeVisible ? 3 : 0
     });
     await expect(page.locator("#label-list li.list-group-item.active")).toHaveCount(0);
-    await expect(page.locator('[data-ui="label-list-empty"]')).toHaveCount(0);
-    await expect(page.locator('[data-ui="filter-summary"]')).toHaveText("Visible: 3 / Total: 3");
+    await expect(page.locator('[data-ui="label-list-empty"]')).toHaveCount(shouldBeVisible ? 0 : 1);
+    await expect(page.locator('[data-ui="filter-summary"]')).toHaveText(`Visible: ${shouldBeVisible ? 3 : 0} / Total: 3`);
   }
 });

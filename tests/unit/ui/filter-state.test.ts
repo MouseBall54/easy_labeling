@@ -7,6 +7,7 @@ import {
   deriveVisibilitySummary,
   normalizeFilterClassKey,
   resetHiddenLabelClasses,
+  toggleAllLabelClasses,
   toggleHiddenLabelClass,
   UNLABELED_FILTER_KEY
 } from "../../../src/ui/filter-state.js";
@@ -38,6 +39,17 @@ describe("ui/filter-state", () => {
 
     expect([...reset]).toEqual([]);
     expect([...hidden].sort()).toEqual(["1", "2", UNLABELED_FILTER_KEY].sort());
+  });
+
+  it("toggles all current classes while preserving unrelated hidden state", () => {
+    const hideAll = toggleAllLabelClasses(["1", "2", ""], new Set(["stale"]));
+    expect([...hideAll].sort()).toEqual(["1", "2", UNLABELED_FILTER_KEY, "stale"].sort());
+
+    const showAll = toggleAllLabelClasses(["1", "2", ""], hideAll);
+    expect([...showAll]).toEqual(["stale"]);
+
+    const showPartiallyHidden = toggleAllLabelClasses(["1", "2"], new Set(["2"]));
+    expect([...showPartiallyHidden]).toEqual([]);
   });
 
   it("derives visible and total summary counts from hidden classes", () => {

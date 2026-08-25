@@ -8,6 +8,7 @@ const SAMPLE_DIRECTORY_CHANNEL = "easy-labeling:get-sample-directory";
 const OPEN_LIBRARY_FILE_CHANNEL = "easy-labeling:open-library-file";
 const SAVE_LIBRARY_FILE_CHANNEL = "easy-labeling:save-library-file";
 const LIST_LIBRARY_FILES_CHANNEL = "easy-labeling:list-library-files";
+const GET_PROFILE_DIRECTORY_CHANNEL = "easy-labeling:get-profile-directory";
 const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 
 const PROFILE_DIRECTORY_NAMES = {
@@ -83,6 +84,9 @@ function registerIpcHandlers() {
       return null;
     }
     return result.filePaths[0];
+  });
+  ipcMain.handle(GET_PROFILE_DIRECTORY_CHANNEL, async (_event, kind) => {
+    return await ensureProfileDirectory(kind);
   });
   ipcMain.handle(SAMPLE_DIRECTORY_CHANNEL, async () => {
     const sourcePath = path.resolve(__dirname, "..", "assets", "sample");

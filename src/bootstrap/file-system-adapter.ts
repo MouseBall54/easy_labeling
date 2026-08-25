@@ -18,6 +18,7 @@ import type { ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
+import { CREATE_NEW_CLASS_FILE_VALUE } from "../ui/renderers.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 import { createImageDecoder } from "../features/images/image-decoder.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
@@ -137,6 +138,7 @@ export interface RuntimeFileSystem extends FileSystem {
   loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   selectLabelFolder(): Promise<void>;
   selectClassInfoFolder(): Promise<void>;
+  loadDefaultClassInfo(): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
   navigateImage(direction: number): Promise<void>;
   loadImage(fileHandle: FileHandleLike): Promise<void>;
@@ -162,6 +164,7 @@ export type WorkspaceLoadProgressReporter = (
 interface FileSystemWindowRuntime {
   showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
   getEasyLabelingSampleDirectory?: (signal?: AbortSignal) => Promise<FileSystemDirectoryHandle>;
+  getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
   clearTimeout: typeof window.clearTimeout;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
   dispatchEvent?: (event: Event) => boolean;
@@ -630,6 +633,15 @@ export function createFileSystemAdapter(input: {
         });
       },
 
+      async loadDefaultClassInfo(): Promise<void> {
+        const getProfileDirectory = input.windowRef.getEasyLabelingProfileDirectory;
+        if (typeof getProfileDirectory !== "function") {
+          return;
+        }
+        input.state.session.classInfoFolderHandle = await getProfileDirectory("class-info");
+        await refreshClassFileStateFromAvailableFolder();
+      },
+
       async saveLabels(isAuto = false): Promise<void> {
         await enqueueOperation(async () => {
           const imageName = input.state.session.currentImageFile?.name;
@@ -748,6 +760,10 @@ export function createFileSystemAdapter(input: {
           return;
         }
 
+        if ((connectedDeps.uiManager as RuntimeUiManager).elements.classFileSelect.value === CREATE_NEW_CLASS_FILE_VALUE) {
+          await this.createNewClassFile();
+        }
+
         if (!input.state.session.selectedClassFile) {
           const firstClassFile = input.state.session.classFiles[0] ?? null;
           if (!firstClassFile) {
@@ -808,19 +824,22 @@ export function createFileSystemAdapter(input: {
       },
 
       async createNewClassFile(): Promise<void> {
+        if (!input.state.session.classInfoFolderHandle) {
+          await this.loadDefaultClassInfo();
+        }
         const folderHandle = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
         if (!folderHandle || !connectedDeps) {
+          (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify("Open a dataset or connect a Class Info folder first.");
           return;
         }
 
-        const fileName = window.prompt("Enter new class file name:", "classes.yaml");
-        if (!fileName) {
-          return;
+        let suffix = 1;
+        let result = await createNewClassFile(folderHandle, "classes.yaml");
+        while (!result.created) {
+          suffix += 1;
+          result = await createNewClassFile(folderHandle, `classes-${suffix}.yaml`);
         }
-
-        const result = await createNewClassFile(folderHandle, fileName);
-        if (!result.created || !result.fileHandle) {
-          (connectedDeps.uiManager as RuntimeUiManager).notify(`A file named ${result.fileName} already exists.`);
+        if (!result.fileHandle) {
           return;
         }
 

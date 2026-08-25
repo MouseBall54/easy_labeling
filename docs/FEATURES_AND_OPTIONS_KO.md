@@ -373,7 +373,9 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - YAML/YML 클래스 파일이 있는 폴더를 연결한다.
 - 클래스 파일을 선택, 생성, 편집할 수 있다.
 - Class ID는 0과 양의 정수를 사용하며 클래스 이름과 색상 표시를 연결한다.
-- Electron에서는 클래스 정보 폴더 선택 대화상자의 기본 위치가 사용자 문서 폴더 아래 `Easy Labeling/Class Info`다.
+- Electron은 사용자 문서 폴더 아래 `Easy Labeling/Class Info`를 시작 시 자동으로 만들고 이 위치의 YAML/YML을 우선 불러온다.
+- `Create new class file...`을 선택하고 옆의 보기 버튼을 누르면 기본 위치에 `classes.yaml` 계열 파일을 자동 생성하고 기존 테이블 편집기를 연다.
+- `All classes`는 현재 이미지의 모든 클래스를 한 번에 숨기거나 다시 표시한다.
 
 ### 7.4 저장과 Auto save
 

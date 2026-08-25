@@ -17,6 +17,7 @@ declare global {
     getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
     openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
     listEasyLabelingLibraryFiles?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile[]>;
+    getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
     saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
     easyLabelingDesktop?: {
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
@@ -24,6 +25,7 @@ declare global {
   }
 
   type EasyLabelingLibraryFileKind = "preset" | "layout";
+  type EasyLabelingProfileDirectoryKind = EasyLabelingLibraryFileKind | "class-info";
 
   interface EasyLabelingLibraryFile {
     filePath: string;

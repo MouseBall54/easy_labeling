@@ -354,6 +354,7 @@ function createNoopFileSystem() {
     selectImageFolder: vi.fn(async () => {}),
     refreshDataset: vi.fn(async () => {}),
     loadSampleTestData: vi.fn(async () => {}),
+    loadDefaultClassInfo: vi.fn(async () => {}),
     selectLabelFolder: vi.fn(async () => {}),
     selectClassInfoFolder: vi.fn(async () => {}),
     saveLabels: vi.fn(async () => {}),
@@ -744,6 +745,32 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.startDrawing).not.toHaveBeenCalled();
     expect(rawController.captureHistoryBaseline).not.toHaveBeenCalled();
     expect(rawController.commitHistoryFromBaseline).not.toHaveBeenCalled();
+  });
+
+  it("waits for the view button before creating and opening a new class file", async () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const fileSystem = createNoopFileSystem();
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem,
+      canvasController: {
+        setMode: vi.fn(),
+        raw: createRawController(createRawCanvas())
+      } as never,
+      windowRef: new FakeWindow()
+    });
+    eventManager.bindEventListeners();
+
+    elements.classFileSelect.value = "__CREATE_NEW__";
+    elements.classFileSelect.dispatch("change", {});
+    await Promise.resolve();
+    expect(fileSystem.createNewClassFile).not.toHaveBeenCalled();
+
+    elements.viewClassFileBtn.dispatch("click", {});
+    await Promise.resolve();
+    expect(fileSystem.showClassFileContent).toHaveBeenCalledTimes(1);
   });
 
   it("dispatches six arrange toolbar buttons to matching controller methods", () => {

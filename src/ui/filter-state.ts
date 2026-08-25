@@ -35,6 +35,24 @@ export function resetHiddenLabelClasses(): Set<string> {
   return new Set<string>();
 }
 
+export function toggleAllLabelClasses(
+  classKeys: Iterable<string | null | undefined>,
+  hiddenLabelClasses: ReadonlySet<string>
+): Set<string> {
+  const currentKeys = new Set([...classKeys].map(normalizeFilterClassKey));
+  const shouldHideAll = [...currentKeys].every((key) => !hiddenLabelClasses.has(key));
+  const next = new Set(hiddenLabelClasses);
+
+  currentKeys.forEach((key) => {
+    if (shouldHideAll) {
+      next.add(key);
+    } else {
+      next.delete(key);
+    }
+  });
+  return next;
+}
+
 export function deriveClassVisibility(
   classKeys: Iterable<string | null | undefined>,
   hiddenLabelClasses: ReadonlySet<string>

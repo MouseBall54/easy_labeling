@@ -28,7 +28,7 @@ import { applyDarkMode, readStoredDarkMode } from "../ui/theme.js";
 import {
   deriveVisibilitySummary,
   normalizeFilterClassKey,
-  resetHiddenLabelClasses,
+  toggleAllLabelClasses,
   toggleHiddenLabelClass
 } from "../ui/filter-state.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
@@ -968,7 +968,7 @@ export function createUiManagerAdapter(input: {
         rects: rects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
         getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass),
         activeFilterKeys: new Set(visibleRects.map((rect) => normalizeFilterClassKey(rect.labelClass))),
-        isAllActive: input.state.view.hiddenLabelClasses.size === 0
+        isAllActive: rects.every((rect) => !input.state.view.hiddenLabelClasses.has(normalizeFilterClassKey(rect.labelClass)))
       });
 
       const filterSummary = input.documentRef.createElement("span");
@@ -994,7 +994,10 @@ export function createUiManagerAdapter(input: {
           manager.updateLabelList();
         },
         onSelectAll: () => {
-          input.state.view.hiddenLabelClasses = resetHiddenLabelClasses();
+          input.state.view.hiddenLabelClasses = toggleAllLabelClasses(
+            rects.map((rect) => rect.labelClass),
+            input.state.view.hiddenLabelClasses
+          );
           canvasController.raw.applyVisibilityFromHiddenClasses(
             input.state.view.hiddenLabelClasses,
             input.state.view.clearSelectionWhenFilteredHidden
