@@ -570,6 +570,7 @@ export function createAutomationController(input: {
       templateRoiDirty = true;
       activeTemplateDataUrl = null;
       invalidateTemplateMatch();
+      setTemplateInteractionMode("edit-roi");
       const layout = library.layouts.find((candidate) => candidate.id === elements.templateLayoutSelect.value);
       if (layout) {
         elements.templateRelationXInput.value = String(Math.round(layout.sourceAnchor.x - roi.x));
@@ -585,9 +586,13 @@ export function createAutomationController(input: {
   });
 
   function setTemplateInteractionMode(mode: TemplateWorkspaceInteractionMode): void {
-    elements.templatePointerRoiRadio.checked = mode === "template-roi";
-    elements.templatePointerSelectRadio.checked = mode === "select-results";
-    workspace.setInteractionMode(mode);
+    const hasRoi = workspace.getRoi() !== null;
+    const resolvedMode = mode === "edit-roi" && !hasRoi ? "template-roi" : mode;
+    elements.templatePointerEditRoiRadio.disabled = !hasRoi;
+    elements.templatePointerRoiRadio.checked = resolvedMode === "template-roi";
+    elements.templatePointerEditRoiRadio.checked = resolvedMode === "edit-roi";
+    elements.templatePointerSelectRadio.checked = resolvedMode === "select-results";
+    workspace.setInteractionMode(resolvedMode);
   }
 
   const syncTemplateLayoutOpacity = (): void => {
@@ -850,10 +855,13 @@ export function createAutomationController(input: {
   const toggleTemplateInteractionMode = (): void => {
     hideTemplateMatchContextMenu();
     if (workspace.getInteractionMode() === "select-results") {
+      return;
+    }
+    if (workspace.getInteractionMode() === "edit-roi") {
       setTemplateInteractionMode("template-roi");
       return;
     }
-    setTemplateInteractionMode("select-results");
+    setTemplateInteractionMode("edit-roi");
   };
 
   const renderSingleMatchResult = (candidate: TemplateMatchCandidate): void => {
@@ -873,6 +881,7 @@ export function createAutomationController(input: {
     clearSettingsError();
     if (input.state.session.currentImage) {
       workspace.setImage(input.state.session.currentImage);
+      setTemplateInteractionMode("template-roi");
     }
   };
 
@@ -895,6 +904,7 @@ export function createAutomationController(input: {
     }
     if (input.state.session.currentImage) {
       workspace.setImage(input.state.session.currentImage, template.roi);
+      setTemplateInteractionMode("edit-roi");
     }
     const storedImage = await decodeDataUrlImage(template.pngDataUrl);
     workspace.setStoredTemplateImage(storedImage);
@@ -1634,6 +1644,7 @@ export function createAutomationController(input: {
           elements.templateMatchCandidates.replaceChildren();
           invalidateTemplateMatch();
           workspace.setImage(image);
+          setTemplateInteractionMode("template-roi");
           workspace.renderPreviews(readPreprocessing());
           clearSettingsError();
         })().catch(showSettingsError);
@@ -1711,6 +1722,11 @@ export function createAutomationController(input: {
       elements.templatePointerRoiRadio.addEventListener("change", () => {
         if (elements.templatePointerRoiRadio.checked) {
           setTemplateInteractionMode("template-roi");
+        }
+      });
+      elements.templatePointerEditRoiRadio.addEventListener("change", () => {
+        if (elements.templatePointerEditRoiRadio.checked) {
+          setTemplateInteractionMode("edit-roi");
         }
       });
       elements.templatePointerSelectRadio.addEventListener("change", () => {

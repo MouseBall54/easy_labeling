@@ -141,10 +141,13 @@ Match Preview 또는 자동화를 실행하면 다음 순서로 처리된다.
 
 마우스 모드:
 
-- `Template ROI`: 드래그로 ROI를 새로 정의한다.
-- `Select results`: 결과 박스를 선택하거나 뷰를 드래그해 팬한다.
-- 창 안에서 `Ctrl+Q`로 두 모드를 전환할 수 있다.
+- `Template ROI`: 드래그로 ROI를 새로 정의한다. 작성이 끝나면 `Edit ROI`로 자동 전환한다.
+- `Edit ROI`: ROI 내부를 드래그해 이동하고 8개 핸들로 크기를 조절한다. ROI가 없으면 사용할 수 없다.
+- `Edit ROI` 작업은 이미지 경계 안으로 제한되며 드래그 도중 `Esc`를 누르면 변경을 취소한다.
+- `Select results`: 결과 박스를 선택하거나 뷰를 드래그해 팬하는 독립 모드다.
+- 창 안에서 `Ctrl+Q`는 `Template ROI`와 `Edit ROI` 사이만 전환한다.
 - Select results 모드에서 결과를 우클릭하면 Class ID 변경 또는 결과 제거 메뉴를 사용할 수 있다.
+- Select results 모드에서 캔버스의 결과를 클릭해도 현재 확대/스크롤 위치를 유지한다. 후보 목록 클릭은 해당 결과로 이동한다.
 - 마우스 휠은 스크롤, `Ctrl+휠`은 포인터 기준 확대/축소로 동작한다.
 - Select results 모드의 왼쪽 드래그 또는 가운데 버튼 드래그로 팬할 수 있다.
 - Fit 버튼은 이미지를 작업 영역에 맞추고 중앙으로 되돌린다.
@@ -375,7 +378,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - Class ID는 0과 양의 정수를 사용하며 클래스 이름과 색상 표시를 연결한다.
 - Electron은 사용자 문서 폴더 아래 `Easy Labeling/Class Info`를 시작 시 자동으로 만들고 이 위치의 YAML/YML을 우선 불러온다.
 - `Create new class file...`을 선택하고 옆의 보기 버튼을 누르면 기본 위치에 `classes.yaml` 계열 파일을 자동 생성하고 기존 테이블 편집기를 연다.
-- `All classes`는 현재 이미지의 모든 클래스를 한 번에 숨기거나 다시 표시한다.
+- `All classes` 또는 `Ctrl+H`는 현재 이미지의 모든 클래스를 한 번에 숨기거나 다시 표시한다.
 
 ### 7.4 저장과 Auto save
 
@@ -488,7 +491,7 @@ Electron 기본 대화상자 위치:
 | Detection | `Shift+Arrow` | 선택 박스 10px 이동 |
 | Detection | `Alt+Shift+L/R/T/D` | 좌/우/상/하 정렬 |
 | Detection | `Alt+Shift+H/V` | 가로/세로 균등 분배 |
-| Template Setup | `Ctrl+Q` | Template ROI/Select results 전환 |
+| Template Setup | `Ctrl+Q` | Template ROI/Edit ROI 전환 |
 | Template Setup | `Ctrl+휠` | 포인터 기준 확대/축소 |
 
 입력창에 포커스가 있을 때는 숫자 입력이나 화살표 편집을 방해하지 않도록 대부분의 전역 단축키가 실행되지 않는다.

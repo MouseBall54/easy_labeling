@@ -203,14 +203,15 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#templateExistingPolicySelect")).toHaveValue("append");
   await page.locator("#templateExistingPolicySelect").selectOption("skip");
   await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
+  await expect(page.locator("#templatePointerEditRoiRadio")).toBeDisabled();
   await expect(page.locator("#templatePointerSelectRadio")).toBeEnabled();
   await page.locator('label[for="templatePointerSelectRadio"]').click();
   await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
   await page.keyboard.press("Control+q");
-  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
-  await page.keyboard.press("Control+q");
   await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
   await page.locator('label[for="templatePointerRoiRadio"]').click();
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
   await modal.locator(".template-advanced-settings > summary").click();
   await expect(page.locator("#templateBlurKernelInput")).toHaveValue("13");
   await page.locator("#templateBlurKernelInput").click();
@@ -271,6 +272,12 @@ test("layout and automation: modal management, both matching modes, and offscree
   }
   await drawTemplateRoi({ x: 10, y: 12, width: 32, height: 32 });
   await expect(canvas).toHaveAttribute("data-roi-ready", "true");
+  await expect(page.locator("#templatePointerEditRoiRadio")).toBeEnabled();
+  await expect(page.locator("#templatePointerEditRoiRadio")).toBeChecked();
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
+  await page.keyboard.press("Control+q");
+  await expect(page.locator("#templatePointerEditRoiRadio")).toBeChecked();
 
   await page.locator("#templateManualXInput").fill("200");
   await page.locator("#saveAutomationPresetBtn").click();
@@ -432,10 +439,8 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
   const appEditModeBeforeTemplateShortcut = await page.locator("#editMode").isChecked();
   await page.keyboard.press("Control+q");
-  await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();
-  expect(await page.locator("#editMode").isChecked()).toBe(appEditModeBeforeTemplateShortcut);
-  await page.keyboard.press("Control+q");
   await expect(page.locator("#templatePointerSelectRadio")).toBeChecked();
+  expect(await page.locator("#editMode").isChecked()).toBe(appEditModeBeforeTemplateShortcut);
 
   const rightClickTemplateMatch = async (index: number): Promise<void> => {
     const candidate = page.getByTestId(`template-match-candidate-${index}`);
@@ -455,6 +460,30 @@ test("layout and automation: modal management, both matching modes, and offscree
       { button: "right" }
     );
   };
+
+  const firstCandidateGeometry = await page.getByTestId("template-match-candidate-0").evaluate((element) => ({
+    x: Number((element as HTMLElement).dataset.matchX),
+    y: Number((element as HTMLElement).dataset.matchY),
+    width: Number((element as HTMLElement).dataset.matchWidth),
+    height: Number((element as HTMLElement).dataset.matchHeight)
+  }));
+  const resultBounds = await canvas.boundingBox();
+  if (!resultBounds) {
+    throw new Error("Template canvas bounds are unavailable for result selection");
+  }
+  const scrollBeforeResultSelection = await page.locator("#templateWorkspaceScroller").evaluate((element) => ({
+    left: element.scrollLeft,
+    top: element.scrollTop
+  }));
+  await page.mouse.click(
+    resultBounds.x + ((firstCandidateGeometry.x + firstCandidateGeometry.width / 2) * resultBounds.width / sourceImageSize.width),
+    resultBounds.y + ((firstCandidateGeometry.y + firstCandidateGeometry.height / 2) * resultBounds.height / sourceImageSize.height)
+  );
+  await expect.poll(async () => page.locator("#templateWorkspaceScroller").evaluate((element) => ({
+    left: element.scrollLeft,
+    top: element.scrollTop
+  }))).toEqual(scrollBeforeResultSelection);
+  await page.locator('label[for="templateApplyAllMatchesRadio"]').click();
 
   await rightClickTemplateMatch(0);
   await expect(page.locator("#templateMatchContextMenu")).toBeVisible();

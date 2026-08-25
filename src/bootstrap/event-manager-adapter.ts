@@ -1231,6 +1231,12 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
+        if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "h") {
+          event.preventDefault();
+          input.uiManager.toggleAllLabelVisibility();
+          return;
+        }
+
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
           event.preventDefault();
           input.canvasController.raw.selectAllLabels();

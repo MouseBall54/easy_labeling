@@ -503,11 +503,15 @@
                             <label class="d-flex align-items-center gap-2 small fw-semibold">Reference image
                                 <select id="templateSourceImageSelect" class="form-select form-select-sm" aria-label="Reference image"></select>
                             </label>
-                            <div class="btn-group btn-group-sm template-pointer-mode" role="group" aria-label="Template canvas mouse mode">
-                                <input id="templatePointerRoiRadio" type="radio" class="btn-check" name="templatePointerMode" value="template-roi" checked>
-                                <label class="btn btn-outline-secondary" for="templatePointerRoiRadio" title="Drag to define the template region (Ctrl+Q)"><i class="bi bi-crop" aria-hidden="true"></i> Template ROI</label>
+                            <div class="template-pointer-mode" role="group" aria-label="Template canvas mouse mode">
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Template ROI mode">
+                                    <input id="templatePointerRoiRadio" type="radio" class="btn-check" name="templatePointerMode" value="template-roi" checked>
+                                    <label class="btn btn-outline-secondary" for="templatePointerRoiRadio" title="Drag to define a new template region (Ctrl+Q from Edit ROI)"><i class="bi bi-crop" aria-hidden="true"></i> Template ROI</label>
+                                    <input id="templatePointerEditRoiRadio" type="radio" class="btn-check" name="templatePointerMode" value="edit-roi" disabled>
+                                    <label class="btn btn-outline-secondary" for="templatePointerEditRoiRadio" title="Move or resize the current template region (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i> Edit ROI</label>
+                                </div>
                                 <input id="templatePointerSelectRadio" type="radio" class="btn-check" name="templatePointerMode" value="select-results">
-                                <label class="btn btn-outline-secondary" for="templatePointerSelectRadio" title="Select results or drag to pan (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
+                                <label class="btn btn-outline-secondary btn-sm" for="templatePointerSelectRadio" title="Select results or drag to pan"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
                             </div>
                             <div class="template-workspace-view-controls">
                                 <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="1000" value="100" step="1" title="Zoom workspace (Ctrl + mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>

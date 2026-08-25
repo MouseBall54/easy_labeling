@@ -93,15 +93,24 @@ class FakeCanvas {
     this.attributes.set(name, value);
   }
 
-  dispatch(type: string, x: number, y: number, button = 0): void {
+  dispatch(type: string, x: number, y: number, button = 0, pointerId = 1): { preventDefault: ReturnType<typeof vi.fn> } {
+    const preventDefault = vi.fn();
     const event = {
       clientX: x,
       clientY: y,
       button,
-      pointerId: 1,
-      preventDefault: vi.fn()
+      pointerId,
+      preventDefault
     } as unknown as PointerEvent;
     this.listeners.get(type)?.forEach((listener) => listener(event));
+    return { preventDefault };
+  }
+
+  dispatchKey(key: string): { preventDefault: ReturnType<typeof vi.fn> } {
+    const preventDefault = vi.fn();
+    const event = { key, preventDefault } as unknown as KeyboardEvent;
+    this.listeners.get("keydown")?.forEach((listener) => listener(event as unknown as PointerEvent));
+    return { preventDefault };
   }
 }
 
@@ -143,9 +152,11 @@ describe("template workspace interaction modes", () => {
       classId: "7"
     }]);
     workspace.setInteractionMode("select-results");
+    const scrollBeforeSelection = { left: scroller.scrollLeft, top: scroller.scrollTop };
     canvas.dispatch("pointerdown", 20, 20);
     canvas.dispatch("pointerup", 20, 20);
     expect(onMatchClicked).toHaveBeenCalledWith(0);
+    expect({ left: scroller.scrollLeft, top: scroller.scrollTop }).toEqual(scrollBeforeSelection);
     canvas.dispatch("pointerdown", 20, 20, 2);
     expect(onMatchClicked).toHaveBeenCalledTimes(1);
     const scrollBeforePan = { left: scroller.scrollLeft, top: scroller.scrollTop };
@@ -180,6 +191,51 @@ describe("template workspace interaction modes", () => {
     canvas.dispatch("pointerup", 60, 65);
     expect(workspace.getRoi()).toEqual({ x: 20, y: 20, width: 40, height: 45 });
     expect(canvas.dataset.interactionMode).toBe("template-roi");
+  });
+
+  it("moves, resizes, clamps, and cancels edits for an existing ROI", () => {
+    const canvas = new FakeCanvas(120, 90);
+    const onRoiChanged = vi.fn();
+    const workspace = createTemplateWorkspace({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      scroller: new FakeScroller() as unknown as HTMLElement,
+      stage: new FakeStage() as unknown as HTMLElement,
+      zoomInput: { value: "100", addEventListener: vi.fn() } as unknown as HTMLInputElement,
+      zoomValue: { textContent: "" } as HTMLElement,
+      originalPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
+      processedPreviewCanvas: new FakeCanvas(240, 140) as unknown as HTMLCanvasElement,
+      onRoiChanged
+    });
+
+    workspace.bind();
+    workspace.setImage(
+      { naturalWidth: 120, naturalHeight: 90, width: 120, height: 90 } as HTMLImageElement,
+      { x: 12, y: 14, width: 33, height: 36 }
+    );
+    workspace.setInteractionMode("edit-roi");
+
+    canvas.dispatch("pointerdown", 20, 20);
+    canvas.dispatch("pointermove", 30, 25);
+    canvas.dispatch("pointerup", 30, 25);
+    expect(workspace.getRoi()).toEqual({ x: 22, y: 19, width: 33, height: 36 });
+
+    canvas.dispatch("pointerdown", 55, 55);
+    canvas.dispatch("pointermove", 65, 70);
+    canvas.dispatch("pointerup", 65, 70);
+    expect(workspace.getRoi()).toEqual({ x: 22, y: 19, width: 43, height: 51 });
+
+    canvas.dispatch("pointerdown", 30, 30);
+    canvas.dispatch("pointermove", -100, -100);
+    canvas.dispatch("pointerup", -100, -100);
+    expect(workspace.getRoi()).toEqual({ x: 0, y: 0, width: 43, height: 51 });
+
+    canvas.dispatch("pointerdown", 20, 20);
+    canvas.dispatch("pointermove", 40, 35);
+    const escape = canvas.dispatchKey("Escape");
+    canvas.dispatch("pointerup", 40, 35);
+    expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+    expect(workspace.getRoi()).toEqual({ x: 0, y: 0, width: 43, height: 51 });
+    expect(onRoiChanged).toHaveBeenCalledTimes(3);
   });
 
   it("pans before matches exist and supports middle-button pan in ROI mode", () => {

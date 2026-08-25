@@ -677,12 +677,15 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.6rem;
     margin-bottom: 0.6rem;
 }
 
 .template-pointer-mode {
+    display: inline-flex;
     flex: 0 0 auto;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .template-pointer-mode .btn {
@@ -694,7 +697,7 @@ body {
 }
 
 .template-workspace-toolbar input[type="range"] {
-    width: 150px;
+    width: 110px;
 }
 
 .template-workspace-toolbar .form-select {
@@ -734,6 +737,21 @@ body {
     cursor: grab;
     touch-action: none;
 }
+
+#templateMatchingCanvas[data-interaction-mode="edit-roi"] {
+    cursor: default;
+    touch-action: none;
+}
+
+#templateMatchingCanvas[data-roi-edit-handle="move"] { cursor: move; }
+#templateMatchingCanvas[data-roi-edit-handle="n"] { cursor: n-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="ne"] { cursor: ne-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="e"] { cursor: e-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="se"] { cursor: se-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="s"] { cursor: s-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="sw"] { cursor: sw-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="w"] { cursor: w-resize; }
+#templateMatchingCanvas[data-roi-edit-handle="nw"] { cursor: nw-resize; }
 
 #templateMatchingCanvas[data-interaction-mode="select-results"][data-panning="true"] {
     cursor: grabbing;

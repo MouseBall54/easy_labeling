@@ -66,6 +66,7 @@ export interface RuntimeUiManager extends UIManager {
   restoreDarkModeFromStorage(): void;
   renderImageList(): void;
   renderClassFileSelect(): void;
+  toggleAllLabelVisibility(): void;
   updateLabelList(): void;
   updateCurrentImageName(): void;
   updateMouseCoords(x: number, y: number): void;
@@ -791,6 +792,24 @@ export function createUiManagerAdapter(input: {
       );
     },
 
+    toggleAllLabelVisibility(): void {
+      const canvasController = getCanvasController();
+      if (!canvasController) {
+        return;
+      }
+
+      const rects = canvasController.raw.getObjects("rect").filter(isRectObject);
+      input.state.view.hiddenLabelClasses = toggleAllLabelClasses(
+        rects.map((rect) => rect.labelClass),
+        input.state.view.hiddenLabelClasses
+      );
+      canvasController.raw.applyVisibilityFromHiddenClasses(
+        input.state.view.hiddenLabelClasses,
+        input.state.view.clearSelectionWhenFilteredHidden
+      );
+      manager.updateLabelList();
+    },
+
     updateLabelList(): void {
       const canvasController = getCanvasController();
       if (!canvasController) {
@@ -994,15 +1013,7 @@ export function createUiManagerAdapter(input: {
           manager.updateLabelList();
         },
         onSelectAll: () => {
-          input.state.view.hiddenLabelClasses = toggleAllLabelClasses(
-            rects.map((rect) => rect.labelClass),
-            input.state.view.hiddenLabelClasses
-          );
-          canvasController.raw.applyVisibilityFromHiddenClasses(
-            input.state.view.hiddenLabelClasses,
-            input.state.view.clearSelectionWhenFilteredHidden
-          );
-          manager.updateLabelList();
+          manager.toggleAllLabelVisibility();
         }
       });
       canvasController.raw.applyVisibilityFromHiddenClasses(

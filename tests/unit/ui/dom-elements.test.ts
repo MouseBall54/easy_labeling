@@ -97,6 +97,7 @@ const REQUIRED_IDS = [
   "templateMatchingSourceName",
   "templateSourceImageSelect",
   "templatePointerRoiRadio",
+  "templatePointerEditRoiRadio",
   "templatePointerSelectRadio",
   "templateWorkspaceZoomInput",
   "templateWorkspaceZoomValue",

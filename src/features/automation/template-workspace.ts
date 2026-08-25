@@ -18,7 +18,7 @@ export interface TemplateWorkspaceLayoutPreview {
   boxes: Array<PixelRect & { classId: string }>;
 }
 
-export type TemplateWorkspaceInteractionMode = "template-roi" | "select-results";
+export type TemplateWorkspaceInteractionMode = "template-roi" | "edit-roi" | "select-results";
 
 export interface TemplateWorkspace {
   bind(): void;
@@ -49,6 +49,18 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 const MAX_WORKSPACE_ZOOM_PERCENT = 1000;
+const MIN_ROI_SIZE = 2;
+const ROI_HANDLE_SIZE_PX = 10;
+
+type RoiEditHandle = "move" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+
+interface RoiEditSession {
+  pointerId: number;
+  handle: RoiEditHandle;
+  startPoint: PixelPoint;
+  originalRoi: PixelRect;
+  draftRoi: PixelRect;
+}
 
 function normalizeRect(startX: number, startY: number, endX: number, endY: number): PixelRect {
   return {
@@ -98,6 +110,7 @@ export function createTemplateWorkspace(input: {
   let stagePaddingY = 0;
   let dragStart: { x: number; y: number } | null = null;
   let draftEnd: { x: number; y: number } | null = null;
+  let roiEditSession: RoiEditSession | null = null;
   let panStart: {
     pointerId: number;
     clientX: number;
@@ -141,14 +154,94 @@ export function createTemplateWorkspace(input: {
     return -1;
   };
 
+  const roiHandleAt = (point: PixelPoint): RoiEditHandle | null => {
+    if (!roi) {
+      return null;
+    }
+    const tolerance = ROI_HANDLE_SIZE_PX / 2 / zoom();
+    const left = roi.x;
+    const centerX = roi.x + roi.width / 2;
+    const right = roi.x + roi.width;
+    const top = roi.y;
+    const centerY = roi.y + roi.height / 2;
+    const bottom = roi.y + roi.height;
+    const handles: Array<{ handle: Exclude<RoiEditHandle, "move">; x: number; y: number }> = [
+      { handle: "nw", x: left, y: top },
+      { handle: "ne", x: right, y: top },
+      { handle: "se", x: right, y: bottom },
+      { handle: "sw", x: left, y: bottom },
+      { handle: "n", x: centerX, y: top },
+      { handle: "e", x: right, y: centerY },
+      { handle: "s", x: centerX, y: bottom },
+      { handle: "w", x: left, y: centerY }
+    ];
+    const handle = handles.find((candidate) => (
+      Math.abs(point.x - candidate.x) <= tolerance
+      && Math.abs(point.y - candidate.y) <= tolerance
+    ));
+    if (handle) {
+      return handle.handle;
+    }
+    return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
+      ? "move"
+      : null;
+  };
+
+  const resizeRoi = (session: RoiEditSession, point: PixelPoint): PixelRect => {
+    const deltaX = point.x - session.startPoint.x;
+    const deltaY = point.y - session.startPoint.y;
+    const original = session.originalRoi;
+    if (session.handle === "move") {
+      return {
+        ...original,
+        x: clamp(original.x + deltaX, 0, imageWidth() - original.width),
+        y: clamp(original.y + deltaY, 0, imageHeight() - original.height)
+      };
+    }
+
+    let left = original.x;
+    let right = original.x + original.width;
+    let top = original.y;
+    let bottom = original.y + original.height;
+    if (session.handle.includes("w")) {
+      left = clamp(original.x + deltaX, 0, right - MIN_ROI_SIZE);
+    }
+    if (session.handle.includes("e")) {
+      right = clamp(original.x + original.width + deltaX, left + MIN_ROI_SIZE, imageWidth());
+    }
+    if (session.handle.includes("n")) {
+      top = clamp(original.y + deltaY, 0, bottom - MIN_ROI_SIZE);
+    }
+    if (session.handle.includes("s")) {
+      bottom = clamp(original.y + original.height + deltaY, top + MIN_ROI_SIZE, imageHeight());
+    }
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  };
+
+  const syncEditCursor = (point?: PixelPoint): void => {
+    if (interactionMode !== "edit-roi" || !roi) {
+      delete input.canvas.dataset.roiEditHandle;
+      return;
+    }
+    const handle = roiEditSession?.handle ?? (point ? roiHandleAt(point) : null);
+    if (handle) {
+      input.canvas.dataset.roiEditHandle = handle;
+    } else {
+      delete input.canvas.dataset.roiEditHandle;
+    }
+  };
+
   const syncInteractionMode = (): void => {
     input.canvas.dataset.interactionMode = interactionMode;
     input.canvas.setAttribute(
       "aria-label",
       interactionMode === "template-roi"
         ? "Draw template ROI on reference image"
-        : "Select template match results"
+        : interactionMode === "edit-roi"
+          ? "Move or resize the template ROI"
+          : "Select template match results"
     );
+    syncEditCursor();
   };
 
   const syncRoiState = (): void => {
@@ -212,9 +305,9 @@ export function createTemplateWorkspace(input: {
     context.save();
     context.scale(currentZoom, currentZoom);
 
-    const selection = dragStart && draftEnd
+    const selection = roiEditSession?.draftRoi ?? (dragStart && draftEnd
       ? normalizeRect(dragStart.x, dragStart.y, draftEnd.x, draftEnd.y)
-      : roi;
+      : roi);
     if (selection) {
       context.fillStyle = "rgba(220, 53, 69, 0.15)";
       context.strokeStyle = "#dc3545";
@@ -222,6 +315,27 @@ export function createTemplateWorkspace(input: {
       context.setLineDash([8 / currentZoom, 4 / currentZoom]);
       context.fillRect(selection.x, selection.y, selection.width, selection.height);
       context.strokeRect(selection.x, selection.y, selection.width, selection.height);
+      if (interactionMode === "edit-roi") {
+        const handleSize = ROI_HANDLE_SIZE_PX / currentZoom;
+        const halfHandle = handleSize / 2;
+        const left = selection.x;
+        const centerX = selection.x + selection.width / 2;
+        const right = selection.x + selection.width;
+        const top = selection.y;
+        const centerY = selection.y + selection.height / 2;
+        const bottom = selection.y + selection.height;
+        context.setLineDash([]);
+        context.fillStyle = "#ffffff";
+        context.strokeStyle = "#dc3545";
+        context.lineWidth = 1.5 / currentZoom;
+        [
+          [left, top], [centerX, top], [right, top], [right, centerY],
+          [right, bottom], [centerX, bottom], [left, bottom], [left, centerY]
+        ].forEach(([x, y]) => {
+          context.fillRect(x - halfHandle, y - halfHandle, handleSize, handleSize);
+          context.strokeRect(x - halfHandle, y - halfHandle, handleSize, handleSize);
+        });
+      }
     }
     if (layoutPreview) {
       context.lineWidth = 2 / currentZoom;
@@ -404,15 +518,32 @@ export function createTemplateWorkspace(input: {
           beginPan(event, findMatchIndexAt(point));
           return;
         }
+        if (interactionMode === "edit-roi") {
+          if (event.button !== 0 || !roi) {
+            return;
+          }
+          const handle = roiHandleAt(point);
+          if (!handle) {
+            return;
+          }
+          event.preventDefault();
+          input.canvas.setPointerCapture(event.pointerId);
+          roiEditSession = {
+            pointerId: event.pointerId,
+            handle,
+            startPoint: point,
+            originalRoi: { ...roi },
+            draftRoi: { ...roi }
+          };
+          syncEditCursor(point);
+          return;
+        }
         if (event.button !== 0) {
           return;
         }
         input.canvas.setPointerCapture(event.pointerId);
         dragStart = point;
         draftEnd = dragStart;
-        matchResults = [];
-        focusedMatchIndex = null;
-        layoutPreview = null;
         render();
       });
       input.canvas.addEventListener("pointermove", (event) => {
@@ -430,7 +561,17 @@ export function createTemplateWorkspace(input: {
           }
           return;
         }
+        if (roiEditSession?.pointerId === event.pointerId) {
+          const point = eventToImagePoint(event);
+          roiEditSession.draftRoi = resizeRoi(roiEditSession, point);
+          syncEditCursor(point);
+          render();
+          return;
+        }
         if (!dragStart) {
+          if (interactionMode === "edit-roi") {
+            syncEditCursor(eventToImagePoint(event));
+          }
           return;
         }
         draftEnd = eventToImagePoint(event);
@@ -442,9 +583,35 @@ export function createTemplateWorkspace(input: {
           panStart = null;
           delete input.canvas.dataset.panning;
           if (!completedPan.moved && completedPan.matchIndex >= 0) {
-            focusMatch(completedPan.matchIndex);
+            focusedMatchIndex = completedPan.matchIndex;
+            render();
             input.onMatchClicked?.(completedPan.matchIndex);
           }
+          return;
+        }
+        if (roiEditSession?.pointerId === event.pointerId) {
+          const completedEdit = roiEditSession;
+          roiEditSession = null;
+          const x = Math.round(completedEdit.draftRoi.x);
+          const y = Math.round(completedEdit.draftRoi.y);
+          const nextRoi = {
+            x,
+            y,
+            width: Math.max(MIN_ROI_SIZE, Math.min(Math.round(completedEdit.draftRoi.width), imageWidth() - x)),
+            height: Math.max(MIN_ROI_SIZE, Math.min(Math.round(completedEdit.draftRoi.height), imageHeight() - y))
+          };
+          const changed = nextRoi.x !== completedEdit.originalRoi.x
+            || nextRoi.y !== completedEdit.originalRoi.y
+            || nextRoi.width !== completedEdit.originalRoi.width
+            || nextRoi.height !== completedEdit.originalRoi.height;
+          if (changed) {
+            roi = nextRoi;
+            storedTemplateImage = null;
+            syncRoiState();
+            input.onRoiChanged?.(roi);
+          }
+          syncEditCursor(eventToImagePoint(event));
+          render();
           return;
         }
         if (!dragStart) {
@@ -454,7 +621,7 @@ export function createTemplateWorkspace(input: {
         const next = normalizeRect(dragStart.x, dragStart.y, draftEnd.x, draftEnd.y);
         dragStart = null;
         draftEnd = null;
-        if (next.width >= 2 && next.height >= 2) {
+        if (next.width >= MIN_ROI_SIZE && next.height >= MIN_ROI_SIZE) {
           roi = {
             x: Math.round(next.x),
             y: Math.round(next.y),
@@ -469,7 +636,23 @@ export function createTemplateWorkspace(input: {
       });
       input.canvas.addEventListener("pointercancel", () => {
         panStart = null;
+        dragStart = null;
+        draftEnd = null;
+        roiEditSession = null;
         delete input.canvas.dataset.panning;
+        syncEditCursor();
+        render();
+      });
+      input.canvas.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || (!dragStart && !roiEditSession)) {
+          return;
+        }
+        event.preventDefault();
+        dragStart = null;
+        draftEnd = null;
+        roiEditSession = null;
+        syncEditCursor();
+        render();
       });
       input.canvas.addEventListener("contextmenu", (event) => {
         if (!image || interactionMode !== "select-results") {
@@ -501,6 +684,7 @@ export function createTemplateWorkspace(input: {
       interactionMode = mode;
       dragStart = null;
       draftEnd = null;
+      roiEditSession = null;
       panStart = null;
       delete input.canvas.dataset.panning;
       syncInteractionMode();
@@ -518,6 +702,9 @@ export function createTemplateWorkspace(input: {
       layoutPreview = null;
       focusedMatchIndex = null;
       storedTemplateImage = null;
+      dragStart = null;
+      draftEnd = null;
+      roiEditSession = null;
       syncRoiState();
       render();
       centerImage();

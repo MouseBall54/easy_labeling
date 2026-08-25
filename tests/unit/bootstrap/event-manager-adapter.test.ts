@@ -678,6 +678,52 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(editLabel).toHaveBeenCalledWith(activeRect);
   });
 
+  it("toggles all label visibility with Ctrl+H outside editable fields", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const toggleAllLabelVisibility = vi.fn();
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements, { toggleAllLabelVisibility }),
+      fileSystem: createNoopFileSystem(),
+      canvasController: {
+        setMode: vi.fn(),
+        raw: createRawController(createRawCanvas())
+      } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+    eventManager.bindEventListeners();
+
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      key: "h",
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(toggleAllLabelVisibility).toHaveBeenCalledTimes(1);
+
+    const editablePreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      key: "h",
+      target: new FakeInputElement(),
+      preventDefault: editablePreventDefault
+    });
+
+    expect(editablePreventDefault).not.toHaveBeenCalled();
+    expect(toggleAllLabelVisibility).toHaveBeenCalledTimes(1);
+  });
+
   it("re-synchronizes Fabric hit-testing after Alt-drag panning", () => {
     const state = createInitialAppState();
     const elements = createElements();

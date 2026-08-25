@@ -99,6 +99,7 @@ export interface UiDomElements {
   templateMatchingSourceName: HTMLElement;
   templateSourceImageSelect: HTMLSelectElement;
   templatePointerRoiRadio: HTMLInputElement;
+  templatePointerEditRoiRadio: HTMLInputElement;
   templatePointerSelectRadio: HTMLInputElement;
   templateWorkspaceZoomInput: HTMLInputElement;
   templateWorkspaceZoomValue: HTMLElement;
@@ -392,6 +393,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     templateMatchingSourceName: requireById<HTMLElement>(documentRef, "templateMatchingSourceName"),
     templateSourceImageSelect: requireById<HTMLSelectElement>(documentRef, "templateSourceImageSelect"),
     templatePointerRoiRadio: requireById<HTMLInputElement>(documentRef, "templatePointerRoiRadio"),
+    templatePointerEditRoiRadio: requireById<HTMLInputElement>(documentRef, "templatePointerEditRoiRadio"),
     templatePointerSelectRadio: requireById<HTMLInputElement>(documentRef, "templatePointerSelectRadio"),
     templateWorkspaceZoomInput: requireById<HTMLInputElement>(documentRef, "templateWorkspaceZoomInput"),
     templateWorkspaceZoomValue: requireById<HTMLElement>(documentRef, "templateWorkspaceZoomValue"),
