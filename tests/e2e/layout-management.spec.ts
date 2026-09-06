@@ -30,7 +30,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
     } | undefined;
     api?.selectRectsByIndex?.([0, 1, 2]);
   });
-  await page.locator("#inspectorTransformTabBtn").click();
+  await page.locator("#taskAutomateBtn").click();
   await page.locator("#openLayoutSetupBtn").click();
 
   const modal = page.locator("#layoutSetupModal");
@@ -108,6 +108,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
     } | undefined;
     api?.selectRectsByIndex?.([0, 1]);
   });
+  await page.locator("#taskAutomateBtn").click();
   await page.locator("#openLayoutSetupBtn").click();
   await expect(page.locator("#layoutEditorTitle")).toHaveText("Edit layout");
   await expect(page.locator("#layoutSetupSelect option:checked")).toHaveText("Selected trio");

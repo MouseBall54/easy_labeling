@@ -371,6 +371,7 @@ describe("template workspace interaction modes", () => {
 
     workspace.setLayoutPreviewOpacity(0.35);
     expect(canvas.dataset.layoutPreviewOpacity).toBe("0.35");
+    expect(canvas.getContextMock().strokeStyle).toBe("rgba(245, 130, 49, 0.8)");
 
     workspace.setLayoutPreview(null);
     expect(canvas.dataset.layoutPreview).toBe("false");

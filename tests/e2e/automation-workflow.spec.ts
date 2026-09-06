@@ -137,7 +137,13 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
   await page.locator("#inspectorTransformTabBtn").click();
+  await expect(page.locator("#right-panel #openLayoutSetupBtn")).toBeHidden();
+  await page.locator("#taskAutomateBtn").click();
   await expect(page.locator("#right-panel #openLayoutSetupBtn")).toBeVisible();
+  const automationSectionOrder = await page.locator("#inspectorAutomationPane").evaluate((pane) => (
+    [...pane.querySelectorAll<HTMLElement>(":scope > .inspector-section")].map((section) => section.dataset.ui)
+  ));
+  expect(automationSectionOrder).toEqual(["layout-controls", "automation-controls"]);
 
   await page.locator("#selectImageFolderBtn").click();
   await expect.poll(async () => page.evaluate(() => {

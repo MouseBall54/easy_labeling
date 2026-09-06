@@ -122,11 +122,9 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(keyboardTemplateModal).toBeHidden();
   await expect(templateSetupButton).toBeFocused();
 
-  await page.locator("#taskAnnotateBtn").focus();
+  await page.locator("#taskAutomateBtn").focus();
   await page.keyboard.press("Enter");
-  await page.locator("#inspectorTransformTabBtn").focus();
-  await page.keyboard.press("Enter");
-  await expect(page.locator("#inspectorTransformPane")).toBeVisible();
+  await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
 
   await page.locator("#openLayoutSetupBtn").click();
   await expect(page.locator("#layoutSetupModal")).toBeVisible();

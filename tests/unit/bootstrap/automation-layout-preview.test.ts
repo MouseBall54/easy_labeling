@@ -89,6 +89,7 @@ describe("automation layout preview", () => {
     expect(y).toBeGreaterThanOrEqual(0);
     expect(x + width).toBeLessThanOrEqual(previewCanvas.canvas.width);
     expect(y + height).toBeLessThanOrEqual(previewCanvas.canvas.height);
+    expect(previewCanvas.context.strokeStyle).toBe("#f032e6");
 
     preview.renderGhost();
     expect(ghostCanvas.context.strokeRect).not.toHaveBeenCalled();

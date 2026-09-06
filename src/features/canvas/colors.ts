@@ -39,3 +39,12 @@ export function getColorForClass(labelClass: string | undefined): string {
 
   return colorPalette[classNumber % colorPalette.length];
 }
+
+export function getColorForClassRgba(labelClass: string | undefined, opacity: number): string {
+  const color = getColorForClass(labelClass);
+  const red = Number.parseInt(color.slice(1, 3), 16);
+  const green = Number.parseInt(color.slice(3, 5), 16);
+  const blue = Number.parseInt(color.slice(5, 7), 16);
+  const alpha = Math.max(0, Math.min(1, opacity));
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}

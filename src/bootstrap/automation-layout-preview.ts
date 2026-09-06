@@ -1,5 +1,6 @@
 import type { AppState } from "../app/state.js";
 import type { BoxLayout } from "../features/automation/types.js";
+import { getColorForClass, getColorForClassRgba } from "../features/canvas/colors.js";
 import type { UiDomElements } from "../ui/dom-elements.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 
@@ -164,11 +165,11 @@ export function createAutomationLayoutPreview(input: {
         const screenY = viewport[1] * box.x + viewport[3] * box.y + viewport[5];
         const screenWidth = Math.abs(viewport[0] * box.width);
         const screenHeight = Math.abs(viewport[3] * box.height);
-        context.strokeStyle = isWarning ? "#dc3545" : "#0d6efd";
-        context.fillStyle = isWarning ? "rgba(220, 53, 69, 0.12)" : "rgba(13, 110, 253, 0.10)";
+        context.strokeStyle = isWarning ? "#dc3545" : getColorForClass(box.classId);
+        context.fillStyle = isWarning ? "rgba(220, 53, 69, 0.12)" : getColorForClassRgba(box.classId, 0.10);
         context.fillRect(screenX, screenY, screenWidth, screenHeight);
         context.strokeRect(screenX, screenY, screenWidth, screenHeight);
-        context.fillStyle = isWarning ? "#dc3545" : "#0d6efd";
+        context.fillStyle = isWarning ? "#dc3545" : getColorForClass(box.classId);
         context.fillText(box.classId, Math.max(2, screenX + 4), Math.max(12, screenY + 13));
       });
       context.restore();
@@ -244,8 +245,8 @@ export function createAutomationLayoutPreview(input: {
         const y = offsetY + box.y * scale;
         const width = box.width * scale;
         const height = box.height * scale;
-        context.fillStyle = "rgba(13, 110, 253, 0.2)";
-        context.strokeStyle = "#0d6efd";
+        context.fillStyle = getColorForClassRgba(box.classId, 0.2);
+        context.strokeStyle = getColorForClass(box.classId);
         context.fillRect(x, y, width, height);
         context.strokeRect(x, y, width, height);
         context.fillStyle = "#ffffff";

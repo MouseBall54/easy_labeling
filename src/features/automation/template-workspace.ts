@@ -1,4 +1,5 @@
 import type { PixelPoint, PixelRect, TemplateMatchCandidate, TemplateMatchResult, TemplatePreprocessingSettings } from "./types.js";
+import { getColorForClass, getColorForClassRgba } from "../canvas/colors.js";
 
 export interface TemplateWorkspaceMatch {
   candidate: TemplateMatchCandidate;
@@ -342,11 +343,11 @@ export function createTemplateWorkspace(input: {
       context.setLineDash([7 / currentZoom, 4 / currentZoom]);
       context.font = `${Math.max(9, 11 / currentZoom)}px sans-serif`;
       layoutPreview.boxes.forEach((box) => {
-        context.fillStyle = `rgba(13, 110, 253, ${layoutPreviewOpacity})`;
-        context.strokeStyle = `rgba(13, 110, 253, ${clamp(layoutPreviewOpacity + 0.45, 0.35, 0.9)})`;
+        context.fillStyle = getColorForClassRgba(box.classId, layoutPreviewOpacity);
+        context.strokeStyle = getColorForClassRgba(box.classId, clamp(layoutPreviewOpacity + 0.45, 0.35, 0.9));
         context.fillRect(box.x, box.y, box.width, box.height);
         context.strokeRect(box.x, box.y, box.width, box.height);
-        context.fillStyle = `rgba(13, 110, 253, ${clamp(layoutPreviewOpacity + 0.65, 0.55, 0.95)})`;
+        context.fillStyle = getColorForClassRgba(box.classId, clamp(layoutPreviewOpacity + 0.65, 0.55, 0.95));
         context.fillText(`C${box.classId}`, box.x + 3 / currentZoom, box.y + 12 / currentZoom);
       });
 
@@ -373,12 +374,15 @@ export function createTemplateWorkspace(input: {
       matchResults.forEach((item, index) => {
         const match = item.candidate;
         const focused = index === focusedMatchIndex;
-        const accent = focused ? "#ffc107" : item.selected ? "#0d6efd" : "#20c997";
+        const accent = item.classId
+          ? getColorForClass(item.classId)
+          : focused ? "#ffc107" : item.selected ? "#0d6efd" : "#20c997";
         context.lineWidth = (focused ? 5 : 3) / currentZoom;
         context.strokeStyle = accent;
-        context.fillStyle = focused
-          ? "rgba(255, 193, 7, 0.28)"
-          : item.selected ? "rgba(13, 110, 253, 0.20)" : "rgba(32, 201, 151, 0.12)";
+        context.fillStyle = item.classId
+          ? getColorForClassRgba(item.classId, focused ? 0.28 : item.selected ? 0.20 : 0.12)
+          : focused ? "rgba(255, 193, 7, 0.28)"
+            : item.selected ? "rgba(13, 110, 253, 0.20)" : "rgba(32, 201, 151, 0.12)";
         context.fillRect(match.x, match.y, match.width, match.height);
         context.strokeRect(match.x, match.y, match.width, match.height);
         const label = `${index + 1} ${(match.score * 100).toFixed(1)}%${item.classId ? ` C${item.classId}` : ""}`;
