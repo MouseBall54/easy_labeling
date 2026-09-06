@@ -1,4 +1,6 @@
 import type { ImageWorkflowStatus } from "../domain/annotations/contracts.js";
+import { createReviewStateDocument } from "../features/review/review-state.js";
+import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
 import type { DirectoryHandle, FileHandle } from "../types/files.js";
 import type { AppMode, CanvasPoint, LabelDisplayMode, LabelSortOrder, WorkflowType } from "../types/labels.js";
 
@@ -29,6 +31,8 @@ export interface AppSessionState {
   currentImageFile: FileHandle | null;
   currentImage: HTMLImageElement | null;
   classNames: Map<string, string>;
+  reviewState: ReviewStateDocument;
+  reviewFindings: Map<string, ReviewFinding>;
   workflow: WorkflowType;
   documentStatusByImage?: Map<string, ImageDocumentStatus>;
 }
@@ -48,6 +52,7 @@ export interface AppViewState {
   clearSelectionWhenFilteredHidden: boolean;
   persistFilterStateAcrossImageNavigation: boolean;
   resetFilterStateOnSessionReplacement: boolean;
+  reviewFilter: "all" | "needs-review" | "reviewed" | "has-issues";
 }
 
 export interface AppRuntimeState {
@@ -75,6 +80,8 @@ export function createInitialAppState(): AppState {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
+      reviewState: createReviewStateDocument(),
+      reviewFindings: new Map(),
       workflow: "detection",
       documentStatusByImage: new Map()
     },
@@ -92,7 +99,8 @@ export function createInitialAppState(): AppState {
       hiddenLabelClasses: new Set<string>(),
       clearSelectionWhenFilteredHidden: true,
       persistFilterStateAcrossImageNavigation: true,
-      resetFilterStateOnSessionReplacement: true
+      resetFilterStateOnSessionReplacement: true,
+      reviewFilter: "all"
     },
     runtime: {
       saveTimeout: null,

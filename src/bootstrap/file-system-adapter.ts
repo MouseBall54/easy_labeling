@@ -24,6 +24,11 @@ import { createImageDecoder } from "../features/images/image-decoder.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import { isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
+import { getSubdirectoryHandle } from "../platform/file-system-access.js";
+import { inspectDetectionLabels } from "../features/review/quality.js";
+import { createReviewStateDocument, parseReviewStateDocument } from "../features/review/review-state.js";
+import type { ReviewImageStatus } from "../features/review/types.js";
+import type { ReviewSettings } from "../features/review/types.js";
 import { createBundledSampleDirectory } from "../features/sample/sample-test-directory.js";
 import {
   markDocumentSaveError,
@@ -139,6 +144,9 @@ export interface RuntimeFileSystem extends FileSystem {
   selectLabelFolder(): Promise<void>;
   selectClassInfoFolder(): Promise<void>;
   loadDefaultClassInfo(): Promise<void>;
+  refreshReviewFindings(): Promise<void>;
+  setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void>;
+  updateReviewSettings(settings: ReviewSettings): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
   navigateImage(direction: number): Promise<void>;
   loadImage(fileHandle: FileHandleLike): Promise<void>;
@@ -194,6 +202,8 @@ export function createFileSystemAdapter(input: {
     currentImageFile: input.state.session.currentImageFile,
     currentImage: input.state.session.currentImage,
     classNames: new Map(input.state.session.classNames),
+    reviewState: structuredClone(input.state.session.reviewState ?? createReviewStateDocument()),
+    reviewFindings: new Map(input.state.session.reviewFindings ?? []),
     documentStatusByImage: new Map(input.state.session.documentStatusByImage ?? []),
     hiddenLabelClasses: new Set(input.state.view.hiddenLabelClasses)
   });
@@ -210,6 +220,8 @@ export function createFileSystemAdapter(input: {
     input.state.session.currentImageFile = snapshot.currentImageFile;
     input.state.session.currentImage = snapshot.currentImage;
     input.state.session.classNames = snapshot.classNames;
+    input.state.session.reviewState = snapshot.reviewState;
+    input.state.session.reviewFindings = snapshot.reviewFindings;
     input.state.session.documentStatusByImage = snapshot.documentStatusByImage;
     input.state.view.hiddenLabelClasses = snapshot.hiddenLabelClasses;
     pendingLoadedYolo = null;
@@ -411,6 +423,59 @@ export function createFileSystemAdapter(input: {
     }
   });
 
+  const loadReviewState = async (): Promise<void> => {
+    const imageFolder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+    input.state.session.reviewState = createReviewStateDocument();
+    input.state.session.reviewFindings = new Map();
+    if (!imageFolder) {
+      return;
+    }
+    try {
+      const reviewDirectory = await getSubdirectoryHandle(imageFolder, ".easy-labeling");
+      input.state.session.reviewState = parseReviewStateDocument(await readTextFileByName(reviewDirectory, "review-state.json"));
+    } catch (error: unknown) {
+      if (!isNotFoundError(error) && connectedDeps) {
+        (connectedDeps.uiManager as RuntimeUiManager).notify("Review state was invalid and has been reset.", 5000);
+      }
+    }
+  };
+
+  const persistReviewState = async (): Promise<void> => {
+    const imageFolder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+    if (!imageFolder) {
+      return;
+    }
+    const reviewDirectory = await getSubdirectoryHandle(imageFolder, ".easy-labeling", { create: true });
+    await writeTextFileByName(reviewDirectory, "review-state.json", `${JSON.stringify(input.state.session.reviewState, null, 2)}\n`);
+  };
+
+  const refreshReviewFindings = async (): Promise<void> => {
+    const findings = new Map();
+    const labelFolder = input.state.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
+    for (const imageFile of input.state.session.imageFiles) {
+      let yoloText = "";
+      if (labelFolder) {
+        try {
+          yoloText = await readTextFileByName(labelFolder, `${imageFileNameToBaseName(imageFile.name)}.txt`);
+        } catch (error: unknown) {
+          if (!isNotFoundError(error)) {
+            throw error;
+          }
+        }
+      }
+      const decodedImage = await decodeImage(imageFile as unknown as FileHandleLike);
+      const width = decodedImage.naturalWidth || decodedImage.width;
+      const height = decodedImage.naturalHeight || decodedImage.height;
+      findings.set(imageFile.name, inspectDetectionLabels({
+        yoloText,
+        imageWidth: width,
+        imageHeight: height,
+        settings: input.state.session.reviewState.settings
+      }));
+    }
+    input.state.session.reviewFindings = findings;
+  };
+
   const activateImageFolder = async (
     imageFolderHandle: DirectoryHandleLike,
     operation: RuntimeOperationHandle | null = null,
@@ -422,6 +487,8 @@ export function createFileSystemAdapter(input: {
     reportProgress?.("images", "loading", "Scanning images and annotations");
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
     throwIfOperationCancelled(operation?.signal);
+    await loadReviewState();
+    await refreshReviewFindings();
     reportProgress?.(
       "labels",
       labelSelection.labelFolderStatus === "missing" ? "warning" : "ready",
@@ -518,6 +585,8 @@ export function createFileSystemAdapter(input: {
             reportProgress?.("images", "loading", "Scanning images and annotations");
             const labelSelection = await imageSessionService.selectImageFolder(folder);
             throwIfOperationCancelled(operation?.signal);
+            await loadReviewState();
+            await refreshReviewFindings();
             reportProgress?.(
               "labels",
               labelSelection.labelFolderStatus === "missing" ? "warning" : "ready",
@@ -602,6 +671,8 @@ export function createFileSystemAdapter(input: {
             operation?.update({ detail: "Reading label and class files" });
             await imageSessionService.refreshImageWorkflowStatus();
             throwIfOperationCancelled(operation?.signal);
+            await refreshReviewFindings();
+            throwIfOperationCancelled(operation?.signal);
             await refreshClassFileStateFromAvailableFolder(operation);
             throwIfOperationCancelled(operation?.signal);
             if (connectedDeps) {
@@ -642,6 +713,33 @@ export function createFileSystemAdapter(input: {
         await refreshClassFileStateFromAvailableFolder();
       },
 
+      async refreshReviewFindings(): Promise<void> {
+        await refreshReviewFindings();
+        if (connectedDeps) {
+          (connectedDeps.uiManager as RuntimeUiManager).renderImageList();
+        }
+      },
+
+      async setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void> {
+        input.state.session.reviewState.images[imagePath] = {
+          status,
+          reviewedAt: status === "reviewed" ? new Date().toISOString() : null
+        };
+        await persistReviewState();
+        if (connectedDeps) {
+          (connectedDeps.uiManager as RuntimeUiManager).renderImageList();
+        }
+      },
+
+      async updateReviewSettings(settings: ReviewSettings): Promise<void> {
+        input.state.session.reviewState.settings = settings;
+        await persistReviewState();
+        await refreshReviewFindings();
+        if (connectedDeps) {
+          (connectedDeps.uiManager as RuntimeUiManager).renderImageList();
+        }
+      },
+
       async saveLabels(isAuto = false): Promise<void> {
         await enqueueOperation(async () => {
           const imageName = input.state.session.currentImageFile?.name;
@@ -659,6 +757,9 @@ export function createFileSystemAdapter(input: {
                 : "Load an image before saving a Segmentation mask.");
             }
             markDocumentSaved(input.state, imageName, workflow, { wasAutoSaved: isAuto });
+            if (workflow === "detection") {
+              await refreshReviewFindings();
+            }
             if (connectedDeps) {
               const uiManager = connectedDeps.uiManager as RuntimeUiManager;
               uiManager.renderImageList();

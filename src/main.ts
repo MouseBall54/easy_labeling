@@ -34,6 +34,7 @@ interface TestApi {
     height: number;
   }>;
   getSelectedRectIds(): string[];
+  getReviewSummary(): { minimumBoxSizePx: number; findingCount: number };
   getActiveSelectionBounds(): {
     left: number;
     top: number;
@@ -154,6 +155,13 @@ function bootstrapBrowserRuntime(): void {
   Reflect.set(window, "__easyLabelingTestApi", {
     getRectCount: () => runtimeCanvasController.raw.getObjects("rect").length,
     getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
+    getReviewSummary: () => {
+      const imageName = appResult.app.state.session.currentImageFile?.name;
+      return {
+        minimumBoxSizePx: appResult.app.state.session.reviewState.settings.minimumBoxSizePx,
+        findingCount: imageName ? appResult.app.state.session.reviewFindings.get(imageName)?.issues.length ?? 0 : 0
+      };
+    },
     getVisibleRectCount: () => {
       return runtimeCanvasController.raw
         .getObjects("rect")

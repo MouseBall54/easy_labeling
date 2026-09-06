@@ -3,6 +3,7 @@ import type { WorkflowType } from "../types/labels.js";
 import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
 
 export const CREATE_NEW_CLASS_FILE_VALUE = "__CREATE_NEW__";
 
@@ -15,6 +16,9 @@ export interface ImageListRenderInput {
   searchTerm: string;
   showLabeled: boolean;
   showUnlabeled: boolean;
+  reviewFilter?: "all" | "needs-review" | "reviewed" | "has-issues";
+  reviewState?: ReviewStateDocument;
+  reviewFindings?: Map<string, ReviewFinding>;
   onImageClick?: (file: FileHandle) => void;
 }
 
@@ -103,6 +107,9 @@ function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType
 
 export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const normalizedSearchTerm = input.searchTerm.toLowerCase();
+  const reviewFilter = input.reviewFilter ?? "all";
+  const reviewImages = input.reviewState?.images ?? {};
+  const reviewFindings = input.reviewFindings ?? new Map<string, ReviewFinding>();
   const filteredFiles = [...input.imageFiles]
     .sort(compareFileNames)
     .filter((file) => {
@@ -111,6 +118,17 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
         return false;
       }
       if (!input.showUnlabeled && !badge.isPositive) {
+        return false;
+      }
+      const reviewStatus = reviewImages[file.name]?.status ?? "needs-review";
+      const finding = reviewFindings.get(file.name);
+      if (reviewFilter === "needs-review" && reviewStatus !== "needs-review") {
+        return false;
+      }
+      if (reviewFilter === "reviewed" && reviewStatus !== "reviewed") {
+        return false;
+      }
+      if (reviewFilter === "has-issues" && !finding?.issues.length) {
         return false;
       }
 
@@ -130,6 +148,10 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     item.dataset.fileName = file.name;
     item.dataset.testid = `image-list-item-${file.name}`;
     item.dataset.status = badge.statusKey;
+    const finding = reviewFindings.get(file.name);
+    const reviewStatus = reviewImages[file.name]?.status ?? "needs-review";
+    item.dataset.reviewStatus = reviewStatus;
+    item.dataset.reviewSeverity = finding?.highestSeverity ?? "none";
     item.innerHTML = icon;
 
     const name = document.createElement("span");
@@ -145,6 +167,16 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     count.textContent = String(boxCount);
     item.appendChild(name);
     item.appendChild(count);
+
+    if (finding?.issues.length) {
+      const reviewBadge = document.createElement("span");
+      reviewBadge.className = `badge rounded-pill ms-1 ${finding.highestSeverity === "error" ? "text-bg-danger" : "text-bg-warning"}`;
+      reviewBadge.dataset.ui = "review-issue-count";
+      reviewBadge.setAttribute("aria-label", `${finding.issues.length} review issues`);
+      reviewBadge.title = `${finding.issues.length} review issues`;
+      reviewBadge.textContent = String(finding.issues.length);
+      item.appendChild(reviewBadge);
+    }
 
     if (input.currentImageFile && file.name === input.currentImageFile.name) {
       item.classList.add("active");

@@ -539,9 +539,25 @@ export function createEventManagerAdapter(input: {
         });
       };
 
+      const navigateReviewQueue = (direction: -1 | 1): void => {
+        const queueImageNames = [...elements.imageList.querySelectorAll<HTMLElement>("[data-file-name]")]
+          .map((item) => item.dataset.fileName)
+          .filter((name): name is string => Boolean(name));
+        const currentImageName = input.state.session.currentImageFile?.name;
+        const currentIndex = currentImageName ? queueImageNames.indexOf(currentImageName) : -1;
+        const targetImageName = queueImageNames[currentIndex + direction];
+        const targetFile = input.state.session.imageFiles.find((file) => file.name === targetImageName);
+        if (targetFile) {
+          runExclusive("navigate-review", () => input.fileSystem.loadImage(targetFile));
+        }
+      };
+
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
       elements.taskAnnotateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("annotate"));
       elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
+      elements.taskReviewBtn?.addEventListener("click", () => input.uiManager.setActiveTask?.("review"));
+      elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));
+      elements.nextReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(1));
       elements.retryWorkspaceStandbyBtn.addEventListener("click", () => lastWorkspaceStandbyRetry?.());
       elements.dismissWorkspaceStandbyBtn.addEventListener("click", () => input.uiManager.hideWorkspaceStandby());
       elements.inspectorAnnotationTabBtn.addEventListener("click", () => {
@@ -700,6 +716,56 @@ export function createEventManagerAdapter(input: {
       elements.imageSearchInput.addEventListener("input", renderLists);
       elements.showLabeledCheckbox.addEventListener("change", renderLists);
       elements.showUnlabeledCheckbox.addEventListener("change", renderLists);
+      if (elements.reviewFilterSelect) {
+        elements.reviewFilterSelect.addEventListener("change", () => {
+          input.state.view.reviewFilter = elements.reviewFilterSelect.value as typeof input.state.view.reviewFilter;
+          input.uiManager.renderImageList();
+        });
+        elements.markReviewedBtn.addEventListener("click", () => {
+          const imageName = input.state.session.currentImageFile?.name;
+          if (imageName) {
+            runAsync(async () => input.fileSystem.setReviewImageStatus(imageName, "reviewed"));
+          }
+        });
+        elements.markNeedsReviewBtn.addEventListener("click", () => {
+          const imageName = input.state.session.currentImageFile?.name;
+          if (imageName) {
+            runAsync(async () => input.fileSystem.setReviewImageStatus(imageName, "needs-review"));
+          }
+        });
+        elements.saveReviewRulesBtn.addEventListener("click", () => {
+          const minimumBoxSizePx = Number(elements.reviewMinimumBoxSizeInput.value);
+          const duplicateIouThreshold = Number(elements.reviewDuplicateIouInput.value);
+          const requiredClassIds = [...new Set(elements.reviewRequiredClassesInput.value.split(",").map((value) => value.trim()).filter((value) => /^\d+$/.test(value)))];
+          if (!Number.isFinite(minimumBoxSizePx) || minimumBoxSizePx < 1 || !Number.isFinite(duplicateIouThreshold) || duplicateIouThreshold < 0 || duplicateIouThreshold > 1) {
+            input.uiManager.notify("Set a minimum box size of 1px or more and a duplicate IoU from 0 to 1.");
+            return;
+          }
+          runAsync(async () => input.fileSystem.updateReviewSettings({ minimumBoxSizePx, duplicateIouThreshold, requiredClassIds }));
+        });
+        elements.reviewIssueList.addEventListener("click", (event) => {
+          const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-review-issue-index]");
+          const imageName = input.state.session.currentImageFile?.name;
+          const issueIndex = Number(button?.dataset.reviewIssueIndex);
+          const issue = imageName && Number.isInteger(issueIndex) ? input.state.session.reviewFindings.get(imageName)?.issues[issueIndex] : null;
+          const rectIndex = issue?.rectIndexes[0];
+          if (rectIndex === undefined) {
+            return;
+          }
+          const rect = input.canvasController.raw.getObjects("rect").filter(isRectObject)[rectIndex];
+          if (!rect) {
+            return;
+          }
+          rawCanvas.setActiveObject(rect);
+          const bounds = rect.getBoundingRect(true);
+          const zoom = rawCanvas.getZoom();
+          rawCanvas.setViewportTransform([zoom, 0, 0, zoom,
+            rawCanvas.getWidth() / 2 - (bounds.left + bounds.width / 2) * zoom,
+            rawCanvas.getHeight() / 2 - (bounds.top + bounds.height / 2) * zoom]);
+          rawCanvas.requestRenderAll();
+          input.uiManager.syncSelectionInspector();
+        });
+      }
 
       elements.showLabelsOnCanvasToggle.addEventListener("change", (event) => {
         const toggle = event.currentTarget;

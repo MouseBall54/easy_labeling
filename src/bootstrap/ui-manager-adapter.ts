@@ -65,6 +65,7 @@ export interface RuntimeUiManager extends UIManager {
   applyDarkMode(enabled: boolean): void;
   restoreDarkModeFromStorage(): void;
   renderImageList(): void;
+  renderReviewPanel(): void;
   renderClassFileSelect(): void;
   toggleAllLabelVisibility(): void;
   updateLabelList(): void;
@@ -79,7 +80,7 @@ export interface RuntimeUiManager extends UIManager {
   finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void;
   hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
-  setActiveTask(task: "files" | "annotate" | "automate"): void;
+  setActiveTask(task: "files" | "annotate" | "automate" | "review"): void;
   setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
@@ -155,7 +156,7 @@ export function createUiManagerAdapter(input: {
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
-  let activeTask: "files" | "annotate" | "automate" = "annotate";
+  let activeTask: "files" | "annotate" | "automate" | "review" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
@@ -378,9 +379,10 @@ export function createUiManagerAdapter(input: {
       manager.syncWorkspaceState();
     },
 
-    setActiveTask(task: "files" | "annotate" | "automate"): void {
+    setActiveTask(task: "files" | "annotate" | "automate" | "review"): void {
       activeTask = task;
-      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, elements.taskAutomateBtn];
+      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, elements.taskAutomateBtn, elements.taskReviewBtn]
+        .filter((button): button is HTMLButtonElement => Boolean(button));
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
         button.classList.toggle("active", active);
@@ -396,6 +398,13 @@ export function createUiManagerAdapter(input: {
       elements.rightPanel.classList.toggle("mobile-open", task !== "files");
       elements.leftPanel.classList.toggle("task-focus", task === "files");
       elements.rightPanel.classList.toggle("task-focus", task !== "files");
+      if (elements.reviewQueueControls) {
+        elements.reviewQueueControls.hidden = task !== "review";
+      }
+      const reviewControls = elements.reviewStatusBadge?.closest<HTMLElement>('[data-ui="review-controls"]');
+      if (reviewControls) {
+        reviewControls.hidden = task !== "review";
+      }
 
       if (task === "files") {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
@@ -409,8 +418,18 @@ export function createUiManagerAdapter(input: {
       if (task === "automate") {
         manager.setInspectorTab("automation");
         elements.automationPresetSelect.focus({ preventScroll: true });
+      } else if (task === "review") {
+        const hasIssues = [...input.state.session.reviewFindings.values()].some((finding) => finding.issues.length > 0);
+        input.state.view.reviewFilter = hasIssues ? "has-issues" : "needs-review";
+        elements.reviewFilterSelect.value = input.state.view.reviewFilter;
+        manager.setInspectorTab("annotation");
+        elements.inspectorTitle.textContent = "Review Inspector";
+        elements.inspectorSubtitle.textContent = "Resolve quality issues and mark each image reviewed";
+        manager.renderImageList();
+        elements.reviewFilterSelect.focus({ preventScroll: true });
       } else {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
+        elements.inspectorTitle.textContent = "Annotation Inspector";
         manager.setInspectorTab(activeInspectorTab === "transform" ? "transform" : "annotation");
       }
       manager.syncWorkspaceState();
@@ -451,7 +470,7 @@ export function createUiManagerAdapter(input: {
       elements.selectedAnnotationCount.textContent = String(selectionCount);
       elements.selectionEmptyState.hidden = selectionCount > 0;
       elements.selectionDetails.hidden = selectionCount === 0;
-      if (activeTask !== "automate") {
+      if (activeTask === "annotate") {
         elements.inspectorSubtitle.textContent = input.state.session.workflow === "segmentation"
           ? "Paint and inspect mask regions"
           : selectionCount === 0
@@ -607,6 +626,9 @@ export function createUiManagerAdapter(input: {
       syncWorkflowPanels();
       syncSegmentationPanelState();
       elements.taskAutomateBtn.disabled = workflow !== "detection";
+      if (elements.taskReviewBtn) {
+        elements.taskReviewBtn.disabled = workflow !== "detection";
+      }
       if (workflow === "segmentation") {
         manager.setActiveTask("annotate");
       }
@@ -774,6 +796,9 @@ export function createUiManagerAdapter(input: {
         searchTerm: elements.imageSearchInput.value,
         showLabeled: elements.showLabeledCheckbox.checked,
         showUnlabeled: elements.showUnlabeledCheckbox.checked,
+        reviewFilter: input.state.view.reviewFilter,
+        reviewState: input.state.session.reviewState,
+        reviewFindings: input.state.session.reviewFindings,
         onImageClick: (file) => {
           fileSystem?.loadImage(file).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : "Unexpected error";
@@ -781,7 +806,49 @@ export function createUiManagerAdapter(input: {
           });
         }
       });
+      manager.renderReviewPanel();
       manager.syncWorkspaceState();
+    },
+
+    renderReviewPanel(): void {
+      if (!elements.reviewStatusBadge || !input.state.session.reviewState || !input.state.session.reviewFindings) {
+        return;
+      }
+      const imageName = input.state.session.currentImageFile?.name;
+      const record = imageName ? input.state.session.reviewState.images[imageName] : undefined;
+      const status = record?.status ?? "needs-review";
+      const finding = imageName ? input.state.session.reviewFindings.get(imageName) : null;
+      elements.reviewStatusBadge.textContent = status === "reviewed" ? "Reviewed" : "Needs review";
+      elements.reviewStatusBadge.dataset.state = status;
+      elements.markReviewedBtn.disabled = !imageName || status === "reviewed";
+      elements.markNeedsReviewBtn.disabled = !imageName || status === "needs-review";
+      elements.reviewMinimumBoxSizeInput.value = String(input.state.session.reviewState.settings.minimumBoxSizePx);
+      elements.reviewDuplicateIouInput.value = String(input.state.session.reviewState.settings.duplicateIouThreshold);
+      elements.reviewRequiredClassesInput.value = input.state.session.reviewState.settings.requiredClassIds.join(", ");
+      elements.saveReviewRulesBtn.disabled = !input.state.session.imageFolderHandle;
+      const queueItems = [...elements.imageList.querySelectorAll<HTMLElement>("[data-file-name]")];
+      const currentImageName = input.state.session.currentImageFile?.name;
+      const currentQueueIndex = queueItems.findIndex((item) => item.dataset.fileName === currentImageName);
+      elements.reviewQueueSummary.textContent = String(queueItems.length);
+      elements.previousReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex <= 0;
+      elements.nextReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex < 0 || currentQueueIndex >= queueItems.length - 1;
+      elements.reviewIssueList.replaceChildren();
+      const issues = finding?.issues ?? [];
+      const empty = input.documentRef.createElement("div");
+      empty.className = "list-group-item text-muted py-2";
+      empty.textContent = imageName ? (issues.length ? "" : "No quality issues found.") : "Open an image to review it.";
+      if (!issues.length) {
+        elements.reviewIssueList.appendChild(empty);
+        return;
+      }
+      issues.forEach((issue, index) => {
+        const button = input.documentRef.createElement("button");
+        button.type = "button";
+        button.className = `list-group-item list-group-item-action py-2 ${issue.severity === "error" ? "list-group-item-danger" : "list-group-item-warning"}`;
+        button.dataset.reviewIssueIndex = String(index);
+        button.textContent = issue.message;
+        elements.reviewIssueList.appendChild(button);
+      });
     },
 
     renderClassFileSelect(): void {

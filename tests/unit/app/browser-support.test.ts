@@ -10,6 +10,7 @@ import type {
   UIManager
 } from "../../../src/app/contracts.js";
 import type { AppState } from "../../../src/app/state.js";
+import { createReviewStateDocument } from "../../../src/features/review/review-state.js";
 
 function createFactorySpies() {
   const createState = vi.fn((): AppState => ({
@@ -24,6 +25,8 @@ function createFactorySpies() {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
+      reviewState: createReviewStateDocument(),
+      reviewFindings: new Map(),
       workflow: "detection"
     },
     view: {
@@ -39,7 +42,8 @@ function createFactorySpies() {
       hiddenLabelClasses: new Set<string>(),
       clearSelectionWhenFilteredHidden: true,
       persistFilterStateAcrossImageNavigation: true,
-      resetFilterStateOnSessionReplacement: true
+      resetFilterStateOnSessionReplacement: true,
+      reviewFilter: "all"
     },
     runtime: {
       saveTimeout: null,

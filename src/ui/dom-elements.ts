@@ -19,6 +19,15 @@ export interface UiDomElements {
   imageSearchInput: HTMLInputElement;
   showLabeledCheckbox: HTMLInputElement;
   showUnlabeledCheckbox: HTMLInputElement;
+  reviewFilterSelect: HTMLSelectElement;
+  reviewIssueList: HTMLElement;
+  reviewStatusBadge: HTMLElement;
+  markReviewedBtn: HTMLButtonElement;
+  markNeedsReviewBtn: HTMLButtonElement;
+  reviewMinimumBoxSizeInput: HTMLInputElement;
+  reviewDuplicateIouInput: HTMLInputElement;
+  reviewRequiredClassesInput: HTMLInputElement;
+  saveReviewRulesBtn: HTMLButtonElement;
   saveLabelsBtn: HTMLElement;
   detectionWorkflowTab: HTMLInputElement;
   segmentationWorkflowTab: HTMLInputElement;
@@ -242,6 +251,11 @@ export interface UiDomElements {
   taskFilesBtn: HTMLButtonElement;
   taskAnnotateBtn: HTMLButtonElement;
   taskAutomateBtn: HTMLButtonElement;
+  taskReviewBtn: HTMLButtonElement;
+  reviewQueueControls: HTMLElement;
+  reviewQueueSummary: HTMLElement;
+  previousReviewIssueBtn: HTMLButtonElement;
+  nextReviewIssueBtn: HTMLButtonElement;
   refreshDatasetBtn: HTMLButtonElement;
   datasetConnectionStatus: HTMLElement;
   fileSystemCompatibilityNotice: HTMLElement;
@@ -313,6 +327,15 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     imageSearchInput: requireById<HTMLInputElement>(documentRef, "imageSearchInput"),
     showLabeledCheckbox: requireById<HTMLInputElement>(documentRef, "showLabeled"),
     showUnlabeledCheckbox: requireById<HTMLInputElement>(documentRef, "showUnlabeled"),
+    reviewFilterSelect: requireById<HTMLSelectElement>(documentRef, "reviewFilterSelect"),
+    reviewIssueList: requireById<HTMLElement>(documentRef, "reviewIssueList"),
+    reviewStatusBadge: requireById<HTMLElement>(documentRef, "reviewStatusBadge"),
+    markReviewedBtn: requireById<HTMLButtonElement>(documentRef, "markReviewedBtn"),
+    markNeedsReviewBtn: requireById<HTMLButtonElement>(documentRef, "markNeedsReviewBtn"),
+    reviewMinimumBoxSizeInput: requireById<HTMLInputElement>(documentRef, "reviewMinimumBoxSizeInput"),
+    reviewDuplicateIouInput: requireById<HTMLInputElement>(documentRef, "reviewDuplicateIouInput"),
+    reviewRequiredClassesInput: requireById<HTMLInputElement>(documentRef, "reviewRequiredClassesInput"),
+    saveReviewRulesBtn: requireById<HTMLButtonElement>(documentRef, "saveReviewRulesBtn"),
     saveLabelsBtn: requireById<HTMLElement>(documentRef, "saveLabelsBtn"),
     detectionWorkflowTab: requireById<HTMLInputElement>(documentRef, "detectionWorkflowTab"),
     segmentationWorkflowTab: requireById<HTMLInputElement>(documentRef, "segmentationWorkflowTab"),
@@ -536,6 +559,11 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     taskFilesBtn: requireById<HTMLButtonElement>(documentRef, "taskFilesBtn"),
     taskAnnotateBtn: requireById<HTMLButtonElement>(documentRef, "taskAnnotateBtn"),
     taskAutomateBtn: requireById<HTMLButtonElement>(documentRef, "taskAutomateBtn"),
+    taskReviewBtn: requireById<HTMLButtonElement>(documentRef, "taskReviewBtn"),
+    reviewQueueControls: requireById<HTMLElement>(documentRef, "reviewQueueControls"),
+    reviewQueueSummary: requireById<HTMLElement>(documentRef, "reviewQueueSummary"),
+    previousReviewIssueBtn: requireById<HTMLButtonElement>(documentRef, "previousReviewIssueBtn"),
+    nextReviewIssueBtn: requireById<HTMLButtonElement>(documentRef, "nextReviewIssueBtn"),
     refreshDatasetBtn: requireById<HTMLButtonElement>(documentRef, "refreshDatasetBtn"),
     datasetConnectionStatus: requireById<HTMLElement>(documentRef, "datasetConnectionStatus"),
     fileSystemCompatibilityNotice: requireById<HTMLElement>(documentRef, "fileSystemCompatibilityNotice"),
