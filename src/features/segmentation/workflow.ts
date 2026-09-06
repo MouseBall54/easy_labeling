@@ -4,9 +4,12 @@ import { applyClosedRegionAutoFillFromStroke } from "./tools.js";
 import {
   createSegmentationMaskOverlayLayer,
   createSegmentationSelectionOverlayLayer,
+  createSegmentationSuperpixelOverlayLayer,
   type SegmentationMaskOverlayLayer,
-  type SegmentationSelectionOverlayLayer
+  type SegmentationSelectionOverlayLayer,
+  type SegmentationSuperpixelOverlayLayer
 } from "./overlay.js";
+import { createSuperpixelCache, growSuperpixelRegion, type SuperpixelResult } from "./superpixels.js";
 import type {
   SegmentationDocumentSnapshot,
   SegmentationRegionBounds,
@@ -71,8 +74,17 @@ export function createSegmentationCanvasWorkflow(
   let document: SegmentationDocument | null = null;
   let maskOverlayLayer: SegmentationMaskOverlayLayer | null = null;
   let selectionOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
+  let superpixelOverlayLayer: SegmentationSuperpixelOverlayLayer | null = null;
+  const superpixelCache = createSuperpixelCache();
+  let superpixelResult: SuperpixelResult | null = null;
+  let superpixelBoundaryVisible = true;
+  let superpixelStrokeMode: "add" | "remove" = "add";
+  let smartGrowSimilarity = 0.2;
+  let smartGrowEdgeStop = 0.7;
+  let visitedSuperpixelIds = new Set<number>();
   let strokeBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let strokePoints: CanvasPoint[] = [];
+  let polygonPoints: CanvasPoint[] = [];
   let strokeDirtyBounds: SegmentationRegionBounds | null = null;
   let selectedRegion: SegmentationRegionSelection | null = null;
   let autoFillClosedRegionEnabled = false;
@@ -120,6 +132,12 @@ export function createSegmentationCanvasWorkflow(
     selectionOverlayLayer = null;
   };
 
+  const removeSuperpixelOverlayLayer = (): void => {
+    if (!superpixelOverlayLayer) return;
+    canvas.remove(superpixelOverlayLayer.object);
+    superpixelOverlayLayer = null;
+  };
+
   const ensureMaskOverlayLayer = (): SegmentationMaskOverlayLayer => {
     if (!maskOverlayLayer) {
       maskOverlayLayer = createSegmentationMaskOverlayLayer(deps.fabric);
@@ -136,6 +154,14 @@ export function createSegmentationCanvasWorkflow(
     return selectionOverlayLayer;
   };
 
+  const ensureSuperpixelOverlayLayer = (): SegmentationSuperpixelOverlayLayer => {
+    if (!superpixelOverlayLayer) {
+      superpixelOverlayLayer = createSegmentationSuperpixelOverlayLayer(deps.fabric);
+      canvas.add(superpixelOverlayLayer.object);
+    }
+    return superpixelOverlayLayer;
+  };
+
   const resetDocumentForCurrentImage = (): void => {
     cancelPendingOverlayRender();
     clearPendingOverlayRenderState();
@@ -144,6 +170,9 @@ export function createSegmentationCanvasWorkflow(
       document = null;
       removeMaskOverlayLayer();
       removeSelectionOverlayLayer();
+      removeSuperpixelOverlayLayer();
+      superpixelResult = null;
+      superpixelCache.clear();
       selectedRegion = null;
       return;
     }
@@ -161,8 +190,12 @@ export function createSegmentationCanvasWorkflow(
     });
     removeMaskOverlayLayer();
     removeSelectionOverlayLayer();
+    removeSuperpixelOverlayLayer();
+    superpixelResult = null;
+    superpixelCache.clear();
     strokeBaseline = null;
     strokePoints = [];
+    polygonPoints = [];
     strokeDirtyBounds = null;
     selectedRegion = null;
     moveBaseline = null;
@@ -170,6 +203,7 @@ export function createSegmentationCanvasWorkflow(
     movePointerStart = null;
     moveLastDeltaX = null;
     moveLastDeltaY = null;
+    visitedSuperpixelIds.clear();
   };
 
   const clearSelection = (): void => {
@@ -234,6 +268,11 @@ export function createSegmentationCanvasWorkflow(
       selectionLayer.object.set("visible", workflowActive && selectedRegion !== null);
     }
 
+    if (superpixelResult || superpixelOverlayLayer) {
+      const layer = ensureSuperpixelOverlayLayer();
+      layer.sync(superpixelResult, workflowActive && superpixelBoundaryVisible);
+    }
+
     canvas.requestRenderAll();
   };
 
@@ -285,6 +324,10 @@ export function createSegmentationCanvasWorkflow(
       return shell.getObjects(type);
     },
 
+    setActiveSelection(objects, primaryObject = null): void {
+      shell.setActiveSelection(objects, primaryObject);
+    },
+
     renderAll(): void {
       shell.renderAll();
     },
@@ -298,6 +341,7 @@ export function createSegmentationCanvasWorkflow(
       removeSelectionOverlayLayer();
       strokeBaseline = null;
       strokePoints = [];
+      polygonPoints = [];
       strokeDirtyBounds = null;
       selectedRegion = null;
       moveBaseline = null;
@@ -370,6 +414,23 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       clearSelection();
+      if (doc.activeTool === "polygon") {
+        if (!strokeBaseline) {
+          strokeBaseline = doc.cloneSnapshot();
+          polygonPoints = [pointer];
+        } else {
+          polygonPoints.push(pointer);
+        }
+        return;
+      }
+      if (doc.activeTool === "superpixel") {
+        controller.startSegmentationSuperpixelPaint?.(pointer, "add");
+        return;
+      }
+      if (doc.activeTool === "smart") {
+        controller.applySegmentationSmartGrow?.(pointer, smartGrowSimilarity, smartGrowEdgeStop);
+        return;
+      }
       strokeBaseline = doc.cloneSnapshot();
       strokePoints = [pointer];
       const mutation = doc.applyStroke({ points: [pointer] }, { recordHistory: false });
@@ -380,6 +441,13 @@ export function createSegmentationCanvasWorkflow(
     continueDrawing(pointer: CanvasPoint): void {
       const doc = ensureDocument();
       if (!doc || !strokeBaseline) {
+        return;
+      }
+      if (doc.activeTool === "polygon") {
+        return;
+      }
+      if (doc.activeTool === "superpixel") {
+        controller.startSegmentationSuperpixelPaint?.(pointer, superpixelStrokeMode);
         return;
       }
       const lastPoint = strokePoints.at(-1);
@@ -395,6 +463,17 @@ export function createSegmentationCanvasWorkflow(
     async finishDrawing(): Promise<void> {
       const doc = ensureDocument();
       if (!doc || !strokeBaseline) {
+        return;
+      }
+      if (doc.activeTool === "polygon") {
+        return;
+      }
+      if (doc.activeTool === "superpixel") {
+        const changed = doc.pushHistoryFromSnapshot(strokeBaseline);
+        strokeBaseline = null;
+        visitedSuperpixelIds.clear();
+        requestOverlayRender({ maskDirtyBounds: strokeDirtyBounds });
+        if (changed) deps.onDocumentMutation?.();
         return;
       }
 
@@ -605,7 +684,143 @@ export function createSegmentationCanvasWorkflow(
       if (!doc) {
         return;
       }
+      if (doc.activeTool === "polygon" && tool !== "polygon") {
+        controller.cancelSegmentationPolygon?.();
+      }
       doc.setActiveTool(tool);
+    },
+
+    recalculateSegmentationSuperpixels(regionSize: number): boolean {
+      const doc = ensureDocument();
+      const source = state.currentImage as unknown as CanvasImageSource | null;
+      if (!doc || !source || typeof globalThis.document === "undefined") return false;
+      const imageCanvas = globalThis.document.createElement("canvas");
+      imageCanvas.width = doc.width;
+      imageCanvas.height = doc.height;
+      const context = imageCanvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return false;
+      try {
+        context.drawImage(source, 0, 0, doc.width, doc.height);
+      } catch {
+        return false;
+      }
+      const imageData = context.getImageData(0, 0, doc.width, doc.height);
+      const cacheKey = `${(state.currentImage as { src?: string }).src ?? "image"}:${doc.width}x${doc.height}`;
+      superpixelResult = superpixelCache.getOrCreate({ cacheKey, width: doc.width, height: doc.height, rgba: imageData.data }, regionSize);
+      requestOverlayRender({ immediate: true });
+      return true;
+    },
+
+    setSegmentationSuperpixelBoundaryVisible(visible: boolean): void {
+      superpixelBoundaryVisible = visible;
+      requestOverlayRender({ immediate: true });
+    },
+
+    getSegmentationSuperpixelRegionSize(): number | null {
+      return superpixelResult?.regionSize ?? null;
+    },
+
+    startSegmentationSuperpixelPaint(pointer: CanvasPoint, mode: "add" | "remove"): boolean {
+      const doc = ensureDocument();
+      if (!doc || !superpixelResult) return false;
+      const x = Math.round(pointer.x);
+      const y = Math.round(pointer.y);
+      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return false;
+      if (!strokeBaseline) {
+        clearSelection();
+        strokeBaseline = doc.cloneSnapshot();
+        strokeDirtyBounds = null;
+        visitedSuperpixelIds.clear();
+      }
+      superpixelStrokeMode = mode;
+      const regionId = superpixelResult.labels[(y * doc.width) + x] ?? -1;
+      if (regionId < 0 || visitedSuperpixelIds.has(regionId)) return false;
+      visitedSuperpixelIds.add(regionId);
+      const classId = Number.parseInt(doc.activeClassId, 10);
+      const nextClassId = mode === "remove" ? 0 : (Number.isInteger(classId) && classId > 0 ? classId : 1);
+      let changed = false;
+      let minX = doc.width - 1;
+      let minY = doc.height - 1;
+      let maxX = 0;
+      let maxY = 0;
+      superpixelResult.labels.forEach((label, index) => {
+        if (label !== regionId || doc.mask[index] === nextClassId) return;
+        doc.mask[index] = nextClassId;
+        changed = true;
+        const pixelX = index % doc.width;
+        const pixelY = Math.floor(index / doc.width);
+        minX = Math.min(minX, pixelX);
+        minY = Math.min(minY, pixelY);
+        maxX = Math.max(maxX, pixelX);
+        maxY = Math.max(maxY, pixelY);
+      });
+      if (changed) {
+        const bounds = { left: minX, top: minY, right: maxX, bottom: maxY };
+        strokeDirtyBounds = mergeBounds(strokeDirtyBounds, bounds);
+        requestOverlayRender({ maskDirtyBounds: bounds });
+      }
+      return changed;
+    },
+
+    applySegmentationSmartGrow(pointer: CanvasPoint, similarity: number, edgeStop: number): boolean {
+      const doc = ensureDocument();
+      if (!doc || !superpixelResult) return false;
+      const x = Math.round(pointer.x);
+      const y = Math.round(pointer.y);
+      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return false;
+      const seedId = superpixelResult.labels[(y * doc.width) + x] ?? -1;
+      const regionIds = growSuperpixelRegion({ result: superpixelResult, seedId, similarity, edgeStop });
+      if (regionIds.length === 0) return false;
+      const before = doc.cloneSnapshot();
+      const accepted = new Set(regionIds);
+      const classId = Number.parseInt(doc.activeClassId, 10);
+      const nextClassId = Number.isInteger(classId) && classId > 0 ? classId : 1;
+      let changed = false;
+      superpixelResult.labels.forEach((regionId, index) => {
+        if (!accepted.has(regionId) || doc.mask[index] === nextClassId) return;
+        doc.mask[index] = nextClassId;
+        changed = true;
+      });
+      if (!changed) return false;
+      doc.pushHistoryFromSnapshot(before);
+      requestOverlayRender({ immediate: true });
+      deps.onDocumentMutation?.();
+      return true;
+    },
+
+    setSegmentationSmartGrowSettings(similarity: number, edgeStop: number): void {
+      smartGrowSimilarity = Math.min(1, Math.max(0, similarity));
+      smartGrowEdgeStop = Math.min(1, Math.max(0, edgeStop));
+    },
+
+    finishSegmentationPolygon(): boolean {
+      const doc = ensureDocument();
+      if (!doc || doc.activeTool !== "polygon" || !strokeBaseline || polygonPoints.length < 3) {
+        return false;
+      }
+      const mutation = doc.applyPolygon(polygonPoints, { recordHistory: false });
+      const changed = mutation.mutated && doc.pushHistoryFromSnapshot(strokeBaseline);
+      strokeBaseline = null;
+      polygonPoints = [];
+      requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
+      if (changed) {
+        deps.onDocumentMutation?.();
+      }
+      return changed;
+    },
+
+    cancelSegmentationPolygon(): boolean {
+      const doc = ensureDocument();
+      if (!doc || !strokeBaseline || polygonPoints.length === 0) {
+        return false;
+      }
+      strokeBaseline = null;
+      polygonPoints = [];
+      return true;
+    },
+
+    isSegmentationPolygonDrawing(): boolean {
+      return polygonPoints.length > 0;
     },
 
     setSegmentationBrushRadius(radius: number): void {

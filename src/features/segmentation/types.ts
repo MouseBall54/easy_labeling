@@ -1,6 +1,6 @@
 import type { CanvasPoint } from "../../types/labels.js";
 
-export type SegmentationTool = "brush" | "erase";
+export type SegmentationTool = "brush" | "erase" | "polygon" | "superpixel" | "smart";
 
 export interface SegmentationVisibilityState {
   overlayVisible: boolean;

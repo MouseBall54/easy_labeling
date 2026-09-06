@@ -136,6 +136,50 @@ export function applyEraseStroke(
   return { mutated, dirtyBounds };
 }
 
+export function applyPolygonFill(
+  mask: Uint16Array,
+  width: number,
+  height: number,
+  polygon: readonly CanvasPoint[],
+  classId: number
+): SegmentationMutationResult {
+  if (polygon.length < 3 || classId <= 0) {
+    return { mutated: false, dirtyBounds: null };
+  }
+
+  let mutated = false;
+  let minX = width - 1;
+  let minY = height - 1;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let inside = false;
+      for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+        const point = polygon[current]!;
+        const previousPoint = polygon[previous]!;
+        if ((point.y > y) !== (previousPoint.y > y) && x < ((previousPoint.x - point.x) * (y - point.y)) / (previousPoint.y - point.y) + point.x) {
+          inside = !inside;
+        }
+      }
+      if (!inside) {
+        continue;
+      }
+      const index = (y * width) + x;
+      if (mask[index] === classId) {
+        continue;
+      }
+      mask[index] = classId;
+      mutated = true;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return { mutated, dirtyBounds: mutated ? { left: minX, top: minY, right: maxX, bottom: maxY } : null };
+}
+
 export function applyClosedRegionAutoFillFromStroke(input: {
   beforeMask: Uint16Array;
   afterMask: Uint16Array;

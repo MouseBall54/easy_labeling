@@ -11,7 +11,8 @@ import {
   type UiDomElements
 } from "../ui/dom-elements.js";
 import { getColorForClass } from "../features/canvas/colors.js";
-import { isActiveSelectionObject, isRectObject } from "../features/canvas/fabric-types.js";
+import { isFormatSupportedForAnnotationType } from "../domain/annotations/segmentation-format.js";
+import { isActiveSelectionObject, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import { renderLabelClassModalContent } from "../ui/modals.js";
 import { installModalFocusManagement } from "../ui/modal-focus.js";
 import {
@@ -50,6 +51,23 @@ function showToast(documentRef: Document, message: string, duration = 3000): voi
     toast.classList.remove("show");
     window.setTimeout(() => toast.remove(), 300);
   }, duration);
+}
+
+function getReviewIssueTypeLabel(type: string): string {
+  switch (type) {
+    case "empty-label":
+      return "No labels";
+    case "out-of-bounds":
+      return "Outside image";
+    case "small-box":
+      return "Small box";
+    case "duplicate-box":
+      return "Duplicate boxes";
+    case "missing-class":
+      return "Missing class";
+    default:
+      return "Quality issue";
+  }
 }
 
 export interface RuntimeUiManager extends UIManager {
@@ -270,10 +288,38 @@ export function createUiManagerAdapter(input: {
     const edgeHighlightIntensity = summary?.edgeHighlightIntensity ?? (Number.parseInt(elements.segmentationEdgeGlowSlider.value, 10) / 100);
     const visibleClassIds = summary?.visibleClassIds ?? [];
     const autoFillClosedRegionEnabled = canvasController?.raw.getSegmentationAutoFillClosedRegionEnabled?.() ?? false;
+    const annotationType = input.state.session.segmentationAnnotationType ?? "semantic";
+    if (elements.segmentationAnnotationTypeSelect && elements.segmentationSourceFormatSelect && elements.segmentationExportFormatSelect && elements.segmentationFormatGuidance) {
+      elements.segmentationAnnotationTypeSelect.value = annotationType;
+      elements.segmentationSourceFormatSelect.value = input.state.session.segmentationSourceFormat ?? "auto";
+      [...elements.segmentationExportFormatSelect.options].forEach((option) => {
+        option.disabled = !isFormatSupportedForAnnotationType(option.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat, annotationType);
+      });
+      if (!isFormatSupportedForAnnotationType(input.state.session.segmentationExportFormat ?? "png-semantic-mask", annotationType)) {
+        input.state.session.segmentationExportFormat = annotationType === "semantic" ? "png-semantic-mask" : "yolo-segmentation";
+      }
+      elements.segmentationExportFormatSelect.value = input.state.session.segmentationExportFormat ?? "png-semantic-mask";
+      elements.segmentationFormatGuidance.textContent = annotationType === "semantic"
+        ? "PNG Mask preserves full-resolution class masks."
+        : "YOLO, COCO, and LabelMe export each disconnected mask region as an instance.";
+    }
 
     elements.segmentationActiveClassSummary.textContent = `Active Class: ${manager.getDisplayNameForClass(activeClassId)}`;
     elements.segmentationBrushModeBtn.classList.toggle("active", activeTool === "brush");
     elements.segmentationEraseModeBtn.classList.toggle("active", activeTool === "erase");
+    elements.segmentationPolygonModeBtn?.classList.toggle("active", activeTool === "polygon");
+    elements.segmentationSuperpixelModeBtn?.classList.toggle("active", activeTool === "superpixel");
+    elements.segmentationSmartModeBtn?.classList.toggle("active", activeTool === "smart");
+    if (elements.segmentationPolygonHint) {
+      elements.segmentationPolygonHint.hidden = activeTool !== "polygon";
+    }
+    if (elements.segmentationSuperpixelSizeSlider && elements.segmentationSuperpixelSizeValue && elements.segmentationSuperpixelBoundaryToggle) {
+      const superpixelSize = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() ?? Number.parseInt(elements.segmentationSuperpixelSizeSlider.value, 10);
+      elements.segmentationSuperpixelSizeSlider.value = `${superpixelSize}`;
+      elements.segmentationSuperpixelSizeValue.textContent = `${superpixelSize} px`;
+      elements.segmentationSuperpixelPresetButtons?.forEach((button) => button.classList.toggle("active", Number(button.dataset.size) === superpixelSize));
+      elements.segmentationSuperpixelBoundaryToggle.disabled = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() === null;
+    }
     elements.segmentationToolSizeLabel.textContent = activeTool === "erase" ? "Erase Size" : "Brush Size";
     elements.segmentationToolSizeSlider.value = `${brushRadius}`;
     elements.segmentationToolSizeValue.textContent = `${brushRadius}px`;
@@ -583,6 +629,9 @@ export function createUiManagerAdapter(input: {
           : engineState === "error"
             ? "Matching engine requires retry"
             : "Matching engine loading";
+      } else if (activeTask === "review") {
+        elements.inspectorTitle.textContent = "Review Inspector";
+        elements.inspectorSubtitle.textContent = "Resolve quality issues and mark each image reviewed";
       } else {
         elements.inspectorTitle.textContent = input.state.session.workflow === "detection" ? "Annotation Inspector" : "Mask Inspector";
       }
@@ -841,12 +890,53 @@ export function createUiManagerAdapter(input: {
         elements.reviewIssueList.appendChild(empty);
         return;
       }
+      const canvasController = getCanvasController();
+      const rects = canvasController?.raw.getObjects("rect").filter(isRectObject) ?? [];
       issues.forEach((issue, index) => {
         const button = input.documentRef.createElement("button");
         button.type = "button";
-        button.className = `list-group-item list-group-item-action py-2 ${issue.severity === "error" ? "list-group-item-danger" : "list-group-item-warning"}`;
+        const targets = [...new Set(issue.rectIndexes)]
+          .map((rectIndex) => ({ rectIndex, rect: rects[rectIndex] }))
+          .filter((target): target is { rectIndex: number; rect: FabricRectLike } => Boolean(target.rect));
+        button.className = `review-issue-item list-group-item list-group-item-action py-2 ${issue.severity === "error" ? "list-group-item-danger" : "list-group-item-warning"}`;
         button.dataset.reviewIssueIndex = String(index);
-        button.textContent = issue.message;
+        button.setAttribute("aria-pressed", "false");
+
+        const heading = input.documentRef.createElement("span");
+        heading.className = "review-issue-heading";
+        const severity = input.documentRef.createElement("span");
+        severity.className = "review-issue-severity";
+        severity.textContent = issue.severity === "error" ? "Error" : "Warning";
+        const type = input.documentRef.createElement("span");
+        type.className = "review-issue-type";
+        type.textContent = getReviewIssueTypeLabel(issue.type);
+        heading.append(severity, type);
+
+        const message = input.documentRef.createElement("span");
+        message.className = "review-issue-message";
+        message.textContent = issue.message;
+
+        const targetList = input.documentRef.createElement("span");
+        targetList.className = "review-issue-targets";
+        if (targets.length === 0) {
+          const noTarget = input.documentRef.createElement("span");
+          noTarget.className = "review-issue-no-target";
+          noTarget.textContent = "No target label";
+          targetList.appendChild(noTarget);
+        } else {
+          targets.forEach(({ rectIndex, rect }) => {
+            const target = input.documentRef.createElement("span");
+            target.className = "review-issue-target";
+            const swatch = input.documentRef.createElement("span");
+            swatch.className = "label-color-swatch";
+            swatch.style.backgroundColor = getColorForClass(rect.labelClass);
+            const targetText = input.documentRef.createElement("span");
+            targetText.textContent = `Box #${rectIndex + 1} · ${manager.getDisplayNameForClass(rect.labelClass)}`;
+            target.append(swatch, targetText);
+            targetList.appendChild(target);
+          });
+        }
+        button.append(heading, message, targetList);
         elements.reviewIssueList.appendChild(button);
       });
     },

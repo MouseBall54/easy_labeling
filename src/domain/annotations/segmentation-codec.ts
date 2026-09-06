@@ -1,6 +1,7 @@
 import type { AnnotationCodec, AnnotationDocument } from "./contracts.js";
 import { resolveAnnotationAssetPaths } from "./paths.js";
 import type { SegmentationDocumentSnapshot, SegmentationTool } from "../../features/segmentation/types.js";
+import { createSemanticAnnotationModel, type InternalSegmentationAnnotationModel } from "./segmentation-model.js";
 
 export interface SegmentationAnnotationMetadata {
   format?: string;
@@ -15,6 +16,7 @@ export interface SegmentationAnnotationMetadata {
 export interface SegmentationAnnotationData {
   pngBytes: Uint8Array;
   snapshot: SegmentationDocumentSnapshot;
+  model: InternalSegmentationAnnotationModel;
   legacyMetadata: SegmentationAnnotationMetadata | null;
 }
 
@@ -406,6 +408,11 @@ export function createSegmentationAnnotationCodec(): AnnotationCodec<
         data: {
           pngBytes: input.pngBytes instanceof Uint8Array ? new Uint8Array(input.pngBytes) : new Uint8Array(input.pngBytes),
           snapshot,
+          model: createSemanticAnnotationModel({
+            imageId: input.imageBaseName,
+            imagePath: paths.primaryFilePath,
+            snapshot
+          }),
           legacyMetadata: decoded.isLegacyRgba ? metadata : null
         }
       };

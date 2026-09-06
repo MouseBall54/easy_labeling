@@ -27,7 +27,10 @@ function createFactorySpies() {
       classNames: new Map<string, string>(),
       reviewState: createReviewStateDocument(),
       reviewFindings: new Map(),
-      workflow: "detection"
+      workflow: "detection",
+      segmentationAnnotationType: "semantic",
+      segmentationSourceFormat: "auto",
+      segmentationExportFormat: "png-semantic-mask"
     },
     view: {
       currentMode: "edit",

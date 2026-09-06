@@ -148,6 +148,8 @@ describe("domain/annotations/segmentation-codec", () => {
     expect(decoded.data.snapshot.overlayOpacity).toBe(0.6);
     expect(decoded.data.snapshot.hiddenClassIds).toEqual(new Set<string>());
     expect(decoded.data.snapshot.brushRadius).toBe(6);
+    expect(decoded.data.model.annotationType).toBe("semantic");
+    expect(decoded.data.model.annotations.map((annotation) => annotation.classId)).toEqual(["12", "34"]);
 
     const encodedMask = decodeSegmentationMaskPng(assets[0]?.content as ArrayBuffer);
     expect(encodedMask.isLegacyRgba).toBe(false);

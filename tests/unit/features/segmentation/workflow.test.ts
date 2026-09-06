@@ -65,6 +65,24 @@ function createOpenSquarePoints(): Array<{ x: number; y: number }> {
 }
 
 describe("features/segmentation/workflow", () => {
+  it("fills a polygon as one undoable mask operation", () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationActiveClass?.("3");
+    controller.setSegmentationTool?.("polygon");
+    controller.startDrawing({ x: 2, y: 2 });
+    controller.startDrawing({ x: 12, y: 2 });
+    controller.startDrawing({ x: 2, y: 12 });
+
+    expect(controller.isSegmentationPolygonDrawing?.()).toBe(true);
+    expect(controller.finishSegmentationPolygon?.()).toBe(true);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 3, y: 3 })).toBe("3");
+    expect(controller.canUndo()).toBe(true);
+
+    controller.undo();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 3, y: 3 })).toBeNull();
+  });
+
   it("activates segmentation explicitly and paints/erases through the document-backed workflow", async () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 32, height: 24 });

@@ -209,7 +209,24 @@ export interface UiDomElements {
   labelClassError: HTMLElement;
   classSelectionContainer: HTMLElement;
   segmentationBrushModeBtn: HTMLElement;
+  segmentationAnnotationTypeSelect: HTMLSelectElement;
+  segmentationSourceFormatSelect: HTMLSelectElement;
+  segmentationExportFormatSelect: HTMLSelectElement;
+  segmentationFormatGuidance: HTMLElement;
   segmentationEraseModeBtn: HTMLElement;
+  segmentationPolygonModeBtn: HTMLElement;
+  segmentationSuperpixelModeBtn: HTMLElement;
+  segmentationSmartModeBtn: HTMLElement;
+  segmentationPolygonHint: HTMLElement;
+  segmentationSuperpixelSizeSlider: HTMLInputElement;
+  segmentationSuperpixelSizeValue: HTMLElement;
+  segmentationSuperpixelPresetButtons: HTMLButtonElement[];
+  segmentationSuperpixelBoundaryToggle: HTMLInputElement;
+  segmentationRecalculateSuperpixelsBtn: HTMLElement;
+  segmentationSmartSimilaritySlider: HTMLInputElement;
+  segmentationSmartSimilarityValue: HTMLElement;
+  segmentationSmartEdgeStopSlider: HTMLInputElement;
+  segmentationSmartEdgeStopValue: HTMLElement;
   segmentationToolSizeLabel: HTMLElement;
   segmentationToolSizeSlider: HTMLInputElement;
   segmentationToolSizeValue: HTMLElement;
@@ -517,7 +534,24 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     labelClassError: requireById<HTMLElement>(documentRef, "labelClassError"),
     classSelectionContainer: requireById<HTMLElement>(documentRef, "class-selection-container"),
     segmentationBrushModeBtn: requireById<HTMLElement>(documentRef, "segmentationBrushModeBtn"),
+    segmentationAnnotationTypeSelect: requireById<HTMLSelectElement>(documentRef, "segmentationAnnotationTypeSelect"),
+    segmentationSourceFormatSelect: requireById<HTMLSelectElement>(documentRef, "segmentationSourceFormatSelect"),
+    segmentationExportFormatSelect: requireById<HTMLSelectElement>(documentRef, "segmentationExportFormatSelect"),
+    segmentationFormatGuidance: requireById<HTMLElement>(documentRef, "segmentationFormatGuidance"),
     segmentationEraseModeBtn: requireById<HTMLElement>(documentRef, "segmentationEraseModeBtn"),
+    segmentationPolygonModeBtn: requireById<HTMLElement>(documentRef, "segmentationPolygonModeBtn"),
+    segmentationSuperpixelModeBtn: requireById<HTMLElement>(documentRef, "segmentationSuperpixelModeBtn"),
+    segmentationSmartModeBtn: requireById<HTMLElement>(documentRef, "segmentationSmartModeBtn"),
+    segmentationPolygonHint: requireById<HTMLElement>(documentRef, "segmentationPolygonHint"),
+    segmentationSuperpixelSizeSlider: requireById<HTMLInputElement>(documentRef, "segmentationSuperpixelSizeSlider"),
+    segmentationSuperpixelSizeValue: requireById<HTMLElement>(documentRef, "segmentationSuperpixelSizeValue"),
+    segmentationSuperpixelPresetButtons: Array.from(documentRef.querySelectorAll<HTMLButtonElement>("[data-ui='segmentation-superpixel-preset']")),
+    segmentationSuperpixelBoundaryToggle: requireById<HTMLInputElement>(documentRef, "segmentationSuperpixelBoundaryToggle"),
+    segmentationRecalculateSuperpixelsBtn: requireById<HTMLElement>(documentRef, "segmentationRecalculateSuperpixelsBtn"),
+    segmentationSmartSimilaritySlider: requireById<HTMLInputElement>(documentRef, "segmentationSmartSimilaritySlider"),
+    segmentationSmartSimilarityValue: requireById<HTMLElement>(documentRef, "segmentationSmartSimilarityValue"),
+    segmentationSmartEdgeStopSlider: requireById<HTMLInputElement>(documentRef, "segmentationSmartEdgeStopSlider"),
+    segmentationSmartEdgeStopValue: requireById<HTMLElement>(documentRef, "segmentationSmartEdgeStopValue"),
     segmentationToolSizeLabel: requireById<HTMLElement>(documentRef, "segmentationToolSizeLabel"),
     segmentationToolSizeSlider: requireById<HTMLInputElement>(documentRef, "segmentationToolSizeSlider"),
     segmentationToolSizeValue: requireById<HTMLElement>(documentRef, "segmentationToolSizeValue"),

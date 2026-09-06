@@ -112,6 +112,30 @@ class LiveImageSessionState implements ImageSessionServiceState {
     this.appState.session.workflow = value;
   }
 
+  get segmentationAnnotationType() {
+    return this.appState.session.segmentationAnnotationType;
+  }
+
+  set segmentationAnnotationType(value) {
+    this.appState.session.segmentationAnnotationType = value;
+  }
+
+  get segmentationSourceFormat() {
+    return this.appState.session.segmentationSourceFormat;
+  }
+
+  set segmentationSourceFormat(value) {
+    this.appState.session.segmentationSourceFormat = value;
+  }
+
+  get segmentationExportFormat() {
+    return this.appState.session.segmentationExportFormat;
+  }
+
+  set segmentationExportFormat(value) {
+    this.appState.session.segmentationExportFormat = value;
+  }
+
   get classFiles() {
     return this.appState.session.classFiles as unknown as FileHandleLike[];
   }

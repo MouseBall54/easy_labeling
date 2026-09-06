@@ -82,6 +82,7 @@ export interface CanvasShell {
 export interface CanvasController {
   readonly canvas: FabricCanvasLike;
   getObjects(type?: string): FabricObjectLike[];
+  setActiveSelection(objects: readonly FabricObjectLike[], primaryObject?: FabricObjectLike | null): void;
   renderAll(): void;
   clear(): void;
   setBackgroundImage(image: unknown): void;
@@ -144,6 +145,15 @@ export interface CanvasController {
   canRedo(): boolean;
   setWorkflowActive?(active: boolean): void;
   setSegmentationTool?(tool: SegmentationTool): void;
+  finishSegmentationPolygon?(): boolean;
+  cancelSegmentationPolygon?(): boolean;
+  isSegmentationPolygonDrawing?(): boolean;
+  recalculateSegmentationSuperpixels?(regionSize: number): boolean;
+  setSegmentationSuperpixelBoundaryVisible?(visible: boolean): void;
+  getSegmentationSuperpixelRegionSize?(): number | null;
+  startSegmentationSuperpixelPaint?(pointer: CanvasPoint, mode: "add" | "remove"): boolean;
+  applySegmentationSmartGrow?(pointer: CanvasPoint, similarity: number, edgeStop: number): boolean;
+  setSegmentationSmartGrowSettings?(similarity: number, edgeStop: number): void;
   setSegmentationBrushRadius?(radius: number): void;
   setSegmentationActiveClass?(classId: string): void;
   setSegmentationAutoFillClosedRegionEnabled?(enabled: boolean): void;

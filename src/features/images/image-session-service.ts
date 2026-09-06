@@ -10,6 +10,10 @@ import {
 } from "../../domain/annotations/contracts.js";
 import { resolveAnnotationAssetPaths } from "../../domain/annotations/paths.js";
 import { createSegmentationAnnotationCodec } from "../../domain/annotations/segmentation-codec.js";
+import { exportSegmentationAnnotations, importSegmentationAnnotations } from "../../domain/annotations/segmentation-adapters.js";
+import { createEditableSnapshotFromAnnotationModel, createInstanceAnnotationModelFromSnapshot, createSemanticAnnotationModel } from "../../domain/annotations/segmentation-model.js";
+import { resolveSegmentationExportPath } from "../../domain/annotations/paths.js";
+import { detectSegmentationFormat, type SegmentationFormatDetectionResult } from "../../domain/annotations/segmentation-format.js";
 import { parseYoloRows } from "../../domain/yolo/yolo.js";
 import type { SegmentationDocumentSnapshot } from "../../features/segmentation/types.js";
 import {
@@ -24,6 +28,7 @@ import {
 } from "../../platform/file-system-access.js";
 import type { DirectoryHandleLike, FileHandleLike } from "../../types/files.js";
 import type { WorkflowType } from "../../types/labels.js";
+import type { SegmentationExternalFormat } from "../../domain/annotations/segmentation-format.js";
 
 export interface ImageSessionServiceState {
   imageFolderHandle: DirectoryHandleLike | null;
@@ -35,6 +40,9 @@ export interface ImageSessionServiceState {
   currentLoadToken: number;
   isAutoSaveEnabled: boolean;
   workflow: WorkflowType;
+  segmentationAnnotationType: "semantic" | "instance";
+  segmentationSourceFormat: SegmentationExternalFormat;
+  segmentationExportFormat: SegmentationExternalFormat;
   classFiles: FileHandleLike[];
   classNames: Map<string, string>;
   saveTimeout: ReturnType<typeof setTimeout> | null;
@@ -125,6 +133,12 @@ async function getNestedDirectoryHandle(
   return current;
 }
 
+async function getOrCreateNestedDirectoryHandle(directoryHandle: DirectoryHandleLike, pathSegments: string[]): Promise<DirectoryHandleLike> {
+  let current = directoryHandle;
+  for (const segment of pathSegments) current = await getSubdirectoryHandle(current, segment, { create: true });
+  return current;
+}
+
 async function listFileNames(directoryHandle: DirectoryHandleLike | null, predicate?: (fileName: string) => boolean): Promise<Set<string>> {
   if (!directoryHandle) {
     return new Set<string>();
@@ -136,6 +150,20 @@ async function listFileNames(directoryHandle: DirectoryHandleLike | null, predic
       .map((fileHandle) => fileHandle.name)
       .filter((fileName) => predicate ? predicate(fileName) : true)
   );
+}
+
+async function inspectSegmentationSource(directoryHandle: DirectoryHandleLike): Promise<SegmentationFormatDetectionResult> {
+  const entries = [] as Array<{ kind: "file" | "directory"; name: string }>;
+  for await (const entry of directoryHandle.values()) entries.push(entry);
+  const jsonTextByFileName = new Map<string, string>();
+  await Promise.all(entries.filter((entry) => entry.kind === "file" && entry.name.toLowerCase().endsWith(".json")).map(async (entry) => {
+    try { jsonTextByFileName.set(entry.name, await readTextFileByName(directoryHandle, entry.name)); } catch { /* an unreadable JSON file is not a detection signal */ }
+  }));
+  return detectSegmentationFormat({
+    fileNames: entries.filter((entry) => entry.kind === "file").map((entry) => entry.name),
+    directoryNames: entries.filter((entry) => entry.kind === "directory").map((entry) => entry.name),
+    jsonTextByFileName
+  });
 }
 
 async function listRelativeFilePaths(
@@ -299,6 +327,59 @@ export function createImageSessionService(
       }
 
       const codec = createSegmentationAnnotationCodec();
+      const detectedSource = state.segmentationSourceFormat === "auto" ? await inspectSegmentationSource(state.imageFolderHandle) : null;
+      if (state.segmentationSourceFormat === "auto" && detectedSource?.confidence !== "certain") {
+        await deps.applyLoadedSegmentationSnapshot(null);
+        return;
+      }
+      const selectedSourceFormat: Exclude<SegmentationExternalFormat, "auto"> = state.segmentationSourceFormat === "auto"
+        ? detectedSource!.format!
+        : state.segmentationSourceFormat;
+      if (selectedSourceFormat !== "png-semantic-mask") {
+        const sourcePath = selectedSourceFormat === "yolo-segmentation"
+          ? `segmentation/yolo/labels/${imageBaseName}.txt`
+          : selectedSourceFormat === "coco-segmentation"
+            ? `segmentation/coco/${imageBaseName}.json`
+            : `segmentation/labelme/${imageBaseName}.json`;
+        const sourceSegments = sourcePath.split("/");
+        const sourceFileName = sourceSegments.pop()!;
+        const sourceDirectory = await getNestedDirectoryHandle(state.imageFolderHandle, sourceSegments);
+        const fallbackYoloDirectory = selectedSourceFormat === "yolo-segmentation"
+          ? await getNestedDirectoryHandle(state.imageFolderHandle, ["labels"])
+          : null;
+        const fallbackSourceDirectory = selectedSourceFormat === "coco-segmentation" || selectedSourceFormat === "labelme"
+          ? state.imageFolderHandle
+          : null;
+        const resolvedSourceDirectory = sourceDirectory ?? fallbackYoloDirectory ?? fallbackSourceDirectory;
+        if (!resolvedSourceDirectory) {
+          await deps.applyLoadedSegmentationSnapshot(null);
+          return;
+        }
+        try {
+          const model = importSegmentationAnnotations({
+            format: selectedSourceFormat,
+            imageId: imageBaseName,
+            imagePath: imageName,
+            width: (state.currentImage as { width?: number } | null)?.width ?? 1,
+            height: (state.currentImage as { height?: number } | null)?.height ?? 1,
+            classIdByName: new Map([...state.classNames.entries()].map(([id, name]) => [name, id])),
+            text: await readTextFileByName(
+              resolvedSourceDirectory,
+              sourceDirectory ? sourceFileName : selectedSourceFormat === "coco-segmentation" ? "annotations.json" : selectedSourceFormat === "labelme" ? `${imageBaseName}.json` : sourceFileName
+            )
+          });
+          if (loadToken !== state.currentLoadToken) return;
+          state.segmentationAnnotationType = model.annotationType;
+          await deps.applyLoadedSegmentationSnapshot(createEditableSnapshotFromAnnotationModel(model));
+          return;
+        } catch (error: unknown) {
+          if (isNotFoundError(error)) {
+            await deps.applyLoadedSegmentationSnapshot(null);
+            return;
+          }
+          throw error;
+        }
+      }
       const paths = codec.resolvePaths(imageBaseName);
       const maskDirectory = await getNestedDirectoryHandle(state.imageFolderHandle, ["mask"]);
       if (!maskDirectory) {
@@ -329,6 +410,7 @@ export function createImageSessionService(
           pngBytes,
           metadataText
         });
+        state.segmentationAnnotationType = "semantic";
         await deps.applyLoadedSegmentationSnapshot(document.data.snapshot);
       } catch (error: unknown) {
         if (isNotFoundError(error)) {
@@ -417,6 +499,23 @@ export function createImageSessionService(
         }
       }
 
+      const selectedFormat = state.segmentationExportFormat;
+      let primaryFilePath = assets[0]?.path ?? null;
+      if (selectedFormat !== "png-semantic-mask") {
+        if (selectedFormat === "auto") throw new Error("Choose a Segmentation export format before saving.");
+        const model = state.segmentationAnnotationType === "instance"
+          ? createInstanceAnnotationModelFromSnapshot({ imageId: imageBaseName, imagePath: state.currentImageFile.name, snapshot })
+          : createSemanticAnnotationModel({ imageId: imageBaseName, imagePath: state.currentImageFile.name, snapshot });
+        const exported = exportSegmentationAnnotations({ format: selectedFormat, model, fileName: state.currentImageFile.name });
+        if (!exported.text) throw new Error(`${selectedFormat} did not produce a text annotation file.`);
+        const exportPath = resolveSegmentationExportPath(selectedFormat, imageBaseName);
+        const pathSegments = exportPath.split("/");
+        const exportFileName = pathSegments.pop()!;
+        const exportDirectory = await getOrCreateNestedDirectoryHandle(state.imageFolderHandle, pathSegments);
+        await writeTextFileByName(exportDirectory, exportFileName, exported.text);
+        primaryFilePath = exportPath;
+      }
+
       const hasMask = snapshot.mask.some((value) => value !== 0);
       const imageStatus = ensureImageWorkflowStatus(state, state.currentImageFile.name);
       imageStatus.segmentation.hasAnnotation = hasMask;
@@ -424,7 +523,7 @@ export function createImageSessionService(
 
       return {
         saved: true,
-        primaryFilePath: assets[0]?.path ?? null,
+        primaryFilePath,
         hasLabels: hasMask,
         removedOutOfBoundsCount: 0
       };

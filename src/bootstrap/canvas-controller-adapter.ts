@@ -175,6 +175,7 @@ export function createCanvasControllerAdapter(input: {
     },
 
     setMode(mode): void {
+      input.state.view.currentMode = mode;
       getActiveController().setMode(mode);
     },
 

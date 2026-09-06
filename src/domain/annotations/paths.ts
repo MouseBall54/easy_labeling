@@ -35,3 +35,13 @@ export function resolveAnnotationAssetPaths(workflow: AnnotationWorkflow, imageB
     sidecarFilePaths: convention.sidecarSuffixes.map((suffix) => `${convention.primaryDir}/${normalized}${suffix}`)
   };
 }
+
+export function resolveSegmentationExportPath(
+  format: "yolo-segmentation" | "coco-segmentation" | "labelme",
+  imageBaseName: string
+): string {
+  const normalized = normalizeImageBaseName(imageBaseName);
+  if (format === "yolo-segmentation") return `segmentation/yolo/labels/${normalized}.txt`;
+  if (format === "coco-segmentation") return `segmentation/coco/${normalized}.json`;
+  return `segmentation/labelme/${normalized}.json`;
+}

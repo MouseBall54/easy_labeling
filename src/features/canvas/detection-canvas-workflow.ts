@@ -421,6 +421,10 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       return canvas.getObjects(type);
     },
 
+    setActiveSelection(objects: readonly FabricObjectLike[], primaryObject: FabricObjectLike | null = null): void {
+      shell.setActiveSelection(objects, primaryObject);
+    },
+
     renderAll(): void {
       shell.renderAll();
     },

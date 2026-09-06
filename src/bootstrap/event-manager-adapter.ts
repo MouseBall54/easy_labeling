@@ -2,7 +2,7 @@ import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import type { AppState } from "../app/state.js";
-import { isActiveSelectionObject, isRectObject, type FabricObjectLike } from "../features/canvas/fabric-types.js";
+import { isActiveSelectionObject, isRectObject, type FabricObjectLike, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
@@ -437,6 +437,7 @@ export function createEventManagerAdapter(input: {
       };
 
       const setMode = (mode: "draw" | "edit"): void => {
+        input.state.view.currentMode = mode;
         elements.drawModeBtn.checked = mode === "draw";
         elements.editModeBtn.checked = mode === "edit";
         input.canvasController.setMode?.(mode);
@@ -748,20 +749,32 @@ export function createEventManagerAdapter(input: {
           const imageName = input.state.session.currentImageFile?.name;
           const issueIndex = Number(button?.dataset.reviewIssueIndex);
           const issue = imageName && Number.isInteger(issueIndex) ? input.state.session.reviewFindings.get(imageName)?.issues[issueIndex] : null;
-          const rectIndex = issue?.rectIndexes[0];
-          if (rectIndex === undefined) {
+          if (!issue) {
             return;
           }
-          const rect = input.canvasController.raw.getObjects("rect").filter(isRectObject)[rectIndex];
-          if (!rect) {
+          const rects = input.canvasController.raw.getObjects("rect").filter(isRectObject);
+          const targets = [...new Set(issue.rectIndexes)]
+            .map((rectIndex) => rects[rectIndex])
+            .filter((rect): rect is FabricRectLike => Boolean(rect));
+          if (targets.length === 0) {
             return;
           }
-          rawCanvas.setActiveObject(rect);
-          const bounds = rect.getBoundingRect(true);
+          elements.reviewIssueList.querySelectorAll<HTMLButtonElement>(".review-issue-item.active").forEach((item) => {
+            item.classList.remove("active");
+            item.setAttribute("aria-pressed", "false");
+          });
+          button?.classList.add("active");
+          button?.setAttribute("aria-pressed", "true");
+          input.canvasController.raw.setActiveSelection(targets, targets[0] ?? null);
+          const targetBounds = targets.map((rect) => rect.getBoundingRect(true));
+          const left = Math.min(...targetBounds.map((bounds) => bounds.left));
+          const top = Math.min(...targetBounds.map((bounds) => bounds.top));
+          const right = Math.max(...targetBounds.map((bounds) => bounds.left + bounds.width));
+          const bottom = Math.max(...targetBounds.map((bounds) => bounds.top + bounds.height));
           const zoom = rawCanvas.getZoom();
           rawCanvas.setViewportTransform([zoom, 0, 0, zoom,
-            rawCanvas.getWidth() / 2 - (bounds.left + bounds.width / 2) * zoom,
-            rawCanvas.getHeight() / 2 - (bounds.top + bounds.height / 2) * zoom]);
+            rawCanvas.getWidth() / 2 - (left + (right - left) / 2) * zoom,
+            rawCanvas.getHeight() / 2 - (top + (bottom - top) / 2) * zoom]);
           rawCanvas.requestRenderAll();
           input.uiManager.syncSelectionInspector();
         });
@@ -808,11 +821,102 @@ export function createEventManagerAdapter(input: {
       elements.segmentationBrushModeBtn.addEventListener("click", () => {
         input.canvasController.raw.setSegmentationTool?.("brush");
         input.uiManager.setWorkflow?.(input.state.session.workflow);
+        setMode("draw");
+      });
+      elements.segmentationAnnotationTypeSelect?.addEventListener("change", (event) => {
+        const select = event.currentTarget;
+        if (select instanceof HTMLSelectElement && (select.value === "semantic" || select.value === "instance")) {
+          input.state.session.segmentationAnnotationType = select.value;
+          input.uiManager.setWorkflow?.(input.state.session.workflow);
+        }
+      });
+      elements.segmentationSourceFormatSelect?.addEventListener("change", (event) => {
+        const select = event.currentTarget;
+        if (select instanceof HTMLSelectElement) {
+          input.state.session.segmentationSourceFormat = select.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
+          const currentImage = input.state.session.currentImageFile;
+          if (currentImage && !hasDirtyDocuments(input.state)) {
+            runExclusive("reload-segmentation-source", () => input.fileSystem.loadImage(currentImage));
+          } else if (currentImage) {
+            input.uiManager.notify("Save or discard current edits before reloading the selected annotation source.", 4000);
+          }
+        }
+      });
+      elements.segmentationExportFormatSelect?.addEventListener("change", (event) => {
+        const select = event.currentTarget;
+        if (select instanceof HTMLSelectElement) {
+          input.state.session.segmentationExportFormat = select.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
+          input.uiManager.setWorkflow?.(input.state.session.workflow);
+        }
       });
       elements.segmentationEraseModeBtn.addEventListener("click", () => {
         input.canvasController.raw.setSegmentationTool?.("erase");
         input.uiManager.setWorkflow?.(input.state.session.workflow);
+        setMode("draw");
       });
+      elements.segmentationPolygonModeBtn?.addEventListener("click", () => {
+        input.canvasController.raw.setSegmentationTool?.("polygon");
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+        setMode("draw");
+      });
+      elements.segmentationSuperpixelModeBtn?.addEventListener("click", () => {
+        const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
+        if (!input.canvasController.raw.recalculateSegmentationSuperpixels?.(size)) {
+          input.uiManager.notify("Superpixels could not be calculated for this image.", 3500);
+          return;
+        }
+        input.canvasController.raw.setSegmentationTool?.("superpixel");
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+        setMode("draw");
+      });
+      elements.segmentationSmartModeBtn?.addEventListener("click", () => {
+        const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
+        if (!input.canvasController.raw.recalculateSegmentationSuperpixels?.(size)) {
+          input.uiManager.notify("Smart Select needs a loaded image.", 3500);
+          return;
+        }
+        input.canvasController.raw.setSegmentationTool?.("smart");
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+        setMode("draw");
+      });
+      elements.segmentationRecalculateSuperpixelsBtn?.addEventListener("click", () => {
+        const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
+        input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
+      });
+      elements.segmentationSuperpixelSizeSlider?.addEventListener("input", (event) => {
+        const slider = event.currentTarget;
+        if (slider instanceof HTMLInputElement && elements.segmentationSuperpixelSizeValue) {
+          elements.segmentationSuperpixelSizeValue.textContent = `${slider.value} px`;
+        }
+      });
+      elements.segmentationSuperpixelPresetButtons?.forEach((button) => {
+        button.addEventListener("click", () => {
+          const size = Number.parseInt(button.dataset.size ?? "", 10);
+          if (!Number.isInteger(size)) return;
+          elements.segmentationSuperpixelSizeSlider.value = `${size}`;
+          elements.segmentationSuperpixelSizeValue.textContent = `${size} px`;
+          elements.segmentationSuperpixelPresetButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
+          input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
+          input.uiManager.setWorkflow?.(input.state.session.workflow);
+        });
+      });
+      elements.segmentationSuperpixelBoundaryToggle?.addEventListener("change", (event) => {
+        const toggle = event.currentTarget;
+        if (toggle instanceof HTMLInputElement) input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(toggle.checked);
+      });
+      if (elements.segmentationSmartSimilaritySlider && elements.segmentationSmartSimilarityValue && elements.segmentationSmartEdgeStopSlider && elements.segmentationSmartEdgeStopValue) {
+        const syncSmartGrowSettings = (): void => {
+          const similarity = Number.parseInt(elements.segmentationSmartSimilaritySlider.value, 10) / 100;
+          const edgeStop = Number.parseInt(elements.segmentationSmartEdgeStopSlider.value, 10) / 100;
+          elements.segmentationSmartSimilarityValue.textContent = similarity <= 0.2 ? "Strict" : similarity >= 0.45 ? "Loose" : "Balanced";
+          elements.segmentationSmartEdgeStopValue.textContent = edgeStop <= 0.35 ? "Weak" : edgeStop >= 0.65 ? "Strong" : "Balanced";
+          input.canvasController.raw.setSegmentationSmartGrowSettings?.(similarity, edgeStop);
+        };
+        elements.segmentationSmartSimilaritySlider.addEventListener("input", syncSmartGrowSettings);
+        elements.segmentationSmartEdgeStopSlider.addEventListener("input", syncSmartGrowSettings);
+        syncSmartGrowSettings();
+      }
       elements.segmentationToolSizeSlider.addEventListener("input", (event) => {
         const slider = event.currentTarget;
         if (!(slider instanceof HTMLInputElement)) {
@@ -1025,6 +1129,17 @@ export function createEventManagerAdapter(input: {
         input.state.view.lastMousePosition = pointer;
 
         const mouseEvent = event.e as MouseEvent;
+        if (
+          input.state.session.workflow === "segmentation"
+          && input.state.view.currentMode === "draw"
+          && input.canvasController.raw.getSegmentationSummary?.().activeTool === "superpixel"
+          && mouseEvent.ctrlKey
+        ) {
+          suppressSelectionForSegmentationStroke = true;
+          rawCanvas.selection = false;
+          input.canvasController.raw.startSegmentationSuperpixelPaint?.(pointer, "remove");
+          return;
+        }
         if (mouseEvent.altKey || mouseEvent.ctrlKey) {
           rawCanvas.isDragging = true;
           rawCanvas.selection = false;
@@ -1109,6 +1224,10 @@ export function createEventManagerAdapter(input: {
           finishSegmentationRegionMove();
           return;
         }
+        if (input.state.session.workflow === "segmentation" && input.canvasController.raw.isSegmentationPolygonDrawing?.()) {
+          clearTemporarySelectionSuppression();
+          return;
+        }
         clearTemporarySelectionSuppression();
         runAsync(() => input.canvasController.raw.finishDrawing().then(() => {
           input.uiManager.updateLabelList();
@@ -1117,6 +1236,12 @@ export function createEventManagerAdapter(input: {
       });
 
       rawCanvas.on?.("mouse:dblclick", (event) => {
+        if (input.state.session.workflow === "segmentation" && input.state.view.currentMode === "draw" && input.canvasController.raw.isSegmentationPolygonDrawing?.()) {
+          input.canvasController.raw.finishSegmentationPolygon?.();
+          input.uiManager.updateLabelList();
+          syncToolbarActionState();
+          return;
+        }
         if (input.state.view.currentMode !== "edit") {
           return;
         }
@@ -1493,6 +1618,9 @@ export function createEventManagerAdapter(input: {
         }
 
         if (event.key === "Escape") {
+          if (input.state.session.workflow === "segmentation" && input.canvasController.raw.cancelSegmentationPolygon?.()) {
+            input.uiManager.setWorkflow?.(input.state.session.workflow);
+          }
           rawCanvas.discardActiveObject();
           input.canvasController.raw.renderAll();
           syncToolbarActionState();

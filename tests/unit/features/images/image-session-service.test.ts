@@ -143,6 +143,9 @@ function createState(): ImageSessionServiceState {
     currentLoadToken: 0,
     isAutoSaveEnabled: false,
     workflow: "detection",
+    segmentationAnnotationType: "semantic",
+    segmentationSourceFormat: "auto",
+    segmentationExportFormat: "png-semantic-mask",
     classFiles: [new MockFileHandle("old.yaml")],
     classNames: new Map<string, string>([["0", "old"]]),
     saveTimeout: null
@@ -246,5 +249,85 @@ describe("features/images/image-session-service", () => {
     await service.saveLabels(false);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(false);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(0);
+  });
+
+  it("keeps the editable PNG mask and writes the selected instance export separately", async () => {
+    const imageDir = new MockDirectoryHandle("images").withDirectory(new MockDirectoryHandle("label")).withFile(new MockFileHandle("1.jpg"));
+    const state = createState();
+    state.workflow = "segmentation";
+    state.segmentationAnnotationType = "instance";
+    state.segmentationExportFormat = "yolo-segmentation";
+    const service = createImageSessionService(state, {
+      decodeImage: vi.fn(async () => "decoded"),
+      readCurrentLabelsAsYolo: () => "",
+      readCurrentSegmentationSnapshot: () => ({
+        width: 3, height: 2, mask: new Uint16Array([1, 1, 0, 1, 0, 0]), activeClassId: "1", activeTool: "brush", overlayVisible: true, overlayOpacity: 0.6, hiddenClassIds: new Set(), brushRadius: 6
+      }),
+      applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot: vi.fn(), clearPendingSaveTimeout: vi.fn()
+    });
+
+    await service.selectImageFolder(imageDir);
+    const result = await service.saveLabels();
+    const maskDir = await imageDir.getDirectoryHandle("mask");
+    const yoloDir = await (await (await imageDir.getDirectoryHandle("segmentation")).getDirectoryHandle("yolo")).getDirectoryHandle("labels");
+
+    expect((await maskDir.getFileHandle("1.png")).name).toBe("1.png");
+    expect(await (await yoloDir.getFileHandle("1.txt")).getFile().then((file) => file.text())).toMatch(/^1 /);
+    expect(result.primaryFilePath).toBe("segmentation/yolo/labels/1.txt");
+  });
+
+  it("loads a selected YOLO segmentation source into the editable mask", async () => {
+    const labelsDir = new MockDirectoryHandle("labels").withFile(new MockFileHandle("1.txt", "2 0 0 1 0 0 1"));
+    const imageDir = new MockDirectoryHandle("images").withDirectory(new MockDirectoryHandle("label")).withDirectory(labelsDir).withFile(new MockFileHandle("1.jpg"));
+    const state = createState();
+    state.workflow = "segmentation";
+    state.segmentationSourceFormat = "yolo-segmentation";
+    const applyLoadedSegmentationSnapshot = vi.fn();
+    const service = createImageSessionService(state, {
+      decodeImage: vi.fn(async () => ({ width: 3, height: 3 })), readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => null,
+      applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot, clearPendingSaveTimeout: vi.fn()
+    });
+
+    await service.selectImageFolder(imageDir);
+    expect(applyLoadedSegmentationSnapshot).toHaveBeenLastCalledWith(expect.objectContaining({ width: 3, height: 3, mask: expect.any(Uint16Array) }));
+    expect(state.segmentationAnnotationType).toBe("instance");
+  });
+
+  it("auto-detects a standard YOLO segmentation dataset without guessing ambiguous sources", async () => {
+    const labelsDir = new MockDirectoryHandle("labels").withFile(new MockFileHandle("1.txt", "2 0 0 1 0 0 1"));
+    const imageDir = new MockDirectoryHandle("images")
+      .withDirectory(new MockDirectoryHandle("label"))
+      .withDirectory(labelsDir)
+      .withFile(new MockFileHandle("data.yaml", "names: [background, defect, object]"))
+      .withFile(new MockFileHandle("1.jpg"));
+    const state = createState();
+    state.workflow = "segmentation";
+    const applyLoadedSegmentationSnapshot = vi.fn();
+    const service = createImageSessionService(state, {
+      decodeImage: vi.fn(async () => ({ width: 3, height: 3 })), readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => null,
+      applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot, clearPendingSaveTimeout: vi.fn()
+    });
+
+    await service.selectImageFolder(imageDir);
+    expect(applyLoadedSegmentationSnapshot).toHaveBeenLastCalledWith(expect.objectContaining({ mask: expect.any(Uint16Array) }));
+  });
+
+  it("does not load an ambiguous auto-detected segmentation source", async () => {
+    const imageDir = new MockDirectoryHandle("images")
+      .withDirectory(new MockDirectoryHandle("label"))
+      .withDirectory(new MockDirectoryHandle("labels").withFile(new MockFileHandle("1.txt", "1 0 0 1 0 0 1")))
+      .withDirectory(new MockDirectoryHandle("mask"))
+      .withFile(new MockFileHandle("data.yaml", "names: [background, object]"))
+      .withFile(new MockFileHandle("1.jpg"));
+    const state = createState();
+    state.workflow = "segmentation";
+    const applyLoadedSegmentationSnapshot = vi.fn();
+    const service = createImageSessionService(state, {
+      decodeImage: vi.fn(async () => ({ width: 3, height: 3 })), readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => null,
+      applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot, clearPendingSaveTimeout: vi.fn()
+    });
+
+    await service.selectImageFolder(imageDir);
+    expect(applyLoadedSegmentationSnapshot).toHaveBeenLastCalledWith(null);
   });
 });

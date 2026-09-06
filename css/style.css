@@ -2426,6 +2426,60 @@ body.workspace-standby-active .workbench-status-bar {
     letter-spacing: 0.02em;
 }
 
+.review-issue-item {
+    display: grid;
+    gap: 4px;
+    text-align: left;
+}
+
+.review-issue-heading,
+.review-issue-targets,
+.review-issue-target {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.review-issue-heading {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.review-issue-severity {
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.review-issue-message {
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.review-issue-targets {
+    font-size: 0.7rem;
+}
+
+.review-issue-target,
+.review-issue-no-target {
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.46);
+}
+
+.review-issue-target .label-color-swatch {
+    width: 8px;
+    height: 8px;
+}
+
+.review-issue-item.active .review-issue-target,
+.review-issue-item.active .review-issue-no-target {
+    background: rgba(255, 255, 255, 0.24);
+}
+
 .shared-tool-section {
     padding-top: 4px;
 }

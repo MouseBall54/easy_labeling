@@ -1,5 +1,5 @@
 import type { CanvasPoint } from "../../types/labels.js";
-import { applyBrushStroke, applyEraseStroke } from "./tools.js";
+import { applyBrushStroke, applyEraseStroke, applyPolygonFill } from "./tools.js";
 import type {
   SegmentationDocumentSnapshot,
   SegmentationMutationResult,
@@ -30,6 +30,7 @@ export interface SegmentationDocument {
   cloneSnapshot(): SegmentationDocumentSnapshot;
   restoreSnapshot(snapshot: SegmentationDocumentSnapshot): void;
   applyStroke(input: SegmentationStrokeInput, options?: { recordHistory?: boolean }): SegmentationMutationResult;
+  applyPolygon(points: readonly CanvasPoint[], options?: { recordHistory?: boolean }): SegmentationMutationResult;
   pushHistoryFromSnapshot(before: SegmentationDocumentSnapshot): boolean;
   setActiveClass(classId: string): void;
   setActiveTool(tool: SegmentationTool): void;
@@ -272,6 +273,15 @@ export function createSegmentationDocument(input: {
       }
 
       doc.pushHistoryFromSnapshot(before);
+      return mutation;
+    },
+
+    applyPolygon(points: readonly CanvasPoint[], options?: { recordHistory?: boolean }): SegmentationMutationResult {
+      const before = options?.recordHistory === false ? null : doc.cloneSnapshot();
+      const mutation = applyPolygonFill(mask, width, height, points, normalizePaintClassNumber(activeClassId));
+      if (mutation.mutated && before) {
+        doc.pushHistoryFromSnapshot(before);
+      }
       return mutation;
     },
 

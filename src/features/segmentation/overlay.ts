@@ -1,5 +1,6 @@
 import type { FabricImageLike, FabricRuntimeLike } from "../canvas/fabric-types.js";
 import type { SegmentationDocument } from "./document.js";
+import type { SuperpixelResult } from "./superpixels.js";
 import type { SegmentationRegionBounds, SegmentationRegionSelection } from "./types.js";
 
 interface OverlayFallbackElement {
@@ -56,6 +57,11 @@ export interface SegmentationSelectionOverlayLayer {
     selection: SegmentationRegionSelection | null;
     getColorForClass: (classId: string) => string;
   }, options?: SegmentationOverlayUpdateOptions): void;
+}
+
+export interface SegmentationSuperpixelOverlayLayer {
+  readonly object: FabricImageLike;
+  sync(result: SuperpixelResult | null, visible: boolean): void;
 }
 
 function createFullBounds(width: number, height: number): SegmentationRegionBounds | null {
@@ -563,6 +569,28 @@ export function createSegmentationSelectionOverlayLayer(fabric: FabricRuntimeLik
         state.element.overlayOpacity = 1;
       }
       updateOverlayObjectState(overlayObject, input.width, input.height, Boolean(input.selection), 1);
+    }
+  };
+}
+
+export function createSegmentationSuperpixelOverlayLayer(fabric: FabricRuntimeLike): SegmentationSuperpixelOverlayLayer {
+  const state = createOverlayBufferState(1, 1);
+  const overlayObject = createOverlayObject(fabric, state, false, 1);
+  return {
+    object: overlayObject,
+    sync(result, visible) {
+      if (!result) {
+        updateOverlayObjectState(overlayObject, state.width, state.height, false, 1);
+        return;
+      }
+      resizeOverlayBufferState(state, result.width, result.height);
+      state.pixels.fill(0);
+      result.boundaries.forEach((boundary, index) => {
+        if (boundary === 0) return;
+        writePixelAtIndex(state.pixels, index, { r: 255, g: 255, b: 255 }, 155);
+      });
+      commitOverlayBuffer(state, null);
+      updateOverlayObjectState(overlayObject, result.width, result.height, visible, 1);
     }
   };
 }
