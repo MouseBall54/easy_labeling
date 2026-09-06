@@ -79,8 +79,12 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect(page.locator("#layoutCaptureScopeSelect")).toHaveValue("selected");
   await expect(page.locator('#layoutCaptureScopeSelect option[value="selected"]')).toHaveText("Selected Boxes (3)");
   await expect(page.locator("#layoutCaptureSummary")).toContainText("Capturing: 3");
+  await expect(page.locator("#layoutDetails")).toContainText("New layout preview | 3 boxes");
+  await page.locator("#previewBoxLayoutBtn").click();
+  await expect(page.locator("#layoutDetails")).toContainText("New layout preview | 3 boxes");
 
   await page.locator("#layoutNameInput").fill("Selected trio");
+  await expect(page.locator("#layoutDetails")).toContainText("Selected trio | 3 boxes");
   await expect(page.locator("#saveBoxLayoutBtn")).toBeEnabled();
   await expect(page.locator("#updateBoxLayoutBtn")).toBeDisabled();
   await page.locator("#saveBoxLayoutBtn").click();

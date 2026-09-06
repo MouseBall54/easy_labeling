@@ -313,6 +313,17 @@ export function createAutomationController(input: {
     );
   };
 
+  const setupLayoutPreview = (): BoxLayout | null => {
+    const savedLayout = selectedSetupLayout();
+    if (savedLayout) {
+      return savedLayout;
+    }
+    if (getLayoutCaptureCount() === 0) {
+      return null;
+    }
+    return captureCurrentLayout(elements.layoutNameInput.value.trim() || "New layout preview");
+  };
+
   const syncLayoutEditorState = (): void => {
     const layout = selectedSetupLayout();
     const counts = getLayoutCaptureCounts();
@@ -361,7 +372,7 @@ export function createAutomationController(input: {
     elements,
     canvasController: input.canvasController,
     getSelectedLayout: selectedLayout,
-    getSelectedSetupLayout: selectedSetupLayout,
+    getSelectedSetupLayout: setupLayoutPreview,
     getGhostVisible: () => layoutGhostVisible
   });
   const renderLayoutGhostPreview = (): void => layoutPreview.renderGhost();
@@ -1530,10 +1541,12 @@ export function createAutomationController(input: {
       elements.layoutNameInput.addEventListener("input", () => {
         setLayoutSetupError(null);
         syncLayoutEditorState();
+        renderLayoutPreview();
       });
       elements.layoutCaptureScopeSelect.addEventListener("change", () => {
         setLayoutSetupError(null);
         syncLayoutEditorState();
+        renderLayoutPreview();
       });
       elements.boxLayoutSelect.addEventListener("pointerdown", () => {
         layoutSelectionArmed = true;
