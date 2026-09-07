@@ -118,24 +118,37 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
 
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
+  await expect(page.locator("#taskSegmentationBtn")).toBeHidden();
+  await expect(page.locator("#taskSuperpixelBtn")).toBeHidden();
+  await expect(page.locator("#taskSegmentationDisplayBtn")).toBeHidden();
 
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
   await page.keyboard.press("3");
   await expect(page.locator("#undoBtn")).toBeEnabled();
 
-  await page.locator('label[for="segmentationWorkflowTab"]').click();
+  await page.locator("#taskSegmentationBtn").click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
-  await expect(page.locator('#segmentationLeftWorkspace')).toBeVisible();
-  await expect(page.locator('#segmentationLeftDatasetPane #segmentationFormatSection')).toBeVisible();
-  await page.locator('button[data-segmentation-left-tab="superpixel"]').click();
-  await expect(page.locator('#segmentationLeftSuperpixelPane #segmentationSuperpixelSection')).toBeVisible();
+  await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
+  await expect(page.locator('#segmentationWorkflowPanel #segmentationFormatSection')).toBeVisible();
+  await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeHidden();
+  await expect(page.locator("#genericModeControls")).toBeHidden();
+  await expect(page.locator("#sharedToolSection #segmentationToolsSection")).toBeVisible();
+  await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeVisible();
   await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Active Class');
+  await expect(page.locator("#taskAnnotateBtn")).toBeHidden();
+  await expect(page.locator("#taskSuperpixelBtn")).toBeVisible();
+  await expect(page.locator("#taskSegmentationDisplayBtn")).toBeVisible();
 
-  await page.locator('label[for="detectionWorkflowTab"]').click();
+  await page.locator("#taskSuperpixelBtn").click();
+  await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeVisible();
+  await expect(page.locator('#segmentationWorkflowPanel #segmentationFormatSection')).toBeHidden();
+  await expect(page.locator("#inspectorTitle")).toHaveText("Superpixel Inspector");
+
+  await page.locator("#taskAnnotateBtn").click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
-  await expect(page.locator('#segmentationLeftWorkspace')).toBeHidden();
+  await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
   await expect(page.locator("#undoBtn")).toBeEnabled();
   await page.locator("#undoBtn").click();
   await expect.poll(async () => {

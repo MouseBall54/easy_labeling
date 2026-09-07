@@ -158,15 +158,17 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     name.className = "image-list-item-name";
     name.textContent = file.name;
 
-    const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount ?? 0;
-    const count = document.createElement("span");
-    count.className = "badge rounded-pill image-box-count";
-    count.dataset.ui = "image-box-count";
-    count.setAttribute("aria-label", `${boxCount} detection boxes`);
-    count.title = `${boxCount} detection boxes`;
-    count.textContent = String(boxCount);
     item.appendChild(name);
-    item.appendChild(count);
+    if (input.activeWorkflow === "detection") {
+      const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount ?? 0;
+      const count = document.createElement("span");
+      count.className = "badge rounded-pill image-box-count";
+      count.dataset.ui = "image-box-count";
+      count.setAttribute("aria-label", `${boxCount} detection boxes`);
+      count.title = `${boxCount} detection boxes`;
+      count.textContent = String(boxCount);
+      item.appendChild(count);
+    }
 
     if (finding?.issues.length) {
       const reviewBadge = document.createElement("span");

@@ -111,7 +111,7 @@ describe("ui/renderers", () => {
     });
     expect(segmentationRendered.map((file) => file.name)).toEqual(["img1.jpg"]);
     expect(segmentationListElement.children[0]?.dataset.status).toBe("segmentation-present");
-    expect(segmentationListElement.children[0]?.children[1]?.textContent).toBe("7");
+    expect(segmentationListElement.children[0]?.children).toHaveLength(1);
   });
   it("toggles loading overlay show class", () => {
     const loadingOverlayElement = new FakeElement("div");

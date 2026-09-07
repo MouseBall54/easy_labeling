@@ -117,20 +117,6 @@ export function createEventManagerAdapter(input: {
         : null;
       automationController?.bind();
 
-      input.documentRef?.querySelectorAll<HTMLButtonElement>("[data-segmentation-left-tab]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const tab = button.dataset.segmentationLeftTab;
-          if (!tab) return;
-          input.documentRef?.querySelectorAll<HTMLButtonElement>("[data-segmentation-left-tab]").forEach((candidate) => {
-            const active = candidate === button;
-            candidate.classList.toggle("active", active);
-            candidate.setAttribute("aria-current", active ? "page" : "false");
-          });
-          input.documentRef?.querySelectorAll<HTMLElement>("[data-segmentation-left-pane]").forEach((pane) => {
-            pane.hidden = pane.dataset.segmentationLeftPane !== tab;
-          });
-        });
-      });
 
       const runAsync = (action: () => Promise<void>): void => {
         action().catch((error: unknown) => {
@@ -571,7 +557,10 @@ export function createEventManagerAdapter(input: {
       };
 
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
-      elements.taskAnnotateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("annotate"));
+      elements.taskAnnotateBtn.addEventListener("click", () => setWorkflow("detection"));
+      elements.taskSegmentationBtn.addEventListener("click", () => setWorkflow("segmentation"));
+      elements.taskSuperpixelBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("superpixel"));
+      elements.taskSegmentationDisplayBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("segmentation-display"));
       elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
       elements.taskReviewBtn?.addEventListener("click", () => input.uiManager.setActiveTask?.("review"));
       elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));
@@ -839,6 +828,9 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.setSegmentationTool?.("brush");
         input.uiManager.setWorkflow?.(input.state.session.workflow);
         setMode("draw");
+      });
+      input.documentRef?.getElementById("segmentationEditModeBtn")?.addEventListener("click", () => {
+        setMode("edit");
       });
       elements.segmentationAnnotationTypeSelect?.addEventListener("change", (event) => {
         const select = event.currentTarget;

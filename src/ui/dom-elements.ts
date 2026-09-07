@@ -267,6 +267,9 @@ export interface UiDomElements {
   cancelActiveOperationBtn: HTMLButtonElement;
   taskFilesBtn: HTMLButtonElement;
   taskAnnotateBtn: HTMLButtonElement;
+  taskSegmentationBtn: HTMLButtonElement;
+  taskSuperpixelBtn: HTMLButtonElement;
+  taskSegmentationDisplayBtn: HTMLButtonElement;
   taskAutomateBtn: HTMLButtonElement;
   taskReviewBtn: HTMLButtonElement;
   reviewQueueControls: HTMLElement;
@@ -592,6 +595,9 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     cancelActiveOperationBtn: requireById<HTMLButtonElement>(documentRef, "cancelActiveOperationBtn"),
     taskFilesBtn: requireById<HTMLButtonElement>(documentRef, "taskFilesBtn"),
     taskAnnotateBtn: requireById<HTMLButtonElement>(documentRef, "taskAnnotateBtn"),
+    taskSegmentationBtn: requireById<HTMLButtonElement>(documentRef, "taskSegmentationBtn"),
+    taskSuperpixelBtn: requireById<HTMLButtonElement>(documentRef, "taskSuperpixelBtn"),
+    taskSegmentationDisplayBtn: requireById<HTMLButtonElement>(documentRef, "taskSegmentationDisplayBtn"),
     taskAutomateBtn: requireById<HTMLButtonElement>(documentRef, "taskAutomateBtn"),
     taskReviewBtn: requireById<HTMLButtonElement>(documentRef, "taskReviewBtn"),
     reviewQueueControls: requireById<HTMLElement>(documentRef, "reviewQueueControls"),

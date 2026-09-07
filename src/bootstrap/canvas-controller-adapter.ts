@@ -157,8 +157,11 @@ export function createCanvasControllerAdapter(input: {
     detection: createCanvasControllerForWorkflow("detection", liveState, controllerDeps, sharedShell),
     segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell)
   };
-  workflowControllers.detection.setWorkflowActive?.(input.state.session.workflow === "detection");
-  workflowControllers.segmentation.setWorkflowActive?.(input.state.session.workflow === "segmentation");
+  const syncWorkflowVisibility = (workflow: WorkflowType): void => {
+    workflowControllers.detection.setWorkflowActive?.(workflow === "detection");
+    workflowControllers.segmentation.setWorkflowActive?.(workflow === "segmentation");
+  };
+  syncWorkflowVisibility(input.state.session.workflow);
 
   const getActiveController = (): FeatureCanvasController => {
     return workflowControllers[input.state.session.workflow] ?? workflowControllers.detection;
@@ -180,12 +183,8 @@ export function createCanvasControllerAdapter(input: {
     },
 
     setWorkflow(workflow): void {
-      if (workflow === input.state.session.workflow) {
-        return;
-      }
-      getActiveController().setWorkflowActive?.(false);
       input.state.session.workflow = workflow;
-      getActiveController().setWorkflowActive?.(true);
+      syncWorkflowVisibility(workflow);
       getActiveController().setMode(input.state.view.currentMode);
     },
 
@@ -197,8 +196,7 @@ export function createCanvasControllerAdapter(input: {
         workflowControllers.detection.addLabelsFromYolo(detectionYolo);
       }
       workflowControllers.segmentation.loadSegmentationDocumentSnapshot?.(segmentationSnapshot);
-      workflowControllers.detection.setWorkflowActive?.(input.state.session.workflow === "detection");
-      workflowControllers.segmentation.setWorkflowActive?.(input.state.session.workflow === "segmentation");
+      syncWorkflowVisibility(input.state.session.workflow);
       getActiveController().resetZoom();
     }
   };

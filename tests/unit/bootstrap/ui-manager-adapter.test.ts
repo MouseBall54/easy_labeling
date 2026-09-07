@@ -199,13 +199,14 @@ class FakeElement {
 
 class FakeDocument {
   readonly body = new FakeElement("body");
+  readonly elementsById = new Map<string, FakeElement>();
 
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
   }
 
-  getElementById(_id: string): null {
-    return null;
+  getElementById(id: string): FakeElement | null {
+    return this.elementsById.get(id) ?? null;
   }
 
   querySelector(): null {
@@ -250,6 +251,12 @@ function createElements() {
   taskFilesBtn.dataset.task = "files";
   const taskAnnotateBtn = new FakeElement("button");
   taskAnnotateBtn.dataset.task = "annotate";
+  const taskSegmentationBtn = new FakeElement("button");
+  taskSegmentationBtn.dataset.task = "segmentation";
+  const taskSuperpixelBtn = new FakeElement("button");
+  taskSuperpixelBtn.dataset.task = "superpixel";
+  const taskSegmentationDisplayBtn = new FakeElement("button");
+  taskSegmentationDisplayBtn.dataset.task = "segmentation-display";
   const taskAutomateBtn = new FakeElement("button");
   taskAutomateBtn.dataset.task = "automate";
   const matchingEngineStatus = new FakeElement("div");
@@ -326,6 +333,9 @@ function createElements() {
     deleteSelectionBtn: new FakeElement("button"),
     taskFilesBtn,
     taskAnnotateBtn,
+    taskSegmentationBtn,
+    taskSuperpixelBtn,
+    taskSegmentationDisplayBtn,
     taskAutomateBtn,
     automationPresetSelect: new FakeElement("select"),
     matchingEngineStatus,
@@ -649,6 +659,47 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     expect(elements.segmentationEdgeHighlightToggle.checked).toBe(false);
     expect(elements.segmentationEdgeGlowSlider.value).toBe("35");
     expect(elements.segmentationEdgeGlowValue.textContent).toBe("35");
+  });
+
+  it("keeps only one segmentation tool active when switching between edit and brush", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const documentRef = new FakeDocument();
+    const editButton = new FakeElement("button");
+    documentRef.elementsById.set("segmentationEditModeBtn", editButton);
+    getDOMElementsMock.mockReturnValue(elements);
+
+    const manager = createUiManagerAdapter({
+      state,
+      documentRef: documentRef as unknown as Document,
+      bootstrapRef: {} as never,
+      windowRef: { prompt: () => null },
+      storage: { getItem: () => null, setItem: () => undefined }
+    });
+
+    manager.connect({
+      canvasController: {
+        raw: {
+          getObjects: () => [],
+          canvas: { getActiveObjects: () => [], getActiveObject: () => null },
+          getSegmentationSummary: () => ({
+            activeClassId: "1", activeTool: "brush", brushRadius: 6,
+            overlayVisible: true, overlayOpacity: 0.6,
+            edgeHighlightVisible: false, edgeHighlightIntensity: 0.35,
+            visibleClassIds: [], allClassIds: [], hiddenClassIds: []
+          })
+        }
+      }
+    } as never);
+
+    manager.setWorkflow("segmentation");
+    expect(elements.segmentationBrushModeBtn.classList.contains("active")).toBe(false);
+    expect(editButton.classList.contains("active")).toBe(true);
+
+    state.view.currentMode = "draw";
+    manager.syncWorkspaceState();
+    expect(elements.segmentationBrushModeBtn.classList.contains("active")).toBe(true);
+    expect(editButton.classList.contains("active")).toBe(false);
   });
 });
 

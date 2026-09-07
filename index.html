@@ -73,6 +73,15 @@
                 <button id="taskAnnotateBtn" type="button" class="task-rail-button active" data-task="annotate" title="Annotation workspace" aria-label="Annotation workspace" aria-current="page" aria-pressed="true">
                     <i class="bi bi-tag" aria-hidden="true"></i><span>Annotate</span>
                 </button>
+                <button id="taskSegmentationBtn" type="button" class="task-rail-button" data-task="segmentation" title="Mask workspace" aria-label="Mask workspace" aria-pressed="false" hidden>
+                    <i class="bi bi-vector-pen" aria-hidden="true"></i><span>Mask</span>
+                </button>
+                <button id="taskSuperpixelBtn" type="button" class="task-rail-button" data-task="superpixel" title="Superpixel workspace" aria-label="Superpixel workspace" aria-pressed="false" hidden>
+                    <i class="bi bi-grid-3x3" aria-hidden="true"></i><span>Superpixel</span>
+                </button>
+                <button id="taskSegmentationDisplayBtn" type="button" class="task-rail-button" data-task="segmentation-display" title="Mask display workspace" aria-label="Mask display workspace" aria-pressed="false" hidden>
+                    <i class="bi bi-eye" aria-hidden="true"></i><span>Display</span>
+                </button>
                 <button id="taskAutomateBtn" type="button" class="task-rail-button" data-task="automate" title="Automation workspace" aria-label="Automation workspace" aria-pressed="false">
                     <i class="bi bi-robot" aria-hidden="true"></i><span>Automate</span>
                 </button>
@@ -101,20 +110,7 @@
                         <i class="bi bi-info-circle" aria-hidden="true"></i>
                         <span>Folder access is unavailable in this browser. The bundled sample remains available.</span>
                     </div>
-                    <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden>
-                        <nav class="inspector-tabs" aria-label="Segmentation workspace">
-                            <button type="button" class="inspector-tab active" data-segmentation-left-tab="dataset">Dataset</button>
-                            <button type="button" class="inspector-tab" data-segmentation-left-tab="classes">Classes</button>
-                            <button type="button" class="inspector-tab" data-segmentation-left-tab="tools">Tools</button>
-                            <button type="button" class="inspector-tab" data-segmentation-left-tab="superpixel">Superpixel</button>
-                            <button type="button" class="inspector-tab" data-segmentation-left-tab="display">Display</button>
-                        </nav>
-                        <div id="segmentationLeftDatasetPane" data-segmentation-left-pane="dataset"></div>
-                        <div id="segmentationLeftClassesPane" data-segmentation-left-pane="classes" hidden></div>
-                        <div id="segmentationLeftToolsPane" data-segmentation-left-pane="tools" hidden></div>
-                        <div id="segmentationLeftSuperpixelPane" data-segmentation-left-pane="superpixel" hidden></div>
-                        <div id="segmentationLeftDisplayPane" data-segmentation-left-pane="display" hidden></div>
-                    </div>
+                    <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden></div>
                     <div id="detectionLeftWorkspace">
 
                     <section class="dataset-actions" data-ui="folder-actions">
@@ -237,9 +233,9 @@
                 <button id="collapse-right-panel-btn" type="button" class="panel-icon-button" title="Collapse inspector" aria-label="Collapse inspector"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             </div>
             <div class="panel-content right-panel-content" data-ui="right-panel-content">
-                <section class="inspector-section shared-tool-section mode-section" data-ui="mode-section">
+                <section id="sharedToolSection" class="inspector-section shared-tool-section mode-section" data-ui="mode-section">
                     <div class="section-heading-row"><h3>Tool</h3><span id="activeToolSummary" class="section-value">Edit</span></div>
-                    <div class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
+                    <div id="genericModeControls" class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
                         <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
                         <label class="btn" for="drawMode" data-ui="mode-draw" title="Draw (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i> Draw</label>
                         <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
@@ -395,13 +391,13 @@
                         <p id="segmentationFormatGuidance" class="form-text mb-0" data-ui="segmentation-format-guidance"></p>
                     </section>
                     <section id="segmentationToolsSection" class="inspector-section segmentation-tools-section" data-ui="segmentation-tools-section">
-                        <div class="section-heading-row"><h3>Mask tool</h3><span id="segmentationToolSizeValue" class="section-value" data-ui="segmentation-tool-size-value">6px</span></div>
                         <div class="segmented-control" role="group" aria-label="Segmentation tools">
                             <button id="segmentationBrushModeBtn" type="button" class="btn active" data-ui="segmentation-tool-brush"><i class="bi bi-brush" aria-hidden="true"></i> Brush</button>
                             <button id="segmentationEraseModeBtn" type="button" class="btn" data-ui="segmentation-tool-erase"><i class="bi bi-eraser" aria-hidden="true"></i> Erase</button>
                             <button id="segmentationPolygonModeBtn" type="button" class="btn" data-ui="segmentation-tool-polygon"><i class="bi bi-pentagon" aria-hidden="true"></i> Polygon</button>
                             <button id="segmentationSuperpixelModeBtn" type="button" class="btn" data-ui="segmentation-tool-superpixel"><i class="bi bi-grid-3x3" aria-hidden="true"></i> Superpixel</button>
                             <button id="segmentationSmartModeBtn" type="button" class="btn" data-ui="segmentation-tool-smart"><i class="bi bi-magic" aria-hidden="true"></i> Smart Select</button>
+                            <button id="segmentationEditModeBtn" type="button" class="btn" data-ui="segmentation-tool-edit"><i class="bi bi-cursor" aria-hidden="true"></i> Edit</button>
                         </div>
                         <p id="segmentationPolygonHint" class="form-text mt-2 mb-0" hidden>Click vertices, then double-click or Complete polygon to fill. Esc cancels.</p>
                         <div class="btn-group btn-group-sm mt-2" id="segmentationPolygonActions" hidden><button id="segmentationCompletePolygonBtn" type="button" class="btn btn-primary">Complete polygon</button><button id="segmentationCancelPolygonBtn" type="button" class="btn btn-outline-secondary">Cancel polygon</button></div>
@@ -419,9 +415,9 @@
                             <div class="mt-2" data-ui="segmentation-smart-settings"><div class="section-heading-row"><label class="form-label small mb-0" for="segmentationSmartSimilaritySlider">Smart similarity</label><span id="segmentationSmartSimilarityValue" class="section-value">Strict</span></div><input type="range" class="form-range" min="5" max="60" value="20" id="segmentationSmartSimilaritySlider" data-ui="segmentation-smart-similarity-slider"><div class="section-heading-row mt-2"><label class="form-label small mb-0" for="segmentationSmartEdgeStopSlider">Edge stop</label><span id="segmentationSmartEdgeStopValue" class="section-value">Strong</span></div><input type="range" class="form-range" min="0" max="100" value="70" id="segmentationSmartEdgeStopSlider" data-ui="segmentation-smart-edge-stop-slider"></div>
                         </div>
                     </section>
-                    <section class="inspector-section segmentation-tools-section">
+                    <section id="segmentationToolSizeSection" class="inspector-section segmentation-tools-section">
                         <div class="mt-1" data-ui="segmentation-tool-size-group">
-                            <label for="segmentationToolSizeSlider" id="segmentationToolSizeLabel" class="form-label small" data-ui="segmentation-tool-size-label">Brush size</label>
+                            <div class="section-heading-row"><label for="segmentationToolSizeSlider" id="segmentationToolSizeLabel" class="form-label small mb-0" data-ui="segmentation-tool-size-label">Brush size</label><span id="segmentationToolSizeValue" class="section-value" data-ui="segmentation-tool-size-value">6px</span></div>
                             <input type="range" class="form-range" min="1" max="48" value="6" id="segmentationToolSizeSlider" data-ui="segmentation-tool-size-slider">
                             <div id="segmentationToolSizePresets" class="segmented-control compact" role="group" aria-label="Brush size presets" data-ui="segmentation-tool-size-presets">
                                 <button type="button" class="btn" data-ui="segmentation-tool-size-preset" data-size="3">3</button><button type="button" class="btn active" data-ui="segmentation-tool-size-preset" data-size="6">6</button><button type="button" class="btn" data-ui="segmentation-tool-size-preset" data-size="12">12</button><button type="button" class="btn" data-ui="segmentation-tool-size-preset" data-size="24">24</button>

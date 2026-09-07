@@ -1641,6 +1641,16 @@ body {
     transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
+.task-rail-button[hidden],
+#segmentationWorkflowPanel > [hidden] {
+    display: none;
+}
+
+#sharedToolSection > [hidden],
+#genericModeControls[hidden] {
+    display: none;
+}
+
 .task-rail-button::before {
     position: absolute;
     top: 10px;
