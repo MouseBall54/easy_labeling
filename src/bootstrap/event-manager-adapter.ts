@@ -558,7 +558,10 @@ export function createEventManagerAdapter(input: {
 
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
       elements.taskAnnotateBtn.addEventListener("click", () => setWorkflow("detection"));
-      elements.taskSegmentationBtn.addEventListener("click", () => setWorkflow("segmentation"));
+      elements.taskSegmentationBtn.addEventListener("click", () => {
+        setWorkflow("segmentation");
+        input.uiManager.setActiveTask?.("segmentation");
+      });
       elements.taskSuperpixelBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("superpixel"));
       elements.taskSegmentationDisplayBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("segmentation-display"));
       elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
@@ -900,13 +903,12 @@ export function createEventManagerAdapter(input: {
           return;
         }
         input.canvasController.raw.setSegmentationTool?.("smart");
-        input.uiManager.setWorkflow?.(input.state.session.workflow);
         setMode("draw");
+        input.uiManager.setWorkflow?.(input.state.session.workflow);
       });
       elements.segmentationRecalculateSuperpixelsBtn?.addEventListener("click", () => {
         const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
         input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
-        input.uiManager.setWorkflow?.(input.state.session.workflow);
       });
       elements.segmentationSuperpixelSizeSlider?.addEventListener("input", (event) => {
         const slider = event.currentTarget;
@@ -956,7 +958,7 @@ export function createEventManagerAdapter(input: {
         return {
           id,
           name,
-          settings: settings ?? { regionSize: 16, blur: "off", contrast: "off", edgeSensitivity: "medium" },
+          settings: settings ?? { regionSize: 16, blur: "medium", contrast: "medium", edgeSensitivity: "medium" },
           smartSimilarity: Number.parseInt(elements.segmentationSmartSimilaritySlider?.value ?? "20", 10) / 100,
           smartEdgeStop: Number.parseInt(elements.segmentationSmartEdgeStopSlider?.value ?? "70", 10) / 100,
           boundaryVisible: elements.segmentationSuperpixelBoundaryToggle?.checked ?? true
@@ -1528,7 +1530,7 @@ export function createEventManagerAdapter(input: {
       });
 
       input.windowRef.addEventListener("keydown", (event) => {
-        if (isEditableKeyboardTarget(event.target) || isEditableKeyboardTarget(input.documentRef?.activeElement ?? null)) {
+        if (isEditableKeyboardTarget(event.target)) {
           return;
         }
 
@@ -1551,6 +1553,19 @@ export function createEventManagerAdapter(input: {
         if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "h") {
           event.preventDefault();
           input.uiManager.toggleAllLabelVisibility();
+          return;
+        }
+
+        if (input.state.session.workflow === "segmentation"
+          && !event.ctrlKey
+          && !event.metaKey
+          && !event.altKey
+          && !event.shiftKey
+          && event.key.toLowerCase() === "b") {
+          event.preventDefault();
+          const visible = !elements.segmentationSuperpixelBoundaryToggle.checked;
+          elements.segmentationSuperpixelBoundaryToggle.checked = visible;
+          input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(visible);
           return;
         }
 

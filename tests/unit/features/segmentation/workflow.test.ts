@@ -101,9 +101,9 @@ describe("features/segmentation/workflow", () => {
   it("invalidates the active superpixel result only when settings change", () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState(), createDeps());
     controller.setBackgroundImage({ width: 16, height: 16 });
-    expect(controller.setSegmentationSuperpixelSettings?.({ blur: "medium" })).toBe(true);
-    expect(controller.getSegmentationSuperpixelSettings?.()).toMatchObject({ blur: "medium" });
-    expect(controller.setSegmentationSuperpixelSettings?.({ blur: "medium" })).toBe(false);
+    expect(controller.setSegmentationSuperpixelSettings?.({ blur: "high" })).toBe(true);
+    expect(controller.getSegmentationSuperpixelSettings?.()).toMatchObject({ blur: "high" });
+    expect(controller.setSegmentationSuperpixelSettings?.({ blur: "high" })).toBe(false);
   });
 
   it("activates segmentation explicitly and paints/erases through the document-backed workflow", async () => {

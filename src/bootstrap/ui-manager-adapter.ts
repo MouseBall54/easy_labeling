@@ -176,6 +176,7 @@ export function createUiManagerAdapter(input: {
   let directoryPickerAvailable = true;
   let activeTask: "files" | "annotate" | "segmentation" | "superpixel" | "segmentation-display" | "automate" | "review" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
+  let displayedWorkflow: WorkflowType = input.state.session.workflow;
   let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
 
@@ -326,12 +327,14 @@ export function createUiManagerAdapter(input: {
     }
     const polygonActions = input.documentRef.getElementById("segmentationPolygonActions");
     if (polygonActions) polygonActions.hidden = activeTool !== "polygon";
+    const smartSettingsSection = input.documentRef.getElementById("segmentationSmartSettingsSection");
+    if (smartSettingsSection) smartSettingsSection.hidden = input.state.session.workflow !== "segmentation" || activeTask !== "segmentation" || activeTool !== "smart";
     if (elements.segmentationSuperpixelSizeSlider && elements.segmentationSuperpixelSizeValue && elements.segmentationSuperpixelBoundaryToggle) {
       const superpixelSize = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() ?? Number.parseInt(elements.segmentationSuperpixelSizeSlider.value, 10);
       elements.segmentationSuperpixelSizeSlider.value = `${superpixelSize}`;
       elements.segmentationSuperpixelSizeValue.textContent = `${superpixelSize} px`;
       elements.segmentationSuperpixelPresetButtons?.forEach((button) => button.classList.toggle("active", Number(button.dataset.size) === superpixelSize));
-      elements.segmentationSuperpixelBoundaryToggle.disabled = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() === null;
+      elements.segmentationSuperpixelBoundaryToggle.disabled = false;
     }
     const superpixelSettings = canvasController?.raw.getSegmentationSuperpixelSettings?.();
     const blurSelect = input.documentRef.getElementById("segmentationBlurSelect");
@@ -469,14 +472,19 @@ export function createUiManagerAdapter(input: {
     const sharedToolSection = input.documentRef.getElementById("sharedToolSection");
     const segmentationToolsSection = input.documentRef.getElementById("segmentationToolsSection");
     const segmentationToolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
+    const segmentationSmartSettingsSection = input.documentRef.getElementById("segmentationSmartSettingsSection");
     if (showSegmentationControls) {
       segmentationWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.removeAttribute("hidden");
       genericModeControls?.setAttribute("hidden", "");
-      [segmentationToolsSection, segmentationToolSizeSection].forEach((section) => {
+      [segmentationToolsSection, segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
         if (section && sharedToolSection) {
           sharedToolSection.appendChild(section);
-          section.hidden = activeTask !== "segmentation";
+          if (section === segmentationSmartSettingsSection) {
+            section.hidden ||= activeTask !== "segmentation";
+          } else {
+            section.hidden = activeTask !== "segmentation";
+          }
         }
       });
       sectionIds.forEach((sectionId) => {
@@ -493,10 +501,10 @@ export function createUiManagerAdapter(input: {
       detectionWorkspace?.removeAttribute("hidden");
       genericModeControls?.removeAttribute("hidden");
       const panel = elements.segmentationWorkflowPanel;
-      [segmentationToolsSection, segmentationToolSizeSection].forEach((section) => {
+      [segmentationToolsSection, segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
         if (section) {
           panel.appendChild(section);
-          section.hidden = false;
+          section.hidden = section === segmentationSmartSettingsSection;
         }
       });
       sectionIds.forEach((sectionId) => {
@@ -800,18 +808,22 @@ export function createUiManagerAdapter(input: {
     },
 
     setWorkflow(workflow: WorkflowType): void {
+      const workflowChanged = displayedWorkflow !== workflow;
       input.state.session.workflow = workflow;
-      syncWorkflowPanels();
       syncSegmentationPanelState();
+      syncWorkflowPanels();
       elements.taskAutomateBtn.disabled = workflow !== "detection";
       if (elements.taskReviewBtn) {
         elements.taskReviewBtn.disabled = workflow !== "detection";
       }
       if (workflow === "segmentation") {
-        manager.setActiveTask("segmentation");
+        if (workflowChanged) {
+          manager.setActiveTask("segmentation");
+        }
       } else if (activeTask === "segmentation" || activeTask === "superpixel" || activeTask === "segmentation-display") {
         manager.setActiveTask("annotate");
       }
+      displayedWorkflow = workflow;
       manager.updateLabelList();
       manager.renderImageList();
       manager.syncWorkspaceState();

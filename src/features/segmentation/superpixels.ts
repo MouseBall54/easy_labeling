@@ -9,8 +9,8 @@ export interface SuperpixelImageData {
 
 export const DEFAULT_SUPERPIXEL_SETTINGS: SegmentationSuperpixelSettings = {
   regionSize: 16,
-  blur: "off",
-  contrast: "off",
+  blur: "medium",
+  contrast: "medium",
   edgeSensitivity: "medium"
 };
 

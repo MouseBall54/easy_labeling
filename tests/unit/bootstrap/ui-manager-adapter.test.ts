@@ -285,6 +285,10 @@ function createElements() {
     segmentationRelabelRegionBtn: new FakeElement("button"),
     segmentationBrushModeBtn: new FakeElement("button"),
     segmentationEraseModeBtn: new FakeElement("button"),
+    segmentationSuperpixelSizeSlider: new FakeElement("input"),
+    segmentationSuperpixelSizeValue: new FakeElement("span"),
+    segmentationSuperpixelPresetButtons: [],
+    segmentationSuperpixelBoundaryToggle: new FakeElement("input"),
     segmentationToolSizeLabel: new FakeElement("label"),
     segmentationToolSizeSlider,
     segmentationToolSizeValue: new FakeElement("span"),
@@ -612,6 +616,27 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     expect(renderImageListMock).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the selected segmentation workspace when syncing the same workflow", () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    getDOMElementsMock.mockReturnValue(elements);
+
+    const manager = createUiManagerAdapter({
+      state,
+      documentRef: new FakeDocument() as unknown as Document,
+      bootstrapRef: {} as never,
+      windowRef: { prompt: () => null },
+      storage: { getItem: () => null, setItem: () => undefined }
+    });
+
+    manager.setWorkflow("segmentation");
+    manager.setActiveTask("superpixel");
+    manager.setWorkflow("segmentation");
+
+    expect(elements.taskSuperpixelBtn.classList.contains("active")).toBe(true);
+    expect(elements.inspectorTitle.textContent).toBe("Superpixel Inspector");
+  });
+
   it("syncs segmentation auto-fill toggle from controller getter", () => {
     const state = createInitialAppState();
     const elements = createElements();
@@ -655,11 +680,13 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
       }
     } as never);
 
+    elements.segmentationSuperpixelBoundaryToggle.disabled = true;
     manager.setWorkflow("segmentation");
     expect(elements.segmentationAutoFillClosedRegionToggle.checked).toBe(true);
     expect(elements.segmentationEdgeHighlightToggle.checked).toBe(false);
     expect(elements.segmentationEdgeGlowSlider.value).toBe("35");
     expect(elements.segmentationEdgeGlowValue.textContent).toBe("35");
+    expect(elements.segmentationSuperpixelBoundaryToggle.disabled).toBe(false);
   });
 
   it("keeps only one segmentation tool active when switching between edit and brush", () => {

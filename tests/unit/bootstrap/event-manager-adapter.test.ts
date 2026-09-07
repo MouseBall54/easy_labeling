@@ -180,7 +180,9 @@ function createElements() {
     segmentationEraseModeBtn: new FakeHtmlElement(),
     segmentationSuperpixelSizeSlider: new FakeInputElement(),
     segmentationSuperpixelSizeValue: new FakeHtmlElement(),
-    segmentationSuperpixelPresetButtons: [new FakeHtmlElement(), new FakeHtmlElement(), new FakeHtmlElement()],
+    segmentationSuperpixelPresetButtons: [new FakeHtmlElement(), new FakeHtmlElement(), new FakeHtmlElement(), new FakeHtmlElement()],
+    segmentationSuperpixelBoundaryToggle: new FakeInputElement(),
+    segmentationRecalculateSuperpixelsBtn: new FakeHtmlElement(),
     segmentationToolSizeLabel: new FakeHtmlElement(),
     segmentationToolSizeSlider: new FakeInputElement(),
     segmentationToolSizeValue: new FakeHtmlElement(),
@@ -286,6 +288,7 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     setSegmentationBrushRadius: vi.fn(),
     setSegmentationEdgeHighlightVisible: vi.fn(),
     setSegmentationEdgeHighlightIntensity: vi.fn(),
+    setSegmentationSuperpixelBoundaryVisible: vi.fn(),
     setSegmentationSuperpixelSettings: vi.fn(),
     recalculateSegmentationSuperpixels: vi.fn(),
     getSelectedSegmentationClass: vi.fn(() => null),
@@ -462,6 +465,7 @@ describe("bootstrap/event-manager-adapter", () => {
       state.session.workflow = workflow;
     });
     const setCanvasWorkflow = vi.fn();
+    const setActiveTask = vi.fn();
 
     const eventManager = createEventManagerAdapter({
       state,
@@ -474,7 +478,8 @@ describe("bootstrap/event-manager-adapter", () => {
         hideMouseCoords: vi.fn(),
         togglePanel: vi.fn(),
         applyDarkMode: vi.fn(),
-        setWorkflow
+        setWorkflow,
+        setActiveTask
       } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
       fileSystem: {
         selectImageFolder: vi.fn(async () => {}),
@@ -509,6 +514,10 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(elements.detectionWorkflowTab.checked).toBe(false);
     expect(elements.segmentationWorkflowTab.checked).toBe(true);
     expect(elements.editModeBtn.checked).toBe(true);
+
+    setActiveTask.mockClear();
+    elements.taskSegmentationBtn.click();
+    expect(setActiveTask).toHaveBeenCalledWith("segmentation");
   });
 
   it("syncs the draw/edit radio UI when Ctrl+Q toggles the mode", () => {
@@ -740,6 +749,38 @@ describe("bootstrap/event-manager-adapter", () => {
 
     expect(editablePreventDefault).not.toHaveBeenCalled();
     expect(toggleAllLabelVisibility).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles superpixel boundaries with B only in segmentation mode", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    const elements = createElements();
+    elements.segmentationSuperpixelBoundaryToggle.checked = true;
+    const windowRef = new FakeWindow();
+    const rawController = createRawController(createRawCanvas());
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+    eventManager.bindEventListeners();
+
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      key: "b",
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(elements.segmentationSuperpixelBoundaryToggle.checked).toBe(false);
+    expect(rawController.setSegmentationSuperpixelBoundaryVisible).toHaveBeenCalledWith(false);
   });
 
   it("re-synchronizes Fabric hit-testing after Alt-drag panning", () => {
@@ -2124,7 +2165,7 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(setWorkflow).toHaveBeenCalledTimes(2);
   });
 
-  it("updates a superpixel size preset without changing the active task", () => {
+  it("updates and recalculates superpixels without changing the active task", () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";
     const elements = createElements();
@@ -2153,6 +2194,13 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.setSegmentationSuperpixelSettings).toHaveBeenCalledWith({ regionSize: 8 });
     expect(rawController.recalculateSegmentationSuperpixels).toHaveBeenCalledWith(8);
     expect(finePreset.classList.contains("active")).toBe(true);
+    expect(setWorkflow).not.toHaveBeenCalled();
+    expect(setActiveTask).not.toHaveBeenCalled();
+
+    rawController.recalculateSegmentationSuperpixels.mockClear();
+    elements.segmentationRecalculateSuperpixelsBtn.click();
+
+    expect(rawController.recalculateSegmentationSuperpixels).toHaveBeenCalledWith(8);
     expect(setWorkflow).not.toHaveBeenCalled();
     expect(setActiveTask).not.toHaveBeenCalled();
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSlicoSuperpixels, createSuperpixelCache, growSuperpixelRegion } from "../../../../src/features/segmentation/superpixels.js";
+import { DEFAULT_SUPERPIXEL_SETTINGS, createSlicoSuperpixels, createSuperpixelCache, growSuperpixelRegion } from "../../../../src/features/segmentation/superpixels.js";
 
 function createGradient(width: number, height: number): Uint8ClampedArray {
   const rgba = new Uint8ClampedArray(width * height * 4);
@@ -16,6 +16,10 @@ function createGradient(width: number, height: number): Uint8ClampedArray {
 }
 
 describe("SLICO superpixels", () => {
+  it("uses medium blur and contrast by default", () => {
+    expect(DEFAULT_SUPERPIXEL_SETTINGS).toMatchObject({ blur: "medium", contrast: "medium" });
+  });
+
   it("uses smaller regions for a finer requested size", () => {
     const input = { width: 32, height: 32, rgba: createGradient(32, 32) };
     const fine = createSlicoSuperpixels(input, 8);
@@ -51,5 +55,18 @@ describe("SLICO superpixels", () => {
     };
     expect(growSuperpixelRegion({ result, seedId: 0, similarity: 0.1, edgeStop: 0.2 })).toEqual([0, 1]);
     expect(growSuperpixelRegion({ result, seedId: 0, similarity: 0.1, edgeStop: 1 })).toEqual([0]);
+  });
+
+  it("does not grow into a disconnected region even when its appearance matches the seed", () => {
+    const result = {
+      width: 3, height: 1, regionSize: 1, labels: Int32Array.from([0, 1, 2]), boundaries: Uint8Array.from([1, 1, 1]),
+      regions: [
+        { id: 0, pixelCount: 1, meanIntensity: 100, meanEdgeStrength: 0, neighbors: [1] },
+        { id: 1, pixelCount: 1, meanIntensity: 100, meanEdgeStrength: 0, neighbors: [0] },
+        { id: 2, pixelCount: 1, meanIntensity: 100, meanEdgeStrength: 0, neighbors: [] }
+      ]
+    };
+
+    expect(growSuperpixelRegion({ result, seedId: 0, similarity: 1, edgeStop: 0 })).toEqual([0, 1]);
   });
 });

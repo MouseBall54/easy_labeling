@@ -299,7 +299,12 @@ export function createSegmentationCanvasWorkflow(
 
     if (superpixelResult || superpixelOverlayLayer) {
       const layer = ensureSuperpixelOverlayLayer();
-      layer.sync(superpixelResult, workflowActive && superpixelBoundaryVisible);
+      layer.sync(
+        superpixelResult,
+        workflowActive
+          && superpixelBoundaryVisible
+          && (doc.activeTool === "superpixel" || doc.activeTool === "smart")
+      );
     }
 
     canvas.requestRenderAll();
@@ -719,6 +724,7 @@ export function createSegmentationCanvasWorkflow(
         controller.cancelSegmentationPolygon?.();
       }
       doc.setActiveTool(tool);
+      requestOverlayRender({ immediate: true });
     },
 
     recalculateSegmentationSuperpixels(regionSize: number): boolean {
