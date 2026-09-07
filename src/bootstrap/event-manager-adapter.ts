@@ -924,7 +924,6 @@ export function createEventManagerAdapter(input: {
           input.canvasController.raw.setSegmentationSuperpixelSettings?.({ regionSize: size });
           elements.segmentationSuperpixelPresetButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
           input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
-          input.uiManager.setWorkflow?.(input.state.session.workflow);
         });
       });
       elements.segmentationSuperpixelBoundaryToggle?.addEventListener("change", (event) => {

@@ -17,6 +17,16 @@ class FakeClassList {
   contains(token: string): boolean {
     return this.classes.has(token);
   }
+
+  toggle(token: string, force?: boolean): boolean {
+    const next = force ?? !this.classes.has(token);
+    if (next) {
+      this.classes.add(token);
+    } else {
+      this.classes.delete(token);
+    }
+    return next;
+  }
 }
 
 class FakeHtmlElement {
@@ -168,6 +178,9 @@ function createElements() {
     classSelectionContainer: new FakeHtmlElement(),
     segmentationBrushModeBtn: new FakeHtmlElement(),
     segmentationEraseModeBtn: new FakeHtmlElement(),
+    segmentationSuperpixelSizeSlider: new FakeInputElement(),
+    segmentationSuperpixelSizeValue: new FakeHtmlElement(),
+    segmentationSuperpixelPresetButtons: [new FakeHtmlElement(), new FakeHtmlElement(), new FakeHtmlElement()],
     segmentationToolSizeLabel: new FakeHtmlElement(),
     segmentationToolSizeSlider: new FakeInputElement(),
     segmentationToolSizeValue: new FakeHtmlElement(),
@@ -273,6 +286,8 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     setSegmentationBrushRadius: vi.fn(),
     setSegmentationEdgeHighlightVisible: vi.fn(),
     setSegmentationEdgeHighlightIntensity: vi.fn(),
+    setSegmentationSuperpixelSettings: vi.fn(),
+    recalculateSegmentationSuperpixels: vi.fn(),
     getSelectedSegmentationClass: vi.fn(() => null),
     deleteSelectedSegmentationRegion: vi.fn(() => false),
     startSegmentationRegionMove: vi.fn(() => false),
@@ -2107,6 +2122,39 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.setSegmentationTool).toHaveBeenNthCalledWith(2, "brush");
     expect(rawController.setSelectedLabelClass).not.toHaveBeenCalled();
     expect(setWorkflow).toHaveBeenCalledTimes(2);
+  });
+
+  it("updates a superpixel size preset without changing the active task", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    const elements = createElements();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const setWorkflow = vi.fn();
+    const setActiveTask = vi.fn();
+    const finePreset = elements.segmentationSuperpixelPresetButtons[0];
+    finePreset.dataset.size = "8";
+
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements, { setWorkflow, setActiveTask }),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef: new FakeWindow()
+    });
+
+    eventManager.bindEventListeners();
+    setWorkflow.mockClear();
+    setActiveTask.mockClear();
+    finePreset.click();
+
+    expect(elements.segmentationSuperpixelSizeSlider.value).toBe("8");
+    expect(elements.segmentationSuperpixelSizeValue.textContent).toBe("8 px");
+    expect(rawController.setSegmentationSuperpixelSettings).toHaveBeenCalledWith({ regionSize: 8 });
+    expect(rawController.recalculateSegmentationSuperpixels).toHaveBeenCalledWith(8);
+    expect(finePreset.classList.contains("active")).toBe(true);
+    expect(setWorkflow).not.toHaveBeenCalled();
+    expect(setActiveTask).not.toHaveBeenCalled();
   });
 
   it("routes numeric shortcuts to detection selected-label class changes", () => {
