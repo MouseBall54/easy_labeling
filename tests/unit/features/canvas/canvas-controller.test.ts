@@ -66,6 +66,18 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getLabelsAsYolo()).toBe("3 0.250000000000000 0.400000000000000 0.200000000000000 0.500000000000000\n");
   });
 
+  it("keeps newly loaded detection labels hidden while the workflow is inactive", () => {
+    const controller = createCanvasControllerForWorkflow("detection", createState(), createDeps());
+
+    controller.setWorkflowActive?.(false);
+    controller.addLabelsFromYolo("3 0.250000000000000 0.400000000000000 0.200000000000000 0.500000000000000\n");
+    controller.setWorkflowActive?.(false);
+
+    const rect = controller.getObjects("rect")[0];
+    expect(rect?.visible).toBe(false);
+    expect(rect?._labelText?.visible).toBe(false);
+  });
+
 
   it("uses shared shell selection mechanics without rect-only assumptions", () => {
     const fabric = createFakeFabricRuntime();

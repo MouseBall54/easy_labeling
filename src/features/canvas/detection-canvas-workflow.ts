@@ -1603,10 +1603,6 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     setWorkflowActive(active: boolean): void {
-      if (workflowActive === active) {
-        return;
-      }
-
       workflowActive = active;
       if (!active) {
         suspendedSelection = captureSelectionSnapshot();
