@@ -33,6 +33,14 @@ describe("SLICO superpixels", () => {
     expect(cache.getOrCreate(input, 8)).not.toBe(first);
   });
 
+  it("uses preprocessing settings as part of the cache key", () => {
+    const input = { cacheKey: "scene-a", width: 16, height: 16, rgba: createGradient(16, 16) };
+    const cache = createSuperpixelCache();
+    const unblurred = cache.getOrCreate(input, 8, { blur: "off" });
+    expect(cache.getOrCreate(input, 8, { blur: "off" })).toBe(unblurred);
+    expect(cache.getOrCreate(input, 8, { blur: "high" })).not.toBe(unblurred);
+  });
+
   it("uses edge strength as a region-grow penalty rather than an absolute boundary", () => {
     const result = {
       width: 2, height: 1, regionSize: 1, labels: Int32Array.from([0, 1]), boundaries: Uint8Array.from([1, 1]),

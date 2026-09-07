@@ -305,6 +305,15 @@ export function createUiManagerAdapter(input: {
     }
 
     elements.segmentationActiveClassSummary.textContent = `Active Class: ${manager.getDisplayNameForClass(activeClassId)}`;
+    const selectedRegion = canvasController?.raw.getSelectedSegmentationRegion?.() ?? null;
+    const selectedRegionSummary = input.documentRef.getElementById("segmentationSelectedRegionSummary");
+    const deleteRegionButton = input.documentRef.getElementById("segmentationDeleteRegionBtn") as HTMLButtonElement | null;
+    if (selectedRegionSummary) {
+      selectedRegionSummary.textContent = selectedRegion
+        ? `${manager.getDisplayNameForClass(selectedRegion.classId)} · ${selectedRegion.pixelCount.toLocaleString()} px · ${selectedRegion.bounds.right - selectedRegion.bounds.left + 1} × ${selectedRegion.bounds.bottom - selectedRegion.bounds.top + 1}`
+        : "Select a mask region in Edit mode to inspect it.";
+    }
+    if (deleteRegionButton) deleteRegionButton.disabled = selectedRegion === null;
     elements.segmentationBrushModeBtn.classList.toggle("active", activeTool === "brush");
     elements.segmentationEraseModeBtn.classList.toggle("active", activeTool === "erase");
     elements.segmentationPolygonModeBtn?.classList.toggle("active", activeTool === "polygon");
@@ -313,12 +322,29 @@ export function createUiManagerAdapter(input: {
     if (elements.segmentationPolygonHint) {
       elements.segmentationPolygonHint.hidden = activeTool !== "polygon";
     }
+    const polygonActions = input.documentRef.getElementById("segmentationPolygonActions");
+    if (polygonActions) polygonActions.hidden = activeTool !== "polygon";
     if (elements.segmentationSuperpixelSizeSlider && elements.segmentationSuperpixelSizeValue && elements.segmentationSuperpixelBoundaryToggle) {
       const superpixelSize = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() ?? Number.parseInt(elements.segmentationSuperpixelSizeSlider.value, 10);
       elements.segmentationSuperpixelSizeSlider.value = `${superpixelSize}`;
       elements.segmentationSuperpixelSizeValue.textContent = `${superpixelSize} px`;
       elements.segmentationSuperpixelPresetButtons?.forEach((button) => button.classList.toggle("active", Number(button.dataset.size) === superpixelSize));
       elements.segmentationSuperpixelBoundaryToggle.disabled = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() === null;
+    }
+    const superpixelSettings = canvasController?.raw.getSegmentationSuperpixelSettings?.();
+    const blurSelect = input.documentRef.getElementById("segmentationBlurSelect");
+    const contrastSelect = input.documentRef.getElementById("segmentationContrastSelect");
+    const edgeSensitivitySelect = input.documentRef.getElementById("segmentationEdgeSensitivitySelect");
+    const isSelect = (element: Element | null): element is HTMLSelectElement => typeof HTMLSelectElement !== "undefined" && element instanceof HTMLSelectElement;
+    if (isSelect(blurSelect) && superpixelSettings) blurSelect.value = superpixelSettings.blur;
+    if (isSelect(contrastSelect) && superpixelSettings) contrastSelect.value = superpixelSettings.contrast;
+    if (isSelect(edgeSensitivitySelect) && superpixelSettings) edgeSensitivitySelect.value = superpixelSettings.edgeSensitivity;
+    const presetSelect = input.documentRef.getElementById("segmentationToolPresetSelect");
+    if (isSelect(presetSelect)) {
+      const selected = presetSelect.value;
+      presetSelect.replaceChildren(new Option("Superpixel preset", ""));
+      input.state.session.segmentationToolPresets.presets.forEach((preset) => presetSelect.add(new Option(preset.name, preset.id)));
+      presetSelect.value = input.state.session.segmentationToolPresets.presets.some((preset) => preset.id === selected) ? selected : "";
     }
     elements.segmentationToolSizeLabel.textContent = activeTool === "erase" ? "Erase Size" : "Brush Size";
     elements.segmentationToolSizeSlider.value = `${brushRadius}`;
@@ -337,7 +363,10 @@ export function createUiManagerAdapter(input: {
     elements.segmentationEdgeGlowSlider.value = `${Math.round(edgeHighlightIntensity * 100)}`;
     elements.segmentationEdgeGlowValue.textContent = `${Math.round(edgeHighlightIntensity * 100)}`;
     elements.segmentationClassSummary.innerHTML = "";
-    if (summary && summary.allClassIds.length > 0) {
+    const segmentationClassIds = summary
+      ? [...new Set([...summary.allClassIds, ...input.state.session.classNames.keys()])].sort((left, right) => Number(left) - Number(right))
+      : [];
+    if (summary && segmentationClassIds.length > 0) {
       const filterControls = input.documentRef.createElement("div");
       filterControls.className = "mb-2";
 
@@ -353,7 +382,7 @@ export function createUiManagerAdapter(input: {
       allVisibleButton.dataset.ui = "segmentation-filter-all";
       filterControls.appendChild(allVisibleButton);
 
-      summary.allClassIds.forEach((classId) => {
+      segmentationClassIds.forEach((classId) => {
         const filterButton = input.documentRef.createElement("button");
         filterButton.type = "button";
         const isOnlyVisible = summary.visibleClassIds.length === 1 && summary.visibleClassIds[0] === classId;
@@ -371,8 +400,8 @@ export function createUiManagerAdapter(input: {
       title.textContent = "Class Visibility";
       elements.segmentationClassSummary.appendChild(title);
 
-      summary.allClassIds.forEach((classId) => {
-        const wrapper = input.documentRef.createElement("label");
+      segmentationClassIds.forEach((classId) => {
+        const wrapper = input.documentRef.createElement("div");
         wrapper.className = "form-check d-flex align-items-center justify-content-between gap-2 mb-1";
         wrapper.dataset.classId = classId;
         wrapper.dataset.ui = "segmentation-class-visibility-item";
@@ -384,9 +413,15 @@ export function createUiManagerAdapter(input: {
         checkbox.dataset.classId = classId;
         checkbox.dataset.ui = "segmentation-class-visibility-toggle";
 
-        const label = input.documentRef.createElement("span");
-        label.className = `small ${classId === activeClassId ? "fw-bold" : ""}`;
-        label.textContent = manager.getDisplayNameForClass(classId);
+        const label = input.documentRef.createElement("button");
+        label.type = "button";
+        label.className = `btn btn-link btn-sm p-0 text-start small ${classId === activeClassId ? "fw-bold" : ""}`;
+        label.dataset.ui = "segmentation-active-class";
+        label.dataset.classId = classId;
+        const color = input.documentRef.createElement("span");
+        color.className = "d-inline-block rounded-circle me-1";
+        color.style.cssText = `width: 0.65rem; height: 0.65rem; background: ${getColorForClass(classId)};`;
+        label.append(color, input.documentRef.createTextNode(manager.getDisplayNameForClass(classId)));
 
         wrapper.append(checkbox, label);
         elements.segmentationClassSummary.appendChild(wrapper);
@@ -406,6 +441,34 @@ export function createUiManagerAdapter(input: {
       segmentationPanelElement: elements.segmentationWorkflowPanel
     });
     elements.segmentationAutoFillClosedRegionGroup.hidden = !showSegmentationControls;
+    const segmentationWorkspace = input.documentRef.getElementById("segmentationLeftWorkspace");
+    const detectionWorkspace = input.documentRef.getElementById("detectionLeftWorkspace");
+    const destinations: Record<string, string> = {
+      segmentationFormatSection: "segmentationLeftDatasetPane",
+      segmentationClassSection: "segmentationLeftClassesPane",
+      segmentationToolsSection: "segmentationLeftToolsPane",
+      segmentationSuperpixelSection: "segmentationLeftSuperpixelPane",
+      segmentationDisplaySection: "segmentationLeftDisplayPane"
+    };
+    if (showSegmentationControls) {
+      segmentationWorkspace?.removeAttribute("hidden");
+      detectionWorkspace?.setAttribute("hidden", "");
+      Object.entries(destinations).forEach(([sectionId, paneId]) => {
+        const section = input.documentRef.getElementById(sectionId);
+        const pane = input.documentRef.getElementById(paneId);
+        if (section && pane) pane.appendChild(section);
+      });
+      elements.inspectorTitle.textContent = "Mask Inspector";
+      elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
+    } else {
+      segmentationWorkspace?.setAttribute("hidden", "");
+      detectionWorkspace?.removeAttribute("hidden");
+      const panel = elements.segmentationWorkflowPanel;
+      Object.keys(destinations).forEach((sectionId) => {
+        const section = input.documentRef.getElementById(sectionId);
+        if (section) panel.appendChild(section);
+      });
+    }
   };
 
   const manager: RuntimeUiManager = {
@@ -952,6 +1015,13 @@ export function createUiManagerAdapter(input: {
     toggleAllLabelVisibility(): void {
       const canvasController = getCanvasController();
       if (!canvasController) {
+        return;
+      }
+
+      if (input.state.session.workflow === "segmentation") {
+        const visible = canvasController.raw.getSegmentationSummary?.()?.overlayVisible ?? true;
+        canvasController.raw.setSegmentationOverlayVisibility?.(!visible);
+        syncSegmentationPanelState();
         return;
       }
 

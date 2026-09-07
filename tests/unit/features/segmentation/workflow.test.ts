@@ -81,6 +81,29 @@ describe("features/segmentation/workflow", () => {
 
     controller.undo();
     expect(controller.getSegmentationClassAtPoint?.({ x: 3, y: 3 })).toBeNull();
+    controller.redo();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 3, y: 3 })).toBe("3");
+  });
+
+  it("cancels an unfinished polygon without changing its mask or history", () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationTool?.("polygon");
+    controller.startDrawing({ x: 2, y: 2 });
+    controller.startDrawing({ x: 12, y: 2 });
+
+    expect(controller.getSegmentationPolygonVertexCount?.()).toBe(2);
+    expect(controller.cancelSegmentationPolygon?.()).toBe(true);
+    expect(controller.isSegmentationPolygonDrawing?.()).toBe(false);
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it("invalidates the active superpixel result only when settings change", () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState(), createDeps());
+    controller.setBackgroundImage({ width: 16, height: 16 });
+    expect(controller.setSegmentationSuperpixelSettings?.({ blur: "medium" })).toBe(true);
+    expect(controller.getSegmentationSuperpixelSettings?.()).toMatchObject({ blur: "medium" });
+    expect(controller.setSegmentationSuperpixelSettings?.({ blur: "medium" })).toBe(false);
   });
 
   it("activates segmentation explicitly and paints/erases through the document-backed workflow", async () => {

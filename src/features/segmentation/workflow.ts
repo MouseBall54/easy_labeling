@@ -9,16 +9,17 @@ import {
   type SegmentationSelectionOverlayLayer,
   type SegmentationSuperpixelOverlayLayer
 } from "./overlay.js";
-import { createSuperpixelCache, growSuperpixelRegion, type SuperpixelResult } from "./superpixels.js";
+import { createSuperpixelCache, DEFAULT_SUPERPIXEL_SETTINGS, growSuperpixelRegion, normalizeSuperpixelSettings, type SuperpixelResult } from "./superpixels.js";
 import type {
   SegmentationDocumentSnapshot,
   SegmentationRegionBounds,
   SegmentationRegionSelection,
   SegmentationSummary,
+  SegmentationSuperpixelSettings,
   SegmentationTool
 } from "./types.js";
 import type { CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "../canvas/canvas-controller-types.js";
-import type { FabricActiveSelectionLike, FabricRectLike } from "../canvas/fabric-types.js";
+import type { FabricActiveSelectionLike, FabricObjectLike, FabricRectLike } from "../canvas/fabric-types.js";
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
 
 function createEmptySummary(): SegmentationSummary {
@@ -81,10 +82,12 @@ export function createSegmentationCanvasWorkflow(
   let superpixelStrokeMode: "add" | "remove" = "add";
   let smartGrowSimilarity = 0.2;
   let smartGrowEdgeStop = 0.7;
+  let superpixelSettings: SegmentationSuperpixelSettings = { ...DEFAULT_SUPERPIXEL_SETTINGS };
   let visitedSuperpixelIds = new Set<number>();
   let strokeBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let strokePoints: CanvasPoint[] = [];
   let polygonPoints: CanvasPoint[] = [];
+  let polygonPreviewObjects: FabricObjectLike[] = [];
   let strokeDirtyBounds: SegmentationRegionBounds | null = null;
   let selectedRegion: SegmentationRegionSelection | null = null;
   let autoFillClosedRegionEnabled = false;
@@ -136,6 +139,31 @@ export function createSegmentationCanvasWorkflow(
     if (!superpixelOverlayLayer) return;
     canvas.remove(superpixelOverlayLayer.object);
     superpixelOverlayLayer = null;
+  };
+
+  const clearPolygonPreview = (): void => {
+    polygonPreviewObjects.forEach((object) => canvas.remove(object));
+    polygonPreviewObjects = [];
+  };
+
+  const renderPolygonPreview = (): void => {
+    clearPolygonPreview();
+    if (!workflowActive || polygonPoints.length === 0) return;
+    const color = getColorForClass(document?.activeClassId ?? "1");
+    polygonPoints.forEach((point, index) => {
+      polygonPreviewObjects.push(new deps.fabric.Circle({
+        left: point.x - 3, top: point.y - 3, radius: 3, fill: color, stroke: "#ffffff", strokeWidth: 1,
+        selectable: false, evented: false, originX: "left", originY: "top"
+      }));
+      const previous = polygonPoints[index - 1];
+      if (previous) {
+        polygonPreviewObjects.push(new deps.fabric.Line([previous.x, previous.y, point.x, point.y], {
+          stroke: color, strokeWidth: 2, strokeDashArray: [5, 4], selectable: false, evented: false
+        }));
+      }
+    });
+    canvas.add(...polygonPreviewObjects);
+    canvas.requestRenderAll();
   };
 
   const ensureMaskOverlayLayer = (): SegmentationMaskOverlayLayer => {
@@ -196,6 +224,7 @@ export function createSegmentationCanvasWorkflow(
     strokeBaseline = null;
     strokePoints = [];
     polygonPoints = [];
+    clearPolygonPreview();
     strokeDirtyBounds = null;
     selectedRegion = null;
     moveBaseline = null;
@@ -342,6 +371,7 @@ export function createSegmentationCanvasWorkflow(
       strokeBaseline = null;
       strokePoints = [];
       polygonPoints = [];
+      clearPolygonPreview();
       strokeDirtyBounds = null;
       selectedRegion = null;
       moveBaseline = null;
@@ -421,6 +451,7 @@ export function createSegmentationCanvasWorkflow(
         } else {
           polygonPoints.push(pointer);
         }
+        renderPolygonPreview();
         return;
       }
       if (doc.activeTool === "superpixel") {
@@ -706,7 +737,12 @@ export function createSegmentationCanvasWorkflow(
       }
       const imageData = context.getImageData(0, 0, doc.width, doc.height);
       const cacheKey = `${(state.currentImage as { src?: string }).src ?? "image"}:${doc.width}x${doc.height}`;
-      superpixelResult = superpixelCache.getOrCreate({ cacheKey, width: doc.width, height: doc.height, rgba: imageData.data }, regionSize);
+      superpixelSettings = normalizeSuperpixelSettings({ ...superpixelSettings, regionSize });
+      superpixelResult = superpixelCache.getOrCreate(
+        { cacheKey, width: doc.width, height: doc.height, rgba: imageData.data },
+        regionSize,
+        superpixelSettings
+      );
       requestOverlayRender({ immediate: true });
       return true;
     },
@@ -718,6 +754,22 @@ export function createSegmentationCanvasWorkflow(
 
     getSegmentationSuperpixelRegionSize(): number | null {
       return superpixelResult?.regionSize ?? null;
+    },
+
+    getSegmentationSuperpixelSettings(): SegmentationSuperpixelSettings {
+      return { ...superpixelSettings };
+    },
+
+    setSegmentationSuperpixelSettings(settings: Partial<SegmentationSuperpixelSettings>): boolean {
+      const next = normalizeSuperpixelSettings({ ...superpixelSettings, ...settings });
+      if (next.regionSize === superpixelSettings.regionSize && next.blur === superpixelSettings.blur && next.contrast === superpixelSettings.contrast && next.edgeSensitivity === superpixelSettings.edgeSensitivity) {
+        return false;
+      }
+      superpixelSettings = next;
+      superpixelResult = null;
+      superpixelCache.clear();
+      removeSuperpixelOverlayLayer();
+      return true;
     },
 
     startSegmentationSuperpixelPaint(pointer: CanvasPoint, mode: "add" | "remove"): boolean {
@@ -802,6 +854,7 @@ export function createSegmentationCanvasWorkflow(
       const changed = mutation.mutated && doc.pushHistoryFromSnapshot(strokeBaseline);
       strokeBaseline = null;
       polygonPoints = [];
+      clearPolygonPreview();
       requestOverlayRender({ maskDirtyBounds: mutation.dirtyBounds });
       if (changed) {
         deps.onDocumentMutation?.();
@@ -816,11 +869,16 @@ export function createSegmentationCanvasWorkflow(
       }
       strokeBaseline = null;
       polygonPoints = [];
+      clearPolygonPreview();
       return true;
     },
 
     isSegmentationPolygonDrawing(): boolean {
       return polygonPoints.length > 0;
+    },
+
+    getSegmentationPolygonVertexCount(): number {
+      return polygonPoints.length;
     },
 
     setSegmentationBrushRadius(radius: number): void {
@@ -912,6 +970,10 @@ export function createSegmentationCanvasWorkflow(
 
     getSelectedSegmentationClass(): string | null {
       return selectedRegion?.classId ?? null;
+    },
+
+    getSelectedSegmentationRegion(): SegmentationRegionSelection | null {
+      return selectedRegion;
     },
 
     deleteSelectedSegmentationRegion(): boolean {
@@ -1109,7 +1171,11 @@ export function createSegmentationCanvasWorkflow(
         selectionOverlayLayer.object.set("visible", active && selectedRegion !== null);
       }
       if (!active) {
+        controller.cancelSegmentationPolygon?.();
+        clearPolygonPreview();
         canvas.discardActiveObject();
+      } else if (polygonPoints.length > 0) {
+        renderPolygonPreview();
       }
       canvas.requestRenderAll();
     }

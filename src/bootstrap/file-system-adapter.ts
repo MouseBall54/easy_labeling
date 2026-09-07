@@ -36,6 +36,7 @@ import {
   markDocumentSaving,
   markImageDocumentsClean
 } from "../app/document-status.js";
+import { loadSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 
 class LiveImageSessionState implements ImageSessionServiceState {
   constructor(private readonly appState: AppState) {}
@@ -229,6 +230,7 @@ export function createFileSystemAdapter(input: {
     reviewState: structuredClone(input.state.session.reviewState ?? createReviewStateDocument()),
     reviewFindings: new Map(input.state.session.reviewFindings ?? []),
     documentStatusByImage: new Map(input.state.session.documentStatusByImage ?? []),
+    segmentationToolPresets: structuredClone(input.state.session.segmentationToolPresets),
     hiddenLabelClasses: new Set(input.state.view.hiddenLabelClasses)
   });
 
@@ -247,6 +249,7 @@ export function createFileSystemAdapter(input: {
     input.state.session.reviewState = snapshot.reviewState;
     input.state.session.reviewFindings = snapshot.reviewFindings;
     input.state.session.documentStatusByImage = snapshot.documentStatusByImage;
+    input.state.session.segmentationToolPresets = snapshot.segmentationToolPresets;
     input.state.view.hiddenLabelClasses = snapshot.hiddenLabelClasses;
     pendingLoadedYolo = null;
     pendingLoadedSegmentationSnapshot = null;
@@ -510,6 +513,7 @@ export function createFileSystemAdapter(input: {
     reportProgress?.("labels", "loading", "Checking the label workspace");
     reportProgress?.("images", "loading", "Scanning images and annotations");
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
+    input.state.session.segmentationToolPresets = await loadSegmentationToolPresets(imageFolderHandle);
     throwIfOperationCancelled(operation?.signal);
     await loadReviewState();
     await refreshReviewFindings();

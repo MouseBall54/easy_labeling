@@ -126,11 +126,16 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
+  await expect(page.locator('#segmentationLeftWorkspace')).toBeVisible();
+  await expect(page.locator('#segmentationLeftDatasetPane #segmentationFormatSection')).toBeVisible();
+  await page.locator('button[data-segmentation-left-tab="superpixel"]').click();
+  await expect(page.locator('#segmentationLeftSuperpixelPane #segmentationSuperpixelSection')).toBeVisible();
   await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Active Class');
 
   await page.locator('label[for="detectionWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
+  await expect(page.locator('#segmentationLeftWorkspace')).toBeHidden();
   await expect(page.locator("#undoBtn")).toBeEnabled();
   await page.locator("#undoBtn").click();
   await expect.poll(async () => {

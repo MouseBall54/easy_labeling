@@ -8,6 +8,8 @@ import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
 import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
+import { saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -114,6 +116,21 @@ export function createEventManagerAdapter(input: {
         })
         : null;
       automationController?.bind();
+
+      input.documentRef?.querySelectorAll<HTMLButtonElement>("[data-segmentation-left-tab]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const tab = button.dataset.segmentationLeftTab;
+          if (!tab) return;
+          input.documentRef?.querySelectorAll<HTMLButtonElement>("[data-segmentation-left-tab]").forEach((candidate) => {
+            const active = candidate === button;
+            candidate.classList.toggle("active", active);
+            candidate.setAttribute("aria-current", active ? "page" : "false");
+          });
+          input.documentRef?.querySelectorAll<HTMLElement>("[data-segmentation-left-pane]").forEach((pane) => {
+            pane.hidden = pane.dataset.segmentationLeftPane !== tab;
+          });
+        });
+      });
 
       const runAsync = (action: () => Promise<void>): void => {
         action().catch((error: unknown) => {
@@ -859,6 +876,18 @@ export function createEventManagerAdapter(input: {
         input.uiManager.setWorkflow?.(input.state.session.workflow);
         setMode("draw");
       });
+      const segmentationDocument = input.documentRef;
+      const completePolygonButton = segmentationDocument?.getElementById("segmentationCompletePolygonBtn");
+      const cancelPolygonButton = segmentationDocument?.getElementById("segmentationCancelPolygonBtn");
+      completePolygonButton?.addEventListener("click", () => {
+        if (input.canvasController.raw.finishSegmentationPolygon?.()) {
+          input.uiManager.setWorkflow?.("segmentation");
+          input.uiManager.updateLabelList();
+        }
+      });
+      cancelPolygonButton?.addEventListener("click", () => {
+        if (input.canvasController.raw.cancelSegmentationPolygon?.()) input.uiManager.setWorkflow?.("segmentation");
+      });
       elements.segmentationSuperpixelModeBtn?.addEventListener("click", () => {
         const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
         if (!input.canvasController.raw.recalculateSegmentationSuperpixels?.(size)) {
@@ -888,6 +917,7 @@ export function createEventManagerAdapter(input: {
         const slider = event.currentTarget;
         if (slider instanceof HTMLInputElement && elements.segmentationSuperpixelSizeValue) {
           elements.segmentationSuperpixelSizeValue.textContent = `${slider.value} px`;
+          input.canvasController.raw.setSegmentationSuperpixelSettings?.({ regionSize: Number.parseInt(slider.value, 10) });
         }
       });
       elements.segmentationSuperpixelPresetButtons?.forEach((button) => {
@@ -896,6 +926,7 @@ export function createEventManagerAdapter(input: {
           if (!Number.isInteger(size)) return;
           elements.segmentationSuperpixelSizeSlider.value = `${size}`;
           elements.segmentationSuperpixelSizeValue.textContent = `${size} px`;
+          input.canvasController.raw.setSegmentationSuperpixelSettings?.({ regionSize: size });
           elements.segmentationSuperpixelPresetButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
           input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
           input.uiManager.setWorkflow?.(input.state.session.workflow);
@@ -904,6 +935,86 @@ export function createEventManagerAdapter(input: {
       elements.segmentationSuperpixelBoundaryToggle?.addEventListener("change", (event) => {
         const toggle = event.currentTarget;
         if (toggle instanceof HTMLInputElement) input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(toggle.checked);
+      });
+      const blurSelect = segmentationDocument?.getElementById("segmentationBlurSelect");
+      const contrastSelect = segmentationDocument?.getElementById("segmentationContrastSelect");
+      const edgeSensitivitySelect = segmentationDocument?.getElementById("segmentationEdgeSensitivitySelect");
+      const presetSelect = segmentationDocument?.getElementById("segmentationToolPresetSelect");
+      const readSuperpixelSettings = (): void => {
+        if (!(blurSelect instanceof HTMLSelectElement) || !(contrastSelect instanceof HTMLSelectElement) || !(edgeSensitivitySelect instanceof HTMLSelectElement)) return;
+        const changed = input.canvasController.raw.setSegmentationSuperpixelSettings?.({
+          blur: blurSelect.value as import("../features/segmentation/types.js").SegmentationStrength,
+          contrast: contrastSelect.value as import("../features/segmentation/types.js").SegmentationStrength,
+          edgeSensitivity: edgeSensitivitySelect.value as "low" | "medium" | "high"
+        });
+        if (changed) input.uiManager.notify("Superpixel settings changed. Recalculate to update the regions.", 2500);
+      };
+      blurSelect?.addEventListener("change", readSuperpixelSettings);
+      contrastSelect?.addEventListener("change", readSuperpixelSettings);
+      edgeSensitivitySelect?.addEventListener("change", readSuperpixelSettings);
+      const savePresetLibrary = async (): Promise<void> => {
+        const folder = input.state.session.imageFolderHandle;
+        if (!folder) throw new Error("Open a dataset before saving a Superpixel preset.");
+        await saveSegmentationToolPresets(folder as unknown as import("../types/files.js").DirectoryHandleLike, input.state.session.segmentationToolPresets);
+      };
+      const createPresetFromControls = (id: string, name: string): SegmentationToolPreset => {
+        const settings = input.canvasController.raw.getSegmentationSuperpixelSettings?.();
+        return {
+          id,
+          name,
+          settings: settings ?? { regionSize: 16, blur: "off", contrast: "off", edgeSensitivity: "medium" },
+          smartSimilarity: Number.parseInt(elements.segmentationSmartSimilaritySlider?.value ?? "20", 10) / 100,
+          smartEdgeStop: Number.parseInt(elements.segmentationSmartEdgeStopSlider?.value ?? "70", 10) / 100,
+          boundaryVisible: elements.segmentationSuperpixelBoundaryToggle?.checked ?? true
+        };
+      };
+      segmentationDocument?.getElementById("segmentationNewPresetBtn")?.addEventListener("click", () => {
+        const name = input.windowRef.prompt?.("Superpixel preset name:", "New preset")?.trim();
+        if (!name) return;
+        const id = globalThis.crypto?.randomUUID?.() ?? `segmentation-preset-${Date.now()}`;
+        input.state.session.segmentationToolPresets.presets.push(createPresetFromControls(id, name));
+        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+      });
+      segmentationDocument?.getElementById("segmentationSavePresetBtn")?.addEventListener("click", () => {
+        if (!(presetSelect instanceof HTMLSelectElement) || !presetSelect.value) return;
+        const index = input.state.session.segmentationToolPresets.presets.findIndex((preset) => preset.id === presetSelect.value);
+        if (index < 0) return;
+        const existing = input.state.session.segmentationToolPresets.presets[index]!;
+        input.state.session.segmentationToolPresets.presets[index] = createPresetFromControls(existing.id, existing.name);
+        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+      });
+      segmentationDocument?.getElementById("segmentationRenamePresetBtn")?.addEventListener("click", () => {
+        if (!(presetSelect instanceof HTMLSelectElement) || !presetSelect.value) return;
+        const preset = input.state.session.segmentationToolPresets.presets.find((candidate) => candidate.id === presetSelect.value);
+        const name = preset && input.windowRef.prompt?.("Superpixel preset name:", preset.name)?.trim();
+        if (!preset || !name) return;
+        preset.name = name;
+        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+      });
+      segmentationDocument?.getElementById("segmentationDeletePresetBtn")?.addEventListener("click", () => {
+        if (!(presetSelect instanceof HTMLSelectElement) || !presetSelect.value) return;
+        const preset = input.state.session.segmentationToolPresets.presets.find((candidate) => candidate.id === presetSelect.value);
+        if (!preset || input.windowRef.confirm?.(`Delete Superpixel preset "${preset.name}"?`) === false) return;
+        input.state.session.segmentationToolPresets.presets = input.state.session.segmentationToolPresets.presets.filter((candidate) => candidate.id !== preset.id);
+        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+      });
+      presetSelect?.addEventListener("change", () => {
+        if (!(presetSelect instanceof HTMLSelectElement)) return;
+        const preset = input.state.session.segmentationToolPresets.presets.find((candidate) => candidate.id === presetSelect.value);
+        if (!preset || !(blurSelect instanceof HTMLSelectElement) || !(contrastSelect instanceof HTMLSelectElement) || !(edgeSensitivitySelect instanceof HTMLSelectElement)) return;
+        elements.segmentationSuperpixelSizeSlider.value = `${preset.settings.regionSize}`;
+        elements.segmentationSuperpixelSizeValue.textContent = `${preset.settings.regionSize} px`;
+        blurSelect.value = preset.settings.blur;
+        contrastSelect.value = preset.settings.contrast;
+        edgeSensitivitySelect.value = preset.settings.edgeSensitivity;
+        elements.segmentationSmartSimilaritySlider.value = `${Math.round(preset.smartSimilarity * 100)}`;
+        elements.segmentationSmartEdgeStopSlider.value = `${Math.round(preset.smartEdgeStop * 100)}`;
+        elements.segmentationSuperpixelBoundaryToggle.checked = preset.boundaryVisible;
+        input.canvasController.raw.setSegmentationSuperpixelSettings?.(preset.settings);
+        input.canvasController.raw.setSegmentationSmartGrowSettings?.(preset.smartSimilarity, preset.smartEdgeStop);
+        input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(preset.boundaryVisible);
+        input.canvasController.raw.recalculateSegmentationSuperpixels?.(preset.settings.regionSize);
+        input.uiManager.setWorkflow?.("segmentation");
       });
       if (elements.segmentationSmartSimilaritySlider && elements.segmentationSmartSimilarityValue && elements.segmentationSmartEdgeStopSlider && elements.segmentationSmartEdgeStopValue) {
         const syncSmartGrowSettings = (): void => {
@@ -949,6 +1060,12 @@ export function createEventManagerAdapter(input: {
       });
       elements.segmentationRelabelRegionBtn.addEventListener("click", () => {
         triggerSegmentationRelabel();
+      });
+      segmentationDocument?.getElementById("segmentationDeleteRegionBtn")?.addEventListener("click", () => {
+        if (input.canvasController.raw.deleteSelectedSegmentationRegion?.()) {
+          input.uiManager.setWorkflow?.("segmentation");
+          input.uiManager.updateLabelList();
+        }
       });
       elements.segmentationAutoFillClosedRegionToggle.addEventListener("change", (event) => {
         const toggle = event.currentTarget;
@@ -1021,7 +1138,22 @@ export function createEventManagerAdapter(input: {
         if (classFilterButton && classId) {
           input.canvasController.raw.setSegmentationOnlyVisibleClass?.(classId);
           input.uiManager.setWorkflow?.(input.state.session.workflow);
+          return;
         }
+        const activeClassButton = target.closest('[data-ui="segmentation-active-class"]') as HTMLElement | null;
+        const activeClassId = activeClassButton?.dataset.classId;
+        if (activeClassButton && activeClassId) {
+          input.canvasController.raw.setSegmentationActiveClass?.(activeClassId);
+          input.uiManager.setWorkflow?.("segmentation");
+        }
+      });
+      segmentationDocument?.getElementById("segmentationClassSearchInput")?.addEventListener("input", (event) => {
+        const inputElement = event.currentTarget;
+        if (!(inputElement instanceof HTMLInputElement)) return;
+        const query = inputElement.value.trim().toLocaleLowerCase();
+        elements.segmentationClassSummary.querySelectorAll<HTMLElement>('[data-ui="segmentation-class-visibility-item"]').forEach((item) => {
+          item.hidden = query.length > 0 && !item.textContent?.toLocaleLowerCase().includes(query);
+        });
       });
 
       elements.drawModeBtn.addEventListener("change", () => {

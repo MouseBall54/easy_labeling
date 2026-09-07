@@ -1,8 +1,31 @@
+import type { SegmentationStrength, SegmentationSuperpixelSettings } from "./types.js";
+
 export interface SuperpixelImageData {
   cacheKey?: string;
   width: number;
   height: number;
   rgba: Uint8ClampedArray;
+}
+
+export const DEFAULT_SUPERPIXEL_SETTINGS: SegmentationSuperpixelSettings = {
+  regionSize: 16,
+  blur: "off",
+  contrast: "off",
+  edgeSensitivity: "medium"
+};
+
+function normalizeStrength(value: SegmentationStrength): SegmentationStrength {
+  return value === "low" || value === "medium" || value === "high" ? value : "off";
+}
+
+export function normalizeSuperpixelSettings(settings?: Partial<SegmentationSuperpixelSettings>): SegmentationSuperpixelSettings {
+  const edgeSensitivity = settings?.edgeSensitivity;
+  return {
+    regionSize: clamp(Math.round(settings?.regionSize ?? DEFAULT_SUPERPIXEL_SETTINGS.regionSize), 2, 4096),
+    blur: normalizeStrength(settings?.blur ?? DEFAULT_SUPERPIXEL_SETTINGS.blur),
+    contrast: normalizeStrength(settings?.contrast ?? DEFAULT_SUPERPIXEL_SETTINGS.contrast),
+    edgeSensitivity: edgeSensitivity === "low" || edgeSensitivity === "high" ? edgeSensitivity : "medium"
+  };
 }
 
 export interface SuperpixelRegion {
@@ -64,8 +87,12 @@ function intensityAt(rgba: Uint8ClampedArray, index: number): number {
 }
 
 /** A small Gaussian-like smoothing pass used only for edge weighting. */
-function createSmoothedIntensity(rgba: Uint8ClampedArray, width: number, height: number): Float32Array {
+function createSmoothedIntensity(rgba: Uint8ClampedArray, width: number, height: number, blur: SegmentationStrength): Float32Array {
+  const passes = blur === "high" ? 3 : blur === "medium" ? 2 : blur === "low" ? 1 : 0;
   const values = new Float32Array(width * height);
+  for (let index = 0; index < values.length; index += 1) values[index] = intensityAt(rgba, index * 4);
+  for (let pass = 0; pass < passes; pass += 1) {
+    const source = new Float32Array(values);
   for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
     let total = 0;
     let weightTotal = 0;
@@ -74,10 +101,20 @@ function createSmoothedIntensity(rgba: Uint8ClampedArray, width: number, height:
       const sampleY = y + offsetY;
       if (sampleX < 0 || sampleY < 0 || sampleX >= width || sampleY >= height) continue;
       const weight = offsetX === 0 && offsetY === 0 ? 4 : (offsetX === 0 || offsetY === 0 ? 2 : 1);
-      total += intensityAt(rgba, ((sampleY * width) + sampleX) * 4) * weight;
+      total += source[(sampleY * width) + sampleX]! * weight;
       weightTotal += weight;
     }
     values[(y * width) + x] = total / weightTotal;
+  }
+  }
+  return values;
+}
+
+function createPreprocessedIntensity(rgba: Uint8ClampedArray, width: number, height: number, settings: SegmentationSuperpixelSettings): Float32Array {
+  const values = createSmoothedIntensity(rgba, width, height, settings.blur);
+  const contrast = settings.contrast === "high" ? 1.45 : settings.contrast === "medium" ? 1.25 : settings.contrast === "low" ? 1.1 : 1;
+  if (contrast !== 1) {
+    for (let index = 0; index < values.length; index += 1) values[index] = clamp(128 + ((values[index]! - 128) * contrast), 0, 255);
   }
   return values;
 }
@@ -91,20 +128,21 @@ function clamp(value: number, min: number, max: number): number {
  * exposes only region size; local color normalization removes a user-facing
  * compactness parameter as SLICO does.
  */
-export function createSlicoSuperpixels(input: SuperpixelImageData, requestedRegionSize: number, iterations = 5): SuperpixelResult {
+export function createSlicoSuperpixels(input: SuperpixelImageData, requestedRegionSize: number, iterations = 5, settings?: Partial<SegmentationSuperpixelSettings>): SuperpixelResult {
   if (input.width < 1 || input.height < 1 || input.rgba.length !== input.width * input.height * 4) {
     throw new Error("superpixel image dimensions are invalid");
   }
-  const regionSize = clamp(Math.round(requestedRegionSize), 2, Math.max(input.width, input.height));
-  const smoothedIntensity = createSmoothedIntensity(input.rgba, input.width, input.height);
+  const normalizedSettings = normalizeSuperpixelSettings({ ...settings, regionSize: requestedRegionSize });
+  const regionSize = clamp(normalizedSettings.regionSize, 2, Math.max(input.width, input.height));
+  const smoothedIntensity = createPreprocessedIntensity(input.rgba, input.width, input.height, normalizedSettings);
   const centers: Center[] = [];
   for (let y = Math.floor(regionSize / 2); y < input.height; y += regionSize) {
     for (let x = Math.floor(regionSize / 2); x < input.width; x += regionSize) {
-      centers.push({ x, y, intensity: intensityAt(input.rgba, ((y * input.width) + x) * 4), maxColorDistance: 1 });
+      centers.push({ x, y, intensity: smoothedIntensity[(y * input.width) + x]!, maxColorDistance: 1 });
     }
   }
   if (centers.length === 0) {
-    centers.push({ x: 0, y: 0, intensity: intensityAt(input.rgba, 0), maxColorDistance: 1 });
+    centers.push({ x: 0, y: 0, intensity: smoothedIntensity[0]!, maxColorDistance: 1 });
   }
 
   const labels = new Int32Array(input.width * input.height);
@@ -121,7 +159,7 @@ export function createSlicoSuperpixels(input: SuperpixelImageData, requestedRegi
       for (let y = minY; y <= maxY; y += 1) {
         for (let x = minX; x <= maxX; x += 1) {
           const pixel = (y * input.width) + x;
-          const colorDistance = intensityAt(input.rgba, pixel * 4) - center.intensity;
+          const colorDistance = smoothedIntensity[pixel]! - center.intensity;
           const spatialDistance = Math.hypot(x - center.x, y - center.y) / regionSize;
           const distance = (colorDistance / colorScale) ** 2 + spatialDistance ** 2;
           if (distance < distances[pixel]!) {
@@ -144,13 +182,13 @@ export function createSlicoSuperpixels(input: SuperpixelImageData, requestedRegi
       counts[label] += 1;
       sumX[label] += x;
       sumY[label] += y;
-      const value = intensityAt(input.rgba, pixel * 4);
+      const value = smoothedIntensity[pixel]!;
       sumIntensity[label] += value;
     });
     labels.forEach((label, pixel) => {
       if (label < 0 || counts[label] === 0) return;
       const mean = sumIntensity[label]! / counts[label]!;
-      maxColorDistance[label] = Math.max(maxColorDistance[label]!, Math.abs(intensityAt(input.rgba, pixel * 4) - mean));
+      maxColorDistance[label] = Math.max(maxColorDistance[label]!, Math.abs(smoothedIntensity[pixel]! - mean));
     });
     centers.forEach((center, id) => {
       if (counts[id] === 0) return;
@@ -182,13 +220,14 @@ export function createSlicoSuperpixels(input: SuperpixelImageData, requestedRegi
   labels.forEach((label, pixel) => {
     if (label < 0) return;
     pixelCounts[label] += 1;
-    intensitySums[label] += intensityAt(input.rgba, pixel * 4);
+    intensitySums[label] += smoothedIntensity[pixel]!;
     const x = pixel % input.width;
     const y = Math.floor(pixel / input.width);
     const current = smoothedIntensity[pixel] ?? 0;
     const right = x < input.width - 1 ? (smoothedIntensity[pixel + 1] ?? current) : current;
     const below = y < input.height - 1 ? (smoothedIntensity[pixel + input.width] ?? current) : current;
-    edgeSums[label] += Math.min(1, (Math.abs(right - current) + Math.abs(below - current)) / 255);
+    const sensitivity = normalizedSettings.edgeSensitivity === "high" ? 1.3 : normalizedSettings.edgeSensitivity === "low" ? 0.7 : 1;
+    edgeSums[label] += Math.min(1, ((Math.abs(right - current) + Math.abs(below - current)) / 255) * sensitivity);
   });
   return {
     width: input.width,
@@ -210,19 +249,21 @@ export function createSuperpixelCache() {
   const cachedByKey = new Map<string, SuperpixelResult>();
   let cachedByPixels = new WeakMap<Uint8ClampedArray, Map<number, SuperpixelResult>>();
   return {
-    getOrCreate(input: SuperpixelImageData, regionSize: number): SuperpixelResult {
-      const normalizedSize = clamp(Math.round(regionSize), 2, Math.max(input.width, input.height));
+    getOrCreate(input: SuperpixelImageData, regionSize: number, settings?: Partial<SegmentationSuperpixelSettings>): SuperpixelResult {
+      const normalizedSettings = normalizeSuperpixelSettings({ ...settings, regionSize });
+      const normalizedSize = clamp(normalizedSettings.regionSize, 2, Math.max(input.width, input.height));
+      const settingsKey = `${normalizedSettings.blur}:${normalizedSettings.contrast}:${normalizedSettings.edgeSensitivity}`;
       if (input.cacheKey) {
-        const key = `${input.cacheKey}:${normalizedSize}`;
+        const key = `${input.cacheKey}:${normalizedSize}:${settingsKey}`;
         const existing = cachedByKey.get(key);
         if (existing) return existing;
-        const result = createSlicoSuperpixels(input, normalizedSize);
+        const result = createSlicoSuperpixels(input, normalizedSize, 5, normalizedSettings);
         cachedByKey.set(key, result);
         return result;
       }
       const existingByPixels = cachedByPixels.get(input.rgba)?.get(normalizedSize);
       if (existingByPixels) return existingByPixels;
-      const result = createSlicoSuperpixels(input, regionSize);
+      const result = createSlicoSuperpixels(input, regionSize, 5, normalizedSettings);
       const bySize = cachedByPixels.get(input.rgba) ?? new Map<number, SuperpixelResult>();
       bySize.set(normalizedSize, result);
       cachedByPixels.set(input.rgba, bySize);

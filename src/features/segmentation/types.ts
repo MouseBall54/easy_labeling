@@ -2,6 +2,24 @@ import type { CanvasPoint } from "../../types/labels.js";
 
 export type SegmentationTool = "brush" | "erase" | "polygon" | "superpixel" | "smart";
 
+export type SegmentationStrength = "off" | "low" | "medium" | "high";
+
+export interface SegmentationSuperpixelSettings {
+  regionSize: number;
+  blur: SegmentationStrength;
+  contrast: SegmentationStrength;
+  edgeSensitivity: Exclude<SegmentationStrength, "off">;
+}
+
+export interface SegmentationToolPreset {
+  id: string;
+  name: string;
+  settings: SegmentationSuperpixelSettings;
+  smartSimilarity: number;
+  smartEdgeStop: number;
+  boundaryVisible: boolean;
+}
+
 export interface SegmentationVisibilityState {
   overlayVisible: boolean;
   overlayOpacity: number;

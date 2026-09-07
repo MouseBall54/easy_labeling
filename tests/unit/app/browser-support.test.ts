@@ -11,6 +11,7 @@ import type {
 } from "../../../src/app/contracts.js";
 import type { AppState } from "../../../src/app/state.js";
 import { createReviewStateDocument } from "../../../src/features/review/review-state.js";
+import { createEmptySegmentationToolPresetDocument } from "../../../src/features/segmentation/preset-codec.js";
 
 function createFactorySpies() {
   const createState = vi.fn((): AppState => ({
@@ -30,7 +31,8 @@ function createFactorySpies() {
       workflow: "detection",
       segmentationAnnotationType: "semantic",
       segmentationSourceFormat: "auto",
-      segmentationExportFormat: "png-semantic-mask"
+      segmentationExportFormat: "png-semantic-mask",
+      segmentationToolPresets: createEmptySegmentationToolPresetDocument()
     },
     view: {
       currentMode: "edit",

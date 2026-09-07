@@ -1,5 +1,6 @@
 import type { ImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import type { SegmentationExternalFormat } from "../domain/annotations/segmentation-format.js";
+import { createEmptySegmentationToolPresetDocument, type SegmentationToolPresetDocument } from "../features/segmentation/preset-codec.js";
 import { createReviewStateDocument } from "../features/review/review-state.js";
 import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
 import type { DirectoryHandle, FileHandle } from "../types/files.js";
@@ -38,6 +39,7 @@ export interface AppSessionState {
   segmentationAnnotationType: "semantic" | "instance";
   segmentationSourceFormat: SegmentationExternalFormat;
   segmentationExportFormat: SegmentationExternalFormat;
+  segmentationToolPresets: SegmentationToolPresetDocument;
   documentStatusByImage?: Map<string, ImageDocumentStatus>;
 }
 
@@ -90,6 +92,7 @@ export function createInitialAppState(): AppState {
       segmentationAnnotationType: "semantic",
       segmentationSourceFormat: "auto",
       segmentationExportFormat: "png-semantic-mask",
+      segmentationToolPresets: createEmptySegmentationToolPresetDocument(),
       documentStatusByImage: new Map()
     },
     view: {

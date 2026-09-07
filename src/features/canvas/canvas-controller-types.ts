@@ -8,7 +8,7 @@ import type {
   FabricRectLike
 } from "./fabric-types.js";
 import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./history.js";
-import type { SegmentationDocumentSnapshot, SegmentationSummary, SegmentationTool } from "../segmentation/types.js";
+import type { SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
 import type { BoxLayout, PixelPoint } from "../automation/types.js";
 
 export interface AppliedBoxLayout {
@@ -148,9 +148,12 @@ export interface CanvasController {
   finishSegmentationPolygon?(): boolean;
   cancelSegmentationPolygon?(): boolean;
   isSegmentationPolygonDrawing?(): boolean;
+  getSegmentationPolygonVertexCount?(): number;
   recalculateSegmentationSuperpixels?(regionSize: number): boolean;
   setSegmentationSuperpixelBoundaryVisible?(visible: boolean): void;
   getSegmentationSuperpixelRegionSize?(): number | null;
+  getSegmentationSuperpixelSettings?(): SegmentationSuperpixelSettings;
+  setSegmentationSuperpixelSettings?(settings: Partial<SegmentationSuperpixelSettings>): boolean;
   startSegmentationSuperpixelPaint?(pointer: CanvasPoint, mode: "add" | "remove"): boolean;
   applySegmentationSmartGrow?(pointer: CanvasPoint, similarity: number, edgeStop: number): boolean;
   setSegmentationSmartGrowSettings?(similarity: number, edgeStop: number): void;
@@ -166,6 +169,7 @@ export interface CanvasController {
   setSegmentationOnlyVisibleClass?(classId: string | null): void;
   getSegmentationClassAtPoint?(pointer: CanvasPoint): string | null;
   getSelectedSegmentationClass?(): string | null;
+  getSelectedSegmentationRegion?(): SegmentationRegionSelection | null;
   deleteSelectedSegmentationRegion?(): boolean;
   selectSegmentationRegionAtPoint?(pointer: CanvasPoint): boolean;
   clearSegmentationSelection?(): void;
