@@ -878,6 +878,30 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(fileSystem.showClassFileContent).toHaveBeenCalledTimes(1);
   });
 
+  it("creates a class file before opening the editor when the dataset has none", async () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const fileSystem = createNoopFileSystem();
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem,
+      canvasController: {
+        setMode: vi.fn(),
+        raw: createRawController(createRawCanvas())
+      } as never,
+      windowRef: new FakeWindow()
+    });
+    eventManager.bindEventListeners();
+
+    elements.addClassShortcutBtn.dispatch("click", {});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fileSystem.createNewClassFile).toHaveBeenCalledTimes(1);
+    expect(fileSystem.showClassFileContent).toHaveBeenCalledTimes(1);
+  });
+
   it("dispatches six arrange toolbar buttons to matching controller methods", () => {
     const state = createInitialAppState();
     const elements = createElements();
@@ -1731,6 +1755,9 @@ describe("bootstrap/event-manager-adapter", () => {
     const state = createInitialAppState();
     const elements = createElements();
     const windowRef = new FakeWindow();
+    const selectedFolder = Promise.resolve({} as FileSystemDirectoryHandle);
+    const showDirectoryPicker = vi.fn(() => selectedFolder);
+    Object.assign(windowRef, { showDirectoryPicker });
     const rawCanvas = createRawCanvas();
     const rawController = createRawController(rawCanvas);
 
@@ -1784,9 +1811,10 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(elements.undoBtn.disabled).toBe(false);
 
     elements.selectImageFolderBtn.dispatch("click", {});
+    expect(showDirectoryPicker).toHaveBeenCalledTimes(1);
     await Promise.resolve();
     await Promise.resolve();
-    expect(selectImageFolder).toHaveBeenCalledTimes(1);
+    expect(selectImageFolder).toHaveBeenCalledWith(undefined, selectedFolder);
     expect(elements.undoBtn.disabled).toBe(true);
 
     canUndo = true;

@@ -98,6 +98,7 @@ export function createEventManagerAdapter(input: {
     dispatchEvent: Window["dispatchEvent"];
     URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
     easyLabelingDesktop: Window["easyLabelingDesktop"];
+    showDirectoryPicker: Window["showDirectoryPicker"];
   }>;
   documentRef?: Document;
 }): EventManager {
@@ -601,7 +602,12 @@ export function createEventManagerAdapter(input: {
       });
       elements.classSearchInput.addEventListener("input", filterClassControls);
       elements.addClassShortcutBtn.addEventListener("click", () => {
-        runExclusive("open-class-editor", () => input.fileSystem.showClassFileContent(), elements.addClassShortcutBtn);
+        runExclusive("open-class-editor", async () => {
+          if (!input.state.session.selectedClassFile && input.state.session.classFiles.length === 0) {
+            await input.fileSystem.createNewClassFile();
+          }
+          await input.fileSystem.showClassFileContent();
+        }, elements.addClassShortcutBtn);
       });
       elements.labelDisplayModeSelect.addEventListener("change", () => {
         input.uiManager.setLabelDisplayMode?.(elements.labelDisplayModeSelect.value as LabelDisplayMode);
@@ -649,21 +655,24 @@ export function createEventManagerAdapter(input: {
       });
 
       elements.selectImageFolderBtn.addEventListener("click", () => {
+        const selectedFolder = input.windowRef.showDirectoryPicker?.();
         runExclusive("open-dataset", automationController
           ? () => prepareWorkspace({
             title: "Preparing dataset workspace",
             summary: "Connecting the dataset and checking each labeling feature.",
-            loadDataset: (reportProgress) => input.fileSystem.selectImageFolder(reportProgress)
+            loadDataset: (reportProgress) => input.fileSystem.selectImageFolder(reportProgress, selectedFolder)
           })
-          : () => input.fileSystem.selectImageFolder(), elements.selectImageFolderBtn as HTMLButtonElement);
+          : () => input.fileSystem.selectImageFolder(undefined, selectedFolder), elements.selectImageFolderBtn as HTMLButtonElement);
       });
 
       elements.selectLabelFolderBtn.addEventListener("click", () => {
-        runExclusive("select-label-folder", () => input.fileSystem.selectLabelFolder(), elements.selectLabelFolderBtn as HTMLButtonElement);
+        const selectedFolder = input.windowRef.showDirectoryPicker?.();
+        runExclusive("select-label-folder", () => input.fileSystem.selectLabelFolder(selectedFolder), elements.selectLabelFolderBtn as HTMLButtonElement);
       });
 
       elements.loadClassInfoFolderBtn.addEventListener("click", () => {
-        runExclusive("select-class-folder", () => input.fileSystem.selectClassInfoFolder(), elements.loadClassInfoFolderBtn as HTMLButtonElement);
+        const selectedFolder = input.windowRef.showDirectoryPicker?.({ id: "class-info", mode: "readwrite" });
+        runExclusive("select-class-folder", () => input.fileSystem.selectClassInfoFolder(selectedFolder), elements.loadClassInfoFolderBtn as HTMLButtonElement);
       });
 
       elements.saveLabelsBtn.addEventListener("click", () => {

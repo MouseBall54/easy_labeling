@@ -163,11 +163,11 @@ class LiveImageSessionState implements ImageSessionServiceState {
 }
 
 export interface RuntimeFileSystem extends FileSystem {
-  selectImageFolder(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
+  selectImageFolder(reportProgress?: WorkspaceLoadProgressReporter, selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   refreshDataset(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
-  selectLabelFolder(): Promise<void>;
-  selectClassInfoFolder(): Promise<void>;
+  selectLabelFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
+  selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   loadDefaultClassInfo(): Promise<void>;
   refreshReviewFindings(): Promise<void>;
   setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void>;
@@ -567,7 +567,7 @@ export function createFileSystemAdapter(input: {
         connectedDeps = deps;
       },
 
-      async selectImageFolder(reportProgress?: WorkspaceLoadProgressReporter): Promise<void> {
+      async selectImageFolder(reportProgress?: WorkspaceLoadProgressReporter, selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void> {
         await enqueueOperation(async () => {
           await runTrackedOperation({
             title: "Opening dataset",
@@ -587,7 +587,7 @@ export function createFileSystemAdapter(input: {
 
             reportProgress?.("dataset", "loading", "Waiting for folder selection");
             operation?.update({ detail: "Waiting for folder selection" });
-            const imageFolderHandle = await picker();
+            const imageFolderHandle = await (selectedFolder ?? picker());
             throwIfOperationCancelled(operation?.signal);
             reportProgress?.("dataset", "ready", imageFolderHandle.name || "Dataset connected");
             await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation, reportProgress);
@@ -682,7 +682,7 @@ export function createFileSystemAdapter(input: {
         });
       },
 
-      async selectLabelFolder(): Promise<void> {
+      async selectLabelFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void> {
         await enqueueOperation(async () => {
           await runTrackedOperation({
             title: "Connecting label folder",
@@ -694,7 +694,7 @@ export function createFileSystemAdapter(input: {
               throw new Error("Folder access is unavailable in this browser.");
             }
 
-            input.state.session.labelFolderHandle = await picker();
+            input.state.session.labelFolderHandle = await (selectedFolder ?? picker());
             throwIfOperationCancelled(operation?.signal);
             operation?.update({ detail: "Reading label and class files" });
             await imageSessionService.refreshImageWorkflowStatus();
@@ -712,7 +712,7 @@ export function createFileSystemAdapter(input: {
         });
       },
 
-      async selectClassInfoFolder(): Promise<void> {
+      async selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void> {
         await enqueueOperation(async () => {
           await runTrackedOperation({
             title: "Loading class information",
@@ -724,7 +724,7 @@ export function createFileSystemAdapter(input: {
               throw new Error("Folder access is unavailable in this browser.");
             }
 
-            const folderHandle = await picker({ id: "class-info", mode: "readwrite" });
+            const folderHandle = await (selectedFolder ?? picker({ id: "class-info", mode: "readwrite" }));
             throwIfOperationCancelled(operation?.signal);
             input.state.session.classInfoFolderHandle = folderHandle;
             await refreshClassFileStateFromAvailableFolder(operation);
