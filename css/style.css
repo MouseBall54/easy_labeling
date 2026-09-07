@@ -1919,6 +1919,18 @@ body {
 .segmented-filter .btn:last-child,
 .segmented-control .btn:last-child { border-right: 0; }
 
+.image-status-filters .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.28rem;
+    line-height: 1;
+}
+
+.image-status-filters .btn i {
+    line-height: 1;
+}
+
 .segmented-filter .btn-check:checked + .btn,
 .segmented-control .btn-check:checked + .btn,
 .segmented-control .btn.active {

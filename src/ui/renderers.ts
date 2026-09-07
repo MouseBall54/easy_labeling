@@ -107,7 +107,7 @@ function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType
 
 export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const normalizedSearchTerm = input.searchTerm.toLowerCase();
-  const reviewFilter = input.reviewFilter ?? "all";
+  const reviewFilter = input.activeWorkflow === "detection" ? input.reviewFilter ?? "all" : "all";
   const reviewImages = input.reviewState?.images ?? {};
   const reviewFindings = input.reviewFindings ?? new Map<string, ReviewFinding>();
   const filteredFiles = [...input.imageFiles]
@@ -148,8 +148,8 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     item.dataset.fileName = file.name;
     item.dataset.testid = `image-list-item-${file.name}`;
     item.dataset.status = badge.statusKey;
-    const finding = reviewFindings.get(file.name);
-    const reviewStatus = reviewImages[file.name]?.status ?? "needs-review";
+    const finding = input.activeWorkflow === "detection" ? reviewFindings.get(file.name) : undefined;
+    const reviewStatus = input.activeWorkflow === "detection" ? reviewImages[file.name]?.status ?? "needs-review" : "none";
     item.dataset.reviewStatus = reviewStatus;
     item.dataset.reviewSeverity = finding?.highestSeverity ?? "none";
     item.innerHTML = icon;
@@ -170,7 +170,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
       item.appendChild(count);
     }
 
-    if (finding?.issues.length) {
+    if (input.activeWorkflow === "detection" && finding?.issues.length) {
       const reviewBadge = document.createElement("span");
       reviewBadge.className = `badge rounded-pill ms-1 ${finding.highestSeverity === "error" ? "text-bg-danger" : "text-bg-warning"}`;
       reviewBadge.dataset.ui = "review-issue-count";

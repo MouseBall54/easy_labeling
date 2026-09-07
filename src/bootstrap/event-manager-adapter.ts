@@ -751,6 +751,9 @@ export function createEventManagerAdapter(input: {
           runAsync(async () => input.fileSystem.updateReviewSettings({ minimumBoxSizePx, duplicateIouThreshold, requiredClassIds }));
         });
         elements.reviewIssueList.addEventListener("click", (event) => {
+          if (input.state.session.workflow !== "detection") {
+            return;
+          }
           const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-review-issue-index]");
           const imageName = input.state.session.currentImageFile?.name;
           const issueIndex = Number(button?.dataset.reviewIssueIndex);

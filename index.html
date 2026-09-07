@@ -134,13 +134,15 @@
                             <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
                             <label class="btn" for="showUnlabeled" data-ui="filter-unlabeled-images"><i class="bi bi-circle" aria-hidden="true"></i> Unlabeled</label>
                         </div>
-                        <label class="visually-hidden" for="reviewFilterSelect">Review filter</label>
-                        <select id="reviewFilterSelect" class="form-select form-select-sm mt-2" aria-label="Review filter">
-                            <option value="all">Review: All</option>
-                            <option value="needs-review">Review: Needs review</option>
-                            <option value="reviewed">Review: Reviewed</option>
-                            <option value="has-issues">Review: Has issues</option>
-                        </select>
+                        <div id="reviewFilterControl">
+                            <label class="visually-hidden" for="reviewFilterSelect">Review filter</label>
+                            <select id="reviewFilterSelect" class="form-select form-select-sm mt-2" aria-label="Review filter">
+                                <option value="all">Review: All</option>
+                                <option value="needs-review">Review: Needs review</option>
+                                <option value="reviewed">Review: Reviewed</option>
+                                <option value="has-issues">Review: Has issues</option>
+                            </select>
+                        </div>
                         <div id="reviewQueueControls" class="review-queue-controls mt-2" data-ui="review-queue-controls" hidden>
                             <div class="section-heading-row"><h4>Review queue</h4><span id="reviewQueueSummary" class="count-badge">0</span></div>
                             <div class="btn-group btn-group-sm w-100" role="group" aria-label="Review queue navigation">

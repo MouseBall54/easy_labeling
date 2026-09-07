@@ -280,6 +280,7 @@ function createElements() {
     classSearchInput,
     showLabeledCheckbox,
     showUnlabeledCheckbox,
+    reviewIssueList: new FakeElement("div"),
     segmentationActiveClassSummary: new FakeElement("div"),
     segmentationRelabelRegionBtn: new FakeElement("button"),
     segmentationBrushModeBtn: new FakeElement("button"),

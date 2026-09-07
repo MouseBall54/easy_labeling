@@ -464,6 +464,7 @@ export function createUiManagerAdapter(input: {
       .forEach((button) => {
       button.hidden = showSegmentationControls;
     });
+    input.documentRef.getElementById("reviewFilterControl")?.toggleAttribute("hidden", showSegmentationControls);
     const genericModeControls = input.documentRef.getElementById("genericModeControls");
     const sharedToolSection = input.documentRef.getElementById("sharedToolSection");
     const segmentationToolsSection = input.documentRef.getElementById("segmentationToolsSection");
@@ -988,6 +989,10 @@ export function createUiManagerAdapter(input: {
     },
 
     renderReviewPanel(): void {
+      if (input.state.session.workflow !== "detection") {
+        elements.reviewIssueList.replaceChildren();
+        return;
+      }
       if (!elements.reviewStatusBadge || !input.state.session.reviewState || !input.state.session.reviewFindings) {
         return;
       }

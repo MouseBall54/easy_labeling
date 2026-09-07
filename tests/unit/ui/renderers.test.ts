@@ -107,11 +107,16 @@ describe("ui/renderers", () => {
       currentImageFile: fileHandle("img1.jpg"),
       searchTerm: "img",
       showLabeled: true,
-      showUnlabeled: false
+      showUnlabeled: false,
+      reviewFindings: new Map([["img1.jpg", {
+        issues: [{ type: "small-box", severity: "warning", message: "Box 1 is small", rectIndexes: [0] }],
+        highestSeverity: "warning"
+      }]])
     });
     expect(segmentationRendered.map((file) => file.name)).toEqual(["img1.jpg"]);
     expect(segmentationListElement.children[0]?.dataset.status).toBe("segmentation-present");
     expect(segmentationListElement.children[0]?.children).toHaveLength(1);
+    expect(segmentationListElement.children[0]?.dataset.reviewSeverity).toBe("none");
   });
   it("toggles loading overlay show class", () => {
     const loadingOverlayElement = new FakeElement("div");
