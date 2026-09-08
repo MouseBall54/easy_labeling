@@ -126,6 +126,26 @@ export function createEventManagerAdapter(input: {
         });
       };
 
+      const brushCursorPreview = input.documentRef?.getElementById("segmentationBrushCursorPreview") as HTMLElement | null;
+      const hideSegmentationBrushCursorPreview = (): void => {
+        brushCursorPreview?.setAttribute("hidden", "");
+      };
+      const syncSegmentationBrushCursorPreview = (event: MouseEvent, pointer: CanvasPointLike | null): void => {
+        const summary = input.canvasController.raw.getSegmentationSummary?.();
+        const isBrushTool = summary?.activeTool === "brush" || summary?.activeTool === "erase";
+        if (!brushCursorPreview || !pointer || input.state.session.workflow !== "segmentation" || input.state.view.currentMode !== "draw" || !isBrushTool || event.altKey || event.ctrlKey) {
+          hideSegmentationBrushCursorPreview();
+          return;
+        }
+        const diameter = Math.max(4, Math.round(summary.brushRadius * 2 * rawCanvas.getZoom()));
+        brushCursorPreview.style.width = `${diameter}px`;
+        brushCursorPreview.style.height = `${diameter}px`;
+        brushCursorPreview.style.left = `${event.clientX}px`;
+        brushCursorPreview.style.top = `${event.clientY}px`;
+        brushCursorPreview.dataset.tool = summary.activeTool;
+        brushCursorPreview.removeAttribute("hidden");
+      };
+
       const pendingActions = new Set<string>();
       const runExclusive = (key: string, action: () => Promise<void>, button?: HTMLButtonElement): void => {
         if (pendingActions.has(key)) {
@@ -251,6 +271,9 @@ export function createEventManagerAdapter(input: {
           input.uiManager.setWorkflow(workflow);
         } else {
           input.state.session.workflow = workflow;
+        }
+        if (workflow !== "segmentation") {
+          hideSegmentationBrushCursorPreview();
         }
         syncViewControls();
       };
@@ -445,6 +468,9 @@ export function createEventManagerAdapter(input: {
         elements.drawModeBtn.checked = mode === "draw";
         elements.editModeBtn.checked = mode === "edit";
         input.canvasController.setMode?.(mode);
+        if (mode !== "draw") {
+          hideSegmentationBrushCursorPreview();
+        }
         input.uiManager.syncWorkspaceState?.();
       };
 
@@ -1323,9 +1349,11 @@ export function createEventManagerAdapter(input: {
         }
 
         if (!pointer) {
+          hideSegmentationBrushCursorPreview();
           return;
         }
         input.state.view.lastMousePosition = pointer;
+        syncSegmentationBrushCursorPreview(mouseEvent, pointer);
         if (isMovingSegmentationRegion) {
           const moved = input.canvasController.raw.continueSegmentationRegionMove?.(pointer) ?? false;
           if (input.state.view.isCrosshairVisible) {
@@ -1432,6 +1460,7 @@ export function createEventManagerAdapter(input: {
 
       rawCanvas.on?.("mouse:out", () => {
         clearTemporarySelectionSuppression();
+        hideSegmentationBrushCursorPreview();
         input.uiManager.hideMouseCoords();
         input.canvasController.raw.hideCrosshair();
         input.canvasController.raw.setHoveredAnnotation?.(null);

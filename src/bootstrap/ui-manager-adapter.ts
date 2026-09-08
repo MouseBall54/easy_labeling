@@ -470,14 +470,15 @@ export function createUiManagerAdapter(input: {
     input.documentRef.getElementById("reviewFilterControl")?.toggleAttribute("hidden", showSegmentationControls);
     const genericModeControls = input.documentRef.getElementById("genericModeControls");
     const sharedToolSection = input.documentRef.getElementById("sharedToolSection");
-    const segmentationToolsSection = input.documentRef.getElementById("segmentationToolsSection");
+    const segmentationCanvasToolbar = input.documentRef.getElementById("segmentationCanvasToolbar");
     const segmentationToolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
     const segmentationSmartSettingsSection = input.documentRef.getElementById("segmentationSmartSettingsSection");
     if (showSegmentationControls) {
       segmentationWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.removeAttribute("hidden");
       genericModeControls?.setAttribute("hidden", "");
-      [segmentationToolsSection, segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
+      segmentationCanvasToolbar?.removeAttribute("hidden");
+      [segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
         if (section && sharedToolSection) {
           sharedToolSection.appendChild(section);
           if (section === segmentationSmartSettingsSection) {
@@ -500,8 +501,9 @@ export function createUiManagerAdapter(input: {
       segmentationWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.removeAttribute("hidden");
       genericModeControls?.removeAttribute("hidden");
+      segmentationCanvasToolbar?.setAttribute("hidden", "");
       const panel = elements.segmentationWorkflowPanel;
-      [segmentationToolsSection, segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
+      [segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
         if (section) {
           panel.appendChild(section);
           section.hidden = section === segmentationSmartSettingsSection;

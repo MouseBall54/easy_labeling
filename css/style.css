@@ -2058,11 +2058,63 @@ body {
 .canvas-container {
     min-width: 0;
     min-height: 0;
+    container-type: inline-size;
     background: var(--workbench-canvas);
 }
 
 .canvas-container canvas {
     border: 0;
+}
+
+.segmentation-canvas-toolbar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 12;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--workbench-border-strong);
+    background: var(--workbench-surface);
+    box-shadow: 0 4px 10px rgba(20, 28, 38, 0.1);
+}
+
+.segmentation-canvas-toolbar .segmented-control {
+    display: grid;
+    width: min(100%, 560px);
+    margin: 0 auto;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.segmentation-canvas-toolbar .segmented-control .btn {
+    min-width: 0;
+}
+
+@container (max-width: 820px) {
+    .segmentation-canvas-toolbar .segmented-control {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@container (max-width: 440px) {
+    .segmentation-canvas-toolbar .segmented-control {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.segmentation-brush-cursor-preview {
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    border: 1.5px solid rgba(18, 105, 211, 0.95);
+    border-radius: 50%;
+    background: rgba(18, 105, 211, 0.12);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+    transform: translate(-50%, -50%);
+}
+
+.segmentation-brush-cursor-preview[data-tool="erase"] {
+    border-color: rgba(192, 60, 74, 0.95);
+    background: rgba(192, 60, 74, 0.1);
 }
 
 .layout-ghost-canvas {

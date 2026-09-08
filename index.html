@@ -221,6 +221,21 @@
                 </div>
                 <div id="emptyStateCompatibilityText" class="small text-muted" hidden>Folder access is unavailable here; use the sample workspace.</div>
             </div>
+            <section id="segmentationCanvasToolbar" class="segmentation-canvas-toolbar" aria-label="Segmentation tools" hidden>
+                <div id="segmentationToolsSection" class="segmentation-tools-section" data-ui="segmentation-tools-section">
+                    <div class="segmented-control" role="group" aria-label="Segmentation tools">
+                        <button id="segmentationBrushModeBtn" type="button" class="btn active" data-ui="segmentation-tool-brush"><i class="bi bi-brush" aria-hidden="true"></i> Brush</button>
+                        <button id="segmentationEraseModeBtn" type="button" class="btn" data-ui="segmentation-tool-erase"><i class="bi bi-eraser" aria-hidden="true"></i> Erase</button>
+                        <button id="segmentationPolygonModeBtn" type="button" class="btn" data-ui="segmentation-tool-polygon"><i class="bi bi-pentagon" aria-hidden="true"></i> Polygon</button>
+                        <button id="segmentationSuperpixelModeBtn" type="button" class="btn" data-ui="segmentation-tool-superpixel"><i class="bi bi-grid-3x3" aria-hidden="true"></i> Superpixel</button>
+                        <button id="segmentationSmartModeBtn" type="button" class="btn" data-ui="segmentation-tool-smart"><i class="bi bi-magic" aria-hidden="true"></i> Smart Select</button>
+                        <button id="segmentationEditModeBtn" type="button" class="btn" data-ui="segmentation-tool-edit"><i class="bi bi-cursor" aria-hidden="true"></i> Edit</button>
+                    </div>
+                    <p id="segmentationPolygonHint" class="form-text mt-2 mb-0" hidden>Click vertices, then double-click or Complete polygon to fill. Esc cancels.</p>
+                    <div class="btn-group btn-group-sm mt-2" id="segmentationPolygonActions" hidden><button id="segmentationCompletePolygonBtn" type="button" class="btn btn-primary">Complete polygon</button><button id="segmentationCancelPolygonBtn" type="button" class="btn btn-outline-secondary">Cancel polygon</button></div>
+                </div>
+            </section>
+            <div id="segmentationBrushCursorPreview" class="segmentation-brush-cursor-preview" aria-hidden="true" hidden></div>
             <canvas id="canvas"></canvas>
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
@@ -391,18 +406,6 @@
                         <label class="form-label small" for="segmentationExportFormatSelect">Export format</label>
                         <select id="segmentationExportFormatSelect" class="form-select form-select-sm" data-ui="segmentation-export-format-select"><option value="yolo-segmentation">YOLO Segmentation</option><option value="coco-segmentation">COCO</option><option value="png-semantic-mask">PNG Semantic Mask</option><option value="labelme">LabelMe</option></select>
                         <p id="segmentationFormatGuidance" class="form-text mb-0" data-ui="segmentation-format-guidance"></p>
-                    </section>
-                    <section id="segmentationToolsSection" class="inspector-section segmentation-tools-section" data-ui="segmentation-tools-section">
-                        <div class="segmented-control" role="group" aria-label="Segmentation tools">
-                            <button id="segmentationBrushModeBtn" type="button" class="btn active" data-ui="segmentation-tool-brush"><i class="bi bi-brush" aria-hidden="true"></i> Brush</button>
-                            <button id="segmentationEraseModeBtn" type="button" class="btn" data-ui="segmentation-tool-erase"><i class="bi bi-eraser" aria-hidden="true"></i> Erase</button>
-                            <button id="segmentationPolygonModeBtn" type="button" class="btn" data-ui="segmentation-tool-polygon"><i class="bi bi-pentagon" aria-hidden="true"></i> Polygon</button>
-                            <button id="segmentationSuperpixelModeBtn" type="button" class="btn" data-ui="segmentation-tool-superpixel"><i class="bi bi-grid-3x3" aria-hidden="true"></i> Superpixel</button>
-                            <button id="segmentationSmartModeBtn" type="button" class="btn" data-ui="segmentation-tool-smart"><i class="bi bi-magic" aria-hidden="true"></i> Smart Select</button>
-                            <button id="segmentationEditModeBtn" type="button" class="btn" data-ui="segmentation-tool-edit"><i class="bi bi-cursor" aria-hidden="true"></i> Edit</button>
-                        </div>
-                        <p id="segmentationPolygonHint" class="form-text mt-2 mb-0" hidden>Click vertices, then double-click or Complete polygon to fill. Esc cancels.</p>
-                        <div class="btn-group btn-group-sm mt-2" id="segmentationPolygonActions" hidden><button id="segmentationCompletePolygonBtn" type="button" class="btn btn-primary">Complete polygon</button><button id="segmentationCancelPolygonBtn" type="button" class="btn btn-outline-secondary">Cancel polygon</button></div>
                     </section>
                     <section id="segmentationSuperpixelSection" class="inspector-section segmentation-superpixel-section" data-ui="segmentation-superpixel-section">
                         <div class="mt-1" data-ui="segmentation-superpixel-group">

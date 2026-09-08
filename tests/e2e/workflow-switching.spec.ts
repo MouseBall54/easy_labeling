@@ -133,7 +133,8 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator('#segmentationWorkflowPanel #segmentationFormatSection')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeHidden();
   await expect(page.locator("#genericModeControls")).toBeHidden();
-  await expect(page.locator("#sharedToolSection #segmentationToolsSection")).toBeVisible();
+  await expect(page.locator("#segmentationCanvasToolbar")).toBeVisible();
+  await expect(page.locator("#segmentationCanvasToolbar #segmentationToolsSection")).toBeVisible();
   await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeVisible();
   await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Active Class');
   await expect(page.locator("#taskAnnotateBtn")).toBeHidden();
@@ -149,6 +150,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
   await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
+  await expect(page.locator("#segmentationCanvasToolbar")).toBeHidden();
   await expect(page.locator("#undoBtn")).toBeEnabled();
   await page.locator("#undoBtn").click();
   await expect.poll(async () => {
