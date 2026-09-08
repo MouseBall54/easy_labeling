@@ -219,4 +219,37 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     } | undefined;
     return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
   })).toBeNull();
+
+  await page.keyboard.press("3");
+  await page.locator("#segmentationSuperpixelModeBtn").click();
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationSummary?: () => { activeTool?: string } | null;
+    } | undefined;
+    return api?.getSegmentationSummary?.()?.activeTool ?? null;
+  })).toBe("superpixel");
+  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBe("3");
+
+  await page.locator("#segmentationEraseModeBtn").click();
+  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBeNull();
+  await page.locator("#segmentationBrushModeBtn").click();
+  await page.waitForTimeout(100);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBeNull();
 });
