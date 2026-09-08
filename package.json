@@ -10,7 +10,7 @@
     "prebuild": "node scripts/copy-offline-assets.mjs",
     "prestart": "npm run build",
     "start": "npm run serve",
-    "serve": "vite --host 127.0.0.1 --port 4173 --strictPort",
+    "serve": "vite --host 0.0.0.0 --port 4173 --strictPort",
     "build:watch": "tsc -p tsconfig.build.json --watch",
     "dev": "concurrently -k \"npm:build:watch\" \"npm:serve\"",
     "test": "npm run test:unit",
