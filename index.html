@@ -431,8 +431,9 @@
                         </div>
                     </section>
                     <section class="inspector-section segmentation-summary-section" data-ui="segmentation-summary-section">
-                        <div class="section-heading-row"><h3>Active class</h3><i class="bi bi-palette" aria-hidden="true"></i></div>
+                        <div class="section-heading-row"><h3>Paint class</h3><i class="bi bi-palette" aria-hidden="true"></i></div>
                         <button id="segmentationActiveClassSummary" type="button" class="active-class-summary" data-ui="segmentation-active-class-summary">No active segmentation class selected yet.</button>
+                        <div id="segmentationPaintClassList" class="segmentation-paint-class-list mt-2" aria-label="Paint class choices"></div>
                         <p id="segmentationSelectedRegionSummary" class="form-text mt-2 mb-0">Select a mask region in Edit mode to inspect it.</p>
                         <div class="btn-group btn-group-sm w-100 mt-2"><button id="segmentationRelabelRegionBtn" type="button" class="btn btn-outline-secondary" data-ui="segmentation-relabel-region">Relabel</button><button id="segmentationDeleteRegionBtn" type="button" class="btn btn-outline-danger">Delete</button></div>
                     </section>
@@ -445,7 +446,7 @@
                         <label for="segmentationEdgeGlowSlider" class="form-label small">Edge intensity <span id="segmentationEdgeGlowValue">70</span>%</label>
                         <input type="range" class="form-range" min="0" max="100" value="70" id="segmentationEdgeGlowSlider" data-ui="segmentation-edge-glow-slider">
                     </details>
-                    <section id="segmentationClassSection" class="inspector-section"><div class="section-heading-row"><h3>Classes</h3></div><input id="segmentationClassSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search segmentation classes..."><div id="segmentationClassSummary" class="segmentation-class-summary" data-ui="segmentation-class-summary">No painted classes</div></section>
+                    <section id="segmentationClassSection" class="inspector-section"><div class="section-heading-row"><h3>Display classes</h3></div><input id="segmentationClassSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search display classes..."><div id="segmentationClassSummary" class="segmentation-class-summary" data-ui="segmentation-class-summary">No painted classes</div></section>
                 </div>
             </div>
         </aside>

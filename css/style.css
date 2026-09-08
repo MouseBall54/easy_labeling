@@ -3004,6 +3004,21 @@ body.dark-mode .placement-notice[data-state="busy"] {
     font-size: 0.72rem;
 }
 
+.segmentation-paint-class-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.segmentation-class-color-chip {
+    display: inline-block;
+    width: 0.65rem;
+    height: 0.65rem;
+    margin-right: 0.35rem;
+    border-radius: 50%;
+    vertical-align: -0.05rem;
+}
+
 .workspace-status-bar {
     grid-column: 2;
     grid-row: 2;

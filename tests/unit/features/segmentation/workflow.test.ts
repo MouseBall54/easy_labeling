@@ -178,6 +178,7 @@ describe("features/segmentation/workflow", () => {
 
     controller.setSegmentationOnlyVisibleClass?.("2");
     expect(controller.getSegmentationSummary?.()?.visibleClassIds).toEqual(["2"]);
+    expect(controller.getSegmentationSummary?.()?.activeClassId).toBe("6");
 
     const sourceClass = controller.getSegmentationClassAtPoint?.({ x: 3, y: 3 });
     expect(sourceClass).toBe("2");
@@ -344,6 +345,43 @@ describe("features/segmentation/workflow", () => {
     await drawStroke(controller, createClosedSquarePoints());
 
     expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+  });
+
+  it("keeps completed erase results after a tool change and deferred rendering", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationBrushRadius?.(2);
+    controller.setSegmentationActiveClass?.("4");
+    await drawStroke(controller, [{ x: 10, y: 10 }]);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+
+    controller.setSegmentationTool?.("erase");
+    await drawStroke(controller, [{ x: 10, y: 10 }]);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBeNull();
+
+    controller.setSegmentationTool?.("brush");
+    await Promise.resolve();
+    controller.renderAll();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBeNull();
+  });
+
+  it("cancels an in-progress stroke when switching tools so it cannot affect the next tool", async () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
+    controller.setBackgroundImage({ width: 24, height: 24 });
+
+    controller.setSegmentationBrushRadius?.(2);
+    controller.setSegmentationActiveClass?.("4");
+    controller.startDrawing({ x: 8, y: 8 });
+    expect(controller.getSegmentationClassAtPoint?.({ x: 8, y: 8 })).toBe("4");
+
+    controller.setSegmentationTool?.("erase");
+    expect(controller.getSegmentationClassAtPoint?.({ x: 8, y: 8 })).toBeNull();
+    expect(controller.canUndo()).toBe(false);
+
+    await controller.finishDrawing();
+    expect(controller.getSegmentationSummary?.()?.activeTool).toBe("erase");
+    expect(controller.getSegmentationClassAtPoint?.({ x: 8, y: 8 })).toBeNull();
   });
 
   it("stores stroke and auto fill as a single undo/redo history step", async () => {

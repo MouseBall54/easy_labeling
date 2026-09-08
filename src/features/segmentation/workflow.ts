@@ -244,6 +244,54 @@ export function createSegmentationCanvasWorkflow(
     moveLastDeltaY = null;
   };
 
+  const cancelActiveToolGesture = (): void => {
+    const doc = ensureDocument();
+    if (doc && strokeBaseline) {
+      // A tool may be switched while Fabric still has an in-progress pointer gesture.
+      // Restore its baseline so the next tool cannot commit or render that partial gesture.
+      doc.restoreSnapshot(strokeBaseline);
+    }
+    strokeBaseline = null;
+    strokePoints = [];
+    strokeDirtyBounds = null;
+    polygonPoints = [];
+    clearPolygonPreview();
+    visitedSuperpixelIds.clear();
+    clearSelection();
+    cancelPendingOverlayRender();
+    clearPendingOverlayRenderState();
+  };
+
+  const createSelectionFromIndices = (
+    doc: SegmentationDocument,
+    classId: string,
+    indices: readonly number[],
+    seedPoint: CanvasPoint
+  ): SegmentationRegionSelection | null => {
+    if (indices.length === 0) {
+      return null;
+    }
+    let left = doc.width - 1;
+    let top = doc.height - 1;
+    let right = 0;
+    let bottom = 0;
+    indices.forEach((index) => {
+      const x = index % doc.width;
+      const y = Math.floor(index / doc.width);
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    });
+    return {
+      classId,
+      pixelCount: indices.length,
+      pixelIndices: new Uint32Array(indices),
+      bounds: { left, top, right, bottom },
+      seedPoint
+    };
+  };
+
   const ensureDocument = (): SegmentationDocument | null => {
     if (!state.currentImage) {
       return null;
@@ -305,6 +353,13 @@ export function createSegmentationCanvasWorkflow(
           && superpixelBoundaryVisible
           && (doc.activeTool === "superpixel" || doc.activeTool === "smart")
       );
+    }
+
+    // Keep the Smart Select / Edit selection above superpixel boundaries so the
+    // changed mask is not mistaken for the boundary visualization.
+    if (selectionOverlayLayer && selectedRegion) {
+      canvas.remove(selectionOverlayLayer.object);
+      canvas.add(selectionOverlayLayer.object);
     }
 
     canvas.requestRenderAll();
@@ -720,11 +775,15 @@ export function createSegmentationCanvasWorkflow(
       if (!doc) {
         return;
       }
-      if (doc.activeTool === "polygon" && tool !== "polygon") {
-        controller.cancelSegmentationPolygon?.();
+      if (doc.activeTool !== tool) {
+        cancelActiveToolGesture();
       }
       doc.setActiveTool(tool);
-      requestOverlayRender({ immediate: true });
+      requestOverlayRender({
+        forceMaskFull: true,
+        forceSelectionFull: true,
+        immediate: true
+      });
     },
 
     recalculateSegmentationSuperpixels(regionSize: number): boolean {
@@ -822,27 +881,55 @@ export function createSegmentationCanvasWorkflow(
 
     applySegmentationSmartGrow(pointer: CanvasPoint, similarity: number, edgeStop: number): boolean {
       const doc = ensureDocument();
-      if (!doc || !superpixelResult) return false;
+      if (!doc) {
+        deps.notify("Smart Select needs a loaded image.", 3500);
+        return false;
+      }
+      if (!superpixelResult) {
+        deps.notify("Smart Select needs calculated Superpixels.", 3500);
+        return false;
+      }
       const x = Math.round(pointer.x);
       const y = Math.round(pointer.y);
-      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return false;
+      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) {
+        deps.notify("Click inside the image to select a region.", 3000);
+        return false;
+      }
       const seedId = superpixelResult.labels[(y * doc.width) + x] ?? -1;
+      if (seedId < 0) {
+        deps.notify("No selectable Superpixel was found at this point.", 3000);
+        return false;
+      }
       const regionIds = growSuperpixelRegion({ result: superpixelResult, seedId, similarity, edgeStop });
-      if (regionIds.length === 0) return false;
+      if (regionIds.length === 0) {
+        deps.notify("No similar region was found at this point.", 3000);
+        return false;
+      }
       const before = doc.cloneSnapshot();
       const accepted = new Set(regionIds);
       const classId = Number.parseInt(doc.activeClassId, 10);
       const nextClassId = Number.isInteger(classId) && classId > 0 ? classId : 1;
       let changed = false;
+      const changedIndices: number[] = [];
       superpixelResult.labels.forEach((regionId, index) => {
         if (!accepted.has(regionId) || doc.mask[index] === nextClassId) return;
         doc.mask[index] = nextClassId;
         changed = true;
+        changedIndices.push(index);
       });
-      if (!changed) return false;
+      if (!changed) {
+        deps.notify("Selected regions already use the active class.", 3000);
+        return false;
+      }
       doc.pushHistoryFromSnapshot(before);
-      requestOverlayRender({ immediate: true });
+      selectedRegion = createSelectionFromIndices(doc, `${nextClassId}`, changedIndices, { x, y });
+      requestOverlayRender({
+        forceMaskFull: true,
+        forceSelectionFull: true,
+        immediate: true
+      });
       deps.onDocumentMutation?.();
+      deps.notify(`Smart Select applied ${regionIds.length} region${regionIds.length === 1 ? "" : "s"} (${changedIndices.length.toLocaleString()} px).`, 2500);
       return true;
     },
 

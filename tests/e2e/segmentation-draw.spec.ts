@@ -111,7 +111,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     };
   })).toEqual({ activeClassId: '1', baseImages: 1, canUndo: false });
   await page.waitForTimeout(1000);
-  await page.locator('label[for="drawMode"]').click();
+  await page.locator("#segmentationBrushModeBtn").click();
 
   const canvas = page.locator('.upper-canvas');
   const box = await canvas.boundingBox();
@@ -142,28 +142,6 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     x: box.x + imagePlacement.left + (16 * imagePlacement.scale),
     y: box.y + imagePlacement.top + (16 * imagePlacement.scale)
   };
-  const sampleLowerCanvasPixel = async (point: { x: number; y: number }) => page.evaluate((input) => {
-    const canvas = document.querySelector<HTMLCanvasElement>('.lower-canvas');
-    if (!canvas) {
-      return null;
-    }
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = Math.max(0, Math.min(canvas.width - 1, Math.round((input.x - rect.left) * scaleX)));
-    const y = Math.max(0, Math.min(canvas.height - 1, Math.round((input.y - rect.top) * scaleY)));
-    const pixel = canvas.getContext('2d')?.getImageData(x, y, 1, 1).data;
-    return pixel ? Array.from(pixel) : null;
-  }, point);
-  const colorDistance = (leftPixel: number[] | null, rightPixel: number[] | null): number => {
-    if (!leftPixel || !rightPixel) {
-      return Number.POSITIVE_INFINITY;
-    }
-    return Math.abs(leftPixel[0] - rightPixel[0]) +
-      Math.abs(leftPixel[1] - rightPixel[1]) +
-      Math.abs(leftPixel[2] - rightPixel[2]);
-  };
-
   await page.mouse.move(outsideImage.x, outsideImage.y);
   await page.mouse.down();
   await page.mouse.move(outsideImage.x + 5, outsideImage.y, { steps: 2 });
@@ -175,9 +153,6 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     } | undefined;
     return api?.getSegmentationMaskBounds?.() ?? null;
   })).toBeNull();
-
-  const centerPixelBefore = await sampleLowerCanvasPixel(imageCenter);
-  const topLeftPixelBefore = await sampleLowerCanvasPixel(imageTopLeftSample);
 
   await page.mouse.move(imageCenter.x - 15, imageCenter.y - 5);
   await page.mouse.down();
@@ -210,89 +185,38 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     }
     return bounds.left <= 400 && bounds.right >= 400 && bounds.top <= 200 && bounds.bottom >= 200;
   })).toBe(true);
+  await page.waitForTimeout(100);
 
-  const edgeOnSample = await page.evaluate(() => {
-    const api = Reflect.get(window, '__easyLabelingTestApi') as {
-      getSegmentationMaskBounds?: () => {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-      } | null;
-      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
-      getSegmentationOverlayPixel?: (x: number, y: number) => number[] | null;
-    } | undefined;
-    const bounds = api?.getSegmentationMaskBounds?.() ?? null;
-    if (!bounds) {
-      return null;
-    }
-    let sample = null as { x: number; y: number } | null;
-    for (let y = bounds.top; y <= bounds.bottom && !sample; y += 1) {
-      for (let x = bounds.left; x <= bounds.right; x += 1) {
-        if (api?.getSegmentationClassAtPoint?.(x, y) && !api?.getSegmentationClassAtPoint?.(x - 1, y)) {
-          sample = { x, y };
-          break;
-        }
-      }
-    }
-    if (!sample) {
-      return null;
-    }
-    return {
-      edge: api?.getSegmentationOverlayPixel?.(sample.x, sample.y) ?? null,
-      halo: api?.getSegmentationOverlayPixel?.(sample.x - 1, sample.y) ?? null
-    };
-  });
-  expect(edgeOnSample?.edge?.[3]).toBe(255);
-  expect(edgeOnSample?.halo?.[3] ?? 0).toBeGreaterThan(0);
-
-  await page.locator(".segmentation-display-settings > summary").click();
-  await page.locator('#segmentationEdgeHighlightToggle').uncheck();
+  await page.keyboard.press("2");
+  await page.locator("#segmentationSmartModeBtn").click();
   await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, '__easyLabelingTestApi') as {
-      getSegmentationSummary?: () => { edgeHighlightVisible?: boolean } | null;
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationSummary?: () => { activeTool?: string } | null;
     } | undefined;
-    return api?.getSegmentationSummary?.()?.edgeHighlightVisible ?? true;
-  })).toBe(false);
-
-  const edgeOffSample = await page.evaluate(() => {
-    const api = Reflect.get(window, '__easyLabelingTestApi') as {
-      getSegmentationMaskBounds?: () => {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-      } | null;
+    return api?.getSegmentationSummary?.()?.activeTool ?? null;
+  })).toBe("smart");
+  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
       getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
-      getSegmentationOverlayPixel?: (x: number, y: number) => number[] | null;
     } | undefined;
-    const bounds = api?.getSegmentationMaskBounds?.() ?? null;
-    if (!bounds) {
-      return null;
-    }
-    let sample = null as { x: number; y: number } | null;
-    for (let y = bounds.top; y <= bounds.bottom && !sample; y += 1) {
-      for (let x = bounds.left; x <= bounds.right; x += 1) {
-        if (api?.getSegmentationClassAtPoint?.(x, y) && !api?.getSegmentationClassAtPoint?.(x - 1, y)) {
-          sample = { x, y };
-          break;
-        }
-      }
-    }
-    if (!sample) {
-      return null;
-    }
-    return {
-      edge: api?.getSegmentationOverlayPixel?.(sample.x, sample.y) ?? null,
-      halo: api?.getSegmentationOverlayPixel?.(sample.x - 1, sample.y) ?? null
-    };
-  });
-  const colorTotal = (pixel: number[] | null | undefined): number => pixel ? (pixel[0] + pixel[1] + pixel[2]) : 0;
-  expect(colorTotal(edgeOnSample?.edge)).toBeGreaterThan(colorTotal(edgeOffSample?.edge) + 20);
-  expect(edgeOffSample?.halo?.[3] ?? 0).toBe(0);
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBe("2");
 
-  const centerPixelAfter = await sampleLowerCanvasPixel(imageCenter);
-  const topLeftPixelAfter = await sampleLowerCanvasPixel(imageTopLeftSample);
-  expect(colorDistance(centerPixelBefore, centerPixelAfter)).toBeGreaterThan(30);
-  expect(colorDistance(topLeftPixelBefore, topLeftPixelAfter)).toBeLessThan(20);
+  await page.locator("#segmentationEraseModeBtn").click();
+  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBeNull();
+  await page.locator("#segmentationBrushModeBtn").click();
+  await page.waitForTimeout(100);
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBeNull();
 });

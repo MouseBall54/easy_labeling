@@ -227,6 +227,7 @@ const REQUIRED_IDS = [
   "segmentationEdgeGlowSlider",
   "segmentationEdgeGlowValue",
   "segmentationClassSummary",
+  "segmentationPaintClassList",
   "classFileViewerModal",
   "classFileEditorBody",
   "addClassRowBtn",

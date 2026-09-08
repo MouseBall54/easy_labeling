@@ -1151,7 +1151,7 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.setSegmentationClassVisibility?.(classId, target.checked);
         input.uiManager.setWorkflow?.(input.state.session.workflow);
       });
-      elements.segmentationClassSummary.addEventListener("click", (event) => {
+      const handleSegmentationClassClick = (event: Event): void => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) {
           return;
@@ -1177,7 +1177,9 @@ export function createEventManagerAdapter(input: {
           input.canvasController.raw.setSegmentationActiveClass?.(activeClassId);
           input.uiManager.setWorkflow?.("segmentation");
         }
-      });
+      };
+      elements.segmentationClassSummary.addEventListener("click", handleSegmentationClassClick);
+      elements.segmentationPaintClassList?.addEventListener("click", handleSegmentationClassClick);
       segmentationDocument?.getElementById("segmentationClassSearchInput")?.addEventListener("input", (event) => {
         const inputElement = event.currentTarget;
         if (!(inputElement instanceof HTMLInputElement)) return;

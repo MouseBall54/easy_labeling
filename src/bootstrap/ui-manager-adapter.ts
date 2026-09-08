@@ -305,7 +305,7 @@ export function createUiManagerAdapter(input: {
         : "YOLO, COCO, and LabelMe export each disconnected mask region as an instance.";
     }
 
-    elements.segmentationActiveClassSummary.textContent = `Active Class: ${manager.getDisplayNameForClass(activeClassId)}`;
+    elements.segmentationActiveClassSummary.textContent = `Painting: ${manager.getDisplayNameForClass(activeClassId)}`;
     const selectedRegion = canvasController?.raw.getSelectedSegmentationRegion?.() ?? null;
     const selectedRegionSummary = input.documentRef.getElementById("segmentationSelectedRegionSummary");
     const deleteRegionButton = input.documentRef.getElementById("segmentationDeleteRegionBtn") as HTMLButtonElement | null;
@@ -367,17 +367,32 @@ export function createUiManagerAdapter(input: {
     elements.segmentationEdgeHighlightToggle.checked = edgeHighlightVisible;
     elements.segmentationEdgeGlowSlider.value = `${Math.round(edgeHighlightIntensity * 100)}`;
     elements.segmentationEdgeGlowValue.textContent = `${Math.round(edgeHighlightIntensity * 100)}`;
+    const paintClassList = elements.segmentationPaintClassList;
     elements.segmentationClassSummary.innerHTML = "";
+    if (paintClassList) paintClassList.innerHTML = "";
     const segmentationClassIds = summary
       ? [...new Set([...summary.allClassIds, ...input.state.session.classNames.keys()])].sort((left, right) => Number(left) - Number(right))
       : [];
     if (summary && segmentationClassIds.length > 0) {
+      segmentationClassIds.forEach((classId) => {
+        const paintClassButton = input.documentRef.createElement("button");
+        paintClassButton.type = "button";
+        paintClassButton.className = `btn btn-sm mb-1 me-1 ${classId === activeClassId ? "btn-primary active" : "btn-outline-primary"}`;
+        paintClassButton.dataset.ui = "segmentation-active-class";
+        paintClassButton.dataset.classId = classId;
+        const color = input.documentRef.createElement("span");
+        color.className = "segmentation-class-color-chip";
+        color.style.background = getColorForClass(classId);
+        paintClassButton.append(color, input.documentRef.createTextNode(manager.getDisplayNameForClass(classId)));
+        paintClassList?.appendChild(paintClassButton);
+      });
+
       const filterControls = input.documentRef.createElement("div");
       filterControls.className = "mb-2";
 
       const filterTitle = input.documentRef.createElement("div");
       filterTitle.className = "mb-1 small text-muted";
-      filterTitle.textContent = "Class Filter";
+      filterTitle.textContent = "Display filter";
       filterControls.appendChild(filterTitle);
 
       const allVisibleButton = input.documentRef.createElement("button");
@@ -402,7 +417,7 @@ export function createUiManagerAdapter(input: {
 
       const title = input.documentRef.createElement("div");
       title.className = "mb-2 small text-muted";
-      title.textContent = "Class Visibility";
+      title.textContent = "Visibility";
       elements.segmentationClassSummary.appendChild(title);
 
       segmentationClassIds.forEach((classId) => {
@@ -418,20 +433,18 @@ export function createUiManagerAdapter(input: {
         checkbox.dataset.classId = classId;
         checkbox.dataset.ui = "segmentation-class-visibility-toggle";
 
-        const label = input.documentRef.createElement("button");
-        label.type = "button";
-        label.className = `btn btn-link btn-sm p-0 text-start small ${classId === activeClassId ? "fw-bold" : ""}`;
-        label.dataset.ui = "segmentation-active-class";
-        label.dataset.classId = classId;
+        const label = input.documentRef.createElement("span");
+        label.className = "small text-start";
         const color = input.documentRef.createElement("span");
-        color.className = "d-inline-block rounded-circle me-1";
-        color.style.cssText = `width: 0.65rem; height: 0.65rem; background: ${getColorForClass(classId)};`;
+        color.className = "segmentation-class-color-chip";
+        color.style.background = getColorForClass(classId);
         label.append(color, input.documentRef.createTextNode(manager.getDisplayNameForClass(classId)));
 
         wrapper.append(checkbox, label);
         elements.segmentationClassSummary.appendChild(wrapper);
       });
     } else {
+      if (paintClassList) paintClassList.textContent = "Create a class to start painting.";
       elements.segmentationClassSummary.textContent = visibleClassIds.length > 0
         ? `Visible Classes: ${visibleClassIds.map((classId) => manager.getDisplayNameForClass(classId)).join(", ")}`
         : "Visible Classes: none";

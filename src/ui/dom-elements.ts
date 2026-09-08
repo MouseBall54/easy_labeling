@@ -242,6 +242,7 @@ export interface UiDomElements {
   segmentationEdgeGlowSlider: HTMLInputElement;
   segmentationEdgeGlowValue: HTMLElement;
   segmentationClassSummary: HTMLElement;
+  segmentationPaintClassList: HTMLElement;
   saveLabelClassBtn: HTMLElement;
   crosshairToggle: HTMLInputElement;
   contextMenu: HTMLElement;
@@ -570,6 +571,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationEdgeGlowSlider: requireById<HTMLInputElement>(documentRef, "segmentationEdgeGlowSlider"),
     segmentationEdgeGlowValue: requireById<HTMLElement>(documentRef, "segmentationEdgeGlowValue"),
     segmentationClassSummary: requireById<HTMLElement>(documentRef, "segmentationClassSummary"),
+    segmentationPaintClassList: requireById<HTMLElement>(documentRef, "segmentationPaintClassList"),
     saveLabelClassBtn: requireById<HTMLElement>(documentRef, "saveLabelClassBtn"),
     crosshairToggle: requireById<HTMLInputElement>(documentRef, "crosshairToggle"),
     contextMenu: requireById<HTMLElement>(documentRef, "context-menu"),
