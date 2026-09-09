@@ -54,6 +54,16 @@ export interface SegmentationSummary {
   visibleClassIds: string[];
   allClassIds: string[];
   hiddenClassIds: string[];
+  smartPreview?: SegmentationSmartPreviewSummary | null;
+}
+
+export interface SegmentationSmartPreviewSummary {
+  mode: "add" | "remove";
+  classId: string;
+  regionCount: number;
+  pixelCount: number;
+  similarity: number;
+  edgeStop: number;
 }
 
 export interface SegmentationRegionBounds {

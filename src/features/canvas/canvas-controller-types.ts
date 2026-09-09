@@ -8,7 +8,7 @@ import type {
   FabricRectLike
 } from "./fabric-types.js";
 import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./history.js";
-import type { SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
+import type { SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSmartPreviewSummary, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
 import type { BoxLayout, PixelPoint } from "../automation/types.js";
 
 export interface AppliedBoxLayout {
@@ -155,7 +155,11 @@ export interface CanvasController {
   getSegmentationSuperpixelSettings?(): SegmentationSuperpixelSettings;
   setSegmentationSuperpixelSettings?(settings: Partial<SegmentationSuperpixelSettings>): boolean;
   startSegmentationSuperpixelPaint?(pointer: CanvasPoint, mode: "add" | "remove"): boolean;
-  applySegmentationSmartGrow?(pointer: CanvasPoint, similarity: number, edgeStop: number): boolean;
+  startSegmentationSmartGrow?(pointer: CanvasPoint, mode: "add" | "remove"): boolean;
+  applySegmentationSmartGrow?(pointer: CanvasPoint, similarity: number, edgeStop: number, mode?: "add" | "remove"): boolean;
+  getSegmentationSmartPreview?(): SegmentationSmartPreviewSummary | null;
+  applySegmentationSmartPreview?(): boolean;
+  discardSegmentationSmartPreview?(): boolean;
   setSegmentationSmartGrowSettings?(similarity: number, edgeStop: number): void;
   setSegmentationBrushRadius?(radius: number): void;
   setSegmentationActiveClass?(classId: string): void;

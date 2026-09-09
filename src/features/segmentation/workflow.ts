@@ -14,6 +14,7 @@ import type {
   SegmentationDocumentSnapshot,
   SegmentationRegionBounds,
   SegmentationRegionSelection,
+  SegmentationSmartPreviewSummary,
   SegmentationSummary,
   SegmentationSuperpixelSettings,
   SegmentationTool
@@ -75,6 +76,7 @@ export function createSegmentationCanvasWorkflow(
   let document: SegmentationDocument | null = null;
   let maskOverlayLayer: SegmentationMaskOverlayLayer | null = null;
   let selectionOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
+  let smartPreviewOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
   let superpixelOverlayLayer: SegmentationSuperpixelOverlayLayer | null = null;
   const superpixelCache = createSuperpixelCache();
   let superpixelResult: SuperpixelResult | null = null;
@@ -90,6 +92,12 @@ export function createSegmentationCanvasWorkflow(
   let polygonPreviewObjects: FabricObjectLike[] = [];
   let strokeDirtyBounds: SegmentationRegionBounds | null = null;
   let selectedRegion: SegmentationRegionSelection | null = null;
+  let smartPreview: {
+    seedPoint: CanvasPoint;
+    mode: "add" | "remove";
+    regionIds: number[];
+    selection: SegmentationRegionSelection;
+  } | null = null;
   let autoFillClosedRegionEnabled = false;
   let moveBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let moveRegionBaseline: SegmentationRegionSelection | null = null;
@@ -133,6 +141,12 @@ export function createSegmentationCanvasWorkflow(
     }
     canvas.remove(selectionOverlayLayer.object);
     selectionOverlayLayer = null;
+  };
+
+  const removeSmartPreviewOverlayLayer = (): void => {
+    if (!smartPreviewOverlayLayer) return;
+    canvas.remove(smartPreviewOverlayLayer.object);
+    smartPreviewOverlayLayer = null;
   };
 
   const removeSuperpixelOverlayLayer = (): void => {
@@ -182,6 +196,14 @@ export function createSegmentationCanvasWorkflow(
     return selectionOverlayLayer;
   };
 
+  const ensureSmartPreviewOverlayLayer = (): SegmentationSelectionOverlayLayer => {
+    if (!smartPreviewOverlayLayer) {
+      smartPreviewOverlayLayer = createSegmentationSelectionOverlayLayer(deps.fabric);
+      canvas.add(smartPreviewOverlayLayer.object);
+    }
+    return smartPreviewOverlayLayer;
+  };
+
   const ensureSuperpixelOverlayLayer = (): SegmentationSuperpixelOverlayLayer => {
     if (!superpixelOverlayLayer) {
       superpixelOverlayLayer = createSegmentationSuperpixelOverlayLayer(deps.fabric);
@@ -198,10 +220,12 @@ export function createSegmentationCanvasWorkflow(
       document = null;
       removeMaskOverlayLayer();
       removeSelectionOverlayLayer();
+      removeSmartPreviewOverlayLayer();
       removeSuperpixelOverlayLayer();
       superpixelResult = null;
       superpixelCache.clear();
       selectedRegion = null;
+      smartPreview = null;
       return;
     }
 
@@ -218,6 +242,7 @@ export function createSegmentationCanvasWorkflow(
     });
     removeMaskOverlayLayer();
     removeSelectionOverlayLayer();
+    removeSmartPreviewOverlayLayer();
     removeSuperpixelOverlayLayer();
     superpixelResult = null;
     superpixelCache.clear();
@@ -227,6 +252,7 @@ export function createSegmentationCanvasWorkflow(
     clearPolygonPreview();
     strokeDirtyBounds = null;
     selectedRegion = null;
+    smartPreview = null;
     moveBaseline = null;
     moveRegionBaseline = null;
     movePointerStart = null;
@@ -244,6 +270,25 @@ export function createSegmentationCanvasWorkflow(
     moveLastDeltaY = null;
   };
 
+  const clearSmartPreview = (): boolean => {
+    if (!smartPreview) return false;
+    smartPreview = null;
+    requestOverlayRender({ forceSelectionFull: true, immediate: true });
+    return true;
+  };
+
+  const getSmartPreviewSummary = (): SegmentationSmartPreviewSummary | null => {
+    if (!smartPreview) return null;
+    return {
+      mode: smartPreview.mode,
+      classId: smartPreview.selection.classId,
+      regionCount: smartPreview.regionIds.length,
+      pixelCount: smartPreview.selection.pixelCount,
+      similarity: smartGrowSimilarity,
+      edgeStop: smartGrowEdgeStop
+    };
+  };
+
   const cancelActiveToolGesture = (): void => {
     const doc = ensureDocument();
     if (doc && strokeBaseline) {
@@ -258,6 +303,7 @@ export function createSegmentationCanvasWorkflow(
     clearPolygonPreview();
     visitedSuperpixelIds.clear();
     clearSelection();
+    smartPreview = null;
     cancelPendingOverlayRender();
     clearPendingOverlayRenderState();
   };
@@ -345,6 +391,21 @@ export function createSegmentationCanvasWorkflow(
       selectionLayer.object.set("visible", workflowActive && selectedRegion !== null);
     }
 
+    if (smartPreview || smartPreviewOverlayLayer) {
+      const previewLayer = ensureSmartPreviewOverlayLayer();
+      previewLayer.sync(
+        {
+          width: doc.width,
+          height: doc.height,
+          selection: smartPreview?.selection ?? null,
+          getColorForClass,
+          variant: smartPreview?.mode === "remove" ? "smart-remove" : "smart-add"
+        },
+        forceSelectionFull ? { forceFull: true } : undefined
+      );
+      previewLayer.object.set("visible", workflowActive && smartPreview !== null);
+    }
+
     if (superpixelResult || superpixelOverlayLayer) {
       const layer = ensureSuperpixelOverlayLayer();
       layer.sync(
@@ -360,6 +421,10 @@ export function createSegmentationCanvasWorkflow(
     if (selectionOverlayLayer && selectedRegion) {
       canvas.remove(selectionOverlayLayer.object);
       canvas.add(selectionOverlayLayer.object);
+    }
+    if (smartPreviewOverlayLayer && smartPreview) {
+      canvas.remove(smartPreviewOverlayLayer.object);
+      canvas.add(smartPreviewOverlayLayer.object);
     }
 
     canvas.requestRenderAll();
@@ -404,6 +469,50 @@ export function createSegmentationCanvasWorkflow(
       overlayRenderScheduled = false;
       flushOverlayRender();
     });
+  };
+
+  const buildSmartPreview = (pointer: CanvasPoint, mode: "add" | "remove", notifyOnFailure = true, immediate = true): boolean => {
+    const doc = ensureDocument();
+    if (!doc) {
+      if (notifyOnFailure) deps.notify("Smart Select needs a loaded image.", 3500);
+      return false;
+    }
+    if (!superpixelResult) {
+      if (notifyOnFailure) deps.notify("Smart Select needs calculated Superpixels.", 3500);
+      return false;
+    }
+    const x = Math.round(pointer.x);
+    const y = Math.round(pointer.y);
+    if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) {
+      if (notifyOnFailure) deps.notify("Click inside the image to preview a region.", 3000);
+      return false;
+    }
+    const seedId = superpixelResult.labels[(y * doc.width) + x] ?? -1;
+    if (seedId < 0) {
+      if (notifyOnFailure) deps.notify("No selectable Superpixel was found at this point.", 3000);
+      return false;
+    }
+    const regionIds = growSuperpixelRegion({ result: superpixelResult, seedId, similarity: smartGrowSimilarity, edgeStop: smartGrowEdgeStop });
+    const accepted = new Set(regionIds);
+    const classId = Number.parseInt(doc.activeClassId, 10);
+    const nextClassId = Number.isInteger(classId) && classId > 0 ? classId : 1;
+    const changedIndices: number[] = [];
+    superpixelResult.labels.forEach((regionId, index) => {
+      if (!accepted.has(regionId)) return;
+      if (mode === "remove" ? doc.mask[index] !== 0 : doc.mask[index] !== nextClassId) {
+        changedIndices.push(index);
+      }
+    });
+    const selection = createSelectionFromIndices(doc, `${nextClassId}`, changedIndices, { x, y });
+    if (!selection) {
+      if (notifyOnFailure) deps.notify(mode === "remove" ? "Selected regions are already empty." : "Selected regions already use the active class.", 3000);
+      clearSmartPreview();
+      return false;
+    }
+    smartPreview = { seedPoint: { x, y }, mode, regionIds, selection };
+    clearSelection();
+    requestOverlayRender({ forceSelectionFull: true, immediate });
+    return true;
   };
 
   const controller: CanvasController = {
@@ -453,6 +562,9 @@ export function createSegmentationCanvasWorkflow(
 
     setMode(mode): void {
       shell.setMode(mode);
+      if (mode !== "draw") {
+        smartPreview = null;
+      }
       if (mode === "draw") {
         clearSelection();
         requestOverlayRender({ maskDirtyBounds: null });
@@ -519,7 +631,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       if (doc.activeTool === "smart") {
-        controller.applySegmentationSmartGrow?.(pointer, smartGrowSimilarity, smartGrowEdgeStop);
+        controller.startSegmentationSmartGrow?.(pointer, "add");
         return;
       }
       strokeBaseline = doc.cloneSnapshot();
@@ -777,6 +889,7 @@ export function createSegmentationCanvasWorkflow(
       }
       if (doc.activeTool !== tool) {
         cancelActiveToolGesture();
+        smartPreview = null;
       }
       doc.setActiveTool(tool);
       requestOverlayRender({
@@ -803,6 +916,7 @@ export function createSegmentationCanvasWorkflow(
       const imageData = context.getImageData(0, 0, doc.width, doc.height);
       const cacheKey = `${(state.currentImage as { src?: string }).src ?? "image"}:${doc.width}x${doc.height}`;
       superpixelSettings = normalizeSuperpixelSettings({ ...superpixelSettings, regionSize });
+      smartPreview = null;
       superpixelResult = superpixelCache.getOrCreate(
         { cacheKey, width: doc.width, height: doc.height, rgba: imageData.data },
         regionSize,
@@ -831,6 +945,7 @@ export function createSegmentationCanvasWorkflow(
         return false;
       }
       superpixelSettings = next;
+      smartPreview = null;
       superpixelResult = null;
       superpixelCache.clear();
       removeSuperpixelOverlayLayer();
@@ -879,63 +994,45 @@ export function createSegmentationCanvasWorkflow(
       return changed;
     },
 
-    applySegmentationSmartGrow(pointer: CanvasPoint, similarity: number, edgeStop: number): boolean {
+    startSegmentationSmartGrow(pointer: CanvasPoint, mode: "add" | "remove"): boolean {
+      return buildSmartPreview(pointer, mode);
+    },
+
+    applySegmentationSmartGrow(pointer: CanvasPoint, similarity: number, edgeStop: number, mode: "add" | "remove" = "add"): boolean {
+      smartGrowSimilarity = Math.min(1, Math.max(0, similarity));
+      smartGrowEdgeStop = Math.min(1, Math.max(0, edgeStop));
+      return buildSmartPreview(pointer, mode);
+    },
+
+    getSegmentationSmartPreview(): SegmentationSmartPreviewSummary | null {
+      return getSmartPreviewSummary();
+    },
+
+    applySegmentationSmartPreview(): boolean {
       const doc = ensureDocument();
-      if (!doc) {
-        deps.notify("Smart Select needs a loaded image.", 3500);
-        return false;
-      }
-      if (!superpixelResult) {
-        deps.notify("Smart Select needs calculated Superpixels.", 3500);
-        return false;
-      }
-      const x = Math.round(pointer.x);
-      const y = Math.round(pointer.y);
-      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) {
-        deps.notify("Click inside the image to select a region.", 3000);
-        return false;
-      }
-      const seedId = superpixelResult.labels[(y * doc.width) + x] ?? -1;
-      if (seedId < 0) {
-        deps.notify("No selectable Superpixel was found at this point.", 3000);
-        return false;
-      }
-      const regionIds = growSuperpixelRegion({ result: superpixelResult, seedId, similarity, edgeStop });
-      if (regionIds.length === 0) {
-        deps.notify("No similar region was found at this point.", 3000);
-        return false;
-      }
+      if (!doc || !smartPreview) return false;
       const before = doc.cloneSnapshot();
-      const accepted = new Set(regionIds);
-      const classId = Number.parseInt(doc.activeClassId, 10);
-      const nextClassId = Number.isInteger(classId) && classId > 0 ? classId : 1;
-      let changed = false;
-      const changedIndices: number[] = [];
-      superpixelResult.labels.forEach((regionId, index) => {
-        if (!accepted.has(regionId) || doc.mask[index] === nextClassId) return;
-        doc.mask[index] = nextClassId;
-        changed = true;
-        changedIndices.push(index);
-      });
-      if (!changed) {
-        deps.notify("Selected regions already use the active class.", 3000);
-        return false;
-      }
-      doc.pushHistoryFromSnapshot(before);
-      selectedRegion = createSelectionFromIndices(doc, `${nextClassId}`, changedIndices, { x, y });
-      requestOverlayRender({
-        forceMaskFull: true,
-        forceSelectionFull: true,
-        immediate: true
-      });
-      deps.onDocumentMutation?.();
-      deps.notify(`Smart Select applied ${regionIds.length} region${regionIds.length === 1 ? "" : "s"} (${changedIndices.length.toLocaleString()} px).`, 2500);
-      return true;
+      const nextClassId = smartPreview.mode === "remove" ? 0 : Number.parseInt(smartPreview.selection.classId, 10);
+      for (const index of smartPreview.selection.pixelIndices) doc.mask[index] = nextClassId;
+      const preview = smartPreview;
+      smartPreview = null;
+      if (preview.mode === "add") selectedRegion = createSelectionFromIndices(doc, preview.selection.classId, [...preview.selection.pixelIndices], preview.seedPoint);
+      else clearSelection();
+      const changed = doc.pushHistoryFromSnapshot(before);
+      requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
+      if (changed) deps.onDocumentMutation?.();
+      if (changed) deps.notify(`Smart Select applied ${preview.regionIds.length} region${preview.regionIds.length === 1 ? "" : "s"} (${preview.selection.pixelCount.toLocaleString()} px).`, 2500);
+      return changed;
+    },
+
+    discardSegmentationSmartPreview(): boolean {
+      return clearSmartPreview();
     },
 
     setSegmentationSmartGrowSettings(similarity: number, edgeStop: number): void {
       smartGrowSimilarity = Math.min(1, Math.max(0, similarity));
       smartGrowEdgeStop = Math.min(1, Math.max(0, edgeStop));
+      if (smartPreview) buildSmartPreview(smartPreview.seedPoint, smartPreview.mode, false, false);
     },
 
     finishSegmentationPolygon(): boolean {
@@ -1223,7 +1320,9 @@ export function createSegmentationCanvasWorkflow(
     },
 
     getSegmentationSummary(): SegmentationSummary {
-      return ensureDocument()?.getSummary() ?? createEmptySummary();
+      const summary = ensureDocument()?.getSummary() ?? createEmptySummary();
+      const preview = getSmartPreviewSummary();
+      return preview ? { ...summary, smartPreview: preview } : summary;
     },
 
     getSegmentationDocumentSnapshot(): SegmentationDocumentSnapshot | null {
@@ -1248,6 +1347,7 @@ export function createSegmentationCanvasWorkflow(
       doc.restoreSnapshot(snapshot);
       doc.clearHistory();
       clearSelection();
+      smartPreview = null;
       requestOverlayRender({
         forceMaskFull: true,
         forceSelectionFull: true,
@@ -1263,9 +1363,13 @@ export function createSegmentationCanvasWorkflow(
       if (selectionOverlayLayer) {
         selectionOverlayLayer.object.set("visible", active && selectedRegion !== null);
       }
+      if (smartPreviewOverlayLayer) {
+        smartPreviewOverlayLayer.object.set("visible", active && smartPreview !== null);
+      }
       if (!active) {
         controller.cancelSegmentationPolygon?.();
         clearPolygonPreview();
+        smartPreview = null;
         canvas.discardActiveObject();
       } else if (polygonPoints.length > 0) {
         renderPolygonPreview();

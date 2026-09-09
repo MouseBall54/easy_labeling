@@ -2080,17 +2080,19 @@ body {
 
 .segmentation-canvas-toolbar .segmented-control {
     display: grid;
-    width: min(100%, 560px);
+    width: min(100%, 672px);
     margin: 0 auto;
     grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .segmentation-canvas-toolbar .segmented-control .btn {
     min-width: 0;
+    white-space: nowrap;
 }
 
 @container (max-width: 820px) {
     .segmentation-canvas-toolbar .segmented-control {
+        width: min(100%, 560px);
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
@@ -3008,6 +3010,21 @@ body.dark-mode .placement-notice[data-state="busy"] {
     display: flex;
     flex-wrap: wrap;
     gap: 0.25rem;
+}
+
+.smart-preview-summary {
+    min-height: 2.2rem;
+    padding: 0.45rem 0.55rem;
+    color: var(--workbench-text-muted);
+    background: var(--workbench-surface-muted);
+    border: 1px dashed var(--workbench-border);
+    border-radius: 4px;
+    font-size: 0.72rem;
+}
+
+.smart-preview-summary.is-remove {
+    color: #b93838;
+    border-color: #e18181;
 }
 
 .segmentation-class-color-chip {

@@ -52,6 +52,7 @@ describe("features/segmentation/overlay", () => {
     expect(overlayObject.evented).toBe(false);
     expect(overlayObject.visible).toBe(true);
     expect(overlayObject.opacity).toBe(0.6);
+    expect((overlayObject as unknown as { dirty?: boolean }).dirty).toBe(true);
     expect(Array.from(initialPixels.slice(0, 4))).toEqual([171, 205, 239, 255]);
 
     const secondMutation = document.applyStroke({ points: [{ x: 1, y: 1 }] });
@@ -153,5 +154,26 @@ describe("features/segmentation/overlay", () => {
     expect(layer.object).toBe(overlayObject);
     expect(layer.object.element).toBe(initialElement);
     expect(layer.object.visible).toBe(false);
+  });
+
+  it("renders Smart Select removal previews in a distinct red overlay", () => {
+    const fabric = createFakeFabricRuntime();
+    const document = createSegmentationDocument({ width: 3, height: 3, activeClassId: "5", brushRadius: 1 });
+    document.applyStroke({ points: [{ x: 1, y: 1 }] });
+    const selection = document.getConnectedRegionAtPoint({ x: 1, y: 1 });
+    expect(selection).not.toBeNull();
+
+    const layer = createSegmentationSelectionOverlayLayer(fabric);
+    layer.sync({
+      width: 3,
+      height: 3,
+      selection: selection!,
+      getColorForClass: () => "#445566",
+      variant: "smart-remove"
+    }, { forceFull: true });
+
+    const pixels = (layer.object.element as { overlayPixels: Uint8ClampedArray }).overlayPixels;
+    const offset = ((1 * 3) + 1) * 4;
+    expect(Array.from(pixels.slice(offset, offset + 4))).toEqual([230, 75, 75, 155]);
   });
 });

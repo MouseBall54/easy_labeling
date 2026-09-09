@@ -112,6 +112,12 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   })).toEqual({ activeClassId: '1', baseImages: 1, canUndo: false });
   await page.waitForTimeout(1000);
   await page.locator("#segmentationBrushModeBtn").click();
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationSummary?: () => { activeTool?: string } | null;
+    } | undefined;
+    return api?.getSegmentationSummary?.()?.activeTool ?? null;
+  })).toBe("brush");
 
   const canvas = page.locator('.upper-canvas');
   const box = await canvas.boundingBox();
@@ -129,6 +135,17 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     x: box.x + imagePlacement.left + (400 * imagePlacement.scale),
     y: box.y + imagePlacement.top + (200 * imagePlacement.scale)
   };
+  const getRenderedPixelAt = async (point: { x: number; y: number }): Promise<number[] | null> => page.evaluate(
+    ({ x, y }) => {
+      const lowerCanvas = document.getElementById("canvas") as HTMLCanvasElement | null;
+      if (!lowerCanvas) {
+        return null;
+      }
+      const pixel = lowerCanvas.getContext("2d")?.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+      return pixel ? Array.from(pixel) : null;
+    },
+    { x: point.x - box.x, y: point.y - box.y }
+  );
   const outsideImage = imagePlacement.left >= imagePlacement.top
     ? {
         x: box.x + Math.max(2, imagePlacement.left / 2),
@@ -188,6 +205,8 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await page.waitForTimeout(100);
 
   await page.keyboard.press("2");
+  const beforeSmartSelect = await getRenderedPixelAt(imageCenter);
+  expect(beforeSmartSelect).not.toBeNull();
   await page.locator("#segmentationSmartModeBtn").click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
@@ -201,7 +220,41 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
       getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
     } | undefined;
     return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBe("1");
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationSummary?: () => { smartPreview?: { mode: string; pixelCount: number } | null } | null;
+    } | undefined;
+    return api?.getSegmentationSummary?.()?.smartPreview ?? null;
+  })).toMatchObject({ mode: "add" });
+  await expect(page.locator("#segmentationApplySmartPreviewBtn")).toBeEnabled();
+  await expect.poll(() => getRenderedPixelAt(imageCenter)).not.toEqual(beforeSmartSelect);
+  await page.locator("#segmentationSmartSimilaritySlider").fill("45");
+  await expect(page.locator("#segmentationSmartPreviewSummary")).toContainText("preview");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
   })).toBe("2");
+
+  await page.keyboard.down("Control");
+  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationSummary?: () => { smartPreview?: { mode: string } | null } | null;
+    } | undefined;
+    return api?.getSegmentationSummary?.()?.smartPreview ?? null;
+  })).toMatchObject({ mode: "remove" });
+  await page.locator("#segmentationApplySmartPreviewBtn").click();
+  await expect.poll(async () => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
+    } | undefined;
+    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
+  })).toBeNull();
 
   await page.locator("#segmentationEraseModeBtn").click();
   await page.mouse.click(imageCenter.x, imageCenter.y);

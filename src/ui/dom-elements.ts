@@ -227,6 +227,9 @@ export interface UiDomElements {
   segmentationSmartSimilarityValue: HTMLElement;
   segmentationSmartEdgeStopSlider: HTMLInputElement;
   segmentationSmartEdgeStopValue: HTMLElement;
+  segmentationSmartPreviewSummary?: HTMLElement;
+  segmentationApplySmartPreviewBtn?: HTMLButtonElement;
+  segmentationDiscardSmartPreviewBtn?: HTMLButtonElement;
   segmentationToolSizeLabel: HTMLElement;
   segmentationToolSizeSlider: HTMLInputElement;
   segmentationToolSizeValue: HTMLElement;
@@ -556,6 +559,9 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationSmartSimilarityValue: requireById<HTMLElement>(documentRef, "segmentationSmartSimilarityValue"),
     segmentationSmartEdgeStopSlider: requireById<HTMLInputElement>(documentRef, "segmentationSmartEdgeStopSlider"),
     segmentationSmartEdgeStopValue: requireById<HTMLElement>(documentRef, "segmentationSmartEdgeStopValue"),
+    segmentationSmartPreviewSummary: documentRef.getElementById("segmentationSmartPreviewSummary") ?? undefined,
+    segmentationApplySmartPreviewBtn: documentRef.getElementById("segmentationApplySmartPreviewBtn") as HTMLButtonElement | null ?? undefined,
+    segmentationDiscardSmartPreviewBtn: documentRef.getElementById("segmentationDiscardSmartPreviewBtn") as HTMLButtonElement | null ?? undefined,
     segmentationToolSizeLabel: requireById<HTMLElement>(documentRef, "segmentationToolSizeLabel"),
     segmentationToolSizeSlider: requireById<HTMLInputElement>(documentRef, "segmentationToolSizeSlider"),
     segmentationToolSizeValue: requireById<HTMLElement>(documentRef, "segmentationToolSizeValue"),

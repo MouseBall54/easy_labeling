@@ -495,6 +495,30 @@ export function createEventManagerAdapter(input: {
       let pendingGestureBaseline: CanvasHistoryGestureBaseline | null = null;
       let suppressSelectionForSegmentationStroke = false;
       let isMovingSegmentationRegion = false;
+      let lastSmartCtrlPointerEvent: MouseEvent | null = null;
+      let lastSmartCtrlPointerTimestamp: number | null = null;
+
+      const startSmartSelectRemoval = (event: MouseEvent, pointer: CanvasPointLike): boolean => {
+        const isSmartSelectRemoval = input.state.session.workflow === "segmentation"
+          && input.state.view.currentMode === "draw"
+          && input.canvasController.raw.getSegmentationSummary?.().activeTool === "smart"
+          && event.ctrlKey;
+        if (!isSmartSelectRemoval) {
+          return false;
+        }
+
+        const timestamp = Number.isFinite(event.timeStamp) ? event.timeStamp : null;
+        if (lastSmartCtrlPointerEvent === event || (timestamp !== null && timestamp === lastSmartCtrlPointerTimestamp)) {
+          return true;
+        }
+        lastSmartCtrlPointerEvent = event;
+        lastSmartCtrlPointerTimestamp = timestamp;
+        suppressSelectionForSegmentationStroke = true;
+        rawCanvas.selection = false;
+        input.canvasController.raw.startSegmentationSmartGrow?.(pointer, "remove");
+        input.uiManager.setWorkflow?.("segmentation");
+        return true;
+      };
 
       const clearTemporarySelectionSuppression = (): void => {
         if (!suppressSelectionForSegmentationStroke) {
@@ -1054,11 +1078,22 @@ export function createEventManagerAdapter(input: {
           elements.segmentationSmartSimilarityValue.textContent = similarity <= 0.2 ? "Strict" : similarity >= 0.45 ? "Loose" : "Balanced";
           elements.segmentationSmartEdgeStopValue.textContent = edgeStop <= 0.35 ? "Weak" : edgeStop >= 0.65 ? "Strong" : "Balanced";
           input.canvasController.raw.setSegmentationSmartGrowSettings?.(similarity, edgeStop);
+          input.uiManager.setWorkflow?.("segmentation");
         };
         elements.segmentationSmartSimilaritySlider.addEventListener("input", syncSmartGrowSettings);
         elements.segmentationSmartEdgeStopSlider.addEventListener("input", syncSmartGrowSettings);
         syncSmartGrowSettings();
       }
+      elements.segmentationApplySmartPreviewBtn?.addEventListener("click", () => {
+        if (input.canvasController.raw.applySegmentationSmartPreview?.()) {
+          input.uiManager.updateLabelList();
+        }
+        input.uiManager.setWorkflow?.("segmentation");
+      });
+      elements.segmentationDiscardSmartPreviewBtn?.addEventListener("click", () => {
+        input.canvasController.raw.discardSegmentationSmartPreview?.();
+        input.uiManager.setWorkflow?.("segmentation");
+      });
       elements.segmentationToolSizeSlider.addEventListener("input", (event) => {
         const slider = event.currentTarget;
         if (!(slider instanceof HTMLInputElement)) {
@@ -1286,6 +1321,20 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.toggleCrosshair(toggle.checked);
       });
 
+      input.documentRef?.addEventListener("mousedown", (event) => {
+        const mouseEvent = event as MouseEvent;
+        if (event.target !== rawCanvas.upperCanvasEl) {
+          return;
+        }
+        const fabricPointer = rawCanvas.getPointer?.(mouseEvent);
+        const pointer = isFinitePoint(fabricPointer)
+          ? resolveImagePixelPoint({ scenePoint: fabricPointer, currentImage: input.state.session.currentImage })
+          : getCanvasPointer(mouseEvent);
+        if (pointer && startSmartSelectRemoval(mouseEvent, pointer)) {
+          mouseEvent.preventDefault();
+        }
+      }, true);
+
       rawCanvas.on?.("mouse:down", (event) => {
         const pointer = getCanvasPointer(event.e);
         if (!pointer) {
@@ -1303,6 +1352,9 @@ export function createEventManagerAdapter(input: {
           suppressSelectionForSegmentationStroke = true;
           rawCanvas.selection = false;
           input.canvasController.raw.startSegmentationSuperpixelPaint?.(pointer, "remove");
+          return;
+        }
+        if (startSmartSelectRemoval(mouseEvent, pointer)) {
           return;
         }
         if (mouseEvent.altKey || mouseEvent.ctrlKey) {
@@ -1335,6 +1387,9 @@ export function createEventManagerAdapter(input: {
         }
 
         input.canvasController.raw.startDrawing(pointer);
+        if (input.state.session.workflow === "segmentation" && input.canvasController.raw.getSegmentationSummary?.().activeTool === "smart") {
+          input.uiManager.setWorkflow?.("segmentation");
+        }
       });
 
       rawCanvas.on?.("mouse:move", (event) => {
@@ -1594,6 +1649,20 @@ export function createEventManagerAdapter(input: {
           event.preventDefault();
           input.uiManager.toggleAllLabelVisibility();
           return;
+        }
+
+        if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          if (event.key === "Enter" && input.canvasController.raw.applySegmentationSmartPreview?.()) {
+            event.preventDefault();
+            input.uiManager.updateLabelList();
+            input.uiManager.setWorkflow?.("segmentation");
+            return;
+          }
+          if (event.key === "Escape" && input.canvasController.raw.discardSegmentationSmartPreview?.()) {
+            event.preventDefault();
+            input.uiManager.setWorkflow?.("segmentation");
+            return;
+          }
         }
 
         if (input.state.session.workflow === "segmentation"

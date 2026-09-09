@@ -328,7 +328,19 @@ export function createUiManagerAdapter(input: {
     const polygonActions = input.documentRef.getElementById("segmentationPolygonActions");
     if (polygonActions) polygonActions.hidden = activeTool !== "polygon";
     const smartSettingsSection = input.documentRef.getElementById("segmentationSmartSettingsSection");
-    if (smartSettingsSection) smartSettingsSection.hidden = input.state.session.workflow !== "segmentation" || activeTask !== "segmentation" || activeTool !== "smart";
+    if (smartSettingsSection) smartSettingsSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "smart";
+    const smartPreview = summary?.smartPreview ?? null;
+    if (elements.segmentationApplySmartPreviewBtn) elements.segmentationApplySmartPreviewBtn.disabled = smartPreview === null;
+    if (elements.segmentationDiscardSmartPreviewBtn) elements.segmentationDiscardSmartPreviewBtn.disabled = smartPreview === null;
+    if (elements.segmentationSmartPreviewSummary) {
+      elements.segmentationSmartPreviewSummary.classList.toggle("is-remove", smartPreview?.mode === "remove");
+      elements.segmentationSmartPreviewSummary.style.borderLeftColor = smartPreview
+        ? (smartPreview.mode === "remove" ? "#e64b4b" : getColorForClass(smartPreview.classId))
+        : "";
+      elements.segmentationSmartPreviewSummary.textContent = smartPreview
+        ? `${smartPreview.mode === "remove" ? "Removal preview" : "Add preview"} · ${manager.getDisplayNameForClass(smartPreview.classId)} · ${smartPreview.regionCount} region${smartPreview.regionCount === 1 ? "" : "s"} · ${smartPreview.pixelCount.toLocaleString()} px`
+        : "Click to preview a selection. Ctrl+click previews removal.";
+    }
     if (elements.segmentationSuperpixelSizeSlider && elements.segmentationSuperpixelSizeValue && elements.segmentationSuperpixelBoundaryToggle) {
       const superpixelSize = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() ?? Number.parseInt(elements.segmentationSuperpixelSizeSlider.value, 10);
       elements.segmentationSuperpixelSizeSlider.value = `${superpixelSize}`;
@@ -495,7 +507,8 @@ export function createUiManagerAdapter(input: {
         if (section && sharedToolSection) {
           sharedToolSection.appendChild(section);
           if (section === segmentationSmartSettingsSection) {
-            section.hidden ||= activeTask !== "segmentation";
+            const activeTool = getCanvasController()?.raw.getSegmentationSummary?.().activeTool;
+            section.hidden = activeTool !== "smart";
           } else {
             section.hidden = activeTask !== "segmentation";
           }

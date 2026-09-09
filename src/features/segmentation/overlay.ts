@@ -56,6 +56,7 @@ export interface SegmentationSelectionOverlayLayer {
     height: number;
     selection: SegmentationRegionSelection | null;
     getColorForClass: (classId: string) => string;
+    variant?: "selection" | "smart-add" | "smart-remove";
   }, options?: SegmentationOverlayUpdateOptions): void;
 }
 
@@ -251,6 +252,14 @@ function commitOverlayBuffer(state: OverlayBufferState, dirtyBounds: Segmentatio
   if ("overlayPixels" in state.element) {
     state.element.overlayPixels = state.pixels;
   }
+}
+
+function refreshOverlayObjectSource(overlayObject: FabricImageLike, state: OverlayBufferState): void {
+  // Fabric caches an Image object's source. Updating the pixels of the same
+  // canvas element alone therefore does not guarantee that requestRenderAll()
+  // reads the new mask immediately.
+  overlayObject.setElement?.(state.element);
+  overlayObject.set({ dirty: true });
 }
 
 function updateOverlayObjectState(
@@ -491,6 +500,7 @@ export function createSegmentationMaskOverlayLayer(fabric: FabricRuntimeLike): S
         }
 
         commitOverlayBuffer(state, forceFull ? null : dirtyBounds);
+        refreshOverlayObjectSource(overlayObject, state);
       }
 
       if ("overlayVisible" in state.element) {
@@ -538,16 +548,19 @@ export function createSegmentationSelectionOverlayLayer(fabric: FabricRuntimeLik
 
       if (input.selection) {
         const baseColor = hexToRgb(input.getColorForClass(input.selection.classId));
-        const color = {
-          r: Math.min(255, baseColor.r + 40),
-          g: Math.min(255, baseColor.g + 40),
-          b: Math.min(255, baseColor.b + 40)
-        };
+        const color = input.variant === "smart-remove"
+          ? { r: 230, g: 75, b: 75 }
+          : {
+            r: Math.min(255, baseColor.r + 40),
+            g: Math.min(255, baseColor.g + 40),
+            b: Math.min(255, baseColor.b + 40)
+          };
+        const alpha = input.variant === "selection" || !input.variant ? 220 : 155;
         for (const index of input.selection.pixelIndices) {
           if (index >= input.width * input.height) {
             continue;
           }
-          writePixelAtIndex(state.pixels, index, color, 220);
+          writePixelAtIndex(state.pixels, index, color, alpha);
         }
         dirtyBounds = mergeBounds(dirtyBounds, input.selection.bounds);
         previousSelectionIndices = input.selection.pixelIndices;
@@ -562,6 +575,7 @@ export function createSegmentationSelectionOverlayLayer(fabric: FabricRuntimeLik
         : null;
       if (clampedDirtyBounds) {
         commitOverlayBuffer(state, forceFull ? null : clampedDirtyBounds);
+        refreshOverlayObjectSource(overlayObject, state);
       }
 
       if ("overlayVisible" in state.element) {
@@ -590,6 +604,7 @@ export function createSegmentationSuperpixelOverlayLayer(fabric: FabricRuntimeLi
         writePixelAtIndex(state.pixels, index, { r: 255, g: 255, b: 255 }, 155);
       });
       commitOverlayBuffer(state, null);
+      refreshOverlayObjectSource(overlayObject, state);
       updateOverlayObjectState(overlayObject, result.width, result.height, visible, 1);
     }
   };
