@@ -521,9 +521,33 @@ export function createAutomationController(input: {
     input.uiManager.syncWorkspaceState();
   };
 
-  const applyLayout = (layout: BoxLayout): string => {
+  const applyLayout = async (layout: BoxLayout): Promise<string> => {
     enterCanvasEditMode();
-    const result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+    const total = layout.boxes.length;
+    const applyInBatches = input.canvasController.raw.applyBoxLayoutInBatches;
+    let result;
+    if (total >= 250 && applyInBatches) {
+      const operation = input.uiManager.beginOperation({
+        title: "Applying layout",
+        detail: "Preparing layout boxes",
+        current: 0,
+        total,
+        cancellable: true,
+        blockCanvas: false
+      });
+      try {
+        await yieldToUi();
+        result = await applyInBatches(layout, { ...layout.sourceAnchor }, {
+          signal: operation.signal,
+          onProgress: (update) => operation.update(update)
+        });
+        operation.update({ detail: `${total.toLocaleString()} layout boxes applied`, current: total, total });
+      } finally {
+        operation.finish();
+      }
+    } else {
+      result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+    }
     layoutGhostVisible = false;
     clearLayoutGhostPreview();
     const discarded = result.discardedOutOfBoundsCount > 0
@@ -1458,7 +1482,7 @@ export function createAutomationController(input: {
             elements.layoutPlacementNotice.textContent = `Applying ${layout.boxes.length} boxes...`;
             elements.layoutPlacementNotice.dataset.state = "busy";
             await yieldToUi();
-            const message = applyLayout(layout);
+            const message = await applyLayout(layout);
             input.uiManager.notify(message);
             return message;
           }
@@ -1480,7 +1504,7 @@ export function createAutomationController(input: {
             elements.layoutPlacementNotice.textContent = `Applying ${layout.boxes.length} boxes...`;
             elements.layoutPlacementNotice.dataset.state = "busy";
             await yieldToUi();
-            const message = applyLayout(layout);
+            const message = await applyLayout(layout);
             input.uiManager.notify(message);
             return message;
           }

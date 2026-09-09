@@ -1,5 +1,6 @@
 import type { CanvasPoint } from "../../types/labels.js";
 import { assignFreshAnnotationId, isActiveSelectionObject, isRectObject, type FabricCanvasLike, type FabricObjectLike, type FabricRectLike, type FabricRuntimeLike } from "./fabric-types.js";
+import type { CanvasBulkOperationOptions } from "./canvas-controller-types.js";
 
 export interface ClipboardDeps {
   fabric: FabricRuntimeLike;
@@ -12,8 +13,10 @@ export interface ClipboardDeps {
 }
 
 export interface ClipboardManager {
-  copy(): Promise<void>;
+  copy(options?: CanvasBulkOperationOptions): Promise<void>;
   paste(): Promise<FabricRectLike[]>;
+  paste(options?: CanvasBulkOperationOptions): Promise<FabricRectLike[]>;
+  getItemCount(): number;
   hasClipboardData(): boolean;
 }
 
@@ -29,26 +32,47 @@ async function cloneFabricObject<T extends FabricObjectLike>(object: T, properti
   return (await object.clone(propertiesToInclude)) as T;
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new DOMException("Operation stopped", "AbortError");
+  }
+}
+
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(() => resolve());
+      return;
+    }
+    globalThis.setTimeout(resolve, 0);
+  });
+}
+
 export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
   let clipboard: FabricObjectLike | null = null;
 
   return {
-    async copy(): Promise<void> {
+    async copy(options: CanvasBulkOperationOptions = {}): Promise<void> {
       const activeObject = deps.canvas.getActiveObject();
       if (!activeObject) {
         return;
       }
 
-      clipboard = await cloneFabricObject(activeObject, ["labelClass", "originalYolo"]);
+      throwIfAborted(options.signal);
+      const copiedObject = await cloneFabricObject(activeObject, ["labelClass", "originalYolo"]);
+      throwIfAborted(options.signal);
+      clipboard = copiedObject;
     },
 
-    async paste(): Promise<FabricRectLike[]> {
+    async paste(options: CanvasBulkOperationOptions = {}): Promise<FabricRectLike[]> {
       if (!clipboard) {
         return [];
       }
 
       const pastedRects: FabricRectLike[] = [];
 
+      throwIfAborted(options.signal);
+      const activeObjectBeforePaste = deps.canvas.getActiveObject();
       const cloned = await cloneFabricObject(clipboard, ["labelClass", "originalYolo"]);
       deps.canvas.discardActiveObject();
 
@@ -62,22 +86,63 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
       const targetY = Math.min(Math.max(mouse.y, 0), imageSize.height);
       const newObjects: FabricRectLike[] = [];
 
+      const addObjectsInBatches = async (objects: FabricRectLike[]): Promise<void> => {
+        const chunkSize = Math.max(25, options.chunkSize ?? 100);
+        const canvasWithBatchRendering = deps.canvas as FabricCanvasLike & { renderOnAddRemove?: boolean };
+        const previousRenderOnAddRemove = canvasWithBatchRendering.renderOnAddRemove;
+        canvasWithBatchRendering.renderOnAddRemove = false;
+        try {
+          for (let start = 0; start < objects.length; start += chunkSize) {
+            throwIfAborted(options.signal);
+            const chunk = objects.slice(start, start + chunkSize);
+            deps.canvas.add(...chunk);
+            if (!options.deferLabels) {
+              chunk.forEach((object) => {
+                deps.drawLabelText(object);
+              });
+            }
+            const current = Math.min(objects.length, start + chunk.length);
+            options.onProgress?.({ detail: "Creating boxes", current, total: objects.length });
+            if (current < objects.length) {
+              await yieldToUi();
+            }
+          }
+        } catch (error) {
+          objects.forEach((object) => {
+            if (object._labelText) {
+              deps.canvas.remove(object._labelText);
+            }
+            deps.canvas.remove(object);
+          });
+          if (activeObjectBeforePaste) {
+            deps.canvas.setActiveObject(activeObjectBeforePaste);
+          }
+          deps.canvas.requestRenderAll();
+          throw error;
+        } finally {
+          canvasWithBatchRendering.renderOnAddRemove = previousRenderOnAddRemove;
+        }
+      };
+
       if (isActiveSelectionObject(cloned)) {
-        const tempGroup = new deps.fabric.ActiveSelection(cloned.getObjects(), { canvas: deps.canvas });
-        const bounds = tempGroup.getBoundingRect(true);
+        const copiedRects = cloned.getObjects().filter(isRectObject);
+        if (copiedRects.length === 0) {
+          return [];
+        }
+        const rectBounds = copiedRects.map((object) => object.getBoundingRect(true));
+        const left = Math.min(...rectBounds.map((bounds) => bounds.left));
+        const top = Math.min(...rectBounds.map((bounds) => bounds.top));
+        const right = Math.max(...rectBounds.map((bounds) => bounds.left + bounds.width));
+        const bottom = Math.max(...rectBounds.map((bounds) => bounds.top + bounds.height));
+        const bounds = { left, top, width: right - left, height: bottom - top };
         const offsetX = targetX - (bounds.left + bounds.width / 2);
         const offsetY = targetY - (bounds.top + bounds.height / 2);
 
-        tempGroup.getObjects().forEach((obj) => {
-          if (!isRectObject(obj)) {
-            return;
-          }
-
+        copiedRects.forEach((obj) => {
           obj.left += offsetX;
           obj.top += offsetY;
+          obj.group = null;
           resetPastedRectStyling(obj, deps.getColorForClass);
-          deps.canvas.add(obj);
-          deps.drawLabelText(obj);
           newObjects.push(obj);
           pastedRects.push(obj);
         });
@@ -86,8 +151,6 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
         cloned.left += targetX - center.x;
         cloned.top += targetY - center.y;
         resetPastedRectStyling(cloned, deps.getColorForClass);
-        deps.canvas.add(cloned);
-        deps.drawLabelText(cloned);
         newObjects.push(cloned);
         pastedRects.push(cloned);
       }
@@ -96,9 +159,21 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
         return [];
       }
 
-      const selection = new deps.fabric.ActiveSelection(newObjects, { canvas: deps.canvas });
-      deps.canvas.setActiveObject(selection);
-      deps.canvas.requestRenderAll();
+      await addObjectsInBatches(newObjects);
+      throwIfAborted(options.signal);
+
+      // Fabric rebuilds every member's coordinates while constructing an
+      // ActiveSelection. That is disproportionately expensive for thousands
+      // of rectangles, so retain normal selection behavior only while it is
+      // still practical to manipulate as one object.
+      if (newObjects.length <= 250) {
+        const selection = new deps.fabric.ActiveSelection(newObjects, { canvas: deps.canvas });
+        deps.canvas.setActiveObject(selection);
+      }
+      options.onProgress?.({ detail: "Rendering pasted boxes", current: newObjects.length, total: newObjects.length });
+      if (!options.deferRender) {
+        deps.canvas.requestRenderAll();
+      }
       deps.updateLabelList();
 
       return pastedRects;
@@ -106,6 +181,15 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
 
     hasClipboardData(): boolean {
       return clipboard !== null;
+    },
+
+    getItemCount(): number {
+      if (!clipboard) {
+        return 0;
+      }
+      return isActiveSelectionObject(clipboard)
+        ? clipboard.getObjects().filter(isRectObject).length
+        : isRectObject(clipboard) ? 1 : 0;
     }
   };
 }

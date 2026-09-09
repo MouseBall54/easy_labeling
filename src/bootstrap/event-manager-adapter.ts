@@ -3,6 +3,7 @@ import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import type { AppState } from "../app/state.js";
 import { isActiveSelectionObject, isRectObject, type FabricObjectLike, type FabricRectLike } from "../features/canvas/fabric-types.js";
+import type { CanvasBulkOperationOptions } from "../features/canvas/canvas-controller-types.js";
 import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
@@ -124,6 +125,62 @@ export function createEventManagerAdapter(input: {
           const message = error instanceof Error ? error.message : "Unexpected error";
           input.uiManager.notify(message, 4000);
         });
+      };
+
+      const BULK_BOX_THRESHOLD = 250;
+      const yieldToPaint = (): Promise<void> => new Promise((resolve) => {
+        if (typeof globalThis.requestAnimationFrame === "function") {
+          globalThis.requestAnimationFrame(() => resolve());
+          return;
+        }
+        globalThis.setTimeout(resolve, 0);
+      });
+      const runBulkDetectionOperation = async (
+        title: string,
+        count: number,
+        action: (options: CanvasBulkOperationOptions) => Promise<void>,
+        options: { cancellable?: boolean } = {}
+      ): Promise<void> => {
+        if (input.state.session.workflow !== "detection" || count < BULK_BOX_THRESHOLD) {
+          await action({});
+          return;
+        }
+
+        const operation = input.uiManager.beginOperation({
+          title,
+          detail: "Preparing boxes",
+          current: 0,
+          total: count,
+          cancellable: options.cancellable ?? true,
+          blockCanvas: false
+        });
+        await yieldToPaint();
+        try {
+          await action({
+            signal: operation.signal,
+            onProgress: (update) => operation.update(update)
+          });
+          operation.update({ detail: `${count.toLocaleString()} boxes completed`, current: count, total: count });
+          input.uiManager.notify(`${count.toLocaleString()} boxes completed`, 2500);
+        } finally {
+          operation.finish();
+        }
+      };
+      const deleteSelectedBoxesWithProgress = async (): Promise<void> => {
+        const count = Math.max(0, input.canvasController.raw.getSelectedBoxCount?.() ?? 0);
+        if (input.state.session.workflow !== "detection" || count < BULK_BOX_THRESHOLD) {
+          input.canvasController.raw.deleteSelection();
+          input.uiManager.updateLabelList();
+          syncToolbarActionState();
+          return;
+        }
+        await runBulkDetectionOperation("Deleting boxes", count, async (options) => {
+          options.onProgress?.({ detail: "Removing selected boxes", current: 0, total: count });
+          input.canvasController.raw.deleteSelection(options);
+          options.onProgress?.({ detail: "Saving undo state", current: count, total: count });
+        }, { cancellable: false });
+        input.uiManager.updateLabelList();
+        syncToolbarActionState();
       };
 
       const brushCursorPreview = input.documentRef?.getElementById("segmentationBrushCursorPreview") as HTMLElement | null;
@@ -687,8 +744,12 @@ export function createEventManagerAdapter(input: {
       });
       elements.duplicateSelectionBtn.addEventListener("click", () => {
         runExclusive("duplicate-selection", async () => {
-          await input.canvasController.raw.copy();
-          await input.canvasController.raw.paste();
+          const count = input.canvasController.raw.getSelectedBoxCount();
+          await runBulkDetectionOperation("Duplicating boxes", count, async (options) => {
+            options.onProgress?.({ detail: "Copying selected boxes", current: 0, total: count });
+            await input.canvasController.raw.copy(options);
+            await input.canvasController.raw.paste(options);
+          });
           input.uiManager.updateLabelList();
           syncToolbarActionState();
         }, elements.duplicateSelectionBtn);
@@ -699,9 +760,7 @@ export function createEventManagerAdapter(input: {
         syncToolbarActionState();
       });
       elements.deleteSelectionBtn.addEventListener("click", () => {
-        input.canvasController.raw.deleteSelection();
-        input.uiManager.updateLabelList();
-        syncToolbarActionState();
+        runAsync(deleteSelectedBoxesWithProgress);
       });
 
       elements.selectImageFolderBtn.addEventListener("click", () => {
@@ -1590,13 +1649,12 @@ export function createEventManagerAdapter(input: {
           elements.ctxDeleteLabel.onclick = () => {
             if (rectTarget) {
               rawCanvas.setActiveObject(rectTarget);
-              input.canvasController.raw.deleteSelection();
+              runAsync(deleteSelectedBoxesWithProgress);
             }
             if (selectionTarget) {
               rawCanvas.setActiveObject(selectionTarget);
-              input.canvasController.raw.deleteSelection();
+              runAsync(deleteSelectedBoxesWithProgress);
             }
-            syncToolbarActionState();
             cleanup();
           };
 
@@ -1759,12 +1817,18 @@ export function createEventManagerAdapter(input: {
 
         if ((event.ctrlKey || event.metaKey) && (event.key === "c" || event.key === "C")) {
           event.preventDefault();
-          runAsync(() => input.canvasController.raw.copy());
+          const count = input.canvasController.raw.getSelectedBoxCount();
+          runAsync(() => runBulkDetectionOperation("Copying boxes", count, async (options) => {
+            options.onProgress?.({ detail: "Copying selected boxes", current: 0, total: count });
+            await input.canvasController.raw.copy(options);
+            options.onProgress?.({ detail: "Copied boxes ready", current: count, total: count });
+          }));
           return;
         }
         if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
           event.preventDefault();
-          runAsync(() => input.canvasController.raw.paste().then(() => {
+          const count = input.canvasController.raw.getClipboardItemCount();
+          runAsync(() => runBulkDetectionOperation("Pasting boxes", count, (options) => input.canvasController.raw.paste(options)).then(() => {
             input.uiManager.updateLabelList();
             syncToolbarActionState();
           }));
@@ -1861,9 +1925,11 @@ export function createEventManagerAdapter(input: {
               input.uiManager.updateLabelList();
             }
           } else {
-            input.canvasController.raw.deleteSelection();
+            runAsync(deleteSelectedBoxesWithProgress);
           }
-          syncToolbarActionState();
+          if (input.state.session.workflow !== "detection") {
+            syncToolbarActionState();
+          }
           return;
         }
 

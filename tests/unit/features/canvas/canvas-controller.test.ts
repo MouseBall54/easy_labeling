@@ -942,6 +942,69 @@ describe("features/canvas/canvas-controller", () => {
     expect(history.getPastEntries()[1]?.after).toHaveLength(0);
   });
 
+  it("pastes 5,000 selected boxes as one cancellable history operation", async () => {
+    const history = createCanvasHistoryService();
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const sourceRects = Array.from({ length: 5000 }, (_value, index) => createRect({
+      left: (index % 100) * 8,
+      top: Math.floor(index / 100) * 8,
+      width: 6,
+      height: 6,
+      labelClass: String(index % 5)
+    }));
+    controller.canvas.add(...sourceRects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(sourceRects, { canvas: controller.canvas }));
+
+    await controller.copy();
+    const progress: number[] = [];
+    await controller.paste({
+      chunkSize: 250,
+      onProgress: ({ current }) => progress.push(current)
+    });
+
+    expect(controller.getObjects("rect")).toHaveLength(10000);
+    expect(progress).toContain(5000);
+    expect(history.getPastEntries()).toHaveLength(1);
+    expect(history.getPastEntries()[0]?.before).toHaveLength(5000);
+    expect(history.getPastEntries()[0]?.after).toHaveLength(10000);
+
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(5000);
+    controller.redo();
+    expect(controller.getObjects("rect")).toHaveLength(10000);
+  });
+
+  it("rolls back an interrupted bulk paste without creating a history entry", async () => {
+    const history = createCanvasHistoryService();
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const sourceRects = Array.from({ length: 500 }, (_value, index) => createRect({
+      left: index,
+      top: 10,
+      width: 5,
+      height: 5,
+      labelClass: "1"
+    }));
+    controller.canvas.add(...sourceRects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(sourceRects, { canvas: controller.canvas }));
+    await controller.copy();
+
+    const abortController = new AbortController();
+    await expect(controller.paste({
+      signal: abortController.signal,
+      chunkSize: 100,
+      onProgress: ({ current }) => {
+        if (current === 100) {
+          abortController.abort();
+        }
+      }
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(controller.getObjects("rect")).toHaveLength(500);
+    expect(history.getPastEntries()).toHaveLength(0);
+  });
+
   it("records one history entry for align/distribute mutations and none for no-op arrange calls", () => {
     const history = createCanvasHistoryService();
     const fabric = createFakeFabricRuntime();
@@ -1171,6 +1234,95 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getObjects("rect")).toHaveLength(2);
     controller.redo();
     expect(controller.getObjects("rect")).toHaveLength(4);
+  });
+
+  it("applies a 5,000-box layout in chunks with one undoable result", async () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const sourceRects = Array.from({ length: 5000 }, (_value, index) => createRect({
+      left: index % 190,
+      top: Math.floor(index / 190) % 90,
+      width: 1,
+      height: 1,
+      labelClass: String(index % 5)
+    }));
+    controller.canvas.add(...sourceRects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(sourceRects, { canvas: controller.canvas }));
+    const layout = controller.captureBoxLayout("bulk fixture", "source.png", "selected");
+    const progress: number[] = [];
+
+    const application = await controller.applyBoxLayoutInBatches!(layout, { x: 0, y: 0 }, {
+      chunkSize: 250,
+      onProgress: ({ current }) => progress.push(current)
+    });
+
+    expect(application.annotationIds).toHaveLength(5000);
+    expect(progress).toContain(5000);
+    expect(controller.getObjects("rect")).toHaveLength(10000);
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(5000);
+  });
+
+  it("leaves the existing layout untouched when a replacement is cancelled", async () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const sourceRects = Array.from({ length: 500 }, (_value, index) => createRect({
+      left: index % 190,
+      top: Math.floor(index / 190),
+      width: 1,
+      height: 1,
+      labelClass: "2"
+    }));
+    controller.canvas.add(...sourceRects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(sourceRects, { canvas: controller.canvas }));
+    const layout = controller.captureBoxLayout("replacement", "source.png", "selected");
+    const abortController = new AbortController();
+
+    await expect(controller.applyBoxLayoutInBatches!(layout, { x: 0, y: 0 }, {
+      replaceExisting: true,
+      chunkSize: 100,
+      signal: abortController.signal,
+      onProgress: ({ current }) => {
+        if (current === 100) {
+          abortController.abort();
+        }
+      }
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(controller.getObjects("rect")).toHaveLength(500);
+    expect(history.getPastEntries()).toHaveLength(0);
+  });
+
+  it("moves, deletes, and restores 5,000 selected boxes as whole-document history operations", () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const rects = Array.from({ length: 5000 }, (_value, index) => createRect({
+      left: index % 180,
+      top: Math.floor(index / 180) % 80,
+      width: 1,
+      height: 1,
+      labelClass: String(index % 5)
+    }));
+    controller.canvas.add(...rects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(rects, { canvas: controller.canvas }));
+
+    controller.translateSelectedBoxes({ x: 1, y: 1 });
+    expect(controller.getObjects("rect")).toHaveLength(5000);
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(controller.getObjects("rect")[0]?.left).toBe(0);
+    controller.redo();
+    expect(controller.getObjects("rect")[0]?.left).toBe(1);
+
+    controller.deleteSelection();
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    expect(history.getPastEntries()).toHaveLength(2);
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(5000);
   });
 
   it("drops out-of-bounds layout boxes and removes existing outside boxes before save", () => {

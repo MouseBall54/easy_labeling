@@ -30,6 +30,14 @@ export interface AppliedDetectionBoxes {
   discardedOutOfBoundsCount: number;
 }
 
+export interface CanvasBulkOperationOptions {
+  signal?: AbortSignal;
+  chunkSize?: number;
+  deferLabels?: boolean;
+  deferRender?: boolean;
+  onProgress?: (update: { detail: string; current: number; total: number }) => void;
+}
+
 export interface CanvasControllerState {
   currentMode: AppMode;
   currentImage: CanvasImageLike | null;
@@ -92,6 +100,7 @@ export interface CanvasController {
   removeBoxesOutsideImageBounds?(): number;
   captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): BoxLayout;
   applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean }): AppliedBoxLayout;
+  applyBoxLayoutInBatches?(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean } & CanvasBulkOperationOptions): Promise<AppliedBoxLayout>;
   applyDetectionBoxes(boxes: readonly DetectionBoxInput[], options?: { replaceExisting?: boolean }): AppliedDetectionBoxes;
   translateLayoutInstance(instanceId: string, delta: PixelPoint): void;
   translateSelectedBoxes(delta: PixelPoint): void;
@@ -126,9 +135,10 @@ export interface CanvasController {
   toggleCrosshair(visible: boolean): void;
   updateCrosshair(pointer: CanvasPoint): void;
   hideCrosshair(): void;
-  copy(): Promise<void>;
-  paste(): Promise<void>;
-  deleteSelection(): void;
+  copy(options?: CanvasBulkOperationOptions): Promise<void>;
+  paste(options?: CanvasBulkOperationOptions): Promise<void>;
+  getClipboardItemCount(): number;
+  deleteSelection(options?: CanvasBulkOperationOptions): void;
   setSelectedLabelClass?(classId: string): boolean;
   alignSelectionLeft(): void;
   alignSelectionRight(): void;

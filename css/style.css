@@ -2335,6 +2335,10 @@ body.workspace-standby-active .workbench-status-bar {
         animation: none;
         border-color: #0d6efd;
     }
+
+    .active-operation-panel .spinner-border {
+        animation: none;
+    }
 }
 
 @media (max-height: 500px) {

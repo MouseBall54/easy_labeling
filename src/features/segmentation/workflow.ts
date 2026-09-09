@@ -802,6 +802,10 @@ export function createSegmentationCanvasWorkflow(
       return;
     },
 
+    getClipboardItemCount(): number {
+      return 0;
+    },
+
     deleteSelection(): void {
       return;
     },

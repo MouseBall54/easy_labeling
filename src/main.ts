@@ -20,6 +20,7 @@ export type { CdnRuntimeGlobals };
 
 interface TestApi {
   getRectCount(): number;
+  seedDetectionBoxesForTest(count: number): void;
   getCurrentImageName(): string;
   getVisibleRectCount(): number;
   getVisibleClassKeys(): string[];
@@ -142,11 +143,25 @@ function bootstrapBrowserRuntime(): void {
 
   appResult.app.init();
 
-  appResult.app.canvasController.setMode?.(appResult.app.state.view.currentMode);
-  appResult.app.uiManager.updateLabelFolderButton?.(false);
-
   const runtimeUiManager = appResult.app.uiManager as RuntimeUiManager;
   const runtimeCanvasController = appResult.app.canvasController as RuntimeCanvasController;
+  // Browsers may restore the last checked workflow radio after scripts have
+  // initialized. Repeat this on the first frame so new sessions always open
+  // in Detection mode.
+  const startInDetectionMode = (): void => {
+    runtimeCanvasController.setWorkflow?.("detection");
+    runtimeUiManager.setWorkflow("detection");
+    const detectionTab = document.getElementById("detectionWorkflowTab") as HTMLInputElement | null;
+    const segmentationTab = document.getElementById("segmentationWorkflowTab") as HTMLInputElement | null;
+    if (detectionTab && segmentationTab) {
+      detectionTab.checked = true;
+      segmentationTab.checked = false;
+    }
+  };
+  startInDetectionMode();
+  window.requestAnimationFrame(startInDetectionMode);
+  runtimeCanvasController.setMode?.(appResult.app.state.view.currentMode);
+  runtimeUiManager.updateLabelFolderButton?.(false);
   let testSelectionIds: string[] = [];
   runtimeUiManager.restoreDarkModeFromStorage();
   runtimeUiManager.setDirectoryPickerSupport(typeof window.showDirectoryPicker === "function");
@@ -154,6 +169,19 @@ function bootstrapBrowserRuntime(): void {
 
   Reflect.set(window, "__easyLabelingTestApi", {
     getRectCount: () => runtimeCanvasController.raw.getObjects("rect").length,
+    seedDetectionBoxesForTest: (count: number) => {
+      const normalizedCount = Math.max(0, Math.floor(count));
+      runtimeCanvasController.raw.applyDetectionBoxes(
+        Array.from({ length: normalizedCount }, (_value, index) => ({
+          classId: String(index % 5),
+          x: (index % 100) * 7,
+          y: Math.floor(index / 100) * 7,
+          width: 5,
+          height: 5
+        })),
+        { replaceExisting: true }
+      );
+    },
     getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
     getReviewSummary: () => {
       const imageName = appResult.app.state.session.currentImageFile?.name;

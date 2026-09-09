@@ -4,7 +4,7 @@ import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
 import { getColorForClass as defaultGetColorForClass } from "./colors.js";
-import type { CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
+import type { CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
 import {
   createAnnotationId,
   ensureAnnotationId,
@@ -64,6 +64,22 @@ function cloneOriginalYolo(metadata: YoloMetadata | null | undefined): YoloMetad
     width: metadata.width,
     height: metadata.height
   };
+}
+
+function throwIfBulkOperationAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new DOMException("Operation stopped", "AbortError");
+  }
+}
+
+function yieldBulkWorkToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(() => resolve());
+      return;
+    }
+    globalThis.setTimeout(resolve, 0);
+  });
 }
 
 export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps: CanvasControllerDeps, shell: CanvasShell): CanvasController {
@@ -156,9 +172,16 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     const before = captureRectSnapshots();
     const selectionBefore = captureSelectionSnapshot();
 
-    uniqueRects.forEach((rect) => {
-      removeRectInternal(rect);
-    });
+    const canvasWithBatchRendering = canvas as typeof canvas & { renderOnAddRemove?: boolean };
+    const previousRenderOnAddRemove = canvasWithBatchRendering.renderOnAddRemove;
+    canvasWithBatchRendering.renderOnAddRemove = false;
+    try {
+      uniqueRects.forEach((rect) => {
+        removeRectInternal(rect);
+      });
+    } finally {
+      canvasWithBatchRendering.renderOnAddRemove = previousRenderOnAddRemove;
+    }
 
     canvas.discardActiveObject();
     canvas.requestRenderAll();
@@ -628,6 +651,105 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         selectionBefore,
         selectionAfter: captureSelectionSnapshot()
       });
+
+      return {
+        instanceId,
+        annotationIds: createdRects.map((rect) => ensureAnnotationId(rect)),
+        discardedOutOfBoundsCount: layout.boxes.length - placedBoxes.length
+      };
+    },
+
+    async applyBoxLayoutInBatches(layout, anchor, options = {}): Promise<{ instanceId: string; annotationIds: string[]; discardedOutOfBoundsCount: number }> {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before applying a layout");
+      }
+      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height });
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      const instanceId = typeof globalThis.crypto?.randomUUID === "function"
+        ? `layout-instance-${globalThis.crypto.randomUUID()}`
+        : `layout-instance-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const createdRects: FabricRectLike[] = [];
+      const replacedRects: FabricRectLike[] = [];
+      const chunkSize = Math.max(25, options.chunkSize ?? 200);
+      const canvasWithBatchRendering = canvas as typeof canvas & { renderOnAddRemove?: boolean };
+      const previousRenderOnAddRemove = canvasWithBatchRendering.renderOnAddRemove;
+
+      canvas.discardActiveObject();
+      canvasWithBatchRendering.renderOnAddRemove = false;
+      options.onProgress?.({ detail: "Preparing layout boxes", current: 0, total: placedBoxes.length });
+      try {
+        for (let start = 0; start < placedBoxes.length; start += chunkSize) {
+          throwIfBulkOperationAborted(options.signal);
+          const chunk = placedBoxes.slice(start, start + chunkSize);
+          chunk.forEach((box) => {
+            const color = colorForClass(box.classId);
+            const rect = new deps.fabric.Rect({
+              left: box.x,
+              top: box.y,
+              originX: "left",
+              originY: "top",
+              width: box.width,
+              height: box.height,
+              fill: `${color}33`,
+              stroke: color,
+              strokeWidth: 2,
+              strokeUniform: true,
+              selectable: state.currentMode === "edit",
+              hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
+              annotationId: createAnnotationId(),
+              labelClass: box.classId,
+              layoutInstanceId: instanceId,
+              layoutBoxId: box.layoutBoxId,
+              originalYolo: null
+            });
+            rect.setControlVisible("mtr", false);
+            canvas.add(rect);
+            createdRects.push(rect);
+          });
+          const current = Math.min(placedBoxes.length, start + chunk.length);
+          options.onProgress?.({ detail: "Creating layout boxes", current, total: placedBoxes.length });
+          if (current < placedBoxes.length) {
+            await yieldBulkWorkToUi();
+          }
+        }
+        throwIfBulkOperationAborted(options.signal);
+
+        if (options.replaceExisting) {
+          replacedRects.push(...canvas.getObjects("rect")
+            .filter(isRectObject)
+            .filter((rect) => !createdRects.includes(rect)));
+          replacedRects.forEach(removeRectInternal);
+        }
+        if (createdRects.length === 1 && createdRects[0]) {
+          canvas.setActiveObject(createdRects[0]);
+        } else if (createdRects.length > 1) {
+          createdRects.forEach((rect) => rect.setCoords());
+          canvas.setActiveObject(new deps.fabric.ActiveSelection(createdRects, { canvas }));
+        }
+        this.updateAllLabelTexts();
+        options.onProgress?.({ detail: "Saving undo state", current: placedBoxes.length, total: placedBoxes.length });
+        deps.updateLabelList();
+        pushHistoryIfRectsChanged({
+          before,
+          after: captureRectSnapshots(),
+          selectionBefore,
+          selectionAfter: captureSelectionSnapshot()
+        });
+      } catch (error) {
+        createdRects.forEach(removeRectInternal);
+        replacedRects.forEach((rect) => {
+          canvas.add(rect);
+          if (rect._labelText) {
+            canvas.add(rect._labelText);
+          }
+        });
+        canvas.requestRenderAll();
+        throw error;
+      } finally {
+        canvasWithBatchRendering.renderOnAddRemove = previousRenderOnAddRemove;
+      }
 
       return {
         instanceId,
@@ -1180,33 +1302,6 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         return;
       }
       const rects = this.getObjects("rect").filter(isRectObject);
-      rects.forEach((rect) => {
-        if (!rect._labelText) {
-          const anchor = getRectLabelAnchor(rect);
-          const text = new deps.fabric.Text(String(rect.labelClass ?? ""), {
-            left: anchor.left,
-            top: anchor.top,
-            originX: "left",
-            originY: "top",
-            fontSize: state.labelFontSize,
-            fontFamily: "'Segoe UI', sans-serif",
-            fontWeight: "600",
-            fill: "#ffffff",
-            backgroundColor: rect.stroke,
-            padding: 3,
-            selectable: false,
-            evented: false,
-            visible: false,
-            _isLabelText: true,
-            _rect: rect,
-            _labelLayoutVisible: false,
-            _labelRepresentation: "hidden"
-          });
-          rect._labelText = text;
-          canvas.add(text);
-        }
-      });
-
       const [scaleX, , , scaleY, translateX, translateY] = canvas.viewportTransform;
       const zoom = Math.max(0.01, canvas.getZoom());
       const visibleSceneBounds = {
@@ -1233,11 +1328,14 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
       const placementById = new Map(placements.map((placement) => [placement.annotationId, placement]));
       rects.forEach((rect) => {
+        const placement = placementById.get(ensureAnnotationId(rect));
+        if (!rect._labelText && placement?.visible) {
+          this.drawLabelText(rect);
+        }
         const text = rect._labelText;
         if (!text) {
           return;
         }
-        const placement = placementById.get(ensureAnnotationId(rect));
         const layoutVisible = Boolean(placement?.visible);
         text._labelLayoutVisible = layoutVisible;
         text._labelRepresentation = placement?.representation ?? "hidden";
@@ -1337,18 +1435,21 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       shell.hideCrosshair();
     },
 
-    async copy(): Promise<void> {
-      await clipboard.copy();
+    async copy(_options: CanvasBulkOperationOptions = {}): Promise<void> {
+      await clipboard.copy(_options);
     },
 
-    async paste(): Promise<void> {
+    async paste(options: CanvasBulkOperationOptions = {}): Promise<void> {
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
-      const pasted = await clipboard.paste();
+      options.onProgress?.({ detail: "Preparing copied boxes", current: 0, total: clipboard.getItemCount() });
+      const pasted = await clipboard.paste({ ...options, deferLabels: true, deferRender: true });
       if (pasted.length === 0) {
         return;
       }
 
+      options.onProgress?.({ detail: "Saving undo state", current: pasted.length, total: pasted.length });
+      this.updateAllLabelTexts();
       pushHistoryIfRectsChanged({
         before,
         after: captureRectSnapshots(),
@@ -1357,7 +1458,11 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
     },
 
-    deleteSelection(): void {
+    getClipboardItemCount(): number {
+      return clipboard.getItemCount();
+    },
+
+    deleteSelection(_options: CanvasBulkOperationOptions = {}): void {
       const activeObjects = canvas.getActiveObjects();
       const rectsToDelete: FabricRectLike[] = [];
 
