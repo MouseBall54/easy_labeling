@@ -49,6 +49,14 @@ interface TestApi {
     overlayOpacity: number;
     visibleClassIds: string[];
   } | null;
+  getEdgeSamStatus(): {
+    phase: string;
+    backend: string | null;
+    imageCacheKey: string | null;
+    encoderRuns: number;
+    message: string | null;
+  } | null;
+  getCanvasViewportTransform(): [number, number, number, number, number, number];
   getSegmentationMaskBounds(): {
     left: number;
     top: number;
@@ -257,6 +265,8 @@ function bootstrapBrowserRuntime(): void {
       };
     },
     getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
+    getEdgeSamStatus: () => runtimeCanvasController.raw.getEdgeSamStatus?.() ?? null,
+    getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
     getSegmentationMaskBounds: () => {
       const snapshot = runtimeCanvasController.raw.getSegmentationDocumentSnapshot?.();
       if (!snapshot) {

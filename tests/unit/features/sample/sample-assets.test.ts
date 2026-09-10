@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,9 @@ describe("bundled sample assets", () => {
     };
     expect(manifest.name).toBe("Easy Labeling Sample Test");
     expect(manifest.files).toContain(".easy-labeling/automation-library.json");
+    const imageFiles = (await readdir(sampleRoot))
+      .filter((fileName) => /\.(jpe?g|png)$/i.test(fileName));
+    expect(manifest.files).toEqual(expect.arrayContaining(imageFiles));
     await Promise.all(manifest.files.map((relativePath) => expect(readFile(path.join(sampleRoot, relativePath))).resolves.toBeInstanceOf(Buffer)));
 
     const expectedCounts = new Map([

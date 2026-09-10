@@ -12,6 +12,7 @@ import {
 import { createSuperpixelCache, DEFAULT_SUPERPIXEL_SETTINGS, growSuperpixelRegion, normalizeSuperpixelSettings, type SuperpixelResult } from "./superpixels.js";
 import type {
   SegmentationDocumentSnapshot,
+  SegmentationAiPreviewSummary,
   SegmentationRegionBounds,
   SegmentationRegionSelection,
   SegmentationSmartPreviewSummary,
@@ -22,6 +23,7 @@ import type {
 import type { CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "../canvas/canvas-controller-types.js";
 import type { FabricActiveSelectionLike, FabricObjectLike, FabricRectLike } from "../canvas/fabric-types.js";
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
+import type { EdgeSamBox, EdgeSamPoint } from "../edgesam/types.js";
 
 function createEmptySummary(): SegmentationSummary {
   return {
@@ -98,6 +100,15 @@ export function createSegmentationCanvasWorkflow(
     regionIds: number[];
     selection: SegmentationRegionSelection;
   } | null = null;
+  let aiPreview: {
+    selection: SegmentationRegionSelection;
+    score: number;
+  } | null = null;
+  let aiPoints: EdgeSamPoint[] = [];
+  let aiBox: EdgeSamBox | null = null;
+  let aiBoxStart: CanvasPoint | null = null;
+  let aiPromptObjects: FabricObjectLike[] = [];
+  let aiRequestRevision = 0;
   let autoFillClosedRegionEnabled = false;
   let moveBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let moveRegionBaseline: SegmentationRegionSelection | null = null;
@@ -158,6 +169,56 @@ export function createSegmentationCanvasWorkflow(
   const clearPolygonPreview = (): void => {
     polygonPreviewObjects.forEach((object) => canvas.remove(object));
     polygonPreviewObjects = [];
+  };
+
+  const clearAiPromptOverlay = (): void => {
+    aiPromptObjects.forEach((object) => canvas.remove(object));
+    aiPromptObjects = [];
+  };
+
+  const renderAiPromptOverlay = (): void => {
+    clearAiPromptOverlay();
+    if (!workflowActive || (!aiPoints.length && !aiBox)) return;
+    const zoom = Math.max(0.01, canvas.getZoom());
+    const pointRadius = 6 / zoom;
+    const pointMarkLength = 3.5 / zoom;
+    const pointStrokeWidth = 2 / zoom;
+    const pointMarkStrokeWidth = 1.5 / zoom;
+    aiPoints.forEach((point) => {
+      const positive = point.label === "positive";
+      const color = positive ? "#19c37d" : "#ef4444";
+      aiPromptObjects.push(new deps.fabric.Circle({
+        left: point.x - pointRadius, top: point.y - pointRadius, radius: pointRadius, fill: color, stroke: "#ffffff", strokeWidth: pointStrokeWidth,
+        selectable: false, evented: false, originX: "left", originY: "top"
+      }));
+      aiPromptObjects.push(new deps.fabric.Line([point.x - pointMarkLength, point.y, point.x + pointMarkLength, point.y], {
+        stroke: "#ffffff", strokeWidth: pointMarkStrokeWidth, selectable: false, evented: false
+      }));
+      if (positive) {
+        aiPromptObjects.push(new deps.fabric.Line([point.x, point.y - pointMarkLength, point.x, point.y + pointMarkLength], {
+          stroke: "#ffffff", strokeWidth: pointMarkStrokeWidth, selectable: false, evented: false
+        }));
+      }
+    });
+    if (aiBox) {
+      aiPromptObjects.push(new deps.fabric.Rect({
+        left: aiBox.left, top: aiBox.top, width: Math.max(1, aiBox.right - aiBox.left), height: Math.max(1, aiBox.bottom - aiBox.top),
+        fill: "rgba(59, 130, 246, 0.08)", stroke: "#3b82f6", strokeWidth: 2, strokeDashArray: [6, 4], selectable: false, evented: false
+      }));
+    }
+    canvas.add(...aiPromptObjects);
+  };
+
+  const clearAiPreview = (): boolean => {
+    const changed = aiPreview !== null || aiPoints.length > 0 || aiBox !== null;
+    aiRequestRevision += 1;
+    aiPreview = null;
+    aiPoints = [];
+    aiBox = null;
+    aiBoxStart = null;
+    clearAiPromptOverlay();
+    requestOverlayRender({ forceSelectionFull: true, immediate: true });
+    return changed;
   };
 
   const renderPolygonPreview = (): void => {
@@ -226,6 +287,7 @@ export function createSegmentationCanvasWorkflow(
       superpixelCache.clear();
       selectedRegion = null;
       smartPreview = null;
+      clearAiPreview();
       return;
     }
 
@@ -253,6 +315,7 @@ export function createSegmentationCanvasWorkflow(
     strokeDirtyBounds = null;
     selectedRegion = null;
     smartPreview = null;
+    clearAiPreview();
     moveBaseline = null;
     moveRegionBaseline = null;
     movePointerStart = null;
@@ -273,6 +336,7 @@ export function createSegmentationCanvasWorkflow(
   const clearSmartPreview = (): boolean => {
     if (!smartPreview) return false;
     smartPreview = null;
+    clearAiPreview();
     requestOverlayRender({ forceSelectionFull: true, immediate: true });
     return true;
   };
@@ -391,19 +455,20 @@ export function createSegmentationCanvasWorkflow(
       selectionLayer.object.set("visible", workflowActive && selectedRegion !== null);
     }
 
-    if (smartPreview || smartPreviewOverlayLayer) {
+    const previewSelection = smartPreview?.selection ?? aiPreview?.selection ?? null;
+    if (previewSelection || smartPreviewOverlayLayer) {
       const previewLayer = ensureSmartPreviewOverlayLayer();
       previewLayer.sync(
         {
           width: doc.width,
           height: doc.height,
-          selection: smartPreview?.selection ?? null,
+          selection: previewSelection,
           getColorForClass,
           variant: smartPreview?.mode === "remove" ? "smart-remove" : "smart-add"
         },
         forceSelectionFull ? { forceFull: true } : undefined
       );
-      previewLayer.object.set("visible", workflowActive && smartPreview !== null);
+      previewLayer.object.set("visible", workflowActive && previewSelection !== null);
     }
 
     if (superpixelResult || superpixelOverlayLayer) {
@@ -422,9 +487,15 @@ export function createSegmentationCanvasWorkflow(
       canvas.remove(selectionOverlayLayer.object);
       canvas.add(selectionOverlayLayer.object);
     }
-    if (smartPreviewOverlayLayer && smartPreview) {
+    if (smartPreviewOverlayLayer && previewSelection) {
       canvas.remove(smartPreviewOverlayLayer.object);
       canvas.add(smartPreviewOverlayLayer.object);
+    }
+    if (aiPromptObjects.length > 0) {
+      aiPromptObjects.forEach((object) => {
+        canvas.remove(object);
+        canvas.add(object);
+      });
     }
 
     canvas.requestRenderAll();
@@ -515,6 +586,84 @@ export function createSegmentationCanvasWorkflow(
     return true;
   };
 
+  const getAiPreviewSummary = (): SegmentationAiPreviewSummary | null => {
+    if (!aiPreview) return null;
+    return {
+      classId: aiPreview.selection.classId,
+      pixelCount: aiPreview.selection.pixelCount,
+      pointCount: aiPoints.length,
+      hasBox: aiBox !== null,
+      score: aiPreview.score
+    };
+  };
+
+  const prepareEdgeSamImage = async (image: unknown): Promise<void> => {
+    const service = deps.edgeSamService;
+    const doc = ensureDocument();
+    if (!service || !doc || typeof globalThis.document === "undefined") return;
+    const source = image as CanvasImageSource;
+    const scratch = globalThis.document.createElement("canvas");
+    scratch.width = doc.width;
+    scratch.height = doc.height;
+    const context = scratch.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+    try {
+      context.drawImage(source, 0, 0, doc.width, doc.height);
+      const imageData = context.getImageData(0, 0, doc.width, doc.height);
+      const sourceKey = (image as { src?: string }).src ?? "local-image";
+      await service.prepareImage({
+        cacheKey: `${sourceKey}:${doc.width}x${doc.height}`,
+        width: doc.width,
+        height: doc.height,
+        rgba: imageData.data
+      });
+      if (workflowActive) deps.notify("AI Select is ready.", 1800);
+    } catch (error) {
+      deps.notify(`AI Select is unavailable: ${error instanceof Error ? error.message : "model initialization failed"}`, 5000);
+    }
+  };
+
+  const buildAiPreview = async (): Promise<boolean> => {
+    const doc = ensureDocument();
+    const service = deps.edgeSamService;
+    if (!doc || !service) {
+      deps.notify("AI Select is unavailable in this environment.", 3500);
+      return false;
+    }
+    if (aiPoints.length === 0 && !aiBox) {
+      deps.notify("Add a positive or negative point, or draw a box prompt first.", 3000);
+      return false;
+    }
+    const currentStatus = service.getStatus();
+    if (currentStatus.phase !== "ready") {
+      deps.notify(currentStatus.phase === "error"
+        ? `AI Select is unavailable: ${currentStatus.message ?? "model error"}`
+        : "AI Select is preparing the image. Try again in a moment.", 3500);
+      return false;
+    }
+    const revision = ++aiRequestRevision;
+    try {
+      const result = await service.decode({ points: aiPoints, box: aiBox });
+      if (revision !== aiRequestRevision || result.width !== doc.width || result.height !== doc.height) return false;
+      const activeClass = Number.parseInt(doc.activeClassId, 10);
+      const classId = Number.isInteger(activeClass) && activeClass > 0 ? activeClass : 1;
+      const indices: number[] = [];
+      result.mask.forEach((value, index) => {
+        if (value && doc.mask[index] !== classId) indices.push(index);
+      });
+      const selection = createSelectionFromIndices(doc, `${classId}`, indices, aiPoints.at(-1) ?? { x: aiBox?.left ?? 0, y: aiBox?.top ?? 0 });
+      aiPreview = selection ? { selection, score: result.score } : null;
+      requestOverlayRender({ forceSelectionFull: true, immediate: true });
+      if (!selection) deps.notify("AI Select preview does not add new pixels for the active class.", 2800);
+      return selection !== null;
+    } catch (error) {
+      if (revision === aiRequestRevision) {
+        deps.notify(`AI Select could not create a mask: ${error instanceof Error ? error.message : "decoder error"}`, 5000);
+      }
+      return false;
+    }
+  };
+
   const controller: CanvasController = {
     canvas,
 
@@ -548,6 +697,8 @@ export function createSegmentationCanvasWorkflow(
       movePointerStart = null;
       moveLastDeltaX = null;
       moveLastDeltaY = null;
+      clearAiPreview();
+      deps.edgeSamService?.clear();
     },
 
     setBackgroundImage(image: unknown): void {
@@ -558,6 +709,7 @@ export function createSegmentationCanvasWorkflow(
         forceSelectionFull: true,
         immediate: true
       });
+      void prepareEdgeSamImage(image);
     },
 
     setMode(mode): void {
@@ -728,14 +880,17 @@ export function createSegmentationCanvasWorkflow(
 
     setZoomPercentage(percentage: string): void {
       shell.setZoomPercentage(percentage);
+      renderAiPromptOverlay();
     },
 
     zoom(factor: number): void {
       shell.zoom(factor);
+      renderAiPromptOverlay();
     },
 
     resetZoom(): void {
       shell.resetZoom();
+      renderAiPromptOverlay();
     },
 
     resizeCanvas(): void {
@@ -759,7 +914,7 @@ export function createSegmentationCanvasWorkflow(
     },
 
     updateAllLabelTexts(): void {
-      return;
+      renderAiPromptOverlay();
     },
 
     toggleAllLabelTexts(): void {
@@ -894,6 +1049,7 @@ export function createSegmentationCanvasWorkflow(
       if (doc.activeTool !== tool) {
         cancelActiveToolGesture();
         smartPreview = null;
+        if (tool !== "ai-select") clearAiPreview();
       }
       doc.setActiveTool(tool);
       requestOverlayRender({
@@ -1037,6 +1193,84 @@ export function createSegmentationCanvasWorkflow(
       smartGrowSimilarity = Math.min(1, Math.max(0, similarity));
       smartGrowEdgeStop = Math.min(1, Math.max(0, edgeStop));
       if (smartPreview) buildSmartPreview(smartPreview.seedPoint, smartPreview.mode, false, false);
+    },
+
+    async startSegmentationAiSelect(pointer: CanvasPoint, label: "positive" | "negative"): Promise<boolean> {
+      const doc = ensureDocument();
+      if (!doc || doc.activeTool !== "ai-select") return false;
+      const x = Math.round(pointer.x);
+      const y = Math.round(pointer.y);
+      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) {
+        deps.notify("Click inside the image to add an AI prompt.", 3000);
+        return false;
+      }
+      aiPoints.push({ x, y, label });
+      renderAiPromptOverlay();
+      return await buildAiPreview();
+    },
+
+    startSegmentationAiBox(pointer: CanvasPoint): void {
+      const doc = ensureDocument();
+      if (!doc || doc.activeTool !== "ai-select") return;
+      aiBoxStart = { x: Math.max(0, Math.min(doc.width - 1, pointer.x)), y: Math.max(0, Math.min(doc.height - 1, pointer.y)) };
+      aiBox = { left: aiBoxStart.x, top: aiBoxStart.y, right: aiBoxStart.x, bottom: aiBoxStart.y };
+      renderAiPromptOverlay();
+      canvas.requestRenderAll();
+    },
+
+    continueSegmentationAiBox(pointer: CanvasPoint): void {
+      const doc = ensureDocument();
+      if (!doc || !aiBoxStart) return;
+      const endX = Math.max(0, Math.min(doc.width - 1, pointer.x));
+      const endY = Math.max(0, Math.min(doc.height - 1, pointer.y));
+      aiBox = {
+        left: Math.min(aiBoxStart.x, endX), top: Math.min(aiBoxStart.y, endY),
+        right: Math.max(aiBoxStart.x, endX), bottom: Math.max(aiBoxStart.y, endY)
+      };
+      renderAiPromptOverlay();
+      canvas.requestRenderAll();
+    },
+
+    async finishSegmentationAiBox(pointer: CanvasPoint): Promise<boolean> {
+      if (!aiBoxStart) return false;
+      controller.continueSegmentationAiBox?.(pointer);
+      aiBoxStart = null;
+      if (!aiBox || aiBox.right - aiBox.left < 2 || aiBox.bottom - aiBox.top < 2) {
+        aiBox = null;
+        renderAiPromptOverlay();
+        return false;
+      }
+      return await buildAiPreview();
+    },
+
+    getSegmentationAiPreview(): SegmentationAiPreviewSummary | null {
+      return getAiPreviewSummary();
+    },
+
+    applySegmentationAiPreview(): boolean {
+      const doc = ensureDocument();
+      if (!doc || !aiPreview) return false;
+      const before = doc.cloneSnapshot();
+      const classId = Number.parseInt(aiPreview.selection.classId, 10);
+      for (const index of aiPreview.selection.pixelIndices) doc.mask[index] = classId;
+      const selection = aiPreview.selection;
+      clearAiPreview();
+      selectedRegion = selection;
+      const changed = doc.pushHistoryFromSnapshot(before);
+      requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
+      if (changed) {
+        deps.onDocumentMutation?.();
+        deps.notify(`AI Select applied ${selection.pixelCount.toLocaleString()} px.`, 2500);
+      }
+      return changed;
+    },
+
+    discardSegmentationAiPreview(): boolean {
+      return clearAiPreview();
+    },
+
+    getEdgeSamStatus() {
+      return deps.edgeSamService?.getStatus() ?? { phase: "error" as const, backend: null, imageCacheKey: null, encoderRuns: 0, message: "AI Select service is unavailable" };
     },
 
     finishSegmentationPolygon(): boolean {
@@ -1325,8 +1559,13 @@ export function createSegmentationCanvasWorkflow(
 
     getSegmentationSummary(): SegmentationSummary {
       const summary = ensureDocument()?.getSummary() ?? createEmptySummary();
-      const preview = getSmartPreviewSummary();
-      return preview ? { ...summary, smartPreview: preview } : summary;
+      const smartPreview = getSmartPreviewSummary();
+      const aiPreview = getAiPreviewSummary();
+      return {
+        ...summary,
+        ...(smartPreview ? { smartPreview } : {}),
+        ...(aiPreview ? { aiPreview } : {})
+      };
     },
 
     getSegmentationDocumentSnapshot(): SegmentationDocumentSnapshot | null {

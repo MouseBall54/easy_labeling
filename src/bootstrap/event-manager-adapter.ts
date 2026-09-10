@@ -106,6 +106,21 @@ export function createEventManagerAdapter(input: {
   return {
     bindEventListeners(): void {
       const { elements } = input.uiManager;
+      const segmentationFormatStorageKey = "easy-labeling:segmentation-format-settings";
+      const settingsStorage = input.documentRef?.defaultView?.localStorage;
+      try {
+        const stored = settingsStorage?.getItem(segmentationFormatStorageKey);
+        const parsed = stored ? JSON.parse(stored) as Partial<{
+          annotationType: "semantic" | "instance";
+          sourceFormat: import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
+          exportFormat: import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
+        }> : null;
+        if (parsed?.annotationType === "semantic" || parsed?.annotationType === "instance") input.state.session.segmentationAnnotationType = parsed.annotationType;
+        if (parsed?.sourceFormat) input.state.session.segmentationSourceFormat = parsed.sourceFormat;
+        if (parsed?.exportFormat) input.state.session.segmentationExportFormat = parsed.exportFormat;
+      } catch {
+        // Ignore an invalid local preference and continue with default settings.
+      }
       const rawCanvas = input.canvasController.raw.canvas;
       const automationController = input.documentRef
         ? createAutomationController({
@@ -552,31 +567,7 @@ export function createEventManagerAdapter(input: {
       let pendingGestureBaseline: CanvasHistoryGestureBaseline | null = null;
       let suppressSelectionForSegmentationStroke = false;
       let isMovingSegmentationRegion = false;
-      let lastSmartCtrlPointerEvent: MouseEvent | null = null;
-      let lastSmartCtrlPointerTimestamp: number | null = null;
-
-      const startSmartSelectRemoval = (event: MouseEvent, pointer: CanvasPointLike): boolean => {
-        const isSmartSelectRemoval = input.state.session.workflow === "segmentation"
-          && input.state.view.currentMode === "draw"
-          && input.canvasController.raw.getSegmentationSummary?.().activeTool === "smart"
-          && event.ctrlKey;
-        if (!isSmartSelectRemoval) {
-          return false;
-        }
-
-        const timestamp = Number.isFinite(event.timeStamp) ? event.timeStamp : null;
-        if (lastSmartCtrlPointerEvent === event || (timestamp !== null && timestamp === lastSmartCtrlPointerTimestamp)) {
-          return true;
-        }
-        lastSmartCtrlPointerEvent = event;
-        lastSmartCtrlPointerTimestamp = timestamp;
-        suppressSelectionForSegmentationStroke = true;
-        rawCanvas.selection = false;
-        input.canvasController.raw.startSegmentationSmartGrow?.(pointer, "remove");
-        input.uiManager.setWorkflow?.("segmentation");
-        return true;
-      };
-
+      let isDrawingAiBox = false;
       const clearTemporarySelectionSuppression = (): void => {
         if (!suppressSelectionForSegmentationStroke) {
           return;
@@ -956,30 +947,35 @@ export function createEventManagerAdapter(input: {
       input.documentRef?.getElementById("segmentationEditModeBtn")?.addEventListener("click", () => {
         setMode("edit");
       });
-      elements.segmentationAnnotationTypeSelect?.addEventListener("change", (event) => {
-        const select = event.currentTarget;
-        if (select instanceof HTMLSelectElement && (select.value === "semantic" || select.value === "instance")) {
-          input.state.session.segmentationAnnotationType = select.value;
-          input.uiManager.setWorkflow?.(input.state.session.workflow);
-        }
+      elements.openSegmentationFormatBtn?.addEventListener("click", () => {
+        input.uiManager.setWorkflow?.("segmentation");
+        elements.segmentationFormatModal?.show();
       });
-      elements.segmentationSourceFormatSelect?.addEventListener("change", (event) => {
-        const select = event.currentTarget;
-        if (select instanceof HTMLSelectElement) {
-          input.state.session.segmentationSourceFormat = select.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
-          const currentImage = input.state.session.currentImageFile;
-          if (currentImage && !hasDirtyDocuments(input.state)) {
-            runExclusive("reload-segmentation-source", () => input.fileSystem.loadImage(currentImage));
-          } else if (currentImage) {
+      elements.applySegmentationFormatBtn?.addEventListener("click", () => {
+        const previousSourceFormat = input.state.session.segmentationSourceFormat;
+        const annotationType = elements.segmentationAnnotationTypeSelect.value;
+        if (annotationType !== "semantic" && annotationType !== "instance") return;
+        input.state.session.segmentationAnnotationType = annotationType;
+        input.state.session.segmentationSourceFormat = elements.segmentationSourceFormatSelect.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
+        input.state.session.segmentationExportFormat = elements.segmentationExportFormatSelect.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
+        input.uiManager.setWorkflow?.("segmentation");
+        try {
+          settingsStorage?.setItem(segmentationFormatStorageKey, JSON.stringify({
+            annotationType: input.state.session.segmentationAnnotationType,
+            sourceFormat: input.state.session.segmentationSourceFormat,
+            exportFormat: input.state.session.segmentationExportFormat
+          }));
+        } catch {
+          input.uiManager.notify("Format settings could not be saved locally.", 4000);
+        }
+        elements.segmentationFormatModal?.hide();
+        const currentImage = input.state.session.currentImageFile;
+        if (currentImage && previousSourceFormat !== input.state.session.segmentationSourceFormat) {
+          if (hasDirtyDocuments(input.state)) {
             input.uiManager.notify("Save or discard current edits before reloading the selected annotation source.", 4000);
+          } else {
+            runExclusive("reload-segmentation-source", () => input.fileSystem.loadImage(currentImage));
           }
-        }
-      });
-      elements.segmentationExportFormatSelect?.addEventListener("change", (event) => {
-        const select = event.currentTarget;
-        if (select instanceof HTMLSelectElement) {
-          input.state.session.segmentationExportFormat = select.value as import("../domain/annotations/segmentation-format.js").SegmentationExternalFormat;
-          input.uiManager.setWorkflow?.(input.state.session.workflow);
         }
       });
       elements.segmentationEraseModeBtn.addEventListener("click", () => {
@@ -1014,13 +1010,13 @@ export function createEventManagerAdapter(input: {
         input.uiManager.setWorkflow?.(input.state.session.workflow);
         setMode("draw");
       });
-      elements.segmentationSmartModeBtn?.addEventListener("click", () => {
-        const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
-        if (!input.canvasController.raw.recalculateSegmentationSuperpixels?.(size)) {
-          input.uiManager.notify("Smart Select needs a loaded image.", 3500);
+      input.documentRef?.getElementById("segmentationAiSelectModeBtn")?.addEventListener("click", () => {
+        const status = input.canvasController.raw.getEdgeSamStatus?.();
+        if (status?.phase === "error") {
+          input.uiManager.notify(`AI Select is unavailable: ${status.message ?? "model initialization failed"}`, 5000);
           return;
         }
-        input.canvasController.raw.setSegmentationTool?.("smart");
+        input.canvasController.raw.setSegmentationTool?.("ai-select");
         setMode("draw");
         input.uiManager.setWorkflow?.(input.state.session.workflow);
       });
@@ -1077,8 +1073,8 @@ export function createEventManagerAdapter(input: {
           id,
           name,
           settings: settings ?? { regionSize: 16, blur: "medium", contrast: "medium", edgeSensitivity: "medium" },
-          smartSimilarity: Number.parseInt(elements.segmentationSmartSimilaritySlider?.value ?? "20", 10) / 100,
-          smartEdgeStop: Number.parseInt(elements.segmentationSmartEdgeStopSlider?.value ?? "70", 10) / 100,
+          smartSimilarity: 0.2,
+          smartEdgeStop: 0.7,
           boundaryVisible: elements.segmentationSuperpixelBoundaryToggle?.checked ?? true
         };
       };
@@ -1121,36 +1117,20 @@ export function createEventManagerAdapter(input: {
         blurSelect.value = preset.settings.blur;
         contrastSelect.value = preset.settings.contrast;
         edgeSensitivitySelect.value = preset.settings.edgeSensitivity;
-        elements.segmentationSmartSimilaritySlider.value = `${Math.round(preset.smartSimilarity * 100)}`;
-        elements.segmentationSmartEdgeStopSlider.value = `${Math.round(preset.smartEdgeStop * 100)}`;
         elements.segmentationSuperpixelBoundaryToggle.checked = preset.boundaryVisible;
         input.canvasController.raw.setSegmentationSuperpixelSettings?.(preset.settings);
-        input.canvasController.raw.setSegmentationSmartGrowSettings?.(preset.smartSimilarity, preset.smartEdgeStop);
         input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(preset.boundaryVisible);
         input.canvasController.raw.recalculateSegmentationSuperpixels?.(preset.settings.regionSize);
         input.uiManager.setWorkflow?.("segmentation");
       });
-      if (elements.segmentationSmartSimilaritySlider && elements.segmentationSmartSimilarityValue && elements.segmentationSmartEdgeStopSlider && elements.segmentationSmartEdgeStopValue) {
-        const syncSmartGrowSettings = (): void => {
-          const similarity = Number.parseInt(elements.segmentationSmartSimilaritySlider.value, 10) / 100;
-          const edgeStop = Number.parseInt(elements.segmentationSmartEdgeStopSlider.value, 10) / 100;
-          elements.segmentationSmartSimilarityValue.textContent = similarity <= 0.2 ? "Strict" : similarity >= 0.45 ? "Loose" : "Balanced";
-          elements.segmentationSmartEdgeStopValue.textContent = edgeStop <= 0.35 ? "Weak" : edgeStop >= 0.65 ? "Strong" : "Balanced";
-          input.canvasController.raw.setSegmentationSmartGrowSettings?.(similarity, edgeStop);
-          input.uiManager.setWorkflow?.("segmentation");
-        };
-        elements.segmentationSmartSimilaritySlider.addEventListener("input", syncSmartGrowSettings);
-        elements.segmentationSmartEdgeStopSlider.addEventListener("input", syncSmartGrowSettings);
-        syncSmartGrowSettings();
-      }
-      elements.segmentationApplySmartPreviewBtn?.addEventListener("click", () => {
-        if (input.canvasController.raw.applySegmentationSmartPreview?.()) {
+      elements.segmentationApplyAiPreviewBtn?.addEventListener("click", () => {
+        if (input.canvasController.raw.applySegmentationAiPreview?.()) {
           input.uiManager.updateLabelList();
         }
         input.uiManager.setWorkflow?.("segmentation");
       });
-      elements.segmentationDiscardSmartPreviewBtn?.addEventListener("click", () => {
-        input.canvasController.raw.discardSegmentationSmartPreview?.();
+      elements.segmentationDiscardAiPreviewBtn?.addEventListener("click", () => {
+        input.canvasController.raw.discardSegmentationAiPreview?.();
         input.uiManager.setWorkflow?.("segmentation");
       });
       elements.segmentationToolSizeSlider.addEventListener("input", (event) => {
@@ -1389,10 +1369,15 @@ export function createEventManagerAdapter(input: {
         const pointer = isFinitePoint(fabricPointer)
           ? resolveImagePixelPoint({ scenePoint: fabricPointer, currentImage: input.state.session.currentImage })
           : getCanvasPointer(mouseEvent);
-        if (pointer && startSmartSelectRemoval(mouseEvent, pointer)) {
-          mouseEvent.preventDefault();
-        }
       }, true);
+      rawCanvas.upperCanvasEl?.addEventListener("contextmenu", (event) => {
+        if (input.state.session.workflow === "segmentation"
+          && input.state.view.currentMode === "draw"
+          && (input.canvasController.raw.getSegmentationSummary?.().activeTool === "ai-select"
+            || input.canvasController.raw.getSegmentationSummary?.().activeTool === "superpixel")) {
+          event.preventDefault();
+        }
+      });
 
       rawCanvas.on?.("mouse:down", (event) => {
         const pointer = getCanvasPointer(event.e);
@@ -1402,20 +1387,6 @@ export function createEventManagerAdapter(input: {
         input.state.view.lastMousePosition = pointer;
 
         const mouseEvent = event.e as MouseEvent;
-        if (
-          input.state.session.workflow === "segmentation"
-          && input.state.view.currentMode === "draw"
-          && input.canvasController.raw.getSegmentationSummary?.().activeTool === "superpixel"
-          && mouseEvent.ctrlKey
-        ) {
-          suppressSelectionForSegmentationStroke = true;
-          rawCanvas.selection = false;
-          input.canvasController.raw.startSegmentationSuperpixelPaint?.(pointer, "remove");
-          return;
-        }
-        if (startSmartSelectRemoval(mouseEvent, pointer)) {
-          return;
-        }
         if (mouseEvent.altKey || mouseEvent.ctrlKey) {
           rawCanvas.isDragging = true;
           rawCanvas.selection = false;
@@ -1424,6 +1395,34 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
+        const isAiSelect = input.state.session.workflow === "segmentation"
+          && input.state.view.currentMode === "draw"
+          && input.canvasController.raw.getSegmentationSummary?.().activeTool === "ai-select";
+        if (isAiSelect) {
+          suppressSelectionForSegmentationStroke = true;
+          rawCanvas.selection = false;
+          if (mouseEvent.shiftKey && mouseEvent.button === 0) {
+            isDrawingAiBox = true;
+            input.canvasController.raw.startSegmentationAiBox?.(pointer);
+          } else {
+            const label = mouseEvent.button === 2 ? "negative" : "positive";
+            runAsync(() => Promise.resolve(input.canvasController.raw.startSegmentationAiSelect?.(pointer, label)).then(() => {
+              input.uiManager.setWorkflow?.("segmentation");
+            }) ?? Promise.resolve());
+          }
+          return;
+        }
+        if (
+          input.state.session.workflow === "segmentation"
+          && input.state.view.currentMode === "draw"
+          && input.canvasController.raw.getSegmentationSummary?.().activeTool === "superpixel"
+          && mouseEvent.button === 2
+        ) {
+          suppressSelectionForSegmentationStroke = true;
+          rawCanvas.selection = false;
+          input.canvasController.raw.startSegmentationSuperpixelPaint?.(pointer, "remove");
+          return;
+        }
         maybeStartGestureBaseline(event.target ?? null);
 
         if (input.state.session.workflow === "segmentation") {
@@ -1446,9 +1445,6 @@ export function createEventManagerAdapter(input: {
         }
 
         input.canvasController.raw.startDrawing(pointer);
-        if (input.state.session.workflow === "segmentation" && input.canvasController.raw.getSegmentationSummary?.().activeTool === "smart") {
-          input.uiManager.setWorkflow?.("segmentation");
-        }
       });
 
       rawCanvas.on?.("mouse:move", (event) => {
@@ -1481,6 +1477,10 @@ export function createEventManagerAdapter(input: {
           void moved;
           return;
         }
+        if (isDrawingAiBox) {
+          input.canvasController.raw.continueSegmentationAiBox?.(pointer);
+          return;
+        }
         input.canvasController.raw.continueDrawing(pointer);
         if (input.state.view.isCrosshairVisible) {
           input.canvasController.raw.updateCrosshair(pointer);
@@ -1503,6 +1503,15 @@ export function createEventManagerAdapter(input: {
         }
         if (isMovingSegmentationRegion) {
           finishSegmentationRegionMove();
+          return;
+        }
+        if (isDrawingAiBox) {
+          isDrawingAiBox = false;
+          const pointer = input.state.view.lastMousePosition;
+          clearTemporarySelectionSuppression();
+          runAsync(() => Promise.resolve(input.canvasController.raw.finishSegmentationAiBox?.(pointer)).then(() => {
+            input.uiManager.setWorkflow?.("segmentation");
+          }) ?? Promise.resolve());
           return;
         }
         if (input.state.session.workflow === "segmentation" && input.canvasController.raw.isSegmentationPolygonDrawing?.()) {
@@ -1710,14 +1719,20 @@ export function createEventManagerAdapter(input: {
         }
 
         if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
-          if (event.key === "Enter" && input.canvasController.raw.applySegmentationSmartPreview?.()) {
+          if (event.key === "Enter" && input.canvasController.raw.applySegmentationAiPreview?.()) {
             event.preventDefault();
             input.uiManager.updateLabelList();
             input.uiManager.setWorkflow?.("segmentation");
             return;
           }
-          if (event.key === "Escape" && input.canvasController.raw.discardSegmentationSmartPreview?.()) {
+          if (event.key === "Escape" && input.canvasController.raw.discardSegmentationAiPreview?.()) {
             event.preventDefault();
+            input.uiManager.setWorkflow?.("segmentation");
+            return;
+          }
+          if (event.key === "Enter" && input.canvasController.raw.finishSegmentationPolygon?.()) {
+            event.preventDefault();
+            input.uiManager.updateLabelList();
             input.uiManager.setWorkflow?.("segmentation");
             return;
           }

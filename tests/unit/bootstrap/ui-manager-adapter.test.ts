@@ -694,8 +694,13 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     const elements = createElements();
     const documentRef = new FakeDocument();
     const editButton = new FakeElement("button");
+    const aiSelectButton = new FakeElement("button");
+    const aiPreviewSection = new FakeElement("section");
     documentRef.elementsById.set("segmentationEditModeBtn", editButton);
+    documentRef.elementsById.set("segmentationAiSelectModeBtn", aiSelectButton);
+    documentRef.elementsById.set("segmentationAiPreviewSection", aiPreviewSection);
     getDOMElementsMock.mockReturnValue(elements);
+    let activeTool: "brush" | "ai-select" = "brush";
 
     const manager = createUiManagerAdapter({
       state,
@@ -711,7 +716,7 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
           getObjects: () => [],
           canvas: { getActiveObjects: () => [], getActiveObject: () => null },
           getSegmentationSummary: () => ({
-            activeClassId: "1", activeTool: "brush", brushRadius: 6,
+            activeClassId: "1", activeTool, brushRadius: 6,
             overlayVisible: true, overlayOpacity: 0.6,
             edgeHighlightVisible: false, edgeHighlightIntensity: 0.35,
             visibleClassIds: [], allClassIds: [], hiddenClassIds: []
@@ -728,6 +733,12 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     manager.syncWorkspaceState();
     expect(elements.segmentationBrushModeBtn.classList.contains("active")).toBe(true);
     expect(editButton.classList.contains("active")).toBe(false);
+
+    activeTool = "ai-select";
+    manager.syncWorkspaceState();
+    expect(elements.segmentationBrushModeBtn.classList.contains("active")).toBe(false);
+    expect(aiSelectButton.classList.contains("active")).toBe(true);
+    expect(aiPreviewSection.hidden).toBe(false);
   });
 });
 

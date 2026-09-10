@@ -29,6 +29,9 @@ export interface UiDomElements {
   reviewRequiredClassesInput: HTMLInputElement;
   saveReviewRulesBtn: HTMLButtonElement;
   saveLabelsBtn: HTMLElement;
+  openSegmentationFormatBtn?: HTMLElement;
+  segmentationFormatModal?: BootstrapModalLike;
+  applySegmentationFormatBtn?: HTMLButtonElement;
   detectionWorkflowTab: HTMLInputElement;
   segmentationWorkflowTab: HTMLInputElement;
   detectionWorkflowPanel: HTMLElement;
@@ -216,20 +219,14 @@ export interface UiDomElements {
   segmentationEraseModeBtn: HTMLElement;
   segmentationPolygonModeBtn: HTMLElement;
   segmentationSuperpixelModeBtn: HTMLElement;
-  segmentationSmartModeBtn: HTMLElement;
-  segmentationPolygonHint: HTMLElement;
   segmentationSuperpixelSizeSlider: HTMLInputElement;
   segmentationSuperpixelSizeValue: HTMLElement;
   segmentationSuperpixelPresetButtons: HTMLButtonElement[];
   segmentationSuperpixelBoundaryToggle: HTMLInputElement;
   segmentationRecalculateSuperpixelsBtn: HTMLElement;
-  segmentationSmartSimilaritySlider: HTMLInputElement;
-  segmentationSmartSimilarityValue: HTMLElement;
-  segmentationSmartEdgeStopSlider: HTMLInputElement;
-  segmentationSmartEdgeStopValue: HTMLElement;
-  segmentationSmartPreviewSummary?: HTMLElement;
-  segmentationApplySmartPreviewBtn?: HTMLButtonElement;
-  segmentationDiscardSmartPreviewBtn?: HTMLButtonElement;
+  segmentationAiPreviewSummary?: HTMLElement;
+  segmentationApplyAiPreviewBtn?: HTMLButtonElement;
+  segmentationDiscardAiPreviewBtn?: HTMLButtonElement;
   segmentationToolSizeLabel: HTMLElement;
   segmentationToolSizeSlider: HTMLInputElement;
   segmentationToolSizeValue: HTMLElement;
@@ -361,6 +358,9 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     reviewRequiredClassesInput: requireById<HTMLInputElement>(documentRef, "reviewRequiredClassesInput"),
     saveReviewRulesBtn: requireById<HTMLButtonElement>(documentRef, "saveReviewRulesBtn"),
     saveLabelsBtn: requireById<HTMLElement>(documentRef, "saveLabelsBtn"),
+    openSegmentationFormatBtn: requireById<HTMLElement>(documentRef, "openSegmentationFormatBtn"),
+    segmentationFormatModal: new bootstrapRef.Modal(requireById<HTMLElement>(documentRef, "segmentationFormatModal")),
+    applySegmentationFormatBtn: requireById<HTMLButtonElement>(documentRef, "applySegmentationFormatBtn"),
     detectionWorkflowTab: requireById<HTMLInputElement>(documentRef, "detectionWorkflowTab"),
     segmentationWorkflowTab: requireById<HTMLInputElement>(documentRef, "segmentationWorkflowTab"),
     detectionWorkflowPanel: requireById<HTMLElement>(documentRef, "detectionWorkflowPanel"),
@@ -548,20 +548,14 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     segmentationEraseModeBtn: requireById<HTMLElement>(documentRef, "segmentationEraseModeBtn"),
     segmentationPolygonModeBtn: requireById<HTMLElement>(documentRef, "segmentationPolygonModeBtn"),
     segmentationSuperpixelModeBtn: requireById<HTMLElement>(documentRef, "segmentationSuperpixelModeBtn"),
-    segmentationSmartModeBtn: requireById<HTMLElement>(documentRef, "segmentationSmartModeBtn"),
-    segmentationPolygonHint: requireById<HTMLElement>(documentRef, "segmentationPolygonHint"),
     segmentationSuperpixelSizeSlider: requireById<HTMLInputElement>(documentRef, "segmentationSuperpixelSizeSlider"),
     segmentationSuperpixelSizeValue: requireById<HTMLElement>(documentRef, "segmentationSuperpixelSizeValue"),
     segmentationSuperpixelPresetButtons: Array.from(documentRef.querySelectorAll<HTMLButtonElement>("[data-ui='segmentation-superpixel-preset']")),
     segmentationSuperpixelBoundaryToggle: requireById<HTMLInputElement>(documentRef, "segmentationSuperpixelBoundaryToggle"),
     segmentationRecalculateSuperpixelsBtn: requireById<HTMLElement>(documentRef, "segmentationRecalculateSuperpixelsBtn"),
-    segmentationSmartSimilaritySlider: requireById<HTMLInputElement>(documentRef, "segmentationSmartSimilaritySlider"),
-    segmentationSmartSimilarityValue: requireById<HTMLElement>(documentRef, "segmentationSmartSimilarityValue"),
-    segmentationSmartEdgeStopSlider: requireById<HTMLInputElement>(documentRef, "segmentationSmartEdgeStopSlider"),
-    segmentationSmartEdgeStopValue: requireById<HTMLElement>(documentRef, "segmentationSmartEdgeStopValue"),
-    segmentationSmartPreviewSummary: documentRef.getElementById("segmentationSmartPreviewSummary") ?? undefined,
-    segmentationApplySmartPreviewBtn: documentRef.getElementById("segmentationApplySmartPreviewBtn") as HTMLButtonElement | null ?? undefined,
-    segmentationDiscardSmartPreviewBtn: documentRef.getElementById("segmentationDiscardSmartPreviewBtn") as HTMLButtonElement | null ?? undefined,
+    segmentationAiPreviewSummary: documentRef.getElementById("segmentationAiPreviewSummary") ?? undefined,
+    segmentationApplyAiPreviewBtn: documentRef.getElementById("segmentationApplyAiPreviewBtn") as HTMLButtonElement | null ?? undefined,
+    segmentationDiscardAiPreviewBtn: documentRef.getElementById("segmentationDiscardAiPreviewBtn") as HTMLButtonElement | null ?? undefined,
     segmentationToolSizeLabel: requireById<HTMLElement>(documentRef, "segmentationToolSizeLabel"),
     segmentationToolSizeSlider: requireById<HTMLInputElement>(documentRef, "segmentationToolSizeSlider"),
     segmentationToolSizeValue: requireById<HTMLElement>(documentRef, "segmentationToolSizeValue"),

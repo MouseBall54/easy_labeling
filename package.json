@@ -1,6 +1,6 @@
 {
   "name": "easy_labeling",
-  "version": "26.9.9",
+  "version": "26.9.10",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {
@@ -46,6 +46,7 @@
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "fabric": "^7.4.0",
+    "onnxruntime-web": "1.29.0",
     "tiff.js": "^1.0.0"
   },
   "overrides": {
@@ -70,7 +71,11 @@
       "vendor/**/*",
       "workers/**/*",
       "electron/**/*",
+      "resources/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "assets/sample/**/*"
     ],
     "win": {
       "icon": "assets/icons/easy-labeling.ico",

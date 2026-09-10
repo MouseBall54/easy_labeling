@@ -9,8 +9,9 @@ import {
 } from "../features/canvas/canvas-controller.js";
 import type { FabricRuntimeLike } from "../features/canvas/fabric-types.js";
 import type { WorkflowType } from "../types/labels.js";
-import type { SegmentationDocumentSnapshot } from "../features/segmentation/types.js";
+import type { SegmentationDocumentSnapshot, SegmentationTool } from "../features/segmentation/types.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
+import { createEdgeSamService } from "../features/edgesam/service.js";
 
 class LiveCanvasControllerState implements CanvasControllerState {
   constructor(private readonly appState: AppState) {}
@@ -115,6 +116,7 @@ export function createCanvasControllerAdapter(input: {
   };
 
   const liveState = new LiveCanvasControllerState(input.state);
+  const edgeSamService = createEdgeSamService();
   const controllerDeps = {
     fabric: input.fabricRef,
     getCanvasContainerSize: () => {
@@ -149,7 +151,8 @@ export function createCanvasControllerAdapter(input: {
     onDocumentMutation: () => {
       markCurrentDocumentDirty(input.state);
       input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
-    }
+    },
+    edgeSamService
   } satisfies Parameters<typeof createCanvasControllerForWorkflow>[2];
 
   const sharedShell = createCanvasShell(liveState, controllerDeps);
@@ -157,6 +160,7 @@ export function createCanvasControllerAdapter(input: {
     detection: createCanvasControllerForWorkflow("detection", liveState, controllerDeps, sharedShell),
     segmentation: createCanvasControllerForWorkflow("segmentation", liveState, controllerDeps, sharedShell)
   };
+  let selectedSegmentationTool: SegmentationTool = "brush";
   const syncWorkflowVisibility = (workflow: WorkflowType): void => {
     workflowControllers.detection.setWorkflowActive?.(workflow === "detection");
     workflowControllers.segmentation.setWorkflowActive?.(workflow === "segmentation");
@@ -189,6 +193,7 @@ export function createCanvasControllerAdapter(input: {
     },
 
     loadImageSession({ image, detectionYolo, segmentationSnapshot }): void {
+      selectedSegmentationTool = workflowControllers.segmentation.getSegmentationSummary?.().activeTool ?? selectedSegmentationTool;
       workflowControllers.detection.clearHistory();
       workflowControllers.segmentation.clear();
       workflowControllers.segmentation.setBackgroundImage(image);
@@ -196,6 +201,7 @@ export function createCanvasControllerAdapter(input: {
         workflowControllers.detection.addLabelsFromYolo(detectionYolo);
       }
       workflowControllers.segmentation.loadSegmentationDocumentSnapshot?.(segmentationSnapshot);
+      workflowControllers.segmentation.setSegmentationTool?.(selectedSegmentationTool);
       syncWorkflowVisibility(input.state.session.workflow);
       getActiveController().resetZoom();
     }

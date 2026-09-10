@@ -35,6 +35,16 @@ async function ensureProfileDirectory(kind) {
   return directoryPath;
 }
 
+async function resolveBundledDirectory(...segments) {
+  const unpackedPath = path.join(process.resourcesPath, "app.asar.unpacked", ...segments);
+  try {
+    await fs.access(unpackedPath);
+    return unpackedPath;
+  } catch {
+    return path.resolve(__dirname, "..", ...segments);
+  }
+}
+
 function sanitizeSuggestedFileName(fileName) {
   const safeName = path.basename(String(fileName || "easy-labeling.json"))
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-");
@@ -89,7 +99,7 @@ function registerIpcHandlers() {
     return await ensureProfileDirectory(kind);
   });
   ipcMain.handle(SAMPLE_DIRECTORY_CHANNEL, async () => {
-    const sourcePath = path.resolve(__dirname, "..", "assets", "sample");
+    const sourcePath = await resolveBundledDirectory("assets", "sample");
     const targetPath = path.join(app.getPath("userData"), "sample-test");
     await fs.mkdir(targetPath, { recursive: true });
     await fs.cp(sourcePath, targetPath, { recursive: true, force: true });

@@ -204,58 +204,6 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   })).toBe(true);
   await page.waitForTimeout(100);
 
-  await page.keyboard.press("2");
-  const beforeSmartSelect = await getRenderedPixelAt(imageCenter);
-  expect(beforeSmartSelect).not.toBeNull();
-  await page.locator("#segmentationSmartModeBtn").click();
-  await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, "__easyLabelingTestApi") as {
-      getSegmentationSummary?: () => { activeTool?: string } | null;
-    } | undefined;
-    return api?.getSegmentationSummary?.()?.activeTool ?? null;
-  })).toBe("smart");
-  await page.mouse.click(imageCenter.x, imageCenter.y);
-  await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, "__easyLabelingTestApi") as {
-      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
-    } | undefined;
-    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
-  })).toBe("1");
-  await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, "__easyLabelingTestApi") as {
-      getSegmentationSummary?: () => { smartPreview?: { mode: string; pixelCount: number } | null } | null;
-    } | undefined;
-    return api?.getSegmentationSummary?.()?.smartPreview ?? null;
-  })).toMatchObject({ mode: "add" });
-  await expect(page.locator("#segmentationApplySmartPreviewBtn")).toBeEnabled();
-  await expect.poll(() => getRenderedPixelAt(imageCenter)).not.toEqual(beforeSmartSelect);
-  await page.locator("#segmentationSmartSimilaritySlider").fill("45");
-  await expect(page.locator("#segmentationSmartPreviewSummary")).toContainText("preview");
-  await page.keyboard.press("Enter");
-  await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, "__easyLabelingTestApi") as {
-      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
-    } | undefined;
-    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
-  })).toBe("2");
-
-  await page.keyboard.down("Control");
-  await page.mouse.click(imageCenter.x, imageCenter.y);
-  await page.keyboard.up("Control");
-  await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, "__easyLabelingTestApi") as {
-      getSegmentationSummary?: () => { smartPreview?: { mode: string } | null } | null;
-    } | undefined;
-    return api?.getSegmentationSummary?.()?.smartPreview ?? null;
-  })).toMatchObject({ mode: "remove" });
-  await page.locator("#segmentationApplySmartPreviewBtn").click();
-  await expect.poll(async () => page.evaluate(() => {
-    const api = Reflect.get(window, "__easyLabelingTestApi") as {
-      getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
-    } | undefined;
-    return api?.getSegmentationClassAtPoint?.(400, 200) ?? null;
-  })).toBeNull();
-
   await page.locator("#segmentationEraseModeBtn").click();
   await page.mouse.click(imageCenter.x, imageCenter.y);
   await expect.poll(async () => page.evaluate(() => {

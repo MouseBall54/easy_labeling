@@ -33,6 +33,15 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
     height: 600,
     backgroundColor: "#eee"
   });
+  // Fabric ignores secondary-button events unless this is enabled. AI Select
+  // uses the right mouse button for a negative prompt without changing the
+  // existing brush, polygon, or superpixel tools.
+  const canvasWithSecondaryPointer = canvas as FabricCanvasLike & {
+    fireRightClick?: boolean;
+    stopContextMenu?: boolean;
+  };
+  canvasWithSecondaryPointer.fireRightClick = true;
+  canvasWithSecondaryPointer.stopContextMenu = true;
 
   const crosshairState: CrosshairState = {
     isCrosshairVisible: state.isCrosshairVisible,

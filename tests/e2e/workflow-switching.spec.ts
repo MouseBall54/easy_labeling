@@ -130,7 +130,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
   await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
-  await expect(page.locator('#segmentationWorkflowPanel #segmentationFormatSection')).toBeVisible();
+  await expect(page.locator('#openSegmentationFormatBtn')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeHidden();
   await expect(page.locator("#genericModeControls")).toBeHidden();
   await expect(page.locator("#segmentationCanvasToolbar")).toBeVisible();
@@ -143,7 +143,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
 
   await page.locator("#taskSuperpixelBtn").click();
   await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeVisible();
-  await expect(page.locator('#segmentationWorkflowPanel #segmentationFormatSection')).toBeHidden();
+  await expect(page.locator('#openSegmentationFormatBtn')).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Superpixel Inspector");
 
   await page.locator("#taskAnnotateBtn").click();

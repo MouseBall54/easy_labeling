@@ -8,7 +8,8 @@ import type {
   FabricRectLike
 } from "./fabric-types.js";
 import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./history.js";
-import type { SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSmartPreviewSummary, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
+import type { SegmentationAiPreviewSummary, SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSmartPreviewSummary, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
+import type { EdgeSamStatus } from "../edgesam/types.js";
 import type { BoxLayout, PixelPoint } from "../automation/types.js";
 
 export interface AppliedBoxLayout {
@@ -61,6 +62,7 @@ export interface CanvasControllerDeps {
   getColorForClass?: (labelClass: string | undefined) => string;
   historyService?: CanvasHistoryService;
   onDocumentMutation?(): void;
+  edgeSamService?: import("../edgesam/types.js").EdgeSamService;
 }
 
 export interface CanvasShell {
@@ -171,6 +173,14 @@ export interface CanvasController {
   applySegmentationSmartPreview?(): boolean;
   discardSegmentationSmartPreview?(): boolean;
   setSegmentationSmartGrowSettings?(similarity: number, edgeStop: number): void;
+  startSegmentationAiSelect?(pointer: CanvasPoint, label: "positive" | "negative"): Promise<boolean>;
+  startSegmentationAiBox?(pointer: CanvasPoint): void;
+  continueSegmentationAiBox?(pointer: CanvasPoint): void;
+  finishSegmentationAiBox?(pointer: CanvasPoint): Promise<boolean>;
+  getSegmentationAiPreview?(): SegmentationAiPreviewSummary | null;
+  applySegmentationAiPreview?(): boolean;
+  discardSegmentationAiPreview?(): boolean;
+  getEdgeSamStatus?(): EdgeSamStatus;
   setSegmentationBrushRadius?(radius: number): void;
   setSegmentationActiveClass?(classId: string): void;
   setSegmentationAutoFillClosedRegionEnabled?(enabled: boolean): void;

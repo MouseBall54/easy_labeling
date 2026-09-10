@@ -163,6 +163,7 @@ export function createUiManagerAdapter(input: {
   installModalFocusManagement(input.documentRef, [
     "layoutSetupModal",
     "templateMatchingModal",
+    "segmentationFormatModal",
     "classFileViewerModal",
     "labelClassModal",
     "missingLabelFolderModal"
@@ -320,26 +321,22 @@ export function createUiManagerAdapter(input: {
     elements.segmentationEraseModeBtn.classList.toggle("active", isDrawingMode && activeTool === "erase");
     elements.segmentationPolygonModeBtn?.classList.toggle("active", isDrawingMode && activeTool === "polygon");
     elements.segmentationSuperpixelModeBtn?.classList.toggle("active", isDrawingMode && activeTool === "superpixel");
-    elements.segmentationSmartModeBtn?.classList.toggle("active", isDrawingMode && activeTool === "smart");
+    input.documentRef.getElementById("segmentationAiSelectModeBtn")?.classList.toggle("active", isDrawingMode && activeTool === "ai-select");
     input.documentRef.getElementById("segmentationEditModeBtn")?.classList.toggle("active", !isDrawingMode);
-    if (elements.segmentationPolygonHint) {
-      elements.segmentationPolygonHint.hidden = activeTool !== "polygon";
-    }
-    const polygonActions = input.documentRef.getElementById("segmentationPolygonActions");
-    if (polygonActions) polygonActions.hidden = activeTool !== "polygon";
-    const smartSettingsSection = input.documentRef.getElementById("segmentationSmartSettingsSection");
-    if (smartSettingsSection) smartSettingsSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "smart";
-    const smartPreview = summary?.smartPreview ?? null;
-    if (elements.segmentationApplySmartPreviewBtn) elements.segmentationApplySmartPreviewBtn.disabled = smartPreview === null;
-    if (elements.segmentationDiscardSmartPreviewBtn) elements.segmentationDiscardSmartPreviewBtn.disabled = smartPreview === null;
-    if (elements.segmentationSmartPreviewSummary) {
-      elements.segmentationSmartPreviewSummary.classList.toggle("is-remove", smartPreview?.mode === "remove");
-      elements.segmentationSmartPreviewSummary.style.borderLeftColor = smartPreview
-        ? (smartPreview.mode === "remove" ? "#e64b4b" : getColorForClass(smartPreview.classId))
-        : "";
-      elements.segmentationSmartPreviewSummary.textContent = smartPreview
-        ? `${smartPreview.mode === "remove" ? "Removal preview" : "Add preview"} · ${manager.getDisplayNameForClass(smartPreview.classId)} · ${smartPreview.regionCount} region${smartPreview.regionCount === 1 ? "" : "s"} · ${smartPreview.pixelCount.toLocaleString()} px`
-        : "Click to preview a selection. Ctrl+click previews removal.";
+    const aiPreviewSection = input.documentRef.getElementById("segmentationAiPreviewSection");
+    if (aiPreviewSection) aiPreviewSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "ai-select";
+    const polygonActionsSection = input.documentRef.getElementById("segmentationPolygonActionsSection");
+    if (polygonActionsSection) polygonActionsSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "polygon";
+    const toolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
+    if (toolSizeSection) toolSizeSection.hidden = input.state.session.workflow !== "segmentation"
+      || (activeTool !== "brush" && activeTool !== "erase");
+    const aiPreview = summary?.aiPreview ?? null;
+    if (elements.segmentationApplyAiPreviewBtn) elements.segmentationApplyAiPreviewBtn.disabled = aiPreview === null;
+    if (elements.segmentationDiscardAiPreviewBtn) elements.segmentationDiscardAiPreviewBtn.disabled = aiPreview === null;
+    if (elements.segmentationAiPreviewSummary) {
+      elements.segmentationAiPreviewSummary.textContent = aiPreview
+        ? `Preview · ${manager.getDisplayNameForClass(aiPreview.classId)} · ${aiPreview.pixelCount.toLocaleString()} px · ${aiPreview.pointCount} point${aiPreview.pointCount === 1 ? "" : "s"}${aiPreview.hasBox ? " + box" : ""}`
+        : "Click to create a preview. Add points or a box to refine it.";
     }
     if (elements.segmentationSuperpixelSizeSlider && elements.segmentationSuperpixelSizeValue && elements.segmentationSuperpixelBoundaryToggle) {
       const superpixelSize = canvasController?.raw.getSegmentationSuperpixelRegionSize?.() ?? Number.parseInt(elements.segmentationSuperpixelSizeSlider.value, 10);
@@ -465,6 +462,7 @@ export function createUiManagerAdapter(input: {
 
   const syncWorkflowPanels = (): void => {
     const showSegmentationControls = input.state.session.workflow === "segmentation";
+    elements.inspectorSubtitle.hidden = showSegmentationControls;
     renderWorkflowPanels({
       activeWorkflow: input.state.session.workflow,
       detectionPanelElement: elements.detectionWorkflowPanel,
@@ -473,10 +471,10 @@ export function createUiManagerAdapter(input: {
     elements.segmentationAutoFillClosedRegionGroup.hidden = !showSegmentationControls;
     const segmentationWorkspace = input.documentRef.getElementById("segmentationLeftWorkspace");
     const detectionWorkspace = input.documentRef.getElementById("detectionLeftWorkspace");
-    const sectionIds = ["segmentationFormatSection", "segmentationClassSection", "segmentationSuperpixelSection", "segmentationDisplaySection"];
+    const sectionIds = ["segmentationClassSection", "segmentationSuperpixelSection", "segmentationDisplaySection"];
     const isSegmentationTask = activeTask === "segmentation" || activeTask === "superpixel" || activeTask === "segmentation-display";
     const visibleSectionIds = activeTask === "segmentation"
-      ? ["segmentationFormatSection", "segmentationClassSection"]
+      ? ["segmentationClassSection"]
       : activeTask === "superpixel"
         ? ["segmentationSuperpixelSection"]
         : activeTask === "segmentation-display"
@@ -493,24 +491,31 @@ export function createUiManagerAdapter(input: {
       button.hidden = showSegmentationControls;
     });
     input.documentRef.getElementById("reviewFilterControl")?.toggleAttribute("hidden", showSegmentationControls);
+    input.documentRef.getElementById("segmentationFormatShortcut")?.toggleAttribute("hidden", !showSegmentationControls);
     const genericModeControls = input.documentRef.getElementById("genericModeControls");
     const sharedToolSection = input.documentRef.getElementById("sharedToolSection");
     const segmentationCanvasToolbar = input.documentRef.getElementById("segmentationCanvasToolbar");
     const segmentationToolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
-    const segmentationSmartSettingsSection = input.documentRef.getElementById("segmentationSmartSettingsSection");
+    const segmentationAiPreviewSection = input.documentRef.getElementById("segmentationAiPreviewSection");
+    const segmentationPolygonActionsSection = input.documentRef.getElementById("segmentationPolygonActionsSection");
     if (showSegmentationControls) {
       segmentationWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.removeAttribute("hidden");
       genericModeControls?.setAttribute("hidden", "");
       segmentationCanvasToolbar?.removeAttribute("hidden");
-      [segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
+      [segmentationToolSizeSection, segmentationAiPreviewSection, segmentationPolygonActionsSection].forEach((section) => {
         if (section && sharedToolSection) {
           sharedToolSection.appendChild(section);
-          if (section === segmentationSmartSettingsSection) {
+          if (section === segmentationAiPreviewSection) {
             const activeTool = getCanvasController()?.raw.getSegmentationSummary?.().activeTool;
-            section.hidden = activeTool !== "smart";
+            section.hidden = activeTool !== "ai-select";
+          } else if (section === segmentationPolygonActionsSection) {
+            const activeTool = getCanvasController()?.raw.getSegmentationSummary?.().activeTool;
+            section.hidden = activeTool !== "polygon";
           } else {
-            section.hidden = activeTask !== "segmentation";
+            const activeTool = getCanvasController()?.raw.getSegmentationSummary?.().activeTool;
+            section.hidden = activeTask !== "segmentation"
+              || (activeTool !== "brush" && activeTool !== "erase");
           }
         }
       });
@@ -529,10 +534,10 @@ export function createUiManagerAdapter(input: {
       genericModeControls?.removeAttribute("hidden");
       segmentationCanvasToolbar?.setAttribute("hidden", "");
       const panel = elements.segmentationWorkflowPanel;
-      [segmentationToolSizeSection, segmentationSmartSettingsSection].forEach((section) => {
+      [segmentationToolSizeSection, segmentationAiPreviewSection, segmentationPolygonActionsSection].forEach((section) => {
         if (section) {
           panel.appendChild(section);
-          section.hidden = section === segmentationSmartSettingsSection;
+          section.hidden = true;
         }
       });
       sectionIds.forEach((sectionId) => {
@@ -790,12 +795,13 @@ export function createUiManagerAdapter(input: {
       } else {
         elements.inspectorTitle.textContent = input.state.session.workflow === "detection" ? "Annotation Inspector" : "Mask Inspector";
       }
+      elements.inspectorSubtitle.hidden = input.state.session.workflow === "segmentation";
       const segmentationToolLabels: Record<string, string> = {
         brush: "Brush",
         erase: "Erase",
         polygon: "Polygon",
         superpixel: "Superpixel",
-        smart: "Smart Select"
+        "ai-select": "AI Select",
       };
       elements.activeToolSummary.textContent = input.state.view.currentMode === "draw"
         ? (input.state.session.workflow === "segmentation" ? segmentationToolLabels[segmentationSummary?.activeTool ?? "brush"] ?? "Brush" : "Draw")

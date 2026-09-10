@@ -1,6 +1,6 @@
 import type { CanvasPoint } from "../../types/labels.js";
 
-export type SegmentationTool = "brush" | "erase" | "polygon" | "superpixel" | "smart";
+export type SegmentationTool = "brush" | "erase" | "polygon" | "superpixel" | "smart" | "ai-select";
 
 export type SegmentationStrength = "off" | "low" | "medium" | "high";
 
@@ -55,6 +55,7 @@ export interface SegmentationSummary {
   allClassIds: string[];
   hiddenClassIds: string[];
   smartPreview?: SegmentationSmartPreviewSummary | null;
+  aiPreview?: SegmentationAiPreviewSummary | null;
 }
 
 export interface SegmentationSmartPreviewSummary {
@@ -64,6 +65,14 @@ export interface SegmentationSmartPreviewSummary {
   pixelCount: number;
   similarity: number;
   edgeStop: number;
+}
+
+export interface SegmentationAiPreviewSummary {
+  classId: string;
+  pixelCount: number;
+  pointCount: number;
+  hasBox: boolean;
+  score: number;
 }
 
 export interface SegmentationRegionBounds {

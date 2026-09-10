@@ -27,6 +27,9 @@ const REQUIRED_IDS = [
   "reviewRequiredClassesInput",
   "saveReviewRulesBtn",
   "saveLabelsBtn",
+  "openSegmentationFormatBtn",
+  "segmentationFormatModal",
+  "applySegmentationFormatBtn",
   "detectionWorkflowTab",
   "segmentationWorkflowTab",
   "detectionWorkflowPanel",
@@ -202,16 +205,10 @@ const REQUIRED_IDS = [
   "segmentationEraseModeBtn",
   "segmentationPolygonModeBtn",
   "segmentationSuperpixelModeBtn",
-  "segmentationSmartModeBtn",
-  "segmentationPolygonHint",
   "segmentationSuperpixelSizeSlider",
   "segmentationSuperpixelSizeValue",
   "segmentationSuperpixelBoundaryToggle",
   "segmentationRecalculateSuperpixelsBtn",
-  "segmentationSmartSimilaritySlider",
-  "segmentationSmartSimilarityValue",
-  "segmentationSmartEdgeStopSlider",
-  "segmentationSmartEdgeStopValue",
   "segmentationToolSizeLabel",
   "segmentationToolSizeSlider",
   "segmentationToolSizeValue",
@@ -357,7 +354,7 @@ describe("ui/dom-elements", () => {
     expect(result.segmentationWorkflowPanel.id).toBe("segmentationWorkflowPanel");
     expect(result.segmentationBrushModeBtn.id).toBe("segmentationBrushModeBtn");
     expect(result.loadingOverlay.id).toBe("loading-overlay");
-    expect(FakeModal.createdElements).toEqual(["layoutSetupModal", "templateMatchingModal", "classFileViewerModal", "labelClassModal"]);
+    expect(FakeModal.createdElements).toEqual(["segmentationFormatModal", "layoutSetupModal", "templateMatchingModal", "classFileViewerModal", "labelClassModal"]);
   });
 
   it("fails fast with explicit error when critical node is missing", () => {

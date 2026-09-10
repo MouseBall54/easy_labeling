@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createCanvasControllerForWorkflow, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
+import type { FabricCircleLike } from "../../../../src/features/canvas/fabric-types.js";
 import { createFakeFabricRuntime } from "../canvas/test-fakes.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
@@ -96,6 +97,101 @@ describe("features/segmentation/workflow", () => {
     expect(controller.cancelSegmentationPolygon?.()).toBe(true);
     expect(controller.isSegmentationPolygonDrawing?.()).toBe(false);
     expect(controller.canUndo()).toBe(false);
+  });
+
+  it("keeps an AI Select mask as a preview until confirm and discards it without a document mutation", async () => {
+    const mask = new Uint8Array(16 * 16);
+    mask[5 * 16 + 5] = 1;
+    mask[5 * 16 + 6] = 1;
+    const onDocumentMutation = vi.fn();
+    const edgeSamService = {
+      prepareImage: vi.fn(),
+      decode: vi.fn(async () => ({ width: 16, height: 16, mask, score: 0.9 })),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: "test", encoderRuns: 1, message: null })
+    };
+    const controller = createCanvasControllerForWorkflow(
+      "segmentation",
+      createState({ currentMode: "draw", currentImage: { width: 16, height: 16 } }),
+      createDeps({ edgeSamService, onDocumentMutation })
+    );
+    controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationTool?.("ai-select");
+
+    await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBeNull();
+    expect(onDocumentMutation).not.toHaveBeenCalled();
+    expect(controller.getSegmentationAiPreview?.()).toMatchObject({
+      classId: "1",
+      pixelCount: 2,
+      pointCount: 1,
+      hasBox: false,
+      score: 0.9
+    });
+
+    expect(controller.discardSegmentationAiPreview?.()).toBe(true);
+    expect(controller.getSegmentationAiPreview?.()).toBeNull();
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBeNull();
+    expect(onDocumentMutation).not.toHaveBeenCalled();
+
+    await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
+    expect(controller.applySegmentationAiPreview?.()).toBe(true);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("1");
+    expect(onDocumentMutation).toHaveBeenCalledOnce();
+  });
+
+  it("keeps AI Select prompt markers at a pointer-sized screen scale when the view zoom changes", async () => {
+    const mask = new Uint8Array(16 * 16);
+    mask[5 * 16 + 5] = 1;
+    const edgeSamService = {
+      prepareImage: vi.fn(),
+      decode: vi.fn(async () => ({ width: 16, height: 16, mask, score: 0.9 })),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: "test", encoderRuns: 1, message: null })
+    };
+    const controller = createCanvasControllerForWorkflow(
+      "segmentation",
+      createState({ currentMode: "draw", currentImage: { width: 16, height: 16 } }),
+      createDeps({ edgeSamService })
+    );
+    controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationTool?.("ai-select");
+
+    await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
+    const initialMarker = controller.canvas.getObjects("circle").at(-1) as FabricCircleLike | undefined;
+    expect(initialMarker?.radius).toBeCloseTo(6 / controller.canvas.getZoom());
+
+    controller.canvas.setZoom(0.25);
+    controller.updateAllLabelTexts();
+    const zoomedMarker = controller.canvas.getObjects("circle").at(-1) as FabricCircleLike | undefined;
+    expect(zoomedMarker?.radius).toBeCloseTo(24);
+    expect((zoomedMarker?.radius ?? 0) * controller.canvas.getZoom()).toBeCloseTo(6);
+  });
+
+  it("keeps Brush available when AI Select decoding fails", async () => {
+    const edgeSamService = {
+      prepareImage: vi.fn(),
+      decode: vi.fn(async () => { throw new Error("decoder failed"); }),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: "test", encoderRuns: 1, message: null })
+    };
+    const controller = createCanvasControllerForWorkflow(
+      "segmentation",
+      createState({ currentMode: "draw" }),
+      createDeps({ edgeSamService })
+    );
+    controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationTool?.("ai-select");
+
+    await expect(controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive")).resolves.toBe(false);
+
+    controller.setSegmentationTool?.("brush");
+    controller.setSegmentationActiveClass?.("2");
+    await drawStroke(controller, [{ x: 5, y: 5 }]);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("2");
   });
 
   it("invalidates the active superpixel result only when settings change", () => {

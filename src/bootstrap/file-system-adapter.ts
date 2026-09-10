@@ -677,7 +677,7 @@ export function createFileSystemAdapter(input: {
             throwIfOperationCancelled(operation?.signal);
             reportProgress?.("dataset", "ready", imageFolderHandle.name || "Sample workspace connected");
             await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation, reportProgress);
-            uiManager?.notify("Sample test data loaded: 3 images, color labels, layouts, and template presets.", 5000);
+            uiManager?.notify(`Sample test data loaded: ${input.state.session.imageFiles.length} images, color labels, layouts, and template presets.`, 5000);
           });
         });
       },

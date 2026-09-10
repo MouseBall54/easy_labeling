@@ -49,6 +49,30 @@ const fileCopies = [
   {
     from: path.join(rootDir, "node_modules", "@techstark", "opencv-js", "dist", "opencv.js"),
     to: path.join(rootDir, "vendor", "opencv", "opencv.js")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort.all.min.mjs"),
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort.all.min.mjs")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort.all.min.mjs.map"),
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort.all.min.mjs.map")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort-wasm-simd-threaded.mjs"),
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort-wasm-simd-threaded.mjs")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort-wasm-simd-threaded.wasm"),
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort-wasm-simd-threaded.wasm")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort-wasm-simd-threaded.jsep.mjs"),
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort-wasm-simd-threaded.jsep.mjs")
+  },
+  {
+    from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort-wasm-simd-threaded.jsep.wasm"),
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort-wasm-simd-threaded.jsep.wasm")
   }
 ];
 
