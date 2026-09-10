@@ -1515,6 +1515,13 @@ body {
     font-size: 1.05rem;
 }
 
+.history-controls .label-only-status-button.is-active {
+    color: #ffffff;
+    background: var(--workbench-primary);
+    border-color: var(--workbench-primary);
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.28);
+}
+
 .image-navigation {
     justify-self: center;
     gap: 10px;

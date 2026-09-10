@@ -35,6 +35,9 @@
                 <button class="app-icon-button" type="button" id="redoBtn" data-ui="history-redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>
                     <i class="bi bi-arrow-clockwise history-icon" aria-hidden="true"></i>
                 </button>
+                <button class="app-icon-button label-only-status-button" type="button" id="labelOnlyStatusBtn" data-ui="label-only-status" title="Original image visible · Show labels only (Ctrl+L)" aria-label="Original image visible. Show labels only" aria-pressed="false">
+                    <i id="labelOnlyStatusIcon" class="bi bi-image" aria-hidden="true"></i>
+                </button>
             </div>
         </div>
 
@@ -318,8 +321,8 @@
                             <div class="mt-3 pt-3 border-top">
                                 <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="detectionLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
                                 <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
-                                    <button id="detectionLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">Black</button>
-                                    <button id="detectionLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">White</button>
+                                    <button id="detectionLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">White</button>
+                                    <button id="detectionLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">Black</button>
                                     <button id="detectionLabelOnlyGrayBtn" type="button" class="btn btn-outline-secondary" title="Shift+3">Gray</button>
                                 </div>
                             </div>
@@ -444,8 +447,8 @@
                         <div class="mt-3 pt-3 border-top">
                             <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="segmentationLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
                             <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
-                                <button id="segmentationLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">Black</button>
-                                <button id="segmentationLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">White</button>
+                                <button id="segmentationLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">White</button>
+                                <button id="segmentationLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">Black</button>
                                 <button id="segmentationLabelOnlyGrayBtn" type="button" class="btn btn-outline-secondary" title="Shift+3">Gray</button>
                             </div>
                         </div>

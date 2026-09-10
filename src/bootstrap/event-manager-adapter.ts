@@ -149,6 +149,17 @@ export function createEventManagerAdapter(input: {
             button?.setAttribute("aria-pressed", String(background === color));
           });
         });
+        const statusButton = input.documentRef?.getElementById("labelOnlyStatusBtn");
+        const statusIcon = input.documentRef?.getElementById("labelOnlyStatusIcon");
+        statusButton?.classList.toggle("is-active", enabled);
+        statusButton?.setAttribute("aria-pressed", String(enabled));
+        statusButton?.setAttribute("title", enabled
+          ? "Label-only view active · Show original image (Ctrl+L)"
+          : "Original image visible · Show labels only (Ctrl+L)");
+        statusButton?.setAttribute("aria-label", enabled
+          ? "Label-only view active. Show original image"
+          : "Original image visible. Show labels only");
+        if (statusIcon) statusIcon.className = enabled ? "bi bi-layers-fill" : "bi bi-image";
       };
       const applyLabelOnlyView = (enabled = input.state.view.labelOnlyView, background = input.state.view.labelOnlyBackground): void => {
         input.state.view.labelOnlyView = enabled;
@@ -762,6 +773,9 @@ export function createEventManagerAdapter(input: {
             applyLabelOnlyView(input.state.view.labelOnlyView, background);
           });
         });
+      });
+      input.documentRef?.getElementById("labelOnlyStatusBtn")?.addEventListener("click", () => {
+        applyLabelOnlyView(!input.state.view.labelOnlyView);
       });
       elements.selectionClassSelect.addEventListener("change", () => {
         const classId = elements.selectionClassSelect.value;
@@ -1782,8 +1796,8 @@ export function createEventManagerAdapter(input: {
           && !event.ctrlKey
           && !event.metaKey
           && !event.altKey) {
-          const background = event.code === "Digit1" ? "black"
-            : event.code === "Digit2" ? "white"
+          const background = event.code === "Digit1" ? "white"
+            : event.code === "Digit2" ? "black"
               : event.code === "Digit3" ? "gray"
                 : null;
           if (background) {

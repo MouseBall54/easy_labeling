@@ -114,7 +114,7 @@ export function createInitialAppState(): AppState {
       resetFilterStateOnSessionReplacement: true,
       reviewFilter: "all",
       labelOnlyView: false,
-      labelOnlyBackground: "gray"
+      labelOnlyBackground: "white"
     },
     runtime: {
       saveTimeout: null,

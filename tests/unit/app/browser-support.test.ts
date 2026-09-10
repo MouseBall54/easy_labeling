@@ -50,7 +50,7 @@ function createFactorySpies() {
       resetFilterStateOnSessionReplacement: true,
       reviewFilter: "all",
       labelOnlyView: false,
-      labelOnlyBackground: "gray"
+      labelOnlyBackground: "white"
     },
     runtime: {
       saveTimeout: null,
