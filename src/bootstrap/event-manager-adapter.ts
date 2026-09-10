@@ -121,7 +121,47 @@ export function createEventManagerAdapter(input: {
       } catch {
         // Ignore an invalid local preference and continue with default settings.
       }
+      const labelOnlyStorageKey = "easy-labeling:label-only-view-settings";
+      try {
+        const stored = settingsStorage?.getItem(labelOnlyStorageKey);
+        const parsed = stored ? JSON.parse(stored) as Partial<{
+          enabled: boolean;
+          background: "black" | "white" | "gray";
+        }> : null;
+        if (typeof parsed?.enabled === "boolean") input.state.view.labelOnlyView = parsed.enabled;
+        const background = parsed?.background;
+        if (background === "black" || background === "white" || background === "gray") input.state.view.labelOnlyBackground = background;
+      } catch {
+        // Ignore an invalid local preference and continue with default settings.
+      }
       const rawCanvas = input.canvasController.raw.canvas;
+      const syncLabelOnlyControls = (): void => {
+        const enabled = input.state.view.labelOnlyView;
+        const background = input.state.view.labelOnlyBackground;
+        ["detectionLabelOnlyToggle", "segmentationLabelOnlyToggle"].forEach((id) => {
+          const control = input.documentRef?.getElementById(id);
+          if (control instanceof HTMLInputElement) control.checked = enabled;
+        });
+        (["detection", "segmentation"] as const).forEach((workflow) => {
+          (["black", "white", "gray"] as const).forEach((color) => {
+            const button = input.documentRef?.getElementById(`${workflow}LabelOnly${color[0].toUpperCase()}${color.slice(1)}Btn`);
+            button?.classList.toggle("active", background === color);
+            button?.setAttribute("aria-pressed", String(background === color));
+          });
+        });
+      };
+      const applyLabelOnlyView = (enabled = input.state.view.labelOnlyView, background = input.state.view.labelOnlyBackground): void => {
+        input.state.view.labelOnlyView = enabled;
+        input.state.view.labelOnlyBackground = background;
+        input.canvasController.raw.setLabelOnlyView?.(enabled, background);
+        syncLabelOnlyControls();
+        try {
+          settingsStorage?.setItem(labelOnlyStorageKey, JSON.stringify({ enabled, background }));
+        } catch {
+          input.uiManager.notify("Label-only view settings could not be saved locally.", 4000);
+        }
+      };
+      applyLabelOnlyView();
       const automationController = input.documentRef
         ? createAutomationController({
           state: input.state,
@@ -709,6 +749,19 @@ export function createEventManagerAdapter(input: {
       });
       elements.labelDisplayModeSelect.addEventListener("change", () => {
         input.uiManager.setLabelDisplayMode?.(elements.labelDisplayModeSelect.value as LabelDisplayMode);
+      });
+      ["detectionLabelOnlyToggle", "segmentationLabelOnlyToggle"].forEach((id) => {
+        input.documentRef?.getElementById(id)?.addEventListener("change", (event) => {
+          const control = event.currentTarget;
+          if (control instanceof HTMLInputElement) applyLabelOnlyView(control.checked);
+        });
+      });
+      (["detection", "segmentation"] as const).forEach((workflow) => {
+        (["black", "white", "gray"] as const).forEach((background) => {
+          input.documentRef?.getElementById(`${workflow}LabelOnly${background[0].toUpperCase()}${background.slice(1)}Btn`)?.addEventListener("click", () => {
+            applyLabelOnlyView(input.state.view.labelOnlyView, background);
+          });
+        });
       });
       elements.selectionClassSelect.addEventListener("change", () => {
         const classId = elements.selectionClassSelect.value;
@@ -1710,6 +1763,34 @@ export function createEventManagerAdapter(input: {
         }
         if (elements.classFileViewerModal._element?.classList.contains("show")) {
           return;
+        }
+
+        const canUseLabelOnlyShortcut = input.state.session.currentImage !== null
+          && input.documentRef?.querySelector(".modal.show") === null;
+        if (canUseLabelOnlyShortcut
+          && event.ctrlKey
+          && !event.metaKey
+          && !event.altKey
+          && !event.shiftKey
+          && event.key.toLowerCase() === "l") {
+          event.preventDefault();
+          applyLabelOnlyView(!input.state.view.labelOnlyView);
+          return;
+        }
+        if (canUseLabelOnlyShortcut
+          && event.shiftKey
+          && !event.ctrlKey
+          && !event.metaKey
+          && !event.altKey) {
+          const background = event.code === "Digit1" ? "black"
+            : event.code === "Digit2" ? "white"
+              : event.code === "Digit3" ? "gray"
+                : null;
+          if (background) {
+            event.preventDefault();
+            applyLabelOnlyView(input.state.view.labelOnlyView, background);
+            return;
+          }
         }
 
         if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "h") {

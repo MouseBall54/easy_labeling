@@ -59,6 +59,8 @@ export interface AppViewState {
   persistFilterStateAcrossImageNavigation: boolean;
   resetFilterStateOnSessionReplacement: boolean;
   reviewFilter: "all" | "needs-review" | "reviewed" | "has-issues";
+  labelOnlyView: boolean;
+  labelOnlyBackground: "black" | "white" | "gray";
 }
 
 export interface AppRuntimeState {
@@ -110,7 +112,9 @@ export function createInitialAppState(): AppState {
       clearSelectionWhenFilteredHidden: true,
       persistFilterStateAcrossImageNavigation: true,
       resetFilterStateOnSessionReplacement: true,
-      reviewFilter: "all"
+      reviewFilter: "all",
+      labelOnlyView: false,
+      labelOnlyBackground: "gray"
     },
     runtime: {
       saveTimeout: null,

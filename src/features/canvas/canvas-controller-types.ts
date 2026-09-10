@@ -76,6 +76,7 @@ export interface CanvasShell {
   renderAll(): void;
   clear(): void;
   setBackgroundImage(image: unknown): void;
+  setLabelOnlyView(enabled: boolean, background: "black" | "white" | "gray"): void;
   setMode(mode: AppMode): void;
   setZoomPercentage(percentage: string): void;
   zoom(factor: number): void;
@@ -96,6 +97,7 @@ export interface CanvasController {
   renderAll(): void;
   clear(): void;
   setBackgroundImage(image: unknown): void;
+  setLabelOnlyView?(enabled: boolean, background: "black" | "white" | "gray"): void;
   setMode(mode: AppMode): void;
   addLabelsFromYolo(yoloData: string): void;
   getLabelsAsYolo(): string;

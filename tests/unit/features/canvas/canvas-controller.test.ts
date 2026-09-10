@@ -164,6 +164,21 @@ describe("features/canvas/canvas-controller", () => {
     expect(canvas.height).toBe(480);
   });
 
+  it("hides only the base image and applies the selected review background in label-only view", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.setBackgroundImage({ width: 200, height: 100 });
+    const canvas = controller.canvas as FakeCanvas;
+    const baseImage = canvas.getObjects("image")[0];
+
+    controller.setLabelOnlyView!(true, "black");
+    expect(baseImage?.visible).toBe(false);
+    expect(canvas.backgroundColor).toBe("#000000");
+
+    controller.setLabelOnlyView!(false, "white");
+    expect(baseImage?.visible).toBe(true);
+    expect(canvas.backgroundColor).toBe("#ffffff");
+  });
+
   it("replaces the previous base image layer when a new image is loaded", () => {
     const controller = createCanvasController(createState(), createDeps());
     const canvas = controller.canvas as FakeCanvas;

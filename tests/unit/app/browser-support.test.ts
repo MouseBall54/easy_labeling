@@ -48,7 +48,9 @@ function createFactorySpies() {
       clearSelectionWhenFilteredHidden: true,
       persistFilterStateAcrossImageNavigation: true,
       resetFilterStateOnSessionReplacement: true,
-      reviewFilter: "all"
+      reviewFilter: "all",
+      labelOnlyView: false,
+      labelOnlyBackground: "gray"
     },
     runtime: {
       saveTimeout: null,

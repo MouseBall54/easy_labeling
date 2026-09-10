@@ -1059,6 +1059,10 @@ export function createSegmentationCanvasWorkflow(
       });
     },
 
+    setLabelOnlyView(enabled, background): void {
+      shell.setLabelOnlyView(enabled, background);
+    },
+
     recalculateSegmentationSuperpixels(regionSize: number): boolean {
       const doc = ensureDocument();
       const source = state.currentImage as unknown as CanvasImageSource | null;

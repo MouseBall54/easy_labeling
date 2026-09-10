@@ -357,12 +357,13 @@ export class FakeCanvas implements FabricCanvasLike {
   public removedObjects: FabricObjectLike[] = [];
   public activeObject: FabricObjectLike | null = null;
   public backgroundImage: unknown = null;
+  public backgroundColor: string;
   private zoom = 1;
   private readonly handlers = new Map<string, Array<(event: { e: MouseEvent | WheelEvent; target?: FabricObjectLike | null }) => void>>();
 
   constructor(elementId: string, options: { width: number; height: number; backgroundColor: string }) {
     void elementId;
-    void options.backgroundColor;
+    this.backgroundColor = options.backgroundColor;
     this.width = options.width;
     this.height = options.height;
   }

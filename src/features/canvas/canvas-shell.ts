@@ -51,6 +51,7 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
 
   const history = deps.historyService ?? createCanvasHistoryService();
   let baseImageObject: FabricObjectLike | null = null;
+  let labelOnlyViewEnabled = false;
   let coordinateHighlightObjects: FabricObjectLike[] = [];
   let coordinateHighlightTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
@@ -167,10 +168,19 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
         hoverCursor: "default"
       });
       baseImage._isBaseImage = true;
+      baseImage.set("visible", !labelOnlyViewEnabled);
       baseImageObject = baseImage;
       addBaseImageObject(baseImage);
       this.renderAll();
       syncCanvasOffset();
+    },
+
+    setLabelOnlyView(enabled: boolean, background: "black" | "white" | "gray"): void {
+      labelOnlyViewEnabled = enabled;
+      const canvasBackground = background === "black" ? "#000000" : background === "white" ? "#ffffff" : "#808080";
+      (canvas as unknown as { backgroundColor?: string }).backgroundColor = canvasBackground;
+      baseImageObject?.set("visible", !enabled);
+      this.renderAll();
     },
 
     setMode(mode: AppMode): void {

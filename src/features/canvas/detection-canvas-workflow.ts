@@ -466,6 +466,10 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       shell.setBackgroundImage(image);
     },
 
+    setLabelOnlyView(enabled, background): void {
+      shell.setLabelOnlyView(enabled, background);
+    },
+
     setMode(mode: AppMode): void {
       shell.setMode(mode);
       this.getObjects("rect").forEach((obj) => {
