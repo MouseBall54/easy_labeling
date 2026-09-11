@@ -3,6 +3,7 @@ import { createOperationCancelledError } from "../app/operation.js";
 import type { AppState } from "../app/state.js";
 import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
+import { validateNewClassFileName } from "../domain/class-files.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import {
   getDOMElements,
@@ -77,6 +78,7 @@ export interface RuntimeUiManager extends UIManager {
   updateLabelFolderButton(hasLabelFolder: boolean): void;
   setWorkflow(workflow: WorkflowType): void;
   promptForLabelClass(defaultValue: string): Promise<string>;
+  promptForClassFileName(defaultValue: string, existingNames: string[]): Promise<string | null>;
   confirmMissingLabelFolderCreation(): Promise<boolean>;
   notify(message: string, duration?: number): void;
   updateZoomDisplay(zoomLevel?: number): void;
@@ -164,6 +166,7 @@ export function createUiManagerAdapter(input: {
     "layoutSetupModal",
     "templateMatchingModal",
     "segmentationFormatModal",
+    "createClassFileModal",
     "classFileViewerModal",
     "labelClassModal",
     "missingLabelFolderModal"
@@ -178,6 +181,7 @@ export function createUiManagerAdapter(input: {
   let activeTask: "files" | "annotate" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
+  let rightPanelCollapsed = elements.rightPanel.classList.contains("collapsed");
   let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
 
@@ -309,14 +313,18 @@ export function createUiManagerAdapter(input: {
     elements.segmentationActiveClassSummary.textContent = `Painting: ${manager.getDisplayNameForClass(activeClassId)}`;
     const selectedRegion = canvasController?.raw.getSelectedSegmentationRegion?.() ?? null;
     const selectedRegionSummary = input.documentRef.getElementById("segmentationSelectedRegionSummary");
+    const regionActions = input.documentRef.getElementById("segmentationRegionActions");
     const deleteRegionButton = input.documentRef.getElementById("segmentationDeleteRegionBtn") as HTMLButtonElement | null;
+    const isDrawingMode = input.state.view.currentMode === "draw";
     if (selectedRegionSummary) {
+      selectedRegionSummary.hidden = isDrawingMode;
       selectedRegionSummary.textContent = selectedRegion
         ? `${manager.getDisplayNameForClass(selectedRegion.classId)} · ${selectedRegion.pixelCount.toLocaleString()} px · ${selectedRegion.bounds.right - selectedRegion.bounds.left + 1} × ${selectedRegion.bounds.bottom - selectedRegion.bounds.top + 1}`
-        : "Select a mask region in Edit mode to inspect it.";
+        : "Select a region to inspect.";
     }
     if (deleteRegionButton) deleteRegionButton.disabled = selectedRegion === null;
-    const isDrawingMode = input.state.view.currentMode === "draw";
+    if (regionActions) regionActions.hidden = isDrawingMode;
+    (elements.segmentationRelabelRegionBtn as HTMLButtonElement).disabled = selectedRegion === null;
     elements.segmentationBrushModeBtn.classList.toggle("active", isDrawingMode && activeTool === "brush");
     elements.segmentationEraseModeBtn.classList.toggle("active", isDrawingMode && activeTool === "erase");
     elements.segmentationPolygonModeBtn?.classList.toggle("active", isDrawingMode && activeTool === "polygon");
@@ -329,6 +337,8 @@ export function createUiManagerAdapter(input: {
     if (polygonActionsSection) polygonActionsSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "polygon";
     const toolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
     if (toolSizeSection) toolSizeSection.hidden = input.state.session.workflow !== "segmentation"
+      || activeTask !== "segmentation"
+      || !isDrawingMode
       || (activeTool !== "brush" && activeTool !== "erase");
     const aiPreview = summary?.aiPreview ?? null;
     if (elements.segmentationApplyAiPreviewBtn) elements.segmentationApplyAiPreviewBtn.disabled = aiPreview === null;
@@ -386,13 +396,16 @@ export function createUiManagerAdapter(input: {
       segmentationClassIds.forEach((classId) => {
         const paintClassButton = input.documentRef.createElement("button");
         paintClassButton.type = "button";
-        paintClassButton.className = `btn btn-sm mb-1 me-1 ${classId === activeClassId ? "btn-primary active" : "btn-outline-primary"}`;
+        paintClassButton.className = `btn btn-sm segmentation-paint-class-button ${classId === activeClassId ? "btn-primary active" : "btn-outline-primary"}`;
         paintClassButton.dataset.ui = "segmentation-active-class";
         paintClassButton.dataset.classId = classId;
+        const classDisplayName = manager.getDisplayNameForClass(classId);
+        paintClassButton.title = classDisplayName;
+        paintClassButton.setAttribute("aria-label", `Paint class ${classDisplayName}`);
         const color = input.documentRef.createElement("span");
         color.className = "segmentation-class-color-chip";
         color.style.background = getColorForClass(classId);
-        paintClassButton.append(color, input.documentRef.createTextNode(manager.getDisplayNameForClass(classId)));
+        paintClassButton.append(color, input.documentRef.createTextNode(classId));
         paintClassList?.appendChild(paintClassButton);
       });
 
@@ -470,17 +483,15 @@ export function createUiManagerAdapter(input: {
     });
     elements.segmentationAutoFillClosedRegionGroup.hidden = !showSegmentationControls;
     const segmentationWorkspace = input.documentRef.getElementById("segmentationLeftWorkspace");
+    const segmentationDisplayWorkspace = input.documentRef.getElementById("segmentationDisplayWorkspace");
+    const segmentationSuperpixelWorkspace = input.documentRef.getElementById("segmentationSuperpixelWorkspace");
     const detectionWorkspace = input.documentRef.getElementById("detectionLeftWorkspace");
     const preprocessingTaskButton = input.documentRef.getElementById("taskSegmentationPreprocessingBtn");
-    const sectionIds = ["segmentationClassSection", "segmentationSuperpixelSection", "segmentationDisplaySection"];
+    const sectionIds = ["segmentationClassSection"];
     const isSegmentationTask = activeTask === "segmentation" || activeTask === "superpixel" || activeTask === "segmentation-display" || activeTask === "segmentation-preprocessing";
     const visibleSectionIds = activeTask === "segmentation"
       ? ["segmentationClassSection"]
-      : activeTask === "superpixel"
-        ? ["segmentationSuperpixelSection"]
-        : activeTask === "segmentation-display"
-          ? ["segmentationDisplaySection"]
-          : [];
+      : [];
     [elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton]
       .filter((button): button is HTMLButtonElement => Boolean(button))
       .forEach((button) => {
@@ -500,8 +511,11 @@ export function createUiManagerAdapter(input: {
     const segmentationAiPreviewSection = input.documentRef.getElementById("segmentationAiPreviewSection");
     const segmentationPolygonActionsSection = input.documentRef.getElementById("segmentationPolygonActionsSection");
     if (showSegmentationControls) {
-      segmentationWorkspace?.toggleAttribute("hidden", activeTask !== "segmentation-preprocessing");
-      detectionWorkspace?.toggleAttribute("hidden", activeTask === "segmentation-preprocessing");
+      const isLeftSegmentationWorkspace = activeTask === "segmentation-preprocessing" || activeTask === "segmentation-display" || activeTask === "superpixel";
+      segmentationWorkspace?.toggleAttribute("hidden", !isLeftSegmentationWorkspace);
+      detectionWorkspace?.toggleAttribute("hidden", isLeftSegmentationWorkspace);
+      segmentationDisplayWorkspace?.toggleAttribute("hidden", activeTask !== "segmentation-display");
+      segmentationSuperpixelWorkspace?.toggleAttribute("hidden", activeTask !== "superpixel");
       genericModeControls?.setAttribute("hidden", "");
       segmentationCanvasToolbar?.removeAttribute("hidden");
       [segmentationToolSizeSection, segmentationAiPreviewSection, segmentationPolygonActionsSection].forEach((section) => {
@@ -529,13 +543,14 @@ export function createUiManagerAdapter(input: {
       });
       const preprocessingSection = input.documentRef.getElementById("segmentationPreprocessingSection");
       if (preprocessingSection && segmentationWorkspace) {
-        segmentationWorkspace.appendChild(preprocessingSection);
         preprocessingSection.hidden = activeTask !== "segmentation-preprocessing";
       }
       elements.inspectorTitle.textContent = "Mask Inspector";
       elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
     } else {
       segmentationWorkspace?.setAttribute("hidden", "");
+      segmentationDisplayWorkspace?.setAttribute("hidden", "");
+      segmentationSuperpixelWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.removeAttribute("hidden");
       genericModeControls?.removeAttribute("hidden");
       segmentationCanvasToolbar?.setAttribute("hidden", "");
@@ -555,7 +570,6 @@ export function createUiManagerAdapter(input: {
       });
       const preprocessingSection = input.documentRef.getElementById("segmentationPreprocessingSection");
       if (preprocessingSection) {
-        panel.appendChild(preprocessingSection);
         preprocessingSection.hidden = true;
       }
     }
@@ -581,6 +595,8 @@ export function createUiManagerAdapter(input: {
     setActiveTask(task: "files" | "annotate" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review"): void {
       activeTask = task;
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display" || task === "segmentation-preprocessing";
+      const preserveCollapsedRightPanel = isSegmentationTask
+        && (elements.rightPanel.dataset.userCollapsed === "true" || rightPanelCollapsed);
       const preprocessingTaskButton = input.documentRef.getElementById("taskSegmentationPreprocessingBtn");
       const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
         .filter((button): button is HTMLButtonElement => Boolean(button));
@@ -618,10 +634,10 @@ export function createUiManagerAdapter(input: {
 
       if (isSegmentationTask) {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, task === "segmentation-preprocessing");
+        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, preserveCollapsedRightPanel);
         if (task === "segmentation-preprocessing") {
           elements.inspectorTitle.textContent = "Image Preprocessing";
-          elements.inspectorSubtitle.textContent = "SEM edge enhancement and source routing";
+          elements.inspectorSubtitle.textContent = "";
         } else if (task === "superpixel") {
           elements.inspectorTitle.textContent = "Superpixel Inspector";
           elements.inspectorSubtitle.textContent = "Tune region extraction and saved presets";
@@ -777,9 +793,19 @@ export function createUiManagerAdapter(input: {
       const leftPanelTitle = input.documentRef.getElementById("leftPanelTitle");
       if (activeTask === "segmentation-preprocessing") {
         if (leftPanelTitle) leftPanelTitle.textContent = "Image Preprocessing";
-        elements.datasetConnectionStatus.textContent = "SEM edge enhancement & source routing";
+        elements.datasetConnectionStatus.textContent = "";
+        elements.datasetConnectionStatus.hidden = true;
+      } else if (activeTask === "segmentation-display") {
+        if (leftPanelTitle) leftPanelTitle.textContent = "Mask Display";
+        elements.datasetConnectionStatus.textContent = "";
+        elements.datasetConnectionStatus.hidden = true;
+      } else if (activeTask === "superpixel") {
+        if (leftPanelTitle) leftPanelTitle.textContent = "Superpixel Settings";
+        elements.datasetConnectionStatus.textContent = "";
+        elements.datasetConnectionStatus.hidden = true;
       } else {
         if (leftPanelTitle) leftPanelTitle.textContent = "Files & Classes";
+        elements.datasetConnectionStatus.hidden = false;
         elements.datasetConnectionStatus.textContent = folderName
           ? `${folderName} · ${imageCount} image${imageCount === 1 ? "" : "s"}`
           : "No dataset connected";
@@ -966,6 +992,62 @@ export function createUiManagerAdapter(input: {
         elements.labelClassModal._element?.addEventListener("hidden.bs.modal", onHidden as EventListener, { once: true });
         elements.labelClassInput.addEventListener("keydown", onKeyDown);
         elements.labelClassInput.addEventListener("input", onInput);
+      });
+    },
+
+    async promptForClassFileName(defaultValue: string, existingNames: string[]): Promise<string | null> {
+      const inputElement = elements.newClassFileNameInput;
+      const errorElement = elements.newClassFileNameError;
+      const saveButton = elements.confirmCreateClassFileBtn;
+      const modalElement = elements.createClassFileModal._element;
+
+      const setError = (error: unknown | null): void => {
+        inputElement.classList.toggle("is-invalid", error !== null);
+        errorElement.hidden = error === null;
+        errorElement.textContent = error instanceof Error ? error.message : "";
+      };
+
+      inputElement.value = defaultValue;
+      setError(null);
+      elements.createClassFileModal.show();
+      inputElement.focus();
+      inputElement.select();
+
+      return new Promise<string | null>((resolve) => {
+        const cleanup = (): void => {
+          saveButton.removeEventListener("click", onSave);
+          modalElement?.removeEventListener("hidden.bs.modal", onHidden as EventListener);
+          inputElement.removeEventListener("keydown", onKeyDown);
+          inputElement.removeEventListener("input", onInput);
+        };
+        const onSave = (): void => {
+          try {
+            const fileName = validateNewClassFileName(inputElement.value, existingNames);
+            setError(null);
+            cleanup();
+            elements.createClassFileModal.hide();
+            resolve(fileName);
+          } catch (error: unknown) {
+            setError(error);
+            inputElement.focus();
+          }
+        };
+        const onHidden = (): void => {
+          cleanup();
+          resolve(null);
+        };
+        const onKeyDown = (event: KeyboardEvent): void => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onSave();
+          }
+        };
+        const onInput = (): void => setError(null);
+
+        saveButton.addEventListener("click", onSave);
+        modalElement?.addEventListener("hidden.bs.modal", onHidden as EventListener, { once: true });
+        inputElement.addEventListener("keydown", onKeyDown);
+        inputElement.addEventListener("input", onInput);
       });
     },
 
@@ -1546,6 +1628,9 @@ export function createUiManagerAdapter(input: {
     },
 
     togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void {
+      if (panel === elements.rightPanel) {
+        rightPanelCollapsed = collapse;
+      }
       panel.style.display = "";
       panel.classList.toggle("collapsed", collapse);
       panel.setAttribute("aria-hidden", String(collapse));

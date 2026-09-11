@@ -842,4 +842,22 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     expect(elements.inspectorAnnotationPane.hidden).toBe(false);
     expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
   });
+
+  it("preserves the user-collapsed inspector across segmentation workspaces", () => {
+    const { manager, elements } = createManagerWithRects({ rects: [] });
+
+    manager.setWorkflow("segmentation");
+    elements.rightPanel.dataset.userCollapsed = "true";
+    manager.togglePanel(
+      elements.rightPanel as unknown as HTMLElement,
+      elements.rightSplitter as unknown as HTMLElement,
+      elements.expandRightPanelBtn as unknown as HTMLElement,
+      true
+    );
+    manager.setActiveTask("superpixel");
+    manager.setActiveTask("segmentation-display");
+
+    expect(elements.rightPanel.classList.contains("collapsed")).toBe(true);
+    expect(elements.expandRightPanelBtn.style.display).toBe("inline-flex");
+  });
 });

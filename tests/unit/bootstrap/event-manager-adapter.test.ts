@@ -382,7 +382,7 @@ function createNoopFileSystem() {
     showClassFileContent: vi.fn(async () => {}),
     saveClassFileContent: vi.fn(async () => {}),
     addNewClassRow: vi.fn(),
-    createNewClassFile: vi.fn(async () => {}),
+    createNewClassFile: vi.fn(async () => true),
     loadClassNamesFromFile: vi.fn(async () => {}),
     navigateImage: vi.fn(async () => {})
   } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"];
@@ -852,7 +852,7 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.commitHistoryFromBaseline).not.toHaveBeenCalled();
   });
 
-  it("waits for the view button before creating and opening a new class file", async () => {
+  it("starts class-file creation as soon as the create option is selected", async () => {
     const state = createInitialAppState();
     const elements = createElements();
     const fileSystem = createNoopFileSystem();
@@ -871,10 +871,8 @@ describe("bootstrap/event-manager-adapter", () => {
     elements.classFileSelect.value = "__CREATE_NEW__";
     elements.classFileSelect.dispatch("change", {});
     await Promise.resolve();
-    expect(fileSystem.createNewClassFile).not.toHaveBeenCalled();
-
-    elements.viewClassFileBtn.dispatch("click", {});
     await Promise.resolve();
+    expect(fileSystem.createNewClassFile).toHaveBeenCalledTimes(1);
     expect(fileSystem.showClassFileContent).toHaveBeenCalledTimes(1);
   });
 

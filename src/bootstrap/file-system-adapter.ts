@@ -182,7 +182,7 @@ export interface RuntimeFileSystem extends FileSystem {
   showClassFileContent(): Promise<void>;
   saveClassFileContent(): Promise<void>;
   addNewClassRow(): void;
-  createNewClassFile(): Promise<void>;
+  createNewClassFile(): Promise<boolean>;
   readonly imageSessionService: ImageSessionService;
 }
 
@@ -890,7 +890,8 @@ export function createFileSystemAdapter(input: {
         }
 
         if ((connectedDeps.uiManager as RuntimeUiManager).elements.classFileSelect.value === CREATE_NEW_CLASS_FILE_VALUE) {
-          await this.createNewClassFile();
+          const created = await this.createNewClassFile();
+          if (!created) return;
         }
 
         if (!input.state.session.selectedClassFile) {
@@ -952,29 +953,36 @@ export function createFileSystemAdapter(input: {
         tbody.appendChild(tr);
       },
 
-      async createNewClassFile(): Promise<void> {
+      async createNewClassFile(): Promise<boolean> {
         if (!input.state.session.classInfoFolderHandle) {
           await this.loadDefaultClassInfo();
         }
         const folderHandle = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
         if (!folderHandle || !connectedDeps) {
           (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify("Open a dataset or connect a Class Info folder first.");
-          return;
+          return false;
         }
 
-        let suffix = 1;
-        let result = await createNewClassFile(folderHandle, "classes.yaml");
-        while (!result.created) {
-          suffix += 1;
-          result = await createNewClassFile(folderHandle, `classes-${suffix}.yaml`);
+        const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+        const fileName = await uiManager.promptForClassFileName("classes.yaml", input.state.session.classFiles.map((file) => file.name));
+        if (!fileName) {
+          uiManager.renderClassFileSelect();
+          return false;
+        }
+        const result = await createNewClassFile(folderHandle, fileName);
+        if (!result.created) {
+          uiManager.notify("A class file with this name already exists.");
+          uiManager.renderClassFileSelect();
+          return false;
         }
         if (!result.fileHandle) {
-          return;
+          return false;
         }
 
         input.state.session.classFiles = [...input.state.session.classFiles, result.fileHandle as FileHandle];
-        (connectedDeps.uiManager as RuntimeUiManager).renderClassFileSelect();
+        uiManager.renderClassFileSelect();
         await this.loadClassNamesFromFile(result.fileHandle);
+        return true;
       }
     };
 

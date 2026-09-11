@@ -131,18 +131,49 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
   await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
   await expect(page.locator('#openSegmentationFormatBtn')).toBeVisible();
-  await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeHidden();
+  await expect(page.locator('#left-panel #segmentationSuperpixelSection')).toBeHidden();
   await expect(page.locator("#genericModeControls")).toBeHidden();
   await expect(page.locator("#segmentationCanvasToolbar")).toBeVisible();
   await expect(page.locator("#segmentationCanvasToolbar #segmentationToolsSection")).toBeVisible();
-  await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeVisible();
-  await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Active Class');
+  await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeHidden();
+  await expect(page.locator("#segmentationSelectedRegionSummary")).toBeVisible();
+  await expect(page.locator("#segmentationSelectedRegionSummary")).toHaveText("Select a region to inspect.");
+  await expect(page.locator("#segmentationRegionActions")).toBeVisible();
+  await expect(page.locator("#segmentationRelabelRegionBtn")).toBeDisabled();
+  await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Painting:');
+  await expect(page.locator("#segmentationPaintClassList [data-ui='segmentation-active-class']")).toHaveText(["0", "1", "2", "3", "4"]);
   await expect(page.locator("#taskAnnotateBtn")).toBeHidden();
   await expect(page.locator("#taskSuperpixelBtn")).toBeVisible();
   await expect(page.locator("#taskSegmentationDisplayBtn")).toBeVisible();
 
+  await page.locator("#segmentationBrushModeBtn").click();
+  await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeVisible();
+  await expect(page.locator("#segmentationSelectedRegionSummary")).toBeHidden();
+  await expect(page.locator("#segmentationRegionActions")).toBeHidden();
+  await page.locator("#segmentationEditModeBtn").click();
+  await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeHidden();
+  await expect(page.locator("#segmentationSelectedRegionSummary")).toBeVisible();
+  await expect(page.locator("#segmentationRegionActions")).toBeVisible();
+
+  await page.locator("#taskSegmentationDisplayBtn").click();
+  await expect(page.locator("#detectionLeftWorkspace")).toBeHidden();
+  await expect(page.locator("#segmentationDisplayWorkspace")).toBeVisible();
+  await expect(page.locator("#left-panel #segmentationDisplaySection")).toBeVisible();
+  await expect(page.locator("#right-panel #segmentationDisplaySection")).toHaveCount(0);
+  await expect(page.locator("#leftPanelTitle")).toHaveText("Mask Display");
+
+  await page.locator("#taskSegmentationPreprocessingBtn").click();
+  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#left-panel #segmentationPreprocessingSection")).toBeVisible();
+  await expect(page.locator("#datasetConnectionStatus")).toBeHidden();
+  await expect(page.getByText("Enhance SEM structure without changing source data.")).toHaveCount(0);
+
   await page.locator("#taskSuperpixelBtn").click();
-  await expect(page.locator('#segmentationWorkflowPanel #segmentationSuperpixelSection')).toBeVisible();
+  await expect(page.locator('#detectionLeftWorkspace')).toBeHidden();
+  await expect(page.locator('#segmentationSuperpixelWorkspace')).toBeVisible();
+  await expect(page.locator('#left-panel #segmentationSuperpixelSection')).toBeVisible();
+  await expect(page.locator('#right-panel #segmentationSuperpixelSection')).toHaveCount(0);
+  await expect(page.locator('#leftPanelTitle')).toHaveText('Superpixel Settings');
   await expect(page.locator('#openSegmentationFormatBtn')).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Superpixel Inspector");
 

@@ -766,7 +766,8 @@ export function createEventManagerAdapter(input: {
       elements.addClassShortcutBtn.addEventListener("click", () => {
         runExclusive("open-class-editor", async () => {
           if (!input.state.session.selectedClassFile && input.state.session.classFiles.length === 0) {
-            await input.fileSystem.createNewClassFile();
+            const created = await input.fileSystem.createNewClassFile();
+            if (!created) return;
           }
           await input.fileSystem.showClassFileContent();
         }, elements.addClassShortcutBtn);
@@ -894,6 +895,12 @@ export function createEventManagerAdapter(input: {
       elements.classFileSelect.addEventListener("change", () => {
         const selectedFileName = elements.classFileSelect.value;
         if (selectedFileName === "__CREATE_NEW__") {
+          runExclusive("create-class-file", async () => {
+            const created = await input.fileSystem.createNewClassFile();
+            if (created) {
+              await input.fileSystem.showClassFileContent();
+            }
+          });
           return;
         }
         if (!selectedFileName) {
@@ -1524,9 +1531,11 @@ export function createEventManagerAdapter(input: {
         input.uiManager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
       });
       elements.collapseRightPanelBtn.addEventListener("click", () => {
+        elements.rightPanel.dataset.userCollapsed = "true";
         input.uiManager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, true);
       });
       elements.expandRightPanelBtn.addEventListener("click", () => {
+        elements.rightPanel.dataset.userCollapsed = "false";
         input.uiManager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
       });
 
