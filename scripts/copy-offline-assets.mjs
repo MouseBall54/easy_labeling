@@ -56,7 +56,8 @@ const fileCopies = [
   },
   {
     from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort.all.min.mjs.map"),
-    to: path.join(rootDir, "vendor", "onnxruntime", "ort.all.min.mjs.map")
+    to: path.join(rootDir, "vendor", "onnxruntime", "ort.all.min.mjs.map"),
+    optional: true
   },
   {
     from: path.join(rootDir, "node_modules", "onnxruntime-web", "dist", "ort-wasm-simd-threaded.mjs"),

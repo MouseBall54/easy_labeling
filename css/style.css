@@ -1843,6 +1843,143 @@ body {
 
 .compatibility-notice[hidden] { display: none; }
 
+.segmentation-left-workspace {
+    min-height: 100%;
+}
+
+.segmentation-left-workspace[hidden] {
+    display: none;
+}
+
+.segmentation-preprocessing-section {
+    min-height: 100%;
+    padding: 4px 0 12px;
+}
+
+.segmentation-preprocessing-heading {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 4px 0 16px;
+    border-bottom: 1px solid var(--workbench-border);
+}
+
+.segmentation-preprocessing-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    color: #dcecff;
+    background: linear-gradient(145deg, #195fca, #113c76);
+    border: 1px solid rgba(116, 177, 255, 0.55);
+    border-radius: 7px;
+    box-shadow: 0 8px 20px rgba(11, 64, 138, 0.2);
+}
+
+.segmentation-preprocessing-heading h3 {
+    margin: 0;
+    color: var(--workbench-text);
+    font-size: 0.88rem;
+    font-weight: 750;
+}
+
+.segmentation-preprocessing-heading p {
+    margin: 3px 0 0;
+    color: var(--workbench-text-muted);
+    font-size: 0.7rem;
+    line-height: 1.35;
+}
+
+.segmentation-preprocessing-block {
+    padding: 15px 0 0;
+}
+
+.segmentation-preprocessing-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+    color: var(--workbench-text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+}
+
+.segmentation-preprocessing-label small {
+    padding: 2px 5px;
+    color: var(--workbench-primary);
+    background: var(--workbench-primary-soft);
+    border-radius: 3px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.segmentation-preprocessing-toggle .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+}
+
+.segmentation-preprocessing-toggle .btn.active {
+    color: #f4f8ff;
+    background: linear-gradient(135deg, #1769e0, #1354ad);
+    box-shadow: inset 0 0 0 1px rgba(167, 207, 255, 0.25);
+}
+
+.segmentation-preprocessing-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding-top: 14px;
+}
+
+.segmentation-preprocessing-controls .form-label,
+.segmentation-preprocessing-block .form-label,
+.segmentation-preprocessing-inputs label > span {
+    color: var(--workbench-text-muted);
+    font-size: 0.7rem;
+    font-weight: 650;
+}
+
+.segmentation-preprocessing-controls .form-label span {
+    float: right;
+    color: var(--workbench-primary);
+}
+
+.segmentation-preprocessing-controls .form-range {
+    margin-top: 4px;
+}
+
+.segmentation-preprocessing-divider {
+    height: 1px;
+    margin: 17px 0 14px;
+    background: var(--workbench-border);
+}
+
+.segmentation-preprocessing-inputs {
+    display: grid;
+    gap: 10px;
+}
+
+.segmentation-preprocessing-inputs label {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+}
+
+.segmentation-preprocessing-inputs .form-select {
+    min-width: 0;
+}
+
 .panel-section,
 .inspector-section {
     margin: 0;

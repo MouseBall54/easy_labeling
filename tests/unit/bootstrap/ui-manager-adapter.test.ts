@@ -637,6 +637,7 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     expect(elements.inspectorTitle.textContent).toBe("Superpixel Inspector");
   });
 
+
   it("syncs segmentation auto-fill toggle from controller getter", () => {
     const state = createInitialAppState();
     const elements = createElements();

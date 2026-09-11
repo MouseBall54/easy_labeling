@@ -714,6 +714,7 @@ export function createEventManagerAdapter(input: {
       });
       elements.taskSuperpixelBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("superpixel"));
       elements.taskSegmentationDisplayBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("segmentation-display"));
+      input.documentRef?.getElementById("taskSegmentationPreprocessingBtn")?.addEventListener("click", () => input.uiManager.setActiveTask?.("segmentation-preprocessing"));
       elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
       elements.taskReviewBtn?.addEventListener("click", () => input.uiManager.setActiveTask?.("review"));
       elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));

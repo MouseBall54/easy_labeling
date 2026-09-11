@@ -85,6 +85,9 @@
                 <button id="taskSegmentationDisplayBtn" type="button" class="task-rail-button" data-task="segmentation-display" title="Mask display workspace" aria-label="Mask display workspace" aria-pressed="false" hidden>
                     <i class="bi bi-eye" aria-hidden="true"></i><span>Display</span>
                 </button>
+                <button id="taskSegmentationPreprocessingBtn" type="button" class="task-rail-button" data-task="segmentation-preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false" hidden>
+                    <i class="bi bi-sliders2" aria-hidden="true"></i><span>Preprocess</span>
+                </button>
                 <button id="taskAutomateBtn" type="button" class="task-rail-button" data-task="automate" title="Automation workspace" aria-label="Automation workspace" aria-pressed="false">
                     <i class="bi bi-robot" aria-hidden="true"></i><span>Automate</span>
                 </button>
@@ -103,7 +106,7 @@
             <aside id="left-panel" class="control-panel dataset-panel" aria-label="Files and classes">
                 <div class="panel-header">
                     <div>
-                        <h2>Files &amp; Classes</h2>
+                        <h2 id="leftPanelTitle">Files &amp; Classes</h2>
                         <span id="datasetConnectionStatus" class="panel-subtitle">No dataset connected</span>
                     </div>
                     <button id="collapse-left-panel-btn" type="button" class="panel-icon-button" title="Collapse files panel" aria-label="Collapse files panel"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
@@ -113,7 +116,32 @@
                         <i class="bi bi-info-circle" aria-hidden="true"></i>
                         <span>Folder access is unavailable in this browser. The bundled sample remains available.</span>
                     </div>
-                    <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden></div>
+                    <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden>
+                        <section id="segmentationPreprocessingSection" class="segmentation-preprocessing-section" data-ui="segmentation-preprocessing-section">
+                            <div class="segmentation-preprocessing-heading">
+                                <div class="segmentation-preprocessing-mark" aria-hidden="true"><i class="bi bi-activity"></i></div>
+                                <div><h3>Image preprocessing</h3><p>Enhance SEM structure without changing source data.</p></div>
+                            </div>
+                            <div class="segmentation-preprocessing-block">
+                                <div class="segmentation-preprocessing-label"><span>Canvas view</span><small>Q</small></div>
+                                <div class="segmented-control segmentation-preprocessing-toggle" role="group" aria-label="Image view source"><button id="segmentationViewOriginalBtn" type="button" class="btn active"><i class="bi bi-image" aria-hidden="true"></i> Original</button><button id="segmentationViewProcessedBtn" type="button" class="btn"><i class="bi bi-activity" aria-hidden="true"></i> Processed</button></div>
+                            </div>
+                            <div class="segmentation-preprocessing-block">
+                                <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Processing mode</label>
+                                <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
+                            </div>
+                            <div class="segmentation-preprocessing-controls">
+                                <div><label class="form-label small mb-1" for="segmentationPreprocessBlurInput">Blur strength</label><input id="segmentationPreprocessBlurInput" type="range" class="form-range" min="0" max="4" step="1" value="2"></div>
+                                <div><label class="form-label small mb-1" for="segmentationPreprocessEdgeWeightInput">Edge weight <span id="segmentationPreprocessEdgeWeightValue">65%</span></label><input id="segmentationPreprocessEdgeWeightInput" type="range" class="form-range" min="0" max="100" step="1" value="65"></div>
+                            </div>
+                            <div class="segmentation-preprocessing-divider"></div>
+                            <div class="segmentation-preprocessing-label"><span>Algorithm input</span><small>Independent source</small></div>
+                            <div class="segmentation-preprocessing-inputs">
+                                <label for="segmentationEdgeSamInputSelect"><span>AI Select</span><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
+                                <label for="segmentationSuperpixelInputSelect"><span>Superpixel</span><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
+                            </div>
+                        </section>
+                    </div>
                     <div id="detectionLeftWorkspace">
 
                     <section class="dataset-actions" data-ui="folder-actions">
@@ -409,15 +437,6 @@
                     </section>
                 </div>
                 <div id="segmentationWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-segmentation" style="display: none;">
-                    <section id="segmentationPreprocessingSection" class="inspector-section segmentation-preprocessing-section" data-ui="segmentation-preprocessing-section">
-                        <div class="section-heading-row"><h3>Image preprocessing</h3><span class="section-value">SEM edge</span></div>
-                        <label class="form-label small mb-1">Image view</label>
-                        <div class="segmented-control compact mb-2" role="group" aria-label="Image view source"><button id="segmentationViewOriginalBtn" type="button" class="btn active">Original</button><button id="segmentationViewProcessedBtn" type="button" class="btn">Processed</button></div>
-                        <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Preprocess mode</label>
-                        <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm mb-2"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
-                        <div class="row g-2"><div class="col-6"><label class="form-label small mb-1" for="segmentationPreprocessBlurInput">Blur strength</label><input id="segmentationPreprocessBlurInput" type="range" class="form-range" min="0" max="4" step="1" value="2"></div><div class="col-6"><label class="form-label small mb-1" for="segmentationPreprocessEdgeWeightInput">Edge weight <span id="segmentationPreprocessEdgeWeightValue">65%</span></label><input id="segmentationPreprocessEdgeWeightInput" type="range" class="form-range" min="0" max="100" step="1" value="65"></div></div>
-                        <div class="row g-2 mt-1"><div class="col-6"><label class="form-label small mb-1" for="segmentationEdgeSamInputSelect">AI Select input</label><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></div><div class="col-6"><label class="form-label small mb-1" for="segmentationSuperpixelInputSelect">Superpixel input</label><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></div></div>
-                    </section>
                     <section id="segmentationSuperpixelSection" class="inspector-section segmentation-superpixel-section" data-ui="segmentation-superpixel-section">
                         <div class="mt-1" data-ui="segmentation-superpixel-group">
                             <div class="section-heading-row"><label class="form-label small mb-0" for="segmentationSuperpixelSizeSlider">Superpixel size</label><span id="segmentationSuperpixelSizeValue" class="section-value">16 px</span></div>
