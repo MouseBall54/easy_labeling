@@ -518,7 +518,7 @@ body {
 .layout-setup-body {
     display: grid;
     grid-template-columns: 240px 270px minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     column-gap: 1rem;
     min-height: min(620px, calc(100vh - 12rem));
     padding: 0;
@@ -546,10 +546,6 @@ body {
     justify-content: space-between;
     gap: 0.75rem;
     margin-bottom: 1rem;
-}
-
-.layout-stepper {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .layout-step-heading {
@@ -1851,11 +1847,13 @@ body {
     display: none;
 }
 
+.detection-display-workspace[hidden],
 .segmentation-display-workspace[hidden],
 .segmentation-superpixel-workspace[hidden] {
     display: none;
 }
 
+.detection-display-workspace,
 .segmentation-superpixel-workspace {
     min-height: 100%;
     overflow-y: auto;
@@ -2030,6 +2028,20 @@ body {
 .ai-region-constraint-actions .btn {
     min-height: 30px;
     font-size: 0.7rem;
+}
+
+.ai-region-constraint-actions #segmentationAiRegionConstraintSetBtn {
+    font-weight: 700;
+}
+
+.ai-region-constraint-actions kbd {
+    padding: 0.08rem 0.28rem;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 0.6rem;
+    line-height: 1;
 }
 
 .ai-region-constraint-margin {
@@ -2320,8 +2332,26 @@ main.canvas-container > .canvas-container {
 }
 
 .segmentation-canvas-toolbar .segmented-control .btn {
+    display: inline-flex;
     min-width: 0;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    line-height: 1;
     white-space: nowrap;
+}
+
+.segmentation-canvas-toolbar .segmented-control .btn > i,
+.segmentation-canvas-toolbar .segmented-control .btn > span {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+}
+
+.detection-canvas-toolbar .segmented-control {
+    width: min(100%, 576px);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @container (max-width: 820px) {
@@ -2334,6 +2364,12 @@ main.canvas-container > .canvas-container {
 @container (max-width: 440px) {
     .segmentation-canvas-toolbar .segmented-control {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container (max-width: 820px) {
+    .detection-canvas-toolbar .segmented-control {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
@@ -3146,29 +3182,6 @@ body.dark-mode .placement-notice[data-state="busy"] {
 .preflight-summary dt { color: var(--workbench-text-muted); font-weight: 500; }
 .preflight-summary dd { margin: 0; text-align: right; }
 
-.template-stepper {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0;
-    margin: 12px 16px 0;
-    padding: 0 0 12px;
-    list-style: none;
-    border-bottom: 1px solid var(--workbench-border);
-}
-
-.template-stepper li {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    min-width: 0;
-    color: var(--workbench-text-muted);
-    font-size: 0.68rem;
-    text-align: center;
-}
-
-.template-stepper li span,
 .template-step-heading > span,
 .step-inline {
     display: inline-flex;
@@ -3290,8 +3303,13 @@ body.dark-mode .placement-notice[data-state="busy"] {
     display: none;
 }
 
-.segmentation-region-actions .btn {
-    min-width: 5rem;
+.segmentation-region-action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(4.5rem, 1fr));
+    gap: 0.35rem;
+}
+
+.segmentation-region-action-buttons .btn {
     text-transform: none;
     letter-spacing: 0;
 }

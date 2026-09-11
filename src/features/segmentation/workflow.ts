@@ -1359,6 +1359,13 @@ export function createSegmentationCanvasWorkflow(
       const classId = Number.parseInt(aiPreview.selection.classId, 10);
       for (const index of aiPreview.selection.pixelIndices) doc.mask[index] = classId;
       const selection = aiPreview.selection;
+      aiRegionConstraint = normalizeAiSelectRegionConstraint({
+        ...aiRegionConstraint,
+        enabled: false,
+        source: null,
+        rect: null,
+        detectionLabelId: undefined
+      });
       clearAiPreview();
       selectedRegion = selection;
       const changed = doc.pushHistoryFromSnapshot(before);

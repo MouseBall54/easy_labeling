@@ -100,7 +100,7 @@ export interface RuntimeUiManager extends UIManager {
   finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void;
   hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
-  setActiveTask(task: "files" | "annotate" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review"): void;
+  setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review"): void;
   setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
@@ -178,10 +178,9 @@ export function createUiManagerAdapter(input: {
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
-  let activeTask: "files" | "annotate" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review" = "annotate";
+  let activeTask: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
-  let rightPanelCollapsed = elements.rightPanel.classList.contains("collapsed");
   let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
 
@@ -337,7 +336,6 @@ export function createUiManagerAdapter(input: {
     if (polygonActionsSection) polygonActionsSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "polygon";
     const toolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
     if (toolSizeSection) toolSizeSection.hidden = input.state.session.workflow !== "segmentation"
-      || activeTask !== "segmentation"
       || !isDrawingMode
       || (activeTool !== "brush" && activeTool !== "erase");
     const aiPreview = summary?.aiPreview ?? null;
@@ -392,6 +390,7 @@ export function createUiManagerAdapter(input: {
     const segmentationClassIds = summary
       ? [...new Set([...summary.allClassIds, ...input.state.session.classNames.keys()])].sort((left, right) => Number(left) - Number(right))
       : [];
+    elements.segmentationActiveClassSummary.hidden = segmentationClassIds.length === 0;
     if (summary && segmentationClassIds.length > 0) {
       segmentationClassIds.forEach((classId) => {
         const paintClassButton = input.documentRef.createElement("button");
@@ -466,7 +465,7 @@ export function createUiManagerAdapter(input: {
         elements.segmentationClassSummary.appendChild(wrapper);
       });
     } else {
-      if (paintClassList) paintClassList.textContent = "Create a class to start painting.";
+      if (paintClassList) paintClassList.textContent = "";
       elements.segmentationClassSummary.textContent = visibleClassIds.length > 0
         ? `Visible Classes: ${visibleClassIds.map((classId) => manager.getDisplayNameForClass(classId)).join(", ")}`
         : "Visible Classes: none";
@@ -485,19 +484,19 @@ export function createUiManagerAdapter(input: {
     const segmentationWorkspace = input.documentRef.getElementById("segmentationLeftWorkspace");
     const segmentationDisplayWorkspace = input.documentRef.getElementById("segmentationDisplayWorkspace");
     const segmentationSuperpixelWorkspace = input.documentRef.getElementById("segmentationSuperpixelWorkspace");
+    const detectionDisplayWorkspace = input.documentRef.getElementById("detectionDisplayWorkspace");
     const detectionWorkspace = input.documentRef.getElementById("detectionLeftWorkspace");
+    const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
     const preprocessingTaskButton = input.documentRef.getElementById("taskSegmentationPreprocessingBtn");
     const sectionIds = ["segmentationClassSection"];
     const isSegmentationTask = activeTask === "segmentation" || activeTask === "superpixel" || activeTask === "segmentation-display" || activeTask === "segmentation-preprocessing";
-    const visibleSectionIds = activeTask === "segmentation"
-      ? ["segmentationClassSection"]
-      : [];
+    const visibleSectionIds = showSegmentationControls ? ["segmentationClassSection"] : [];
     [elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton]
       .filter((button): button is HTMLButtonElement => Boolean(button))
       .forEach((button) => {
       button.hidden = !showSegmentationControls;
     });
-    [elements.taskAnnotateBtn, elements.taskAutomateBtn, elements.taskReviewBtn]
+    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
       .filter((button): button is HTMLButtonElement => Boolean(button))
       .forEach((button) => {
       button.hidden = showSegmentationControls;
@@ -506,6 +505,7 @@ export function createUiManagerAdapter(input: {
     input.documentRef.getElementById("segmentationFormatShortcut")?.toggleAttribute("hidden", !showSegmentationControls);
     const genericModeControls = input.documentRef.getElementById("genericModeControls");
     const sharedToolSection = input.documentRef.getElementById("sharedToolSection");
+    const detectionCanvasToolbar = input.documentRef.getElementById("detectionCanvasToolbar");
     const segmentationCanvasToolbar = input.documentRef.getElementById("segmentationCanvasToolbar");
     const segmentationToolSizeSection = input.documentRef.getElementById("segmentationToolSizeSection");
     const segmentationAiPreviewSection = input.documentRef.getElementById("segmentationAiPreviewSection");
@@ -513,10 +513,12 @@ export function createUiManagerAdapter(input: {
     if (showSegmentationControls) {
       const isLeftSegmentationWorkspace = activeTask === "segmentation-preprocessing" || activeTask === "segmentation-display" || activeTask === "superpixel";
       segmentationWorkspace?.toggleAttribute("hidden", !isLeftSegmentationWorkspace);
+      detectionDisplayWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.toggleAttribute("hidden", isLeftSegmentationWorkspace);
       segmentationDisplayWorkspace?.toggleAttribute("hidden", activeTask !== "segmentation-display");
       segmentationSuperpixelWorkspace?.toggleAttribute("hidden", activeTask !== "superpixel");
       genericModeControls?.setAttribute("hidden", "");
+      detectionCanvasToolbar?.setAttribute("hidden", "");
       segmentationCanvasToolbar?.removeAttribute("hidden");
       [segmentationToolSizeSection, segmentationAiPreviewSection, segmentationPolygonActionsSection].forEach((section) => {
         if (section && sharedToolSection) {
@@ -529,8 +531,7 @@ export function createUiManagerAdapter(input: {
             section.hidden = activeTool !== "polygon";
           } else {
             const activeTool = getCanvasController()?.raw.getSegmentationSummary?.().activeTool;
-            section.hidden = activeTask !== "segmentation"
-              || (activeTool !== "brush" && activeTool !== "erase");
+            section.hidden = activeTool !== "brush" && activeTool !== "erase";
           }
         }
       });
@@ -551,8 +552,10 @@ export function createUiManagerAdapter(input: {
       segmentationWorkspace?.setAttribute("hidden", "");
       segmentationDisplayWorkspace?.setAttribute("hidden", "");
       segmentationSuperpixelWorkspace?.setAttribute("hidden", "");
-      detectionWorkspace?.removeAttribute("hidden");
+      detectionDisplayWorkspace?.toggleAttribute("hidden", activeTask !== "detection-display");
+      detectionWorkspace?.toggleAttribute("hidden", activeTask === "detection-display");
       genericModeControls?.removeAttribute("hidden");
+      detectionCanvasToolbar?.removeAttribute("hidden");
       segmentationCanvasToolbar?.setAttribute("hidden", "");
       const panel = elements.segmentationWorkflowPanel;
       [segmentationToolSizeSection, segmentationAiPreviewSection, segmentationPolygonActionsSection].forEach((section) => {
@@ -592,13 +595,12 @@ export function createUiManagerAdapter(input: {
       manager.syncWorkspaceState();
     },
 
-    setActiveTask(task: "files" | "annotate" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review"): void {
+    setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "segmentation-preprocessing" | "automate" | "review"): void {
       activeTask = task;
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display" || task === "segmentation-preprocessing";
-      const preserveCollapsedRightPanel = isSegmentationTask
-        && (elements.rightPanel.dataset.userCollapsed === "true" || rightPanelCollapsed);
       const preprocessingTaskButton = input.documentRef.getElementById("taskSegmentationPreprocessingBtn");
-      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
+      const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
+      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
         .filter((button): button is HTMLButtonElement => Boolean(button));
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
@@ -610,11 +612,18 @@ export function createUiManagerAdapter(input: {
           button.removeAttribute("aria-current");
         }
       });
+      if (task === "automate") {
+        elements.drawModeBtn.checked = false;
+        elements.editModeBtn.checked = false;
+      } else if (!isSegmentationTask) {
+        elements.drawModeBtn.checked = input.state.view.currentMode === "draw";
+        elements.editModeBtn.checked = input.state.view.currentMode === "edit";
+      }
       syncWorkflowPanels();
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
-      elements.leftPanel.classList.toggle("mobile-open", task === "files" || isSegmentationTask);
+      elements.leftPanel.classList.toggle("mobile-open", task === "files" || task === "detection-display" || isSegmentationTask);
       elements.rightPanel.classList.toggle("mobile-open", task !== "files");
-      elements.leftPanel.classList.toggle("task-focus", task === "files" || isSegmentationTask);
+      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isSegmentationTask);
       elements.rightPanel.classList.toggle("task-focus", task !== "files");
       if (elements.reviewQueueControls) {
         elements.reviewQueueControls.hidden = task !== "review";
@@ -634,20 +643,10 @@ export function createUiManagerAdapter(input: {
 
       if (isSegmentationTask) {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, preserveCollapsedRightPanel);
-        if (task === "segmentation-preprocessing") {
-          elements.inspectorTitle.textContent = "Image Preprocessing";
-          elements.inspectorSubtitle.textContent = "";
-        } else if (task === "superpixel") {
-          elements.inspectorTitle.textContent = "Superpixel Inspector";
-          elements.inspectorSubtitle.textContent = "Tune region extraction and saved presets";
-        } else if (task === "segmentation-display") {
-          elements.inspectorTitle.textContent = "Mask Display";
-          elements.inspectorSubtitle.textContent = "Adjust mask visibility and edge emphasis";
-        } else {
-          elements.inspectorTitle.textContent = "Mask Inspector";
-          elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
-        }
+        elements.rightPanel.dataset.userCollapsed = "false";
+        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
+        elements.inspectorTitle.textContent = "Mask Inspector";
+        elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
       } else if (task === "automate") {
         manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
         manager.setInspectorTab("automation");
@@ -803,6 +802,10 @@ export function createUiManagerAdapter(input: {
         if (leftPanelTitle) leftPanelTitle.textContent = "Superpixel Settings";
         elements.datasetConnectionStatus.textContent = "";
         elements.datasetConnectionStatus.hidden = true;
+      } else if (activeTask === "detection-display") {
+        if (leftPanelTitle) leftPanelTitle.textContent = "Display Settings";
+        elements.datasetConnectionStatus.textContent = "";
+        elements.datasetConnectionStatus.hidden = true;
       } else {
         if (leftPanelTitle) leftPanelTitle.textContent = "Files & Classes";
         elements.datasetConnectionStatus.hidden = false;
@@ -828,7 +831,10 @@ export function createUiManagerAdapter(input: {
         ? `Annotations: ${annotationCount}`
         : `Mask classes: ${annotationCount}`);
       setStatusText(elements.statusMode, `${input.state.session.workflow === "detection" ? "Detection" : "Segmentation"} · ${input.state.view.currentMode === "draw" ? "Draw" : "Edit"} · ${input.state.session.workflow === "detection" ? "TXT" : "PNG/JSON"}`);
-      if (activeTask === "automate") {
+      if (input.state.session.workflow === "segmentation") {
+        elements.inspectorTitle.textContent = "Mask Inspector";
+        elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
+      } else if (activeTask === "automate") {
         const engineState = elements.matchingEngineStatus.dataset.state;
         elements.inspectorTitle.textContent = "Automation Workspace";
         elements.inspectorSubtitle.textContent = engineState === "ready"
@@ -839,14 +845,8 @@ export function createUiManagerAdapter(input: {
       } else if (activeTask === "review") {
         elements.inspectorTitle.textContent = "Review Inspector";
         elements.inspectorSubtitle.textContent = "Resolve quality issues and mark each image reviewed";
-      } else if (activeTask === "superpixel") {
-        elements.inspectorTitle.textContent = "Superpixel Inspector";
-      } else if (activeTask === "segmentation-display") {
-        elements.inspectorTitle.textContent = "Mask Display";
-      } else if (activeTask === "segmentation-preprocessing") {
-        elements.inspectorTitle.textContent = "Image Preprocessing";
       } else {
-        elements.inspectorTitle.textContent = input.state.session.workflow === "detection" ? "Annotation Inspector" : "Mask Inspector";
+        elements.inspectorTitle.textContent = "Annotation Inspector";
       }
       elements.inspectorSubtitle.hidden = input.state.session.workflow === "segmentation";
       const segmentationToolLabels: Record<string, string> = {
@@ -1628,9 +1628,6 @@ export function createUiManagerAdapter(input: {
     },
 
     togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void {
-      if (panel === elements.rightPanel) {
-        rightPanelCollapsed = collapse;
-      }
       panel.style.display = "";
       panel.classList.toggle("collapsed", collapse);
       panel.setAttribute("aria-hidden", String(collapse));

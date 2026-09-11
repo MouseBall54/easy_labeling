@@ -324,6 +324,8 @@ function createElements() {
     inspectorTransformPane: new FakeElement("section"),
     inspectorAutomationPane: new FakeElement("section"),
     activeToolSummary: new FakeElement("span"),
+    drawModeBtn: new FakeElement("input"),
+    editModeBtn: new FakeElement("input"),
     labelDisplayModeSelect: new FakeElement("select"),
     selectedAnnotationCount: new FakeElement("span"),
     selectionEmptyState: new FakeElement("div"),
@@ -634,7 +636,7 @@ describe("bootstrap/ui-manager-adapter workflow panels", () => {
     manager.setWorkflow("segmentation");
 
     expect(elements.taskSuperpixelBtn.classList.contains("active")).toBe(true);
-    expect(elements.inspectorTitle.textContent).toBe("Superpixel Inspector");
+    expect(elements.inspectorTitle.textContent).toBe("Mask Inspector");
   });
 
 
@@ -843,7 +845,7 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
   });
 
-  it("preserves the user-collapsed inspector across segmentation workspaces", () => {
+  it("reopens the inspector across segmentation workspaces", () => {
     const { manager, elements } = createManagerWithRects({ rects: [] });
 
     manager.setWorkflow("segmentation");
@@ -857,7 +859,8 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     manager.setActiveTask("superpixel");
     manager.setActiveTask("segmentation-display");
 
-    expect(elements.rightPanel.classList.contains("collapsed")).toBe(true);
-    expect(elements.expandRightPanelBtn.style.display).toBe("inline-flex");
+    expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
+    expect(elements.expandRightPanelBtn.style.display).toBe("none");
+    expect(elements.inspectorTitle.textContent).toBe("Mask Inspector");
   });
 });

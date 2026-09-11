@@ -135,9 +135,16 @@ describe("features/segmentation/workflow", () => {
     expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBeNull();
     expect(onDocumentMutation).not.toHaveBeenCalled();
 
+    await controller.setSegmentationAiRegionConstraint?.({
+      enabled: true,
+      source: "manual",
+      rect: { x: 4, y: 4, width: 4, height: 4 }
+    });
     await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
+    expect(controller.getSegmentationAiRegionConstraint?.()).toMatchObject({ enabled: true, source: "manual" });
     expect(controller.applySegmentationAiPreview?.()).toBe(true);
     expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("1");
+    expect(controller.getSegmentationAiRegionConstraint?.()).toMatchObject({ enabled: false, source: null, rect: null });
     expect(onDocumentMutation).toHaveBeenCalledOnce();
   });
 

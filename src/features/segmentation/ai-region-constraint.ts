@@ -41,7 +41,7 @@ export function normalizeAiSelectRegionConstraint(input?: Partial<AiSelectRegion
     source: input?.source === "manual" || input?.source === "detection" ? input.source : null,
     rect: input?.rect ? { ...input.rect } : null,
     margin: {
-      value: Math.max(0, Number.isFinite(margin?.value) ? (margin?.value ?? 0) : 0),
+      value: Number.isFinite(margin?.value) ? (margin?.value ?? 0) : 0,
       unit: margin?.unit === "percent" ? "percent" : "px"
     },
     ...(input?.detectionLabelId ? { detectionLabelId: input.detectionLabelId } : {})
@@ -66,8 +66,8 @@ export function expandAiSelectRegionRect(
   const base = clampAiSelectRegionRect(rect, image);
   if (!base) return null;
   const amount = margin.unit === "percent"
-    ? Math.max(base.width, base.height) * Math.max(0, margin.value) / 100
-    : Math.max(0, margin.value);
+    ? Math.max(base.width, base.height) * margin.value / 100
+    : margin.value;
   return clampAiSelectRegionRect({
     x: base.x - amount,
     y: base.y - amount,
@@ -103,7 +103,7 @@ export function createAiSelectConstraintFromDetectionBox(input: AiSelectDetectio
   centerPoint: CanvasPoint;
   promptBox: EdgeSamBox;
 } {
-  const margin = { value: Math.max(0, input.margin?.value ?? 0), unit: input.margin?.unit === "percent" ? "percent" as const : "px" as const };
+  const margin = { value: Number.isFinite(input.margin?.value) ? (input.margin?.value ?? 0) : 0, unit: input.margin?.unit === "percent" ? "percent" as const : "px" as const };
   return {
     constraint: {
       enabled: true,

@@ -518,6 +518,11 @@ describe("bootstrap/event-manager-adapter", () => {
     setActiveTask.mockClear();
     elements.taskSegmentationBtn.click();
     expect(setActiveTask).toHaveBeenCalledWith("segmentation");
+
+    setActiveTask.mockClear();
+    elements.taskAnnotateBtn.click();
+    expect(setWorkflow).toHaveBeenLastCalledWith("detection");
+    expect(setActiveTask).toHaveBeenCalledWith("annotate");
   });
 
   it("syncs the draw/edit radio UI when Ctrl+Q toggles the mode", () => {

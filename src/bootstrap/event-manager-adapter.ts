@@ -605,6 +605,12 @@ export function createEventManagerAdapter(input: {
         if (mode !== "draw") {
           hideSegmentationBrushCursorPreview();
         }
+        if (input.state.session.workflow === "segmentation") {
+          elements.rightPanel.dataset.userCollapsed = "false";
+          input.uiManager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
+        } else {
+          input.uiManager.setActiveTask?.("annotate");
+        }
         input.uiManager.syncWorkspaceState?.();
       };
 
@@ -719,7 +725,14 @@ export function createEventManagerAdapter(input: {
       };
 
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
-      elements.taskAnnotateBtn.addEventListener("click", () => setWorkflow("detection"));
+      elements.taskAnnotateBtn.addEventListener("click", () => {
+        setWorkflow("detection");
+        input.uiManager.setActiveTask?.("annotate");
+      });
+      input.documentRef?.getElementById("taskDetectionDisplayBtn")?.addEventListener("click", () => {
+        setWorkflow("detection");
+        input.uiManager.setActiveTask?.("detection-display");
+      });
       elements.taskSegmentationBtn.addEventListener("click", () => {
         setWorkflow("segmentation");
         input.uiManager.setActiveTask?.("segmentation");
@@ -1162,12 +1175,16 @@ export function createEventManagerAdapter(input: {
           input.uiManager.setWorkflow?.("segmentation");
         }) ?? Promise.resolve());
       });
-      aiRegionConstraintSetButton?.addEventListener("click", () => {
+      const beginAiRegionConstraint = (): boolean => {
         input.canvasController.raw.setSegmentationTool?.("ai-select");
         setMode("draw");
         isDrawingAiRegionConstraint = input.canvasController.raw.beginSegmentationAiRegionConstraint?.() ?? false;
         syncAiRegionConstraint();
         input.uiManager.setWorkflow?.("segmentation");
+        return isDrawingAiRegionConstraint;
+      };
+      aiRegionConstraintSetButton?.addEventListener("click", () => {
+        beginAiRegionConstraint();
       });
       aiRegionConstraintClearButton?.addEventListener("click", () => {
         runAsync(() => Promise.resolve(input.canvasController.raw.setSegmentationAiRegionConstraint?.({ enabled: false, source: null, rect: null, detectionLabelId: undefined })).then(() => {
@@ -1177,7 +1194,7 @@ export function createEventManagerAdapter(input: {
       });
       const applyAiRegionMargin = (): void => {
         if (!(aiRegionConstraintMarginInput instanceof HTMLInputElement) || !(aiRegionConstraintMarginUnit instanceof HTMLSelectElement)) return;
-        runAsync(() => Promise.resolve(input.canvasController.raw.setSegmentationAiRegionConstraint?.({ margin: { value: Math.max(0, Number(aiRegionConstraintMarginInput.value) || 0), unit: aiRegionConstraintMarginUnit.value === "percent" ? "percent" : "px" } })).then(() => syncAiRegionConstraint()) ?? Promise.resolve());
+        runAsync(() => Promise.resolve(input.canvasController.raw.setSegmentationAiRegionConstraint?.({ margin: { value: Number(aiRegionConstraintMarginInput.value) || 0, unit: aiRegionConstraintMarginUnit.value === "percent" ? "percent" : "px" } })).then(() => syncAiRegionConstraint()) ?? Promise.resolve());
       };
       aiRegionConstraintMarginInput?.addEventListener("change", applyAiRegionMargin);
       aiRegionConstraintMarginUnit?.addEventListener("change", applyAiRegionMargin);
@@ -1316,11 +1333,17 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.recalculateSegmentationSuperpixels?.(preset.settings.regionSize);
         input.uiManager.setWorkflow?.("segmentation");
       });
-      elements.segmentationApplyAiPreviewBtn?.addEventListener("click", () => {
-        if (input.canvasController.raw.applySegmentationAiPreview?.()) {
+      const applyAiPreview = (): boolean => {
+        const applied = input.canvasController.raw.applySegmentationAiPreview?.() ?? false;
+        if (applied) {
           input.uiManager.updateLabelList();
+          syncAiRegionConstraint();
         }
         input.uiManager.setWorkflow?.("segmentation");
+        return applied;
+      };
+      elements.segmentationApplyAiPreviewBtn?.addEventListener("click", () => {
+        applyAiPreview();
       });
       elements.segmentationDiscardAiPreviewBtn?.addEventListener("click", () => {
         input.canvasController.raw.discardSegmentationAiPreview?.();
@@ -1948,6 +1971,12 @@ export function createEventManagerAdapter(input: {
         }
 
         if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          if (event.key.toLowerCase() === "r"
+            && input.canvasController.raw.getSegmentationSummary?.().activeTool === "ai-select"
+            && beginAiRegionConstraint()) {
+            event.preventDefault();
+            return;
+          }
           if (event.key.toLowerCase() === "q") {
             event.preventDefault();
             const nextSource = input.canvasController.raw.getSegmentationViewSource?.() === "processed" ? "original" : "processed";
@@ -1962,10 +1991,8 @@ export function createEventManagerAdapter(input: {
             processedButton?.classList.toggle("active", nextSource === "processed");
             return;
           }
-          if (event.key === "Enter" && input.canvasController.raw.applySegmentationAiPreview?.()) {
+          if (event.key === "Enter" && applyAiPreview()) {
             event.preventDefault();
-            input.uiManager.updateLabelList();
-            input.uiManager.setWorkflow?.("segmentation");
             return;
           }
           if (event.key === "Escape" && input.canvasController.raw.discardSegmentationAiPreview?.()) {
