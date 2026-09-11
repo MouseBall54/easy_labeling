@@ -133,6 +133,7 @@ export interface FabricCanvasLike {
   _currentTransform?: unknown;
   upperCanvasEl?: {
     addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
+    getBoundingClientRect?(): { left: number; top: number; width: number; height: number };
   };
   add(...objects: FabricObjectLike[]): void;
   insertAt?(index: number, ...objects: FabricObjectLike[]): void;

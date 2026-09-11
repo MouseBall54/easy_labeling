@@ -11,6 +11,7 @@ import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./histo
 import type { SegmentationAiPreviewSummary, SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSmartPreviewSummary, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
 import type { EdgeSamStatus } from "../edgesam/types.js";
 import type { SegmentationImageSourceMode, SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
+import type { AiSelectRegionConstraint } from "../segmentation/ai-region-constraint.js";
 import type { BoxLayout, PixelPoint } from "../automation/types.js";
 
 export interface AppliedBoxLayout {
@@ -180,6 +181,13 @@ export interface CanvasController {
   startSegmentationAiBox?(pointer: CanvasPoint): void;
   continueSegmentationAiBox?(pointer: CanvasPoint): void;
   finishSegmentationAiBox?(pointer: CanvasPoint): Promise<boolean>;
+  getSegmentationAiRegionConstraint?(): AiSelectRegionConstraint;
+  setSegmentationAiRegionConstraint?(config: Partial<AiSelectRegionConstraint>): Promise<boolean>;
+  beginSegmentationAiRegionConstraint?(): boolean;
+  isSegmentationAiRegionConstraintDrawing?(): boolean;
+  startSegmentationAiRegionConstraint?(pointer: CanvasPoint): void;
+  continueSegmentationAiRegionConstraint?(pointer: CanvasPoint): void;
+  finishSegmentationAiRegionConstraint?(pointer: CanvasPoint): Promise<boolean>;
   getSegmentationAiPreview?(): SegmentationAiPreviewSummary | null;
   applySegmentationAiPreview?(): boolean;
   discardSegmentationAiPreview?(): boolean;

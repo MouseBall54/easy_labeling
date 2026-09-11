@@ -448,18 +448,29 @@ export function createEventManagerAdapter(input: {
       };
 
       const getScenePointer = (event: MouseEvent | WheelEvent): CanvasPointLike | null => {
+        // The workbench clips Fabric's canvas wrapper beneath its toolbars and
+        // panels. Fabric's cached offset can therefore differ from the actual
+        // rendered upper-canvas origin. Convert from that rendered origin so
+        // input and overlay rendering use the same coordinate frame.
+        const bounds = rawCanvas.upperCanvasEl?.getBoundingClientRect?.();
+        const viewportPoint = bounds && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)
+          ? {
+              x: (event.clientX - bounds.left) * (bounds.width > 0 ? rawCanvas.getWidth() / bounds.width : 1),
+              y: (event.clientY - bounds.top) * (bounds.height > 0 ? rawCanvas.getHeight() / bounds.height : 1)
+            }
+          : hasEventOffset(event)
+            ? { x: event.offsetX, y: event.offsetY }
+            : rawCanvas.getViewportPoint?.(event);
+        const scenePointFromViewport = isFinitePoint(viewportPoint)
+          ? invertViewportPoint(viewportPoint, rawCanvas.viewportTransform)
+          : null;
+        if (isFinitePoint(scenePointFromViewport)) {
+          return scenePointFromViewport;
+        }
+
         const scenePoint = rawCanvas.getScenePoint?.(event);
         if (isFinitePoint(scenePoint)) {
           return scenePoint;
-        }
-
-        const viewportPoint = rawCanvas.getViewportPoint?.(event) ??
-          (hasEventOffset(event) ? { x: event.offsetX, y: event.offsetY } : null);
-        const invertedViewportPoint = isFinitePoint(viewportPoint)
-          ? invertViewportPoint(viewportPoint, rawCanvas.viewportTransform)
-          : null;
-        if (isFinitePoint(invertedViewportPoint)) {
-          return invertedViewportPoint;
         }
 
         const legacyPointer = rawCanvas.getPointer?.(event);
@@ -619,6 +630,7 @@ export function createEventManagerAdapter(input: {
       let suppressSelectionForSegmentationStroke = false;
       let isMovingSegmentationRegion = false;
       let isDrawingAiBox = false;
+      let isDrawingAiRegionConstraint = false;
       const clearTemporarySelectionSuppression = (): void => {
         if (!suppressSelectionForSegmentationStroke) {
           return;
@@ -1065,6 +1077,33 @@ export function createEventManagerAdapter(input: {
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
       const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
+      const aiRegionConstraintToggle = segmentationDocument?.getElementById("segmentationAiRegionConstraintToggle");
+      const aiRegionConstraintStatus = segmentationDocument?.getElementById("segmentationAiRegionConstraintStatus");
+      const aiRegionConstraintSetButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintSetBtn");
+      const aiRegionConstraintClearButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintClearBtn");
+      const aiRegionConstraintMarginInput = segmentationDocument?.getElementById("segmentationAiRegionConstraintMarginInput");
+      const aiRegionConstraintMarginUnit = segmentationDocument?.getElementById("segmentationAiRegionConstraintMarginUnit");
+      const syncAiRegionConstraint = (): void => {
+        const constraint = input.canvasController.raw.getSegmentationAiRegionConstraint?.();
+        if (!constraint) return;
+        if (aiRegionConstraintToggle instanceof HTMLInputElement) aiRegionConstraintToggle.checked = constraint.enabled;
+        if (aiRegionConstraintMarginInput instanceof HTMLInputElement) {
+          aiRegionConstraintMarginInput.value = `${constraint.margin.value}`;
+          aiRegionConstraintMarginInput.disabled = !constraint.rect;
+        }
+        if (aiRegionConstraintMarginUnit instanceof HTMLSelectElement) {
+          aiRegionConstraintMarginUnit.value = constraint.margin.unit;
+          aiRegionConstraintMarginUnit.disabled = !constraint.rect;
+        }
+        if (aiRegionConstraintClearButton instanceof HTMLButtonElement) aiRegionConstraintClearButton.disabled = !constraint.rect;
+        if (aiRegionConstraintStatus) {
+          aiRegionConstraintStatus.textContent = isDrawingAiRegionConstraint
+            ? "Drag on image to set ROI"
+            : constraint.enabled && constraint.rect
+              ? `${constraint.source === "detection" ? "Detection" : "Manual"} ROI · mask limited`
+              : "Full image mask";
+        }
+      };
       const syncSegmentationViewSource = (): void => {
         const source = input.canvasController.raw.getSegmentationViewSource?.() ?? "original";
         viewOriginalButton?.classList.toggle("active", source === "original");
@@ -1108,6 +1147,34 @@ export function createEventManagerAdapter(input: {
         if (!(superpixelInputSelect instanceof HTMLSelectElement)) return;
         input.canvasController.raw.setSegmentationSuperpixelInputSource?.(superpixelInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
       });
+      aiRegionConstraintToggle?.addEventListener("change", (event) => {
+        const toggle = event.currentTarget;
+        if (!(toggle instanceof HTMLInputElement)) return;
+        runAsync(() => Promise.resolve(input.canvasController.raw.setSegmentationAiRegionConstraint?.({ enabled: toggle.checked })).then(() => {
+          syncAiRegionConstraint();
+          input.uiManager.setWorkflow?.("segmentation");
+        }) ?? Promise.resolve());
+      });
+      aiRegionConstraintSetButton?.addEventListener("click", () => {
+        input.canvasController.raw.setSegmentationTool?.("ai-select");
+        setMode("draw");
+        isDrawingAiRegionConstraint = input.canvasController.raw.beginSegmentationAiRegionConstraint?.() ?? false;
+        syncAiRegionConstraint();
+        input.uiManager.setWorkflow?.("segmentation");
+      });
+      aiRegionConstraintClearButton?.addEventListener("click", () => {
+        runAsync(() => Promise.resolve(input.canvasController.raw.setSegmentationAiRegionConstraint?.({ enabled: false, source: null, rect: null, detectionLabelId: undefined })).then(() => {
+          syncAiRegionConstraint();
+          input.uiManager.setWorkflow?.("segmentation");
+        }) ?? Promise.resolve());
+      });
+      const applyAiRegionMargin = (): void => {
+        if (!(aiRegionConstraintMarginInput instanceof HTMLInputElement) || !(aiRegionConstraintMarginUnit instanceof HTMLSelectElement)) return;
+        runAsync(() => Promise.resolve(input.canvasController.raw.setSegmentationAiRegionConstraint?.({ margin: { value: Math.max(0, Number(aiRegionConstraintMarginInput.value) || 0), unit: aiRegionConstraintMarginUnit.value === "percent" ? "percent" : "px" } })).then(() => syncAiRegionConstraint()) ?? Promise.resolve());
+      };
+      aiRegionConstraintMarginInput?.addEventListener("change", applyAiRegionMargin);
+      aiRegionConstraintMarginUnit?.addEventListener("change", applyAiRegionMargin);
+      syncAiRegionConstraint();
       const completePolygonButton = segmentationDocument?.getElementById("segmentationCompletePolygonBtn");
       const cancelPolygonButton = segmentationDocument?.getElementById("segmentationCancelPolygonBtn");
       completePolygonButton?.addEventListener("click", () => {
@@ -1479,16 +1546,6 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.toggleCrosshair(toggle.checked);
       });
 
-      input.documentRef?.addEventListener("mousedown", (event) => {
-        const mouseEvent = event as MouseEvent;
-        if (event.target !== rawCanvas.upperCanvasEl) {
-          return;
-        }
-        const fabricPointer = rawCanvas.getPointer?.(mouseEvent);
-        const pointer = isFinitePoint(fabricPointer)
-          ? resolveImagePixelPoint({ scenePoint: fabricPointer, currentImage: input.state.session.currentImage })
-          : getCanvasPointer(mouseEvent);
-      }, true);
       rawCanvas.upperCanvasEl?.addEventListener("contextmenu", (event) => {
         if (input.state.session.workflow === "segmentation"
           && input.state.view.currentMode === "draw"
@@ -1520,7 +1577,9 @@ export function createEventManagerAdapter(input: {
         if (isAiSelect) {
           suppressSelectionForSegmentationStroke = true;
           rawCanvas.selection = false;
-          if (mouseEvent.shiftKey && mouseEvent.button === 0) {
+          if (isDrawingAiRegionConstraint && mouseEvent.button === 0) {
+            input.canvasController.raw.startSegmentationAiRegionConstraint?.(pointer);
+          } else if (mouseEvent.shiftKey && mouseEvent.button === 0) {
             isDrawingAiBox = true;
             input.canvasController.raw.startSegmentationAiBox?.(pointer);
           } else {
@@ -1600,6 +1659,10 @@ export function createEventManagerAdapter(input: {
           input.canvasController.raw.continueSegmentationAiBox?.(pointer);
           return;
         }
+        if (isDrawingAiRegionConstraint) {
+          input.canvasController.raw.continueSegmentationAiRegionConstraint?.(pointer);
+          return;
+        }
         input.canvasController.raw.continueDrawing(pointer);
         if (input.state.view.isCrosshairVisible) {
           input.canvasController.raw.updateCrosshair(pointer);
@@ -1609,7 +1672,7 @@ export function createEventManagerAdapter(input: {
         }
       });
 
-      rawCanvas.on?.("mouse:up", () => {
+      rawCanvas.on?.("mouse:up", (event) => {
         if (rawCanvas.isDragging) {
           rawCanvas.isDragging = false;
           rawCanvas.selection = shouldEnableCanvasSelection();
@@ -1626,9 +1689,19 @@ export function createEventManagerAdapter(input: {
         }
         if (isDrawingAiBox) {
           isDrawingAiBox = false;
-          const pointer = input.state.view.lastMousePosition;
+          const pointer = getCanvasPointer(event.e) ?? input.state.view.lastMousePosition;
           clearTemporarySelectionSuppression();
           runAsync(() => Promise.resolve(input.canvasController.raw.finishSegmentationAiBox?.(pointer)).then(() => {
+            input.uiManager.setWorkflow?.("segmentation");
+          }) ?? Promise.resolve());
+          return;
+        }
+        if (isDrawingAiRegionConstraint) {
+          isDrawingAiRegionConstraint = false;
+          const pointer = getCanvasPointer(event.e) ?? input.state.view.lastMousePosition;
+          clearTemporarySelectionSuppression();
+          runAsync(() => Promise.resolve(input.canvasController.raw.finishSegmentationAiRegionConstraint?.(pointer)).then(() => {
+            syncAiRegionConstraint();
             input.uiManager.setWorkflow?.("segmentation");
           }) ?? Promise.resolve());
           return;

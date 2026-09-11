@@ -25,6 +25,13 @@ import type { FabricActiveSelectionLike, FabricObjectLike, FabricRectLike } from
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
 import type { EdgeSamBox, EdgeSamPoint } from "../edgesam/types.js";
 import {
+  DEFAULT_AI_SELECT_REGION_CONSTRAINT,
+  clipAiSelectMaskToRegion,
+  getActiveAiSelectRegionRect,
+  normalizeAiSelectRegionConstraint,
+  type AiSelectRegionConstraint
+} from "./ai-region-constraint.js";
+import {
   DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG,
   getSegmentationPreprocessingKey,
   normalizeSegmentationPreprocessingConfig,
@@ -125,6 +132,9 @@ export function createSegmentationCanvasWorkflow(
   let aiPoints: EdgeSamPoint[] = [];
   let aiBox: EdgeSamBox | null = null;
   let aiBoxStart: CanvasPoint | null = null;
+  let aiRegionConstraint: AiSelectRegionConstraint = { ...DEFAULT_AI_SELECT_REGION_CONSTRAINT, margin: { ...DEFAULT_AI_SELECT_REGION_CONSTRAINT.margin } };
+  let aiRegionConstraintStart: CanvasPoint | null = null;
+  let isDrawingAiRegionConstraint = false;
   let aiPromptObjects: FabricObjectLike[] = [];
   let aiRequestRevision = 0;
   let autoFillClosedRegionEnabled = false;
@@ -196,7 +206,8 @@ export function createSegmentationCanvasWorkflow(
 
   const renderAiPromptOverlay = (): void => {
     clearAiPromptOverlay();
-    if (!workflowActive || (!aiPoints.length && !aiBox)) return;
+    const doc = ensureDocument();
+    if (!workflowActive || (!aiPoints.length && !aiBox && !aiRegionConstraint.rect)) return;
     const zoom = Math.max(0.01, canvas.getZoom());
     const pointRadius = 6 / zoom;
     const pointMarkLength = 3.5 / zoom;
@@ -221,7 +232,16 @@ export function createSegmentationCanvasWorkflow(
     if (aiBox) {
       aiPromptObjects.push(new deps.fabric.Rect({
         left: aiBox.left, top: aiBox.top, width: Math.max(1, aiBox.right - aiBox.left), height: Math.max(1, aiBox.bottom - aiBox.top),
-        fill: "rgba(59, 130, 246, 0.08)", stroke: "#3b82f6", strokeWidth: 2, strokeDashArray: [6, 4], selectable: false, evented: false
+        fill: "rgba(59, 130, 246, 0.08)", stroke: "#3b82f6", strokeWidth: 2, strokeDashArray: [6, 4], selectable: false, evented: false,
+        originX: "left", originY: "top"
+      }));
+    }
+    const activeRegion = doc ? getActiveAiSelectRegionRect(aiRegionConstraint, doc) : null;
+    if (activeRegion) {
+      aiPromptObjects.push(new deps.fabric.Rect({
+        left: activeRegion.x, top: activeRegion.y, width: activeRegion.width, height: activeRegion.height,
+        fill: "rgba(25, 195, 125, 0.04)", stroke: "#19c37d", strokeWidth: 2 / zoom, strokeDashArray: [8 / zoom, 5 / zoom], selectable: false, evented: false,
+        originX: "left", originY: "top"
       }));
     }
     canvas.add(...aiPromptObjects);
@@ -234,7 +254,7 @@ export function createSegmentationCanvasWorkflow(
     aiPoints = [];
     aiBox = null;
     aiBoxStart = null;
-    clearAiPromptOverlay();
+    renderAiPromptOverlay();
     requestOverlayRender({ forceSelectionFull: true, immediate: true });
     return changed;
   };
@@ -723,8 +743,14 @@ export function createSegmentationCanvasWorkflow(
       if (revision !== aiRequestRevision || result.width !== doc.width || result.height !== doc.height) return false;
       const activeClass = Number.parseInt(doc.activeClassId, 10);
       const classId = Number.isInteger(activeClass) && activeClass > 0 ? activeClass : 1;
+      const activeRegion = getActiveAiSelectRegionRect(aiRegionConstraint, doc);
+      if (aiRegionConstraint.enabled && !activeRegion) {
+        deps.notify("Draw an ROI before limiting the AI Select mask.", 3000);
+        return false;
+      }
+      const clippedMask = clipAiSelectMaskToRegion(result.mask, doc, activeRegion);
       const indices: number[] = [];
-      result.mask.forEach((value, index) => {
+      clippedMask.forEach((value, index) => {
         if (value && doc.mask[index] !== classId) indices.push(index);
       });
       const selection = createSelectionFromIndices(doc, `${classId}`, indices, aiPoints.at(-1) ?? { x: aiBox?.left ?? 0, y: aiBox?.top ?? 0 });
@@ -784,6 +810,10 @@ export function createSegmentationCanvasWorkflow(
       clearProcessedImageCache();
       shell.setBackgroundImage(image);
       resetDocumentForCurrentImage();
+      aiRegionConstraint = { ...DEFAULT_AI_SELECT_REGION_CONSTRAINT, margin: { ...DEFAULT_AI_SELECT_REGION_CONSTRAINT.margin } };
+      aiRegionConstraintStart = null;
+      isDrawingAiRegionConstraint = false;
+      renderAiPromptOverlay();
       if (viewSource === "processed" && ensureProcessedImage()) {
         void refreshViewSource();
       }
@@ -1346,6 +1376,80 @@ export function createSegmentationCanvasWorkflow(
 
     getEdgeSamStatus() {
       return deps.edgeSamService?.getStatus() ?? { phase: "error" as const, backend: null, imageCacheKey: null, encoderRuns: 0, message: "AI Select service is unavailable" };
+    },
+
+    getSegmentationAiRegionConstraint(): AiSelectRegionConstraint {
+      return normalizeAiSelectRegionConstraint(aiRegionConstraint);
+    },
+
+    async setSegmentationAiRegionConstraint(config: Partial<AiSelectRegionConstraint>): Promise<boolean> {
+      const next = normalizeAiSelectRegionConstraint({ ...aiRegionConstraint, ...config, margin: { ...aiRegionConstraint.margin, ...config.margin } });
+      const changed = JSON.stringify(next) !== JSON.stringify(aiRegionConstraint);
+      if (!changed) return false;
+      aiRegionConstraint = next;
+      aiPreview = null;
+      aiRequestRevision += 1;
+      renderAiPromptOverlay();
+      requestOverlayRender({ forceSelectionFull: true, immediate: true });
+      if (aiPoints.length || aiBox) await buildAiPreview();
+      return true;
+    },
+
+    beginSegmentationAiRegionConstraint(): boolean {
+      const doc = ensureDocument();
+      if (!doc) return false;
+      isDrawingAiRegionConstraint = true;
+      aiRegionConstraintStart = null;
+      deps.notify("Drag on the image to set the AI Select ROI.", 2500);
+      return true;
+    },
+
+    isSegmentationAiRegionConstraintDrawing(): boolean {
+      return isDrawingAiRegionConstraint;
+    },
+
+    startSegmentationAiRegionConstraint(pointer: CanvasPoint): void {
+      const doc = ensureDocument();
+      if (!doc || !isDrawingAiRegionConstraint) return;
+      aiRegionConstraintStart = { x: Math.max(0, Math.min(doc.width - 1, pointer.x)), y: Math.max(0, Math.min(doc.height - 1, pointer.y)) };
+      aiRegionConstraint = normalizeAiSelectRegionConstraint({ ...aiRegionConstraint, enabled: true, source: "manual", rect: { x: aiRegionConstraintStart.x, y: aiRegionConstraintStart.y, width: 1, height: 1 } });
+      renderAiPromptOverlay();
+    },
+
+    continueSegmentationAiRegionConstraint(pointer: CanvasPoint): void {
+      const doc = ensureDocument();
+      if (!doc || !aiRegionConstraintStart) return;
+      const endX = Math.max(0, Math.min(doc.width, pointer.x));
+      const endY = Math.max(0, Math.min(doc.height, pointer.y));
+      aiRegionConstraint = normalizeAiSelectRegionConstraint({
+        ...aiRegionConstraint,
+        enabled: true,
+        source: "manual",
+        rect: { x: Math.min(aiRegionConstraintStart.x, endX), y: Math.min(aiRegionConstraintStart.y, endY), width: Math.abs(endX - aiRegionConstraintStart.x), height: Math.abs(endY - aiRegionConstraintStart.y) }
+      });
+      renderAiPromptOverlay();
+      canvas.requestRenderAll();
+    },
+
+    async finishSegmentationAiRegionConstraint(pointer: CanvasPoint): Promise<boolean> {
+      if (!aiRegionConstraintStart) return false;
+      controller.continueSegmentationAiRegionConstraint?.(pointer);
+      aiRegionConstraintStart = null;
+      isDrawingAiRegionConstraint = false;
+      const doc = ensureDocument();
+      const rect = doc ? getActiveAiSelectRegionRect(aiRegionConstraint, doc) : null;
+      if (!rect || rect.width < 2 || rect.height < 2) {
+        aiRegionConstraint = { ...aiRegionConstraint, enabled: false, source: null, rect: null };
+        renderAiPromptOverlay();
+        deps.notify("AI Select ROI must be at least 2 px wide and high.", 2500);
+        return false;
+      }
+      aiPreview = null;
+      aiRequestRevision += 1;
+      renderAiPromptOverlay();
+      requestOverlayRender({ forceSelectionFull: true, immediate: true });
+      if (aiPoints.length || aiBox) await buildAiPreview();
+      return true;
     },
 
     getSegmentationPreprocessingConfig(): SegmentationPreprocessingConfig {

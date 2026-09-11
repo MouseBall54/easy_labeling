@@ -1980,6 +1980,78 @@ body {
     min-width: 0;
 }
 
+.ai-region-constraint {
+    padding: 1px 0 4px;
+}
+
+.segmentation-ai-region-divider {
+    height: 1px;
+    margin: 15px 0 13px;
+    background: var(--workbench-border);
+}
+
+.ai-region-constraint-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ai-region-constraint-heading span {
+    display: block;
+    color: var(--workbench-text);
+    font-size: 0.76rem;
+    font-weight: 750;
+}
+
+.ai-region-constraint-heading small {
+    display: block;
+    margin-top: 3px;
+    color: var(--workbench-primary);
+    font-size: 0.64rem;
+}
+
+.ai-region-constraint > p {
+    margin: 8px 0 10px;
+    color: var(--workbench-text-muted);
+    font-size: 0.69rem;
+    line-height: 1.4;
+}
+
+.ai-region-constraint-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+}
+
+.ai-region-constraint-actions .btn {
+    min-height: 30px;
+    font-size: 0.7rem;
+}
+
+.ai-region-constraint-margin {
+    display: grid;
+    grid-template-columns: 1fr minmax(112px, 1.1fr);
+    align-items: center;
+    gap: 9px;
+    margin-top: 10px;
+    color: var(--workbench-text-muted);
+    font-size: 0.7rem;
+    font-weight: 650;
+}
+
+.ai-region-constraint-margin > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 46px;
+    gap: 5px;
+}
+
+.ai-region-constraint-margin .form-control,
+.ai-region-constraint-margin .form-select {
+    min-width: 0;
+    font-size: 0.7rem;
+}
+
 .panel-section,
 .inspector-section {
     margin: 0;
@@ -2208,6 +2280,21 @@ body {
 
 .canvas-container canvas {
     border: 0;
+}
+
+/* Fabric creates its own `.canvas-container` wrapper around #canvas. Keep the
+   workbench layout rules on the application <main>, otherwise the inner
+   wrapper is flex-sized and offset independently from Fabric's pointer math. */
+main.canvas-container > .canvas-container {
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    overflow: visible;
+    display: block;
+    position: relative;
+    container-type: normal;
+    background: transparent;
 }
 
 .segmentation-canvas-toolbar {
