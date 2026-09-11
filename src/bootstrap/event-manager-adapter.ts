@@ -1056,6 +1056,57 @@ export function createEventManagerAdapter(input: {
         setMode("draw");
       });
       const segmentationDocument = input.documentRef;
+      const viewOriginalButton = segmentationDocument?.getElementById("segmentationViewOriginalBtn");
+      const viewProcessedButton = segmentationDocument?.getElementById("segmentationViewProcessedBtn");
+      const preprocessModeSelect = segmentationDocument?.getElementById("segmentationPreprocessModeSelect");
+      const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
+      const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
+      const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
+      const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
+      const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
+      const syncSegmentationViewSource = (): void => {
+        const source = input.canvasController.raw.getSegmentationViewSource?.() ?? "original";
+        viewOriginalButton?.classList.toggle("active", source === "original");
+        viewProcessedButton?.classList.toggle("active", source === "processed");
+      };
+      viewOriginalButton?.addEventListener("click", () => {
+        input.canvasController.raw.setSegmentationViewSource?.("original");
+        syncSegmentationViewSource();
+      });
+      viewProcessedButton?.addEventListener("click", () => {
+        const currentSource = input.canvasController.raw.getSegmentationViewSource?.();
+        const changed = input.canvasController.raw.setSegmentationViewSource?.("processed");
+        if (changed === false && currentSource !== "processed") {
+          input.uiManager.notify("Processed preview could not be created for this image.", 3500);
+        }
+        syncSegmentationViewSource();
+      });
+      const applyPreprocessing = (): void => {
+        if (!(preprocessModeSelect instanceof HTMLSelectElement)
+          || !(preprocessBlurInput instanceof HTMLInputElement)
+          || !(preprocessEdgeWeightInput instanceof HTMLInputElement)) return;
+        const changed = input.canvasController.raw.setSegmentationPreprocessingConfig?.({
+          mode: preprocessModeSelect.value as import("../features/segmentation/preprocessing.js").SegmentationPreprocessMode,
+          blurStrength: Number.parseInt(preprocessBlurInput.value, 10),
+          edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100
+        });
+        if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
+        if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
+      };
+      preprocessModeSelect?.addEventListener("change", applyPreprocessing);
+      preprocessBlurInput?.addEventListener("change", applyPreprocessing);
+      preprocessEdgeWeightInput?.addEventListener("input", () => {
+        if (preprocessEdgeWeightInput instanceof HTMLInputElement && preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
+      });
+      preprocessEdgeWeightInput?.addEventListener("change", applyPreprocessing);
+      edgeSamInputSelect?.addEventListener("change", () => {
+        if (!(edgeSamInputSelect instanceof HTMLSelectElement)) return;
+        input.canvasController.raw.setSegmentationEdgeSamInputSource?.(edgeSamInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
+      });
+      superpixelInputSelect?.addEventListener("change", () => {
+        if (!(superpixelInputSelect instanceof HTMLSelectElement)) return;
+        input.canvasController.raw.setSegmentationSuperpixelInputSource?.(superpixelInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
+      });
       const completePolygonButton = segmentationDocument?.getElementById("segmentationCompletePolygonBtn");
       const cancelPolygonButton = segmentationDocument?.getElementById("segmentationCancelPolygonBtn");
       completePolygonButton?.addEventListener("click", () => {
@@ -1814,6 +1865,20 @@ export function createEventManagerAdapter(input: {
         }
 
         if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          if (event.key.toLowerCase() === "q") {
+            event.preventDefault();
+            const nextSource = input.canvasController.raw.getSegmentationViewSource?.() === "processed" ? "original" : "processed";
+            const changed = input.canvasController.raw.setSegmentationViewSource?.(nextSource);
+            if (changed === false) {
+              input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
+              return;
+            }
+            const originalButton = input.documentRef?.getElementById("segmentationViewOriginalBtn");
+            const processedButton = input.documentRef?.getElementById("segmentationViewProcessedBtn");
+            originalButton?.classList.toggle("active", nextSource === "original");
+            processedButton?.classList.toggle("active", nextSource === "processed");
+            return;
+          }
           if (event.key === "Enter" && input.canvasController.raw.applySegmentationAiPreview?.()) {
             event.preventDefault();
             input.uiManager.updateLabelList();

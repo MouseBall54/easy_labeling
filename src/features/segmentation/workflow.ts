@@ -24,6 +24,14 @@ import type { CanvasController, CanvasControllerDeps, CanvasControllerState, Can
 import type { FabricActiveSelectionLike, FabricObjectLike, FabricRectLike } from "../canvas/fabric-types.js";
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
 import type { EdgeSamBox, EdgeSamPoint } from "../edgesam/types.js";
+import {
+  DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG,
+  getSegmentationPreprocessingKey,
+  normalizeSegmentationPreprocessingConfig,
+  preprocessSegmentationImage,
+  type SegmentationImageSourceMode,
+  type SegmentationPreprocessingConfig
+} from "./preprocessing.js";
 
 function createEmptySummary(): SegmentationSummary {
   return {
@@ -87,6 +95,16 @@ export function createSegmentationCanvasWorkflow(
   let smartGrowSimilarity = 0.2;
   let smartGrowEdgeStop = 0.7;
   let superpixelSettings: SegmentationSuperpixelSettings = { ...DEFAULT_SUPERPIXEL_SETTINGS };
+  let preprocessingConfig: SegmentationPreprocessingConfig = { ...DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG };
+  let viewSource: SegmentationImageSourceMode = "original";
+  let edgeSamInputSource: SegmentationImageSourceMode = "original";
+  let superpixelInputSource: SegmentationImageSourceMode = "original";
+  let originalImageSource: CanvasImageSource | null = null;
+  let originalImageData: ImageData | null = null;
+  let processedImageSource: HTMLCanvasElement | null = null;
+  let processedImageData: Uint8ClampedArray | null = null;
+  let imageSourceKey = "";
+  let imageSourceRevision = 0;
   let visitedSuperpixelIds = new Set<number>();
   let strokeBaseline = null as ReturnType<SegmentationDocument["cloneSnapshot"]> | null;
   let strokePoints: CanvasPoint[] = [];
@@ -271,6 +289,72 @@ export function createSegmentationCanvasWorkflow(
       canvas.add(superpixelOverlayLayer.object);
     }
     return superpixelOverlayLayer;
+  };
+
+  const clearProcessedImageCache = (): void => {
+    originalImageData = null;
+    processedImageSource = null;
+    processedImageData = null;
+  };
+
+  const getOriginalImageData = (): ImageData | null => {
+    const doc = ensureDocument();
+    if (!doc || !originalImageSource || typeof globalThis.document === "undefined") return null;
+    if (originalImageData?.width === doc.width && originalImageData.height === doc.height) return originalImageData;
+    const canvasElement = globalThis.document.createElement("canvas");
+    canvasElement.width = doc.width;
+    canvasElement.height = doc.height;
+    const context = canvasElement.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    try {
+      context.drawImage(originalImageSource, 0, 0, doc.width, doc.height);
+      originalImageData = context.getImageData(0, 0, doc.width, doc.height);
+      return originalImageData;
+    } catch {
+      return null;
+    }
+  };
+
+  const ensureProcessedImage = (): { source: HTMLCanvasElement; rgba: Uint8ClampedArray; cacheKey: string } | null => {
+    const doc = ensureDocument();
+    const original = getOriginalImageData();
+    if (!doc || !original || typeof globalThis.document === "undefined") return null;
+    const preprocessingKey = getSegmentationPreprocessingKey(preprocessingConfig);
+    const cacheKey = `${imageSourceKey}:processed:${preprocessingKey}`;
+    if (!processedImageSource || !processedImageData || processedImageSource.width !== doc.width || processedImageSource.height !== doc.height || processedImageSource.dataset.preprocessingKey !== cacheKey) {
+      const canvasElement = globalThis.document.createElement("canvas");
+      canvasElement.width = doc.width;
+      canvasElement.height = doc.height;
+      const context = canvasElement.getContext("2d", { willReadFrequently: true });
+      if (!context) return null;
+      const rgba = preprocessSegmentationImage({ width: doc.width, height: doc.height, rgba: original.data }, preprocessingConfig);
+      const imageData = context.createImageData(doc.width, doc.height);
+      imageData.data.set(rgba);
+      context.putImageData(imageData, 0, 0);
+      canvasElement.dataset.preprocessingKey = cacheKey;
+      processedImageSource = canvasElement;
+      processedImageData = rgba;
+    }
+    return { source: processedImageSource, rgba: processedImageData, cacheKey };
+  };
+
+  const getImageInput = (sourceMode: SegmentationImageSourceMode): { source: CanvasImageSource; rgba: Uint8ClampedArray; cacheKey: string } | null => {
+    const doc = ensureDocument();
+    if (!doc) return null;
+    if (sourceMode === "processed") {
+      return ensureProcessedImage();
+    }
+    const original = getOriginalImageData();
+    if (!original || !originalImageSource) return null;
+    return { source: originalImageSource, rgba: original.data, cacheKey: `${imageSourceKey}:original` };
+  };
+
+  const refreshViewSource = (): boolean => {
+    const input = getImageInput(viewSource);
+    if (!input) return false;
+    shell.setBackgroundImage(input.source);
+    requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
+    return true;
   };
 
   const resetDocumentForCurrentImage = (): void => {
@@ -597,25 +681,17 @@ export function createSegmentationCanvasWorkflow(
     };
   };
 
-  const prepareEdgeSamImage = async (image: unknown): Promise<void> => {
+  const prepareEdgeSamImage = async (): Promise<void> => {
     const service = deps.edgeSamService;
     const doc = ensureDocument();
-    if (!service || !doc || typeof globalThis.document === "undefined") return;
-    const source = image as CanvasImageSource;
-    const scratch = globalThis.document.createElement("canvas");
-    scratch.width = doc.width;
-    scratch.height = doc.height;
-    const context = scratch.getContext("2d", { willReadFrequently: true });
-    if (!context) return;
+    const input = getImageInput(edgeSamInputSource);
+    if (!service || !doc || !input) return;
     try {
-      context.drawImage(source, 0, 0, doc.width, doc.height);
-      const imageData = context.getImageData(0, 0, doc.width, doc.height);
-      const sourceKey = (image as { src?: string }).src ?? "local-image";
       await service.prepareImage({
-        cacheKey: `${sourceKey}:${doc.width}x${doc.height}`,
+        cacheKey: input.cacheKey,
         width: doc.width,
         height: doc.height,
-        rgba: imageData.data
+        rgba: input.rgba
       });
       if (workflowActive) deps.notify("AI Select is ready.", 1800);
     } catch (error) {
@@ -702,14 +778,21 @@ export function createSegmentationCanvasWorkflow(
     },
 
     setBackgroundImage(image: unknown): void {
+      originalImageSource = image as CanvasImageSource;
+      imageSourceRevision += 1;
+      imageSourceKey = `${(image as { src?: string }).src ?? "local-image"}:${imageSourceRevision}`;
+      clearProcessedImageCache();
       shell.setBackgroundImage(image);
       resetDocumentForCurrentImage();
+      if (viewSource === "processed" && ensureProcessedImage()) {
+        void refreshViewSource();
+      }
       requestOverlayRender({
         forceMaskFull: true,
         forceSelectionFull: true,
         immediate: true
       });
-      void prepareEdgeSamImage(image);
+      void prepareEdgeSamImage();
     },
 
     setMode(mode): void {
@@ -1065,24 +1148,12 @@ export function createSegmentationCanvasWorkflow(
 
     recalculateSegmentationSuperpixels(regionSize: number): boolean {
       const doc = ensureDocument();
-      const source = state.currentImage as unknown as CanvasImageSource | null;
-      if (!doc || !source || typeof globalThis.document === "undefined") return false;
-      const imageCanvas = globalThis.document.createElement("canvas");
-      imageCanvas.width = doc.width;
-      imageCanvas.height = doc.height;
-      const context = imageCanvas.getContext("2d", { willReadFrequently: true });
-      if (!context) return false;
-      try {
-        context.drawImage(source, 0, 0, doc.width, doc.height);
-      } catch {
-        return false;
-      }
-      const imageData = context.getImageData(0, 0, doc.width, doc.height);
-      const cacheKey = `${(state.currentImage as { src?: string }).src ?? "image"}:${doc.width}x${doc.height}`;
+      const input = getImageInput(superpixelInputSource);
+      if (!doc || !input) return false;
       superpixelSettings = normalizeSuperpixelSettings({ ...superpixelSettings, regionSize });
       smartPreview = null;
       superpixelResult = superpixelCache.getOrCreate(
-        { cacheKey, width: doc.width, height: doc.height, rgba: imageData.data },
+        { cacheKey: input.cacheKey, width: doc.width, height: doc.height, rgba: input.rgba },
         regionSize,
         superpixelSettings
       );
@@ -1275,6 +1346,65 @@ export function createSegmentationCanvasWorkflow(
 
     getEdgeSamStatus() {
       return deps.edgeSamService?.getStatus() ?? { phase: "error" as const, backend: null, imageCacheKey: null, encoderRuns: 0, message: "AI Select service is unavailable" };
+    },
+
+    getSegmentationPreprocessingConfig(): SegmentationPreprocessingConfig {
+      return { ...preprocessingConfig };
+    },
+
+    setSegmentationPreprocessingConfig(config: Partial<SegmentationPreprocessingConfig>): boolean {
+      const next = normalizeSegmentationPreprocessingConfig({ ...preprocessingConfig, ...config });
+      if (next.mode === preprocessingConfig.mode && next.blurStrength === preprocessingConfig.blurStrength && next.edgeWeight === preprocessingConfig.edgeWeight) return false;
+      preprocessingConfig = next;
+      clearProcessedImageCache();
+      if (viewSource === "processed") refreshViewSource();
+      if (superpixelInputSource === "processed") {
+        const regionSize = superpixelResult?.regionSize ?? null;
+        smartPreview = null;
+        superpixelResult = null;
+        superpixelCache.clear();
+        removeSuperpixelOverlayLayer();
+        if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      }
+      if (edgeSamInputSource === "processed") void prepareEdgeSamImage();
+      return true;
+    },
+
+    setSegmentationViewSource(source: SegmentationImageSourceMode): boolean {
+      if (viewSource === source) return false;
+      viewSource = source;
+      return refreshViewSource();
+    },
+
+    getSegmentationViewSource(): SegmentationImageSourceMode {
+      return viewSource;
+    },
+
+    setSegmentationEdgeSamInputSource(source: SegmentationImageSourceMode): boolean {
+      if (edgeSamInputSource === source) return false;
+      edgeSamInputSource = source;
+      void prepareEdgeSamImage();
+      return true;
+    },
+
+    getSegmentationEdgeSamInputSource(): SegmentationImageSourceMode {
+      return edgeSamInputSource;
+    },
+
+    setSegmentationSuperpixelInputSource(source: SegmentationImageSourceMode): boolean {
+      if (superpixelInputSource === source) return false;
+      const regionSize = superpixelResult?.regionSize ?? null;
+      superpixelInputSource = source;
+      smartPreview = null;
+      superpixelResult = null;
+      superpixelCache.clear();
+      removeSuperpixelOverlayLayer();
+      if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      return true;
+    },
+
+    getSegmentationSuperpixelInputSource(): SegmentationImageSourceMode {
+      return superpixelInputSource;
     },
 
     finishSegmentationPolygon(): boolean {

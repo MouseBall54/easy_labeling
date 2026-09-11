@@ -10,6 +10,7 @@ import type {
 import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./history.js";
 import type { SegmentationAiPreviewSummary, SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSmartPreviewSummary, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
 import type { EdgeSamStatus } from "../edgesam/types.js";
+import type { SegmentationImageSourceMode, SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
 import type { BoxLayout, PixelPoint } from "../automation/types.js";
 
 export interface AppliedBoxLayout {
@@ -183,6 +184,14 @@ export interface CanvasController {
   applySegmentationAiPreview?(): boolean;
   discardSegmentationAiPreview?(): boolean;
   getEdgeSamStatus?(): EdgeSamStatus;
+  getSegmentationPreprocessingConfig?(): SegmentationPreprocessingConfig;
+  setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
+  setSegmentationViewSource?(source: SegmentationImageSourceMode): boolean;
+  getSegmentationViewSource?(): SegmentationImageSourceMode;
+  setSegmentationEdgeSamInputSource?(source: SegmentationImageSourceMode): boolean;
+  getSegmentationEdgeSamInputSource?(): SegmentationImageSourceMode;
+  setSegmentationSuperpixelInputSource?(source: SegmentationImageSourceMode): boolean;
+  getSegmentationSuperpixelInputSource?(): SegmentationImageSourceMode;
   setSegmentationBrushRadius?(radius: number): void;
   setSegmentationActiveClass?(classId: string): void;
   setSegmentationAutoFillClosedRegionEnabled?(enabled: boolean): void;

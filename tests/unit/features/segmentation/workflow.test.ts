@@ -202,6 +202,67 @@ describe("features/segmentation/workflow", () => {
     expect(controller.setSegmentationSuperpixelSettings?.({ blur: "high" })).toBe(false);
   });
 
+  it("keeps display changes separate from EdgeSAM input and invalidates processed embeddings on preprocessing changes", async () => {
+    const sourcePixels = new Uint8ClampedArray(16 * 16 * 4).fill(120);
+    for (let index = 3; index < sourcePixels.length; index += 4) sourcePixels[index] = 255;
+    const source = { width: 16, height: 16, rgba: sourcePixels };
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const fakeDocument = {
+      createElement: () => {
+        let pixels = new Uint8ClampedArray(sourcePixels);
+        const context = {
+          drawImage: (image: typeof source) => { pixels = new Uint8ClampedArray(image.rgba); },
+          getImageData: () => ({ width: 16, height: 16, data: new Uint8ClampedArray(pixels) }),
+          createImageData: () => ({ width: 16, height: 16, data: new Uint8ClampedArray(16 * 16 * 4) }),
+          putImageData: (imageData: { data: Uint8ClampedArray }) => { pixels = new Uint8ClampedArray(imageData.data); }
+        };
+        return { width: 16, height: 16, dataset: {}, getContext: () => context };
+      }
+    };
+    Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
+    const edgeSamService = {
+      prepareImage: vi.fn(async () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 1, message: null })),
+      decode: vi.fn(), clear: vi.fn(), dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 1, message: null })
+    };
+    try {
+      const controller = createCanvasControllerForWorkflow(
+        "segmentation",
+        createState({ currentImage: { width: 16, height: 16 } }),
+        createDeps({ edgeSamService })
+      );
+      controller.setBackgroundImage(source);
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:original" }));
+
+      const callsBeforeSuperpixelSourceChange = edgeSamService.prepareImage.mock.calls.length;
+      expect(controller.setSegmentationSuperpixelInputSource?.("processed")).toBe(true);
+      expect(controller.recalculateSegmentationSuperpixels?.(8)).toBe(true);
+      expect(edgeSamService.prepareImage).toHaveBeenCalledTimes(callsBeforeSuperpixelSourceChange);
+
+      expect(controller.setSegmentationEdgeSamInputSource?.("processed")).toBe(true);
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:processed:edge-blend:2:0.650" }));
+      const callsBeforeViewChange = edgeSamService.prepareImage.mock.calls.length;
+      controller.setSegmentationViewSource?.("processed");
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenCalledTimes(callsBeforeViewChange);
+
+      controller.setSegmentationPreprocessingConfig?.({ blurStrength: 3 });
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:processed:edge-blend:3:0.650" }));
+      expect(controller.setSegmentationEdgeSamInputSource?.("original")).toBe(true);
+      await Promise.resolve();
+      const callsBeforeOriginalConfigChange = edgeSamService.prepareImage.mock.calls.length;
+      controller.setSegmentationPreprocessingConfig?.({ blurStrength: 4 });
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenCalledTimes(callsBeforeOriginalConfigChange);
+    } finally {
+      if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+      else Reflect.deleteProperty(globalThis, "document");
+    }
+  });
+
   it("activates segmentation explicitly and paints/erases through the document-backed workflow", async () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 32, height: 24 });

@@ -409,6 +409,15 @@
                     </section>
                 </div>
                 <div id="segmentationWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-segmentation" style="display: none;">
+                    <section id="segmentationPreprocessingSection" class="inspector-section segmentation-preprocessing-section" data-ui="segmentation-preprocessing-section">
+                        <div class="section-heading-row"><h3>Image preprocessing</h3><span class="section-value">SEM edge</span></div>
+                        <label class="form-label small mb-1">Image view</label>
+                        <div class="segmented-control compact mb-2" role="group" aria-label="Image view source"><button id="segmentationViewOriginalBtn" type="button" class="btn active">Original</button><button id="segmentationViewProcessedBtn" type="button" class="btn">Processed</button></div>
+                        <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Preprocess mode</label>
+                        <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm mb-2"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
+                        <div class="row g-2"><div class="col-6"><label class="form-label small mb-1" for="segmentationPreprocessBlurInput">Blur strength</label><input id="segmentationPreprocessBlurInput" type="range" class="form-range" min="0" max="4" step="1" value="2"></div><div class="col-6"><label class="form-label small mb-1" for="segmentationPreprocessEdgeWeightInput">Edge weight <span id="segmentationPreprocessEdgeWeightValue">65%</span></label><input id="segmentationPreprocessEdgeWeightInput" type="range" class="form-range" min="0" max="100" step="1" value="65"></div></div>
+                        <div class="row g-2 mt-1"><div class="col-6"><label class="form-label small mb-1" for="segmentationEdgeSamInputSelect">AI Select input</label><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></div><div class="col-6"><label class="form-label small mb-1" for="segmentationSuperpixelInputSelect">Superpixel input</label><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></div></div>
+                    </section>
                     <section id="segmentationSuperpixelSection" class="inspector-section segmentation-superpixel-section" data-ui="segmentation-superpixel-section">
                         <div class="mt-1" data-ui="segmentation-superpixel-group">
                             <div class="section-heading-row"><label class="form-label small mb-0" for="segmentationSuperpixelSizeSlider">Superpixel size</label><span id="segmentationSuperpixelSizeValue" class="section-value">16 px</span></div>
