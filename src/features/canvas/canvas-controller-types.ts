@@ -184,6 +184,7 @@ export interface CanvasController {
   getSegmentationAiRegionConstraint?(): AiSelectRegionConstraint;
   setSegmentationAiRegionConstraint?(config: Partial<AiSelectRegionConstraint>): Promise<boolean>;
   beginSegmentationAiRegionConstraint?(): boolean;
+  cancelSegmentationAiRegionConstraint?(): boolean;
   isSegmentationAiRegionConstraintDrawing?(): boolean;
   startSegmentationAiRegionConstraint?(pointer: CanvasPoint): void;
   continueSegmentationAiRegionConstraint?(pointer: CanvasPoint): void;

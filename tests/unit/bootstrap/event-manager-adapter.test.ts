@@ -2380,6 +2380,44 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(setWorkflow).toHaveBeenCalledWith("segmentation");
   });
 
+  it("keeps the AI Select ROI shortcut reusable and exposes its drawing cursor state", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const beginSegmentationAiRegionConstraint = vi.fn(() => true);
+    const cancelSegmentationAiRegionConstraint = vi.fn(() => true);
+    Object.assign(rawController, {
+      getSegmentationSummary: vi.fn(() => ({ activeTool: "ai-select" })),
+      beginSegmentationAiRegionConstraint,
+      cancelSegmentationAiRegionConstraint
+    });
+
+    createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    }).bindEventListeners();
+
+    const press = (key: string): ReturnType<typeof vi.fn> => {
+      const preventDefault = vi.fn();
+      windowRef.keydownListener?.({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: new FakeHtmlElement(), preventDefault });
+      return preventDefault;
+    };
+
+    expect(press("r")).toHaveBeenCalledOnce();
+    expect(rawCanvas.upperCanvasEl.classList.contains("ai-region-constraint-cursor")).toBe(true);
+    expect(press("r")).toHaveBeenCalledOnce();
+    expect(beginSegmentationAiRegionConstraint).toHaveBeenCalledTimes(2);
+    expect(press("Escape")).toHaveBeenCalledOnce();
+    expect(cancelSegmentationAiRegionConstraint).toHaveBeenCalledOnce();
+    expect(rawCanvas.upperCanvasEl.classList.contains("ai-region-constraint-cursor")).toBe(false);
+  });
+
   it("routes Ctrl+B to pointer-based segmentation relabel when no region is selected", async () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";

@@ -1366,6 +1366,8 @@ export function createSegmentationCanvasWorkflow(
         rect: null,
         detectionLabelId: undefined
       });
+      aiRegionConstraintStart = null;
+      isDrawingAiRegionConstraint = false;
       clearAiPreview();
       selectedRegion = selection;
       const changed = doc.pushHistoryFromSnapshot(before);
@@ -1409,6 +1411,15 @@ export function createSegmentationCanvasWorkflow(
       aiRegionConstraintStart = null;
       deps.notify("Drag on the image to set the AI Select ROI.", 2500);
       return true;
+    },
+
+    cancelSegmentationAiRegionConstraint(): boolean {
+      const changed = isDrawingAiRegionConstraint || aiRegionConstraintStart !== null;
+      isDrawingAiRegionConstraint = false;
+      aiRegionConstraintStart = null;
+      renderAiPromptOverlay();
+      canvas.requestRenderAll();
+      return changed;
     },
 
     isSegmentationAiRegionConstraintDrawing(): boolean {

@@ -322,7 +322,7 @@ export function createUiManagerAdapter(input: {
         : "Select a region to inspect.";
     }
     if (deleteRegionButton) deleteRegionButton.disabled = selectedRegion === null;
-    if (regionActions) regionActions.hidden = isDrawingMode;
+    if (regionActions) regionActions.hidden = input.state.session.workflow !== "segmentation" || isDrawingMode;
     (elements.segmentationRelabelRegionBtn as HTMLButtonElement).disabled = selectedRegion === null;
     elements.segmentationBrushModeBtn.classList.toggle("active", isDrawingMode && activeTool === "brush");
     elements.segmentationEraseModeBtn.classList.toggle("active", isDrawingMode && activeTool === "erase");

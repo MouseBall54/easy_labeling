@@ -2012,17 +2012,11 @@ body {
     font-size: 0.64rem;
 }
 
-.ai-region-constraint > p {
-    margin: 8px 0 10px;
-    color: var(--workbench-text-muted);
-    font-size: 0.69rem;
-    line-height: 1.4;
-}
-
 .ai-region-constraint-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 7px;
+    margin-top: 10px;
 }
 
 .ai-region-constraint-actions .btn {
@@ -2034,37 +2028,8 @@ body {
     font-weight: 700;
 }
 
-.ai-region-constraint-actions kbd {
-    padding: 0.08rem 0.28rem;
-    color: inherit;
-    background: transparent;
-    border: 1px solid currentColor;
-    border-radius: 3px;
-    font-size: 0.6rem;
-    line-height: 1;
-}
-
-.ai-region-constraint-margin {
-    display: grid;
-    grid-template-columns: 1fr minmax(112px, 1.1fr);
-    align-items: center;
-    gap: 9px;
-    margin-top: 10px;
-    color: var(--workbench-text-muted);
-    font-size: 0.7rem;
-    font-weight: 650;
-}
-
-.ai-region-constraint-margin > div {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 46px;
-    gap: 5px;
-}
-
-.ai-region-constraint-margin .form-control,
-.ai-region-constraint-margin .form-select {
-    min-width: 0;
-    font-size: 0.7rem;
+.upper-canvas.ai-region-constraint-cursor {
+    cursor: cell !important;
 }
 
 .panel-section,
@@ -3287,7 +3252,7 @@ body.dark-mode .placement-notice[data-state="busy"] {
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    margin-top: 0.75rem;
     padding: 0.55rem 0.65rem;
     color: var(--workbench-text-muted);
     background: var(--workbench-surface-muted);

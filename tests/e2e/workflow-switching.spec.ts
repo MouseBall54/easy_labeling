@@ -155,6 +155,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#segmentationSelectedRegionSummary")).toBeVisible();
   await expect(page.locator("#segmentationSelectedRegionSummary")).toHaveText("Select a region to inspect.");
   await expect(page.locator("#segmentationRegionActions")).toBeVisible();
+  await expect(page.locator("#sharedToolSection > #segmentationRegionActions")).toHaveCount(1);
   await expect(page.locator("#segmentationRelabelRegionBtn")).toBeDisabled();
   await expect(page.locator("#segmentationDeleteRegionBtn")).toBeDisabled();
   await expect(page.locator("#segmentationRegionActions #segmentationDeleteRegionBtn")).toHaveCount(1);
