@@ -88,7 +88,7 @@
                 <button id="taskSegmentationDisplayBtn" type="button" class="task-rail-button" data-task="segmentation-display" title="Mask display workspace" aria-label="Mask display workspace" aria-pressed="false" hidden>
                     <i class="bi bi-eye" aria-hidden="true"></i><span>Display</span>
                 </button>
-                <button id="taskSegmentationPreprocessingBtn" type="button" class="task-rail-button" data-task="segmentation-preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false" hidden>
+                <button id="taskPreprocessingBtn" type="button" class="task-rail-button" data-task="preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false">
                     <i class="bi bi-sliders2" aria-hidden="true"></i><span>Preprocess</span>
                 </button>
                 <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
@@ -118,10 +118,6 @@
                     </div>
                     <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden>
                         <section id="segmentationPreprocessingSection" class="segmentation-preprocessing-section" data-ui="segmentation-preprocessing-section">
-                            <div class="segmentation-preprocessing-heading">
-                                <div class="segmentation-preprocessing-mark" aria-hidden="true"><i class="bi bi-activity"></i></div>
-                                <h3>Image preprocessing</h3>
-                            </div>
                             <div class="segmentation-preprocessing-block">
                                 <div class="segmentation-preprocessing-label"><span>Canvas view</span><small>Q</small></div>
                                 <div class="segmented-control segmentation-preprocessing-toggle" role="group" aria-label="Image view source"><button id="segmentationViewOriginalBtn" type="button" class="btn active"><i class="bi bi-image" aria-hidden="true"></i> Original</button><button id="segmentationViewProcessedBtn" type="button" class="btn"><i class="bi bi-activity" aria-hidden="true"></i> Processed</button></div>
@@ -136,9 +132,12 @@
                             </div>
                             <div class="segmentation-preprocessing-divider"></div>
                             <div class="segmentation-preprocessing-label"><span>Algorithm input</span><small>Independent source</small></div>
-                            <div class="segmentation-preprocessing-inputs">
+                            <div id="segmentationPreprocessingInputs" class="segmentation-preprocessing-inputs">
                                 <label for="segmentationEdgeSamInputSelect"><span>AI Select</span><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
                                 <label for="segmentationSuperpixelInputSelect"><span>Superpixel</span><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
+                            </div>
+                            <div id="detectionPreprocessingInputs" class="segmentation-preprocessing-inputs" hidden>
+                                <label for="detectionAutomationInputSelect"><span>Automation</span><select id="detectionAutomationInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
                             </div>
                         </section>
                         <section id="segmentationDisplayWorkspace" class="segmentation-display-workspace" hidden>
@@ -324,7 +323,7 @@
                         <button id="segmentationEraseModeBtn" type="button" class="btn" data-ui="segmentation-tool-erase"><i class="bi bi-eraser" aria-hidden="true"></i> Erase</button>
                         <button id="segmentationPolygonModeBtn" type="button" class="btn" data-ui="segmentation-tool-polygon"><i class="bi bi-pentagon" aria-hidden="true"></i> Polygon</button>
                         <button id="segmentationSuperpixelModeBtn" type="button" class="btn" data-ui="segmentation-tool-superpixel"><i class="bi bi-grid-3x3" aria-hidden="true"></i> Superpixel</button>
-                        <button id="segmentationAiSelectModeBtn" type="button" class="btn" data-ui="segmentation-tool-ai-select" title="Left click adds a positive point; right click adds a negative point; Shift+drag draws a box"><i class="bi bi-cpu" aria-hidden="true"></i> AI Select</button>
+                        <button id="segmentationAiSelectModeBtn" type="button" class="btn" data-ui="segmentation-tool-ai-select" title="Left click: positive point · Right click: negative point · Shift+drag: ROI · Ctrl/Cmd+Shift+drag: prompt box"><i class="bi bi-cpu" aria-hidden="true"></i> AI Select</button>
                         <button id="segmentationEditModeBtn" type="button" class="btn" data-ui="segmentation-tool-edit"><i class="bi bi-cursor" aria-hidden="true"></i> Edit</button>
                     </div>
                 </div>
@@ -362,7 +361,7 @@
                     <nav class="inspector-tabs" aria-label="Inspector sections">
                         <button id="inspectorAnnotationTabBtn" type="button" class="inspector-tab active" data-inspector-tab="annotation" aria-current="page">Annotation</button>
                         <button id="inspectorTransformTabBtn" type="button" class="inspector-tab" data-inspector-tab="transform">Transform</button>
-                        <button id="inspectorAutomationTabBtn" type="button" class="inspector-tab" data-inspector-tab="automation">Automation</button>
+                        <button id="inspectorAutomationTabBtn" type="button" class="inspector-tab" data-inspector-tab="automation" hidden>Automation</button>
                     </nav>
 
                     <section id="inspectorAnnotationPane" class="inspector-pane active" data-inspector-pane="annotation">
@@ -484,7 +483,7 @@
                         <div class="segmentation-ai-region-divider"></div>
                         <section class="ai-region-constraint" aria-labelledby="aiRegionConstraintTitle">
                             <div class="ai-region-constraint-heading"><div><span id="aiRegionConstraintTitle">Region constraint</span><small id="segmentationAiRegionConstraintStatus">Full image mask</small></div><label class="switch-control" title="Limit the final AI Select mask to the ROI"><input id="segmentationAiRegionConstraintToggle" type="checkbox"><span class="switch-slider"></span></label></div>
-                            <div class="ai-region-constraint-actions"><button id="segmentationAiRegionConstraintSetBtn" type="button" class="btn btn-outline-primary btn-sm" title="Set ROI (R)" aria-label="Set ROI"><i class="bi bi-bounding-box" aria-hidden="true"></i> Set ROI</button><button id="segmentationAiRegionConstraintClearBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Clear</button></div>
+                            <div class="ai-region-constraint-actions"><button id="segmentationAiRegionConstraintSetBtn" type="button" class="btn btn-outline-primary btn-sm" title="Set ROI · Shift + drag on canvas" aria-label="Set ROI"><i class="bi bi-bounding-box" aria-hidden="true"></i> Set ROI</button><button id="segmentationAiRegionConstraintClearBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Clear</button></div>
                         </section>
                     </section>
                     <section id="segmentationPolygonActionsSection" class="inspector-section segmentation-tools-section" hidden>

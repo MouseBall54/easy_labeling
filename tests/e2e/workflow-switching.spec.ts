@@ -122,6 +122,14 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#detectionCanvasToolbar #genericModeControls")).toBeVisible();
   await expect(page.locator("#detectionCanvasToolbar #taskAutomateBtn")).toBeVisible();
   await expect(page.locator("#taskDetectionDisplayBtn")).toBeVisible();
+  await expect(page.locator("#taskPreprocessingBtn")).toBeVisible();
+  await expect(page.locator("#inspectorAutomationTabBtn")).toBeHidden();
+  await page.locator("#taskPreprocessingBtn").click();
+  await expect(page.locator("#segmentationPreprocessingSection")).toBeVisible();
+  await expect(page.locator("#detectionPreprocessingInputs")).toBeVisible();
+  await expect(page.locator("#segmentationPreprocessingInputs")).toBeHidden();
+  await expect(page.locator("#detectionAutomationInputSelect")).toBeVisible();
+  await page.locator("#taskAnnotateBtn").click();
   await page.locator("#taskDetectionDisplayBtn").click();
   await expect(page.locator("#detectionLeftWorkspace")).toBeHidden();
   await expect(page.locator("#detectionDisplayWorkspace")).toBeVisible();
@@ -191,7 +199,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#segmentationMaskVisibilityToggle")).toBeVisible();
   await expect(page.locator("#leftPanelTitle")).toHaveText("Mask Display");
 
-  await page.locator("#taskSegmentationPreprocessingBtn").click();
+  await page.locator("#taskPreprocessingBtn").click();
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#left-panel #segmentationPreprocessingSection")).toBeVisible();
   await expect(page.locator("#datasetConnectionStatus")).toBeHidden();

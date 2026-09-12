@@ -1162,7 +1162,18 @@ export function createSegmentationCanvasWorkflow(
       if (doc.activeTool !== tool) {
         cancelActiveToolGesture();
         smartPreview = null;
-        if (tool !== "ai-select") clearAiPreview();
+        if (tool !== "ai-select") {
+          clearAiPreview();
+          isDrawingAiRegionConstraint = false;
+          aiRegionConstraintStart = null;
+          aiRegionConstraint = normalizeAiSelectRegionConstraint({
+            ...aiRegionConstraint,
+            enabled: false,
+            source: null,
+            rect: null,
+            detectionLabelId: undefined
+          });
+        }
       }
       doc.setActiveTool(tool);
       requestOverlayRender({

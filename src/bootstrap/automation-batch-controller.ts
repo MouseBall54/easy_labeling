@@ -34,6 +34,7 @@ export function createAutomationBatchController(input: {
   getSelectedPreset(): AutomationPreset | null;
   getLibrary(): AutomationLibraryDocument;
   match(matchInput: TemplateMatchInput): Promise<TemplateMatchResult>;
+  prepareImageData(imageData: ImageData): ImageData;
   cancelActiveMatch(): void;
   setRelatedControlsDisabled(running: boolean): void;
 }): AutomationBatchController {
@@ -221,7 +222,7 @@ export function createAutomationBatchController(input: {
 
     try {
       await yieldToUi();
-      const templateImageData = await pngDataUrlToImageData(template.pngDataUrl, input.documentRef);
+      const templateImageData = input.prepareImageData(await pngDataUrlToImageData(template.pngDataUrl, input.documentRef));
       throwIfOperationCancelled(activeOperation.signal);
       const summary = await runSequentialBatch({
         files,
@@ -250,7 +251,7 @@ export function createAutomationBatchController(input: {
               setBatchStage(file.name, "Preparing image pixels");
               await yieldToUi();
               const imageDataStartedAt = globalThis.performance?.now() ?? Date.now();
-              const targetImageData = imageElementToImageData(targetImage, input.documentRef);
+              const targetImageData = input.prepareImageData(imageElementToImageData(targetImage, input.documentRef));
               throwIfOperationCancelled(activeOperation?.signal);
               imageDataMs = (globalThis.performance?.now() ?? Date.now()) - imageDataStartedAt;
               setBatchStage(file.name, "Matching template");

@@ -153,6 +153,14 @@ describe("features/segmentation/workflow", () => {
     expect(controller.isSegmentationAiRegionConstraintDrawing?.()).toBe(false);
     expect(controller.beginSegmentationAiRegionConstraint?.()).toBe(true);
     expect(controller.cancelSegmentationAiRegionConstraint?.()).toBe(true);
+
+    await controller.setSegmentationAiRegionConstraint?.({
+      enabled: true,
+      source: "manual",
+      rect: { x: 2, y: 2, width: 8, height: 8 }
+    });
+    controller.setSegmentationTool?.("brush");
+    expect(controller.getSegmentationAiRegionConstraint?.()).toMatchObject({ enabled: false, source: null, rect: null });
   });
 
   it("keeps AI Select prompt markers at a pointer-sized screen scale when the view zoom changes", async () => {

@@ -759,6 +759,7 @@ describe("bootstrap/event-manager-adapter", () => {
   it("toggles superpixel boundaries with B only in segmentation mode", () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";
+    state.view.currentMode = "draw";
     const elements = createElements();
     elements.segmentationSuperpixelBoundaryToggle.checked = true;
     const windowRef = new FakeWindow();
@@ -2380,19 +2381,25 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(setWorkflow).toHaveBeenCalledWith("segmentation");
   });
 
-  it("keeps the AI Select ROI shortcut reusable and exposes its drawing cursor state", () => {
+  it("keeps Shift-drag ROI reusable only while AI Select is active", async () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";
+    state.view.currentMode = "draw";
     const elements = createElements();
     const windowRef = new FakeWindow();
     const rawCanvas = createRawCanvas();
     const rawController = createRawController(rawCanvas);
     const beginSegmentationAiRegionConstraint = vi.fn(() => true);
     const cancelSegmentationAiRegionConstraint = vi.fn(() => true);
+    const startSegmentationAiRegionConstraint = vi.fn();
+    const finishSegmentationAiRegionConstraint = vi.fn(async () => true);
+    rawCanvas.getPointer.mockReturnValue({ x: 18, y: 24 });
     Object.assign(rawController, {
       getSegmentationSummary: vi.fn(() => ({ activeTool: "ai-select" })),
       beginSegmentationAiRegionConstraint,
-      cancelSegmentationAiRegionConstraint
+      cancelSegmentationAiRegionConstraint,
+      startSegmentationAiRegionConstraint,
+      finishSegmentationAiRegionConstraint
     });
 
     createEventManagerAdapter({
@@ -2403,19 +2410,21 @@ describe("bootstrap/event-manager-adapter", () => {
       windowRef
     }).bindEventListeners();
 
-    const press = (key: string): ReturnType<typeof vi.fn> => {
-      const preventDefault = vi.fn();
-      windowRef.keydownListener?.({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: new FakeHtmlElement(), preventDefault });
-      return preventDefault;
-    };
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    const mouseUpHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:up")?.[1];
+    const roiGesture = { button: 0, shiftKey: true, ctrlKey: false, metaKey: false, altKey: false };
 
-    expect(press("r")).toHaveBeenCalledOnce();
+    mouseDownHandler?.({ e: roiGesture });
     expect(rawCanvas.upperCanvasEl.classList.contains("ai-region-constraint-cursor")).toBe(true);
-    expect(press("r")).toHaveBeenCalledOnce();
-    expect(beginSegmentationAiRegionConstraint).toHaveBeenCalledTimes(2);
-    expect(press("Escape")).toHaveBeenCalledOnce();
-    expect(cancelSegmentationAiRegionConstraint).toHaveBeenCalledOnce();
+    expect(startSegmentationAiRegionConstraint).toHaveBeenCalledWith({ x: 18, y: 24 });
+    mouseUpHandler?.({ e: roiGesture });
+    await Promise.resolve();
     expect(rawCanvas.upperCanvasEl.classList.contains("ai-region-constraint-cursor")).toBe(false);
+
+    mouseDownHandler?.({ e: roiGesture });
+    expect(beginSegmentationAiRegionConstraint).toHaveBeenCalledTimes(2);
+    expect(startSegmentationAiRegionConstraint).toHaveBeenCalledTimes(2);
+    expect(finishSegmentationAiRegionConstraint).toHaveBeenCalledOnce();
   });
 
   it("routes Ctrl+B to pointer-based segmentation relabel when no region is selected", async () => {

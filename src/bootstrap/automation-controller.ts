@@ -15,6 +15,7 @@ import {
   upsertById
 } from "../features/automation/automation-library-service.js";
 import { cropImageElementToPngDataUrl, imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
+import { preprocessSegmentationImage } from "../features/segmentation/preprocessing.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
 import { parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
 import {
@@ -188,6 +189,24 @@ export function createAutomationController(input: {
     }
     matchingService ??= input.createMatchingService?.() ?? createTemplateMatchingService();
     return matchingService;
+  };
+
+  const prepareAutomationImageData = (imageData: ImageData): ImageData => {
+    const source = input.documentRef.getElementById("detectionAutomationInputSelect");
+    if (!(source instanceof HTMLSelectElement) || source.value !== "processed") {
+      return imageData;
+    }
+    const data = preprocessSegmentationImage({
+      width: imageData.width,
+      height: imageData.height,
+      rgba: imageData.data
+    }, input.canvasController.raw.getSegmentationPreprocessingConfig?.());
+    return {
+      data,
+      width: imageData.width,
+      height: imageData.height,
+      colorSpace: imageData.colorSpace
+    } as ImageData;
   };
 
   const prepareMatchingEngine = (): Promise<void> => {
@@ -960,11 +979,11 @@ export function createAutomationController(input: {
     const multipleDetection = readMultipleDetection();
     operation.update({ detail: "Preparing template and image pixels" });
     const templateDataUrl = activeTemplateDataUrl ?? cropImageElementToPngDataUrl(targetImage, roi, input.documentRef);
-    const templateImageData = await pngDataUrlToImageData(templateDataUrl, input.documentRef);
+    const templateImageData = prepareAutomationImageData(await pngDataUrlToImageData(templateDataUrl, input.documentRef));
     throwIfOperationCancelled(operation.signal);
     operation.update({ detail: "Running OpenCV template matching" });
     const result = await matchWithRecovery({
-      target: imageElementToImageData(targetImage, input.documentRef),
+      target: prepareAutomationImageData(imageElementToImageData(targetImage, input.documentRef)),
       template: templateImageData,
       preprocessing,
       matching,
@@ -1181,11 +1200,11 @@ export function createAutomationController(input: {
     let result: TemplateMatchResult;
     try {
       operation.update({ detail: `Preparing ${input.state.session.currentImageFile.name}` });
-      const templateImageData = await pngDataUrlToImageData(template.pngDataUrl, input.documentRef);
+      const templateImageData = prepareAutomationImageData(await pngDataUrlToImageData(template.pngDataUrl, input.documentRef));
       throwIfOperationCancelled(operation.signal);
       operation.update({ detail: "Running OpenCV template matching" });
       result = await matchWithRecovery({
-        target: imageElementToImageData(targetImage, input.documentRef),
+        target: prepareAutomationImageData(imageElementToImageData(targetImage, input.documentRef)),
         template: templateImageData,
         preprocessing: template.preprocessing,
         matching: preset.matching,
@@ -1245,6 +1264,7 @@ export function createAutomationController(input: {
     getSelectedPreset: selectedPreset,
     getLibrary: () => library,
     match: matchWithRecovery,
+    prepareImageData: prepareAutomationImageData,
     cancelActiveMatch: () => matchingService?.cancelPending(),
     setRelatedControlsDisabled: (running) => {
       elements.openTemplateMatchingBtn.disabled = running;
@@ -1304,6 +1324,10 @@ export function createAutomationController(input: {
 
     bind(): void {
       workspace.bind();
+      input.documentRef.getElementById("detectionAutomationInputSelect")?.addEventListener("change", () => {
+        invalidateTemplateMatch();
+        input.uiManager.notify("Automation input source updated.", 1800);
+      });
       elements.templateWorkspaceFitBtn.addEventListener("click", () => workspace.fitToView());
       layoutPreview.bind();
       syncTemplateLayoutOpacity();
