@@ -76,6 +76,9 @@
                 <button id="taskAnnotateBtn" type="button" class="task-rail-button active" data-task="annotate" title="Annotation workspace" aria-label="Annotation workspace" aria-current="page" aria-pressed="true">
                     <i class="bi bi-tag" aria-hidden="true"></i><span>Annotate</span>
                 </button>
+                <button id="taskDetectionDisplayBtn" type="button" class="task-rail-button" data-task="detection-display" title="Detection display workspace" aria-label="Detection display workspace" aria-pressed="false">
+                    <i class="bi bi-eye" aria-hidden="true"></i><span>Display</span>
+                </button>
                 <button id="taskSegmentationBtn" type="button" class="task-rail-button" data-task="segmentation" title="Mask workspace" aria-label="Mask workspace" aria-pressed="false" hidden>
                     <i class="bi bi-vector-pen" aria-hidden="true"></i><span>Mask</span>
                 </button>
@@ -85,11 +88,8 @@
                 <button id="taskSegmentationDisplayBtn" type="button" class="task-rail-button" data-task="segmentation-display" title="Mask display workspace" aria-label="Mask display workspace" aria-pressed="false" hidden>
                     <i class="bi bi-eye" aria-hidden="true"></i><span>Display</span>
                 </button>
-                <button id="taskSegmentationPreprocessingBtn" type="button" class="task-rail-button" data-task="segmentation-preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false" hidden>
+                <button id="taskPreprocessingBtn" type="button" class="task-rail-button" data-task="preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false">
                     <i class="bi bi-sliders2" aria-hidden="true"></i><span>Preprocess</span>
-                </button>
-                <button id="taskAutomateBtn" type="button" class="task-rail-button" data-task="automate" title="Automation workspace" aria-label="Automation workspace" aria-pressed="false">
-                    <i class="bi bi-robot" aria-hidden="true"></i><span>Automate</span>
                 </button>
                 <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
                     <i class="bi bi-clipboard2-check" aria-hidden="true"></i><span>Review</span>
@@ -118,10 +118,6 @@
                     </div>
                     <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden>
                         <section id="segmentationPreprocessingSection" class="segmentation-preprocessing-section" data-ui="segmentation-preprocessing-section">
-                            <div class="segmentation-preprocessing-heading">
-                                <div class="segmentation-preprocessing-mark" aria-hidden="true"><i class="bi bi-activity"></i></div>
-                                <div><h3>Image preprocessing</h3><p>Enhance SEM structure without changing source data.</p></div>
-                            </div>
                             <div class="segmentation-preprocessing-block">
                                 <div class="segmentation-preprocessing-label"><span>Canvas view</span><small>Q</small></div>
                                 <div class="segmented-control segmentation-preprocessing-toggle" role="group" aria-label="Image view source"><button id="segmentationViewOriginalBtn" type="button" class="btn active"><i class="bi bi-image" aria-hidden="true"></i> Original</button><button id="segmentationViewProcessedBtn" type="button" class="btn"><i class="bi bi-activity" aria-hidden="true"></i> Processed</button></div>
@@ -136,12 +132,68 @@
                             </div>
                             <div class="segmentation-preprocessing-divider"></div>
                             <div class="segmentation-preprocessing-label"><span>Algorithm input</span><small>Independent source</small></div>
-                            <div class="segmentation-preprocessing-inputs">
+                            <div id="segmentationPreprocessingInputs" class="segmentation-preprocessing-inputs">
                                 <label for="segmentationEdgeSamInputSelect"><span>AI Select</span><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
                                 <label for="segmentationSuperpixelInputSelect"><span>Superpixel</span><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
                             </div>
+                            <div id="detectionPreprocessingInputs" class="segmentation-preprocessing-inputs" hidden>
+                                <label for="detectionAutomationInputSelect"><span>Automation</span><select id="detectionAutomationInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
+                            </div>
+                        </section>
+                        <section id="segmentationDisplayWorkspace" class="segmentation-display-workspace" hidden>
+                            <section id="segmentationDisplaySection" class="panel-section segmentation-display-settings">
+                                <div>
+                                    <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="segmentationLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
+                                    <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
+                                        <button id="segmentationLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">White</button>
+                                        <button id="segmentationLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">Black</button>
+                                        <button id="segmentationLabelOnlyGrayBtn" type="button" class="btn btn-outline-secondary" title="Shift+3">Gray</button>
+                                    </div>
+                                </div>
+                                <label class="form-check form-switch mt-3" data-ui="segmentation-mask-visibility-group" title="Toggle mask overlay (Ctrl+H)"><input class="form-check-input" type="checkbox" id="segmentationMaskVisibilityToggle" data-ui="segmentation-mask-visibility-toggle" checked><span class="form-check-label">Show mask overlay (Ctrl+H)</span></label>
+                                <label for="segmentationMaskOpacitySlider" class="form-label small">Mask opacity <span id="segmentationMaskOpacityValue">60</span>%</label>
+                                <input type="range" class="form-range" min="0" max="100" value="60" id="segmentationMaskOpacitySlider" data-ui="segmentation-mask-opacity-slider">
+                                <label class="form-check form-switch" data-ui="segmentation-edge-highlight-group"><input class="form-check-input" type="checkbox" id="segmentationEdgeHighlightToggle" data-ui="segmentation-edge-highlight-toggle" checked><span class="form-check-label">Edge highlight</span></label>
+                                <label for="segmentationEdgeGlowSlider" class="form-label small">Edge intensity <span id="segmentationEdgeGlowValue">70</span>%</label>
+                                <input type="range" class="form-range" min="0" max="100" value="70" id="segmentationEdgeGlowSlider" data-ui="segmentation-edge-glow-slider">
+                            </section>
+                        </section>
+                        <section id="segmentationSuperpixelWorkspace" class="segmentation-superpixel-workspace" hidden>
+                            <section id="segmentationSuperpixelSection" class="panel-section segmentation-superpixel-section" data-ui="segmentation-superpixel-section">
+                                <div class="mt-1" data-ui="segmentation-superpixel-group">
+                                    <div class="section-heading-row"><label class="form-label small mb-0" for="segmentationSuperpixelSizeSlider">Superpixel size</label><span id="segmentationSuperpixelSizeValue" class="section-value">16 px</span></div>
+                                    <input type="range" class="form-range" min="8" max="32" value="16" step="1" id="segmentationSuperpixelSizeSlider" data-ui="segmentation-superpixel-size-slider">
+                                    <div class="segmented-control compact" role="group" aria-label="Superpixel size presets"><button type="button" class="btn" data-ui="segmentation-superpixel-preset" data-size="8">Fine</button><button type="button" class="btn active" data-ui="segmentation-superpixel-preset" data-size="16">Normal</button><button type="button" class="btn" data-ui="segmentation-superpixel-preset" data-size="24">Large</button><button type="button" class="btn" data-ui="segmentation-superpixel-preset" data-size="32">Coarse</button></div>
+                                    <div class="d-flex align-items-center justify-content-between mt-2"><label class="form-check small mb-0" title="Toggle boundaries (B)"><input id="segmentationSuperpixelBoundaryToggle" type="checkbox" class="form-check-input" checked> Show boundaries (B)</label><button id="segmentationRecalculateSuperpixelsBtn" type="button" class="btn btn-outline-secondary btn-sm">Recalculate</button></div>
+                                    <div class="row g-2 mt-1"><div class="col-6"><label class="form-label small mb-1" for="segmentationBlurSelect">Blur / denoise</label><select id="segmentationBlurSelect" class="form-select form-select-sm"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div><div class="col-6"><label class="form-label small mb-1" for="segmentationContrastSelect">Contrast</label><select id="segmentationContrastSelect" class="form-select form-select-sm"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div></div>
+                                    <label class="form-label small mt-2 mb-1" for="segmentationEdgeSensitivitySelect">Edge sensitivity</label><select id="segmentationEdgeSensitivitySelect" class="form-select form-select-sm"><option value="low">Weak</option><option value="medium" selected>Balanced</option><option value="high">Strong</option></select>
+                                    <div class="input-group input-group-sm mt-2"><select id="segmentationToolPresetSelect" class="form-select" aria-label="Superpixel preset"><option value="">Superpixel preset</option></select><button id="segmentationNewPresetBtn" type="button" class="btn btn-outline-secondary">New</button><button id="segmentationSavePresetBtn" type="button" class="btn btn-outline-secondary">Save</button></div>
+                                </div>
+                            </section>
                         </section>
                     </div>
+                    <section id="detectionDisplayWorkspace" class="detection-display-workspace" hidden>
+                        <section class="panel-section label-display-section">
+                            <label class="form-label small" for="labelDisplayModeSelect">Label display</label>
+                            <select id="labelDisplayModeSelect" class="form-select form-select-sm">
+                                <option value="auto">Auto</option><option value="full">Full</option><option value="compact">Compact</option><option value="selected">Selected only</option><option value="off">Off</option>
+                            </select>
+                            <div class="mt-3 pt-3 border-top">
+                                <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="detectionLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
+                                <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
+                                    <button id="detectionLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">White</button>
+                                    <button id="detectionLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">Black</button>
+                                    <button id="detectionLabelOnlyGrayBtn" type="button" class="btn btn-outline-secondary" title="Shift+3">Gray</button>
+                                </div>
+                            </div>
+                            <input class="visually-hidden" type="checkbox" id="showLabelsOnCanvasToggle" data-ui="show-labels-on-canvas-toggle" aria-label="Show class labels" checked tabindex="-1">
+                            <details class="advanced-disclosure mt-2">
+                                <summary>Display settings</summary>
+                                <label for="label-font-size" class="form-label small mt-2">Label size <span id="label-font-size-value">14</span>px</label>
+                                <input type="range" class="form-range" min="6" max="20" value="14" id="label-font-size" data-ui="label-font-size-slider">
+                            </details>
+                        </section>
+                    </section>
                     <div id="detectionLeftWorkspace">
 
                     <section class="dataset-actions" data-ui="folder-actions">
@@ -255,6 +307,15 @@
                 </div>
                 <div id="emptyStateCompatibilityText" class="small text-muted" hidden>Folder access is unavailable here; use the sample workspace.</div>
             </div>
+            <section id="detectionCanvasToolbar" class="segmentation-canvas-toolbar detection-canvas-toolbar" aria-label="Detection tools">
+                <div id="genericModeControls" class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
+                    <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
+                    <label class="btn" for="drawMode" data-ui="mode-draw" title="Draw (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i><span>Draw</span></label>
+                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Automation workspace" aria-label="Automation workspace" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation</span></button>
+                    <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
+                    <label class="btn" for="editMode" data-ui="mode-edit" title="Select and edit (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i><span>Edit</span></label>
+                </div>
+            </section>
             <section id="segmentationCanvasToolbar" class="segmentation-canvas-toolbar" aria-label="Segmentation tools" hidden>
                 <div id="segmentationToolsSection" class="segmentation-tools-section" data-ui="segmentation-tools-section">
                     <div class="segmented-control" role="group" aria-label="Segmentation tools">
@@ -262,7 +323,7 @@
                         <button id="segmentationEraseModeBtn" type="button" class="btn" data-ui="segmentation-tool-erase"><i class="bi bi-eraser" aria-hidden="true"></i> Erase</button>
                         <button id="segmentationPolygonModeBtn" type="button" class="btn" data-ui="segmentation-tool-polygon"><i class="bi bi-pentagon" aria-hidden="true"></i> Polygon</button>
                         <button id="segmentationSuperpixelModeBtn" type="button" class="btn" data-ui="segmentation-tool-superpixel"><i class="bi bi-grid-3x3" aria-hidden="true"></i> Superpixel</button>
-                        <button id="segmentationAiSelectModeBtn" type="button" class="btn" data-ui="segmentation-tool-ai-select" title="Left click adds a positive point; right click adds a negative point; Shift+drag draws a box"><i class="bi bi-cpu" aria-hidden="true"></i> AI Select</button>
+                        <button id="segmentationAiSelectModeBtn" type="button" class="btn" data-ui="segmentation-tool-ai-select" title="Left click: positive point · Right click: negative point · Shift+drag: ROI · Ctrl/Cmd+Shift+drag: prompt box"><i class="bi bi-cpu" aria-hidden="true"></i> AI Select</button>
                         <button id="segmentationEditModeBtn" type="button" class="btn" data-ui="segmentation-tool-edit"><i class="bi bi-cursor" aria-hidden="true"></i> Edit</button>
                     </div>
                 </div>
@@ -284,22 +345,23 @@
             <div class="panel-content right-panel-content" data-ui="right-panel-content">
                 <section id="sharedToolSection" class="inspector-section shared-tool-section mode-section" data-ui="mode-section">
                     <div class="section-heading-row"><h3>Tool</h3><span id="activeToolSummary" class="section-value">Edit</span></div>
-                    <div id="genericModeControls" class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
-                        <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
-                        <label class="btn" for="drawMode" data-ui="mode-draw" title="Draw (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i> Draw</label>
-                        <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
-                        <label class="btn" for="editMode" data-ui="mode-edit" title="Select and edit (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i> Edit</label>
-                    </div>
                     <div class="inline-switch-row">
                         <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="crosshairToggle" data-ui="crosshair-toggle"><span class="form-check-label">Crosshair</span></label>
                         <label id="segmentationAutoFillClosedRegionGroup" class="form-check form-switch mb-0 segmentation-mode-option" data-ui="segmentation-auto-fill-closed-region-group" hidden><input class="form-check-input" type="checkbox" id="segmentationAutoFillClosedRegionToggle" data-ui="segmentation-auto-fill-closed-region-toggle"><span class="form-check-label">Auto fill closed regions</span></label>
+                    </div>
+                    <div id="segmentationRegionActions" class="segmentation-region-actions" hidden>
+                        <span>Region actions</span>
+                        <div class="segmentation-region-action-buttons" role="group" aria-label="Selected region actions">
+                            <button id="segmentationRelabelRegionBtn" type="button" class="btn btn-outline-secondary btn-sm" data-ui="segmentation-relabel-region" disabled>Relabel</button>
+                            <button id="segmentationDeleteRegionBtn" type="button" class="btn btn-outline-danger btn-sm" disabled>Delete</button>
+                        </div>
                     </div>
                 </section>
                 <div id="detectionWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-detection">
                     <nav class="inspector-tabs" aria-label="Inspector sections">
                         <button id="inspectorAnnotationTabBtn" type="button" class="inspector-tab active" data-inspector-tab="annotation" aria-current="page">Annotation</button>
                         <button id="inspectorTransformTabBtn" type="button" class="inspector-tab" data-inspector-tab="transform">Transform</button>
-                        <button id="inspectorAutomationTabBtn" type="button" class="inspector-tab" data-inspector-tab="automation">Automation</button>
+                        <button id="inspectorAutomationTabBtn" type="button" class="inspector-tab" data-inspector-tab="automation" hidden>Automation</button>
                     </nav>
 
                     <section id="inspectorAnnotationPane" class="inspector-pane active" data-inspector-pane="annotation">
@@ -339,27 +401,6 @@
                                     <button id="deleteSelectionBtn" type="button" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash" aria-hidden="true"></i><span>Delete</span></button>
                                 </div>
                             </div>
-                        </section>
-
-                        <section class="inspector-section label-display-section">
-                            <label class="form-label small" for="labelDisplayModeSelect">Label display</label>
-                            <select id="labelDisplayModeSelect" class="form-select form-select-sm">
-                                <option value="auto">Auto</option><option value="full">Full</option><option value="compact">Compact</option><option value="selected">Selected only</option><option value="off">Off</option>
-                            </select>
-                            <div class="mt-3 pt-3 border-top">
-                                <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="detectionLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
-                                <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
-                                    <button id="detectionLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">White</button>
-                                    <button id="detectionLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">Black</button>
-                                    <button id="detectionLabelOnlyGrayBtn" type="button" class="btn btn-outline-secondary" title="Shift+3">Gray</button>
-                                </div>
-                            </div>
-                            <input class="visually-hidden" type="checkbox" id="showLabelsOnCanvasToggle" data-ui="show-labels-on-canvas-toggle" aria-label="Show class labels" checked tabindex="-1">
-                            <details class="advanced-disclosure mt-2">
-                                <summary>Display settings</summary>
-                                <label for="label-font-size" class="form-label small mt-2">Label size <span id="label-font-size-value">14</span>px</label>
-                                <input type="range" class="form-range" min="6" max="20" value="14" id="label-font-size" data-ui="label-font-size-slider">
-                            </details>
                         </section>
 
                         <section class="inspector-section label-list-section" data-ui="label-list-section">
@@ -437,25 +478,12 @@
                     </section>
                 </div>
                 <div id="segmentationWorkflowPanel" class="workflow-panel-section" data-ui="workflow-panel-segmentation" style="display: none;">
-                    <section id="segmentationSuperpixelSection" class="inspector-section segmentation-superpixel-section" data-ui="segmentation-superpixel-section">
-                        <div class="mt-1" data-ui="segmentation-superpixel-group">
-                            <div class="section-heading-row"><label class="form-label small mb-0" for="segmentationSuperpixelSizeSlider">Superpixel size</label><span id="segmentationSuperpixelSizeValue" class="section-value">16 px</span></div>
-                            <input type="range" class="form-range" min="8" max="32" value="16" step="1" id="segmentationSuperpixelSizeSlider" data-ui="segmentation-superpixel-size-slider">
-                            <div class="segmented-control compact" role="group" aria-label="Superpixel size presets"><button type="button" class="btn" data-ui="segmentation-superpixel-preset" data-size="8">Fine</button><button type="button" class="btn active" data-ui="segmentation-superpixel-preset" data-size="16">Normal</button><button type="button" class="btn" data-ui="segmentation-superpixel-preset" data-size="24">Large</button><button type="button" class="btn" data-ui="segmentation-superpixel-preset" data-size="32">Coarse</button></div>
-                            <div class="d-flex align-items-center justify-content-between mt-2"><label class="form-check small mb-0" title="Toggle boundaries (B)"><input id="segmentationSuperpixelBoundaryToggle" type="checkbox" class="form-check-input" checked> Show boundaries (B)</label><button id="segmentationRecalculateSuperpixelsBtn" type="button" class="btn btn-outline-secondary btn-sm">Recalculate</button></div>
-                            <div class="row g-2 mt-1"><div class="col-6"><label class="form-label small mb-1" for="segmentationBlurSelect">Blur / denoise</label><select id="segmentationBlurSelect" class="form-select form-select-sm"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div><div class="col-6"><label class="form-label small mb-1" for="segmentationContrastSelect">Contrast</label><select id="segmentationContrastSelect" class="form-select form-select-sm"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div></div>
-                            <label class="form-label small mt-2 mb-1" for="segmentationEdgeSensitivitySelect">Edge sensitivity</label><select id="segmentationEdgeSensitivitySelect" class="form-select form-select-sm"><option value="low">Weak</option><option value="medium" selected>Balanced</option><option value="high">Strong</option></select>
-                            <div class="input-group input-group-sm mt-2"><select id="segmentationToolPresetSelect" class="form-select" aria-label="Superpixel preset"><option value="">Superpixel preset</option></select><button id="segmentationNewPresetBtn" type="button" class="btn btn-outline-secondary">New</button><button id="segmentationSavePresetBtn" type="button" class="btn btn-outline-secondary">Save</button></div><div class="btn-group btn-group-sm w-100 mt-1"><button id="segmentationRenamePresetBtn" type="button" class="btn btn-outline-secondary">Rename</button><button id="segmentationDeletePresetBtn" type="button" class="btn btn-outline-danger">Delete</button></div>
-                        </div>
-                    </section>
                     <section id="segmentationAiPreviewSection" class="inspector-section segmentation-tools-section" hidden>
                         <div class="mt-1"><div class="section-heading-row"><h3>AI Select Preview</h3><i class="bi bi-cpu" aria-hidden="true"></i></div><div id="segmentationAiPreviewSummary" class="smart-preview-summary" aria-live="polite">Click to create a preview. Add points or a box to refine it.</div><div class="btn-group btn-group-sm w-100 mt-2"><button id="segmentationApplyAiPreviewBtn" type="button" class="btn btn-primary" title="단축키: Enter" aria-label="Apply preview (Enter)" disabled>Apply preview</button><button id="segmentationDiscardAiPreviewBtn" type="button" class="btn btn-outline-secondary" title="단축키: Esc" aria-label="Discard preview (Esc)" disabled>Discard</button></div></div>
                         <div class="segmentation-ai-region-divider"></div>
                         <section class="ai-region-constraint" aria-labelledby="aiRegionConstraintTitle">
                             <div class="ai-region-constraint-heading"><div><span id="aiRegionConstraintTitle">Region constraint</span><small id="segmentationAiRegionConstraintStatus">Full image mask</small></div><label class="switch-control" title="Limit the final AI Select mask to the ROI"><input id="segmentationAiRegionConstraintToggle" type="checkbox"><span class="switch-slider"></span></label></div>
-                            <p>Keep final masking inside a selected image region.</p>
-                            <div class="ai-region-constraint-actions"><button id="segmentationAiRegionConstraintSetBtn" type="button" class="btn btn-sm"><i class="bi bi-bounding-box" aria-hidden="true"></i> Set ROI</button><button id="segmentationAiRegionConstraintClearBtn" type="button" class="btn btn-sm" disabled>Clear</button></div>
-                            <label class="ai-region-constraint-margin" for="segmentationAiRegionConstraintMarginInput"><span>Margin</span><div><input id="segmentationAiRegionConstraintMarginInput" type="number" class="form-control form-control-sm" min="0" step="1" value="0" disabled><select id="segmentationAiRegionConstraintMarginUnit" class="form-select form-select-sm" disabled><option value="px" selected>px</option><option value="percent">%</option></select></div></label>
+                            <div class="ai-region-constraint-actions"><button id="segmentationAiRegionConstraintSetBtn" type="button" class="btn btn-outline-primary btn-sm" title="Set ROI · Shift + drag on canvas" aria-label="Set ROI"><i class="bi bi-bounding-box" aria-hidden="true"></i> Set ROI</button><button id="segmentationAiRegionConstraintClearBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Clear</button></div>
                         </section>
                     </section>
                     <section id="segmentationPolygonActionsSection" class="inspector-section segmentation-tools-section" hidden>
@@ -474,26 +502,8 @@
                         <div class="section-heading-row"><h3>Paint class</h3><i class="bi bi-palette" aria-hidden="true"></i></div>
                         <button id="segmentationActiveClassSummary" type="button" class="active-class-summary" data-ui="segmentation-active-class-summary">No active segmentation class selected yet.</button>
                         <div id="segmentationPaintClassList" class="segmentation-paint-class-list mt-2" aria-label="Paint class choices"></div>
-                        <p id="segmentationSelectedRegionSummary" class="form-text mt-2 mb-0">Select a mask region in Edit mode to inspect it.</p>
-                        <div class="btn-group btn-group-sm w-100 mt-2"><button id="segmentationRelabelRegionBtn" type="button" class="btn btn-outline-secondary" data-ui="segmentation-relabel-region">Relabel</button><button id="segmentationDeleteRegionBtn" type="button" class="btn btn-outline-danger">Delete</button></div>
+                        <p id="segmentationSelectedRegionSummary" class="form-text mt-2 mb-0" hidden>Select a region to inspect.</p>
                     </section>
-                    <details id="segmentationDisplaySection" class="inspector-section advanced-disclosure segmentation-display-settings">
-                        <summary>Display effects</summary>
-                        <div class="mt-3 pt-3 border-top">
-                            <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="segmentationLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
-                            <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
-                                <button id="segmentationLabelOnlyWhiteBtn" type="button" class="btn btn-outline-secondary" title="Shift+1">White</button>
-                                <button id="segmentationLabelOnlyBlackBtn" type="button" class="btn btn-outline-secondary" title="Shift+2">Black</button>
-                                <button id="segmentationLabelOnlyGrayBtn" type="button" class="btn btn-outline-secondary" title="Shift+3">Gray</button>
-                            </div>
-                        </div>
-                        <label class="form-check form-switch mt-3" data-ui="segmentation-mask-visibility-group" title="Toggle mask overlay (Ctrl+H)"><input class="form-check-input" type="checkbox" id="segmentationMaskVisibilityToggle" data-ui="segmentation-mask-visibility-toggle" checked><span class="form-check-label">Show mask overlay (Ctrl+H)</span></label>
-                        <label for="segmentationMaskOpacitySlider" class="form-label small">Mask opacity <span id="segmentationMaskOpacityValue">60</span>%</label>
-                        <input type="range" class="form-range" min="0" max="100" value="60" id="segmentationMaskOpacitySlider" data-ui="segmentation-mask-opacity-slider">
-                        <label class="form-check form-switch" data-ui="segmentation-edge-highlight-group"><input class="form-check-input" type="checkbox" id="segmentationEdgeHighlightToggle" data-ui="segmentation-edge-highlight-toggle" checked><span class="form-check-label">Edge highlight</span></label>
-                        <label for="segmentationEdgeGlowSlider" class="form-label small">Edge intensity <span id="segmentationEdgeGlowValue">70</span>%</label>
-                        <input type="range" class="form-range" min="0" max="100" value="70" id="segmentationEdgeGlowSlider" data-ui="segmentation-edge-glow-slider">
-                    </details>
                     <section id="segmentationClassSection" class="inspector-section"><div class="section-heading-row"><h3>Display classes</h3></div><input id="segmentationClassSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search display classes..."><div id="segmentationClassSummary" class="segmentation-class-summary" data-ui="segmentation-class-summary">No painted classes</div></section>
                 </div>
             </div>
@@ -554,12 +564,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body layout-setup-body">
-                    <ol class="template-stepper layout-stepper" aria-label="Layout setup steps">
-                        <li data-layout-step="1"><span>1</span>Select</li>
-                        <li data-layout-step="2"><span>2</span>Configure</li>
-                        <li data-layout-step="3"><span>3</span>Review</li>
-                        <li data-layout-step="4"><span>4</span>Apply</li>
-                    </ol>
                     <aside class="layout-library-column" data-layout-section="choose">
                         <div class="template-step-heading layout-step-heading">
                             <span>1</span>
@@ -641,13 +645,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body template-matching-body">
-                    <ol class="template-stepper" aria-label="Template automation setup steps">
-                        <li class="active"><span>1</span>Reference &amp; ROI</li>
-                        <li><span>2</span>Output</li>
-                        <li><span>3</span>Matching</li>
-                        <li><span>4</span>Match Preview</li>
-                        <li><span>5</span>Save or apply</li>
-                    </ol>
                     <div class="template-workspace-column">
                         <div class="template-step-heading"><span>1</span><div><strong>Reference image and ROI</strong><small>Choose a representative image, then draw the exact region to match.</small></div></div>
                         <div class="template-workspace-toolbar">
@@ -831,6 +828,27 @@
                 <div class="modal-footer">
                     <button id="continueWithoutLabelFolderBtn" type="button" class="btn btn-secondary" data-bs-dismiss="modal">Continue without folder</button>
                     <button id="createMissingLabelFolderBtn" type="button" class="btn btn-primary">Create label folder</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="createClassFileModal" tabindex="-1" aria-labelledby="createClassFileModalLabel" aria-hidden="true" data-focus-return="class-file-select">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content create-class-file-modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createClassFileModalLabel">Create class file</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="newClassFileNameInput" class="form-label">File name</label>
+                    <input id="newClassFileNameInput" class="form-control" type="text" value="classes.yaml" autocomplete="off" aria-describedby="newClassFileNameHelp newClassFileNameError">
+                    <div id="newClassFileNameHelp" class="form-text">.yaml or .yml</div>
+                    <div id="newClassFileNameError" class="invalid-feedback" role="alert" hidden></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button id="confirmCreateClassFileBtn" type="button" class="btn btn-primary">Create</button>
                 </div>
             </div>
         </div>

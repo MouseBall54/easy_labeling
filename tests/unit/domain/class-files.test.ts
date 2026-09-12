@@ -6,6 +6,7 @@ import {
   normalizeNewClassFileName,
   parseClassContent,
   parseClassContentForEditor,
+  validateNewClassFileName,
   validateAndSerializeClassRows
 } from "../../../src/domain/class-files.js";
 
@@ -113,6 +114,18 @@ describe("domain/class-files", () => {
     const candidate = normalizeNewClassFileName("My-Classes");
     const hasCollision = hasCaseInsensitiveNameCollision(["my-classes.yaml", "other.yaml"], candidate);
     expect(hasCollision).toBe(true);
+  });
+
+  it("validates and normalizes user-provided class file names", () => {
+    expect(validateNewClassFileName("  custom classes  ")).toBe("custom classes.yaml");
+    expect(validateNewClassFileName("labels.yml")).toBe("labels.yml");
+  });
+
+  it("rejects empty, invalid, reserved, and duplicate class file names", () => {
+    expect(() => validateNewClassFileName(" ")).toThrow("Enter a file name");
+    expect(() => validateNewClassFileName("bad/name")).toThrow("unsupported characters");
+    expect(() => validateNewClassFileName("CON")).toThrow("reserved");
+    expect(() => validateNewClassFileName("Classes", ["classes.yaml"])).toThrow("already exists");
   });
 
   it("exports the exact legacy new-file seed content", () => {

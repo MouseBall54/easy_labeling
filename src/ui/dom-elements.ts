@@ -200,6 +200,10 @@ export interface UiDomElements {
   sortLabelsDescBtn: HTMLElement;
   viewClassFileBtn: HTMLElement;
   classFileViewerModal: BootstrapModalLike;
+  createClassFileModal: BootstrapModalLike;
+  newClassFileNameInput: HTMLInputElement;
+  newClassFileNameError: HTMLElement;
+  confirmCreateClassFileBtn: HTMLButtonElement;
   classFileEditorBody: HTMLElement;
   addClassRowBtn: HTMLElement;
   saveClassFileBtn: HTMLElement;
@@ -334,6 +338,7 @@ function requireById<T extends HTMLElement>(documentRef: Document, id: string): 
 
 export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLike): UiDomElements {
   const classFileViewerModalElement = requireById<HTMLElement>(documentRef, "classFileViewerModal");
+  const createClassFileModalElement = requireById<HTMLElement>(documentRef, "createClassFileModal");
   const labelClassModalElement = requireById<HTMLElement>(documentRef, "labelClassModal");
   const layoutSetupModalElement = requireById<HTMLElement>(documentRef, "layoutSetupModal");
   const templateMatchingModalElement = requireById<HTMLElement>(documentRef, "templateMatchingModal");
@@ -529,6 +534,10 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     sortLabelsDescBtn: requireById<HTMLElement>(documentRef, "sortLabelsDescBtn"),
     viewClassFileBtn: requireById<HTMLElement>(documentRef, "viewClassFileBtn"),
     classFileViewerModal: new bootstrapRef.Modal(classFileViewerModalElement),
+    createClassFileModal: new bootstrapRef.Modal(createClassFileModalElement),
+    newClassFileNameInput: requireById<HTMLInputElement>(documentRef, "newClassFileNameInput"),
+    newClassFileNameError: requireById<HTMLElement>(documentRef, "newClassFileNameError"),
+    confirmCreateClassFileBtn: requireById<HTMLButtonElement>(documentRef, "confirmCreateClassFileBtn"),
     classFileEditorBody: requireById<HTMLElement>(documentRef, "classFileEditorBody"),
     addClassRowBtn: requireById<HTMLElement>(documentRef, "addClassRowBtn"),
     saveClassFileBtn: requireById<HTMLElement>(documentRef, "saveClassFileBtn"),

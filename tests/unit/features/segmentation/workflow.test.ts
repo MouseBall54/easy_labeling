@@ -135,10 +135,32 @@ describe("features/segmentation/workflow", () => {
     expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBeNull();
     expect(onDocumentMutation).not.toHaveBeenCalled();
 
+    await controller.setSegmentationAiRegionConstraint?.({
+      enabled: true,
+      source: "manual",
+      rect: { x: 4, y: 4, width: 4, height: 4 }
+    });
     await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
+    expect(controller.getSegmentationAiRegionConstraint?.()).toMatchObject({ enabled: true, source: "manual" });
     expect(controller.applySegmentationAiPreview?.()).toBe(true);
     expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("1");
+    expect(controller.getSegmentationAiRegionConstraint?.()).toMatchObject({ enabled: false, source: null, rect: null });
     expect(onDocumentMutation).toHaveBeenCalledOnce();
+
+    expect(controller.beginSegmentationAiRegionConstraint?.()).toBe(true);
+    expect(controller.isSegmentationAiRegionConstraintDrawing?.()).toBe(true);
+    expect(controller.cancelSegmentationAiRegionConstraint?.()).toBe(true);
+    expect(controller.isSegmentationAiRegionConstraintDrawing?.()).toBe(false);
+    expect(controller.beginSegmentationAiRegionConstraint?.()).toBe(true);
+    expect(controller.cancelSegmentationAiRegionConstraint?.()).toBe(true);
+
+    await controller.setSegmentationAiRegionConstraint?.({
+      enabled: true,
+      source: "manual",
+      rect: { x: 2, y: 2, width: 8, height: 8 }
+    });
+    controller.setSegmentationTool?.("brush");
+    expect(controller.getSegmentationAiRegionConstraint?.()).toMatchObject({ enabled: false, source: null, rect: null });
   });
 
   it("keeps AI Select prompt markers at a pointer-sized screen scale when the view zoom changes", async () => {

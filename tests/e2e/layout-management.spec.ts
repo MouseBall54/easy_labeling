@@ -35,7 +35,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
 
   const modal = page.locator("#layoutSetupModal");
   await expect(modal).toBeVisible();
-  await expect(page.locator(".layout-stepper [data-layout-step]")).toHaveText(["1Select", "2Configure", "3Review", "4Apply"]);
+  await expect(page.locator("#layoutSetupModal .template-stepper")).toHaveCount(0);
   await expect(page.locator('[data-layout-section="choose"]')).toContainText("Select a layout");
   await expect(page.locator("#newBoxLayoutBtn")).toHaveText(/Create New Layout/);
   await expect(page.locator('[data-layout-section="preview"]')).toContainText("Layout preview");

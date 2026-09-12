@@ -127,8 +127,14 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel .shared-tool-section")).toBeVisible();
-  await expect(page.locator("#drawMode + label")).toBeVisible();
-  await expect(page.locator("#editMode + label")).toBeVisible();
+  await expect(page.locator("#detectionCanvasToolbar #drawMode + label")).toBeVisible();
+  await expect(page.locator("#detectionCanvasToolbar #taskAutomateBtn")).toBeVisible();
+  await expect(page.locator("#detectionCanvasToolbar #editMode + label")).toBeVisible();
+  await expect(page.locator(".task-rail #taskAutomateBtn")).toHaveCount(0);
+  await expect(page.locator("#taskAutomateBtn")).toHaveClass(/active/);
+  await expect(page.locator("#drawMode")).not.toBeChecked();
+  await expect(page.locator("#editMode")).not.toBeChecked();
+  await expect(page.locator("#right-panel #genericModeControls")).toHaveCount(0);
   await expect(page.locator("#crosshairToggle")).toBeAttached();
   await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Automation Workspace");
@@ -136,6 +142,8 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
+  await expect(page.locator("#taskAnnotateBtn")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#editMode")).toBeChecked();
   await page.locator("#inspectorTransformTabBtn").click();
   await expect(page.locator("#right-panel #openLayoutSetupBtn")).toBeHidden();
   await page.locator("#taskAutomateBtn").click();
@@ -206,6 +214,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#openTemplateMatchingBtn").click();
   const modal = page.locator("#templateMatchingModal");
   await expect(modal).toBeVisible();
+  await expect(modal.locator(".template-stepper")).toHaveCount(0);
   await expect(page.locator("#templateExistingPolicySelect")).toHaveValue("append");
   await page.locator("#templateExistingPolicySelect").selectOption("skip");
   await expect(page.locator("#templatePointerRoiRadio")).toBeChecked();

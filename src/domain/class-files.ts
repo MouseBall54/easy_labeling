@@ -113,3 +113,29 @@ export function normalizeNewClassFileName(inputName: string): string {
 export function hasCaseInsensitiveNameCollision(existingNames: string[], targetName: string): boolean {
   return existingNames.some((existingName) => existingName.toLowerCase() === targetName.toLowerCase());
 }
+
+export function validateNewClassFileName(inputName: string, existingNames: string[] = []): string {
+  const trimmed = inputName.trim();
+  if (!trimmed) {
+    throw new Error("Enter a file name.");
+  }
+  if (/[<>:"/\\|?*\u0000-\u001F]/.test(trimmed)) {
+    throw new Error("The file name contains unsupported characters.");
+  }
+
+  const fileName = normalizeNewClassFileName(trimmed);
+  const stem = fileName.replace(/\.(?:yaml|yml)$/i, "");
+  if (!stem || stem === "." || stem === ".." || /[. ]$/.test(stem)) {
+    throw new Error("Enter a valid file name.");
+  }
+  if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(stem)) {
+    throw new Error("This file name is reserved by the operating system.");
+  }
+  if (fileName.length > 255) {
+    throw new Error("The file name is too long.");
+  }
+  if (hasCaseInsensitiveNameCollision(existingNames, fileName)) {
+    throw new Error("A class file with this name already exists.");
+  }
+  return fileName;
+}

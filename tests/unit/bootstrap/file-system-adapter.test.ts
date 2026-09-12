@@ -164,6 +164,7 @@ function createConnectedDeps() {
       renderImageList: vi.fn(),
       updateLabelList: vi.fn(),
       renderClassFileSelect: vi.fn(),
+      promptForClassFileName: vi.fn(async () => "classes.yaml"),
       showClassFileContentModal: vi.fn(),
       updateLabelFolderButton: vi.fn(),
       elements: {
@@ -379,6 +380,31 @@ describe("bootstrap/file-system-adapter", () => {
       expect(deps.uiManager.showClassFileContentModal).toHaveBeenCalledTimes(1);
       expect(deps.uiManager.elements.classFileEditorBody.querySelectorAll("tr").length).toBeGreaterThan(0);
     });
+  });
+
+  it("uses a custom class file name and leaves state unchanged when creation is cancelled", async () => {
+    const profileFolder = new MockDirectoryHandle("Class Info");
+    const state = createInitialAppState();
+    const windowRef = {
+      ...createWindowRef(profileFolder),
+      getEasyLabelingProfileDirectory: vi.fn(async () => profileFolder)
+    };
+    const fileSystem = createFileSystemAdapter({
+      state,
+      windowRef: windowRef as unknown as Parameters<typeof createFileSystemAdapter>[0]["windowRef"],
+      tiffRef: null
+    });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+
+    deps.uiManager.promptForClassFileName.mockResolvedValueOnce("custom-labels.yml");
+    await expect(fileSystem.createNewClassFile()).resolves.toBe(true);
+    expect(state.session.selectedClassFile?.name).toBe("custom-labels.yml");
+
+    const beforeNames = state.session.classFiles.map((file) => file.name);
+    deps.uiManager.promptForClassFileName.mockResolvedValueOnce(null as never);
+    await expect(fileSystem.createNewClassFile()).resolves.toBe(false);
+    expect(state.session.classFiles.map((file) => file.name)).toEqual(beforeNames);
   });
 
   it("saves only the active workflow and skips detection txt writes in segmentation mode", async () => {

@@ -1162,7 +1162,18 @@ export function createSegmentationCanvasWorkflow(
       if (doc.activeTool !== tool) {
         cancelActiveToolGesture();
         smartPreview = null;
-        if (tool !== "ai-select") clearAiPreview();
+        if (tool !== "ai-select") {
+          clearAiPreview();
+          isDrawingAiRegionConstraint = false;
+          aiRegionConstraintStart = null;
+          aiRegionConstraint = normalizeAiSelectRegionConstraint({
+            ...aiRegionConstraint,
+            enabled: false,
+            source: null,
+            rect: null,
+            detectionLabelId: undefined
+          });
+        }
       }
       doc.setActiveTool(tool);
       requestOverlayRender({
@@ -1359,6 +1370,15 @@ export function createSegmentationCanvasWorkflow(
       const classId = Number.parseInt(aiPreview.selection.classId, 10);
       for (const index of aiPreview.selection.pixelIndices) doc.mask[index] = classId;
       const selection = aiPreview.selection;
+      aiRegionConstraint = normalizeAiSelectRegionConstraint({
+        ...aiRegionConstraint,
+        enabled: false,
+        source: null,
+        rect: null,
+        detectionLabelId: undefined
+      });
+      aiRegionConstraintStart = null;
+      isDrawingAiRegionConstraint = false;
       clearAiPreview();
       selectedRegion = selection;
       const changed = doc.pushHistoryFromSnapshot(before);
@@ -1402,6 +1422,15 @@ export function createSegmentationCanvasWorkflow(
       aiRegionConstraintStart = null;
       deps.notify("Drag on the image to set the AI Select ROI.", 2500);
       return true;
+    },
+
+    cancelSegmentationAiRegionConstraint(): boolean {
+      const changed = isDrawingAiRegionConstraint || aiRegionConstraintStart !== null;
+      isDrawingAiRegionConstraint = false;
+      aiRegionConstraintStart = null;
+      renderAiPromptOverlay();
+      canvas.requestRenderAll();
+      return changed;
     },
 
     isSegmentationAiRegionConstraintDrawing(): boolean {

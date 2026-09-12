@@ -197,6 +197,10 @@ const REQUIRED_IDS = [
   "sortLabelsAscBtn",
   "sortLabelsDescBtn",
   "viewClassFileBtn",
+  "createClassFileModal",
+  "newClassFileNameInput",
+  "newClassFileNameError",
+  "confirmCreateClassFileBtn",
   "segmentationBrushModeBtn",
   "segmentationAnnotationTypeSelect",
   "segmentationSourceFormatSelect",
@@ -354,7 +358,7 @@ describe("ui/dom-elements", () => {
     expect(result.segmentationWorkflowPanel.id).toBe("segmentationWorkflowPanel");
     expect(result.segmentationBrushModeBtn.id).toBe("segmentationBrushModeBtn");
     expect(result.loadingOverlay.id).toBe("loading-overlay");
-    expect(FakeModal.createdElements).toEqual(["segmentationFormatModal", "layoutSetupModal", "templateMatchingModal", "classFileViewerModal", "labelClassModal"]);
+    expect(FakeModal.createdElements).toEqual(["segmentationFormatModal", "layoutSetupModal", "templateMatchingModal", "classFileViewerModal", "createClassFileModal", "labelClassModal"]);
   });
 
   it("fails fast with explicit error when critical node is missing", () => {

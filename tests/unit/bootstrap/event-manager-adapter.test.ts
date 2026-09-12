@@ -382,7 +382,7 @@ function createNoopFileSystem() {
     showClassFileContent: vi.fn(async () => {}),
     saveClassFileContent: vi.fn(async () => {}),
     addNewClassRow: vi.fn(),
-    createNewClassFile: vi.fn(async () => {}),
+    createNewClassFile: vi.fn(async () => true),
     loadClassNamesFromFile: vi.fn(async () => {}),
     navigateImage: vi.fn(async () => {})
   } as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"];
@@ -518,6 +518,11 @@ describe("bootstrap/event-manager-adapter", () => {
     setActiveTask.mockClear();
     elements.taskSegmentationBtn.click();
     expect(setActiveTask).toHaveBeenCalledWith("segmentation");
+
+    setActiveTask.mockClear();
+    elements.taskAnnotateBtn.click();
+    expect(setWorkflow).toHaveBeenLastCalledWith("detection");
+    expect(setActiveTask).toHaveBeenCalledWith("annotate");
   });
 
   it("syncs the draw/edit radio UI when Ctrl+Q toggles the mode", () => {
@@ -754,6 +759,7 @@ describe("bootstrap/event-manager-adapter", () => {
   it("toggles superpixel boundaries with B only in segmentation mode", () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";
+    state.view.currentMode = "draw";
     const elements = createElements();
     elements.segmentationSuperpixelBoundaryToggle.checked = true;
     const windowRef = new FakeWindow();
@@ -852,7 +858,7 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.commitHistoryFromBaseline).not.toHaveBeenCalled();
   });
 
-  it("waits for the view button before creating and opening a new class file", async () => {
+  it("starts class-file creation as soon as the create option is selected", async () => {
     const state = createInitialAppState();
     const elements = createElements();
     const fileSystem = createNoopFileSystem();
@@ -871,10 +877,8 @@ describe("bootstrap/event-manager-adapter", () => {
     elements.classFileSelect.value = "__CREATE_NEW__";
     elements.classFileSelect.dispatch("change", {});
     await Promise.resolve();
-    expect(fileSystem.createNewClassFile).not.toHaveBeenCalled();
-
-    elements.viewClassFileBtn.dispatch("click", {});
     await Promise.resolve();
+    expect(fileSystem.createNewClassFile).toHaveBeenCalledTimes(1);
     expect(fileSystem.showClassFileContent).toHaveBeenCalledTimes(1);
   });
 
@@ -2375,6 +2379,52 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.setSegmentationAutoFillClosedRegionEnabled).toHaveBeenNthCalledWith(2, false);
     expect(setWorkflow).toHaveBeenCalledTimes(2);
     expect(setWorkflow).toHaveBeenCalledWith("segmentation");
+  });
+
+  it("keeps Shift-drag ROI reusable only while AI Select is active", async () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.view.currentMode = "draw";
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const beginSegmentationAiRegionConstraint = vi.fn(() => true);
+    const cancelSegmentationAiRegionConstraint = vi.fn(() => true);
+    const startSegmentationAiRegionConstraint = vi.fn();
+    const finishSegmentationAiRegionConstraint = vi.fn(async () => true);
+    rawCanvas.getPointer.mockReturnValue({ x: 18, y: 24 });
+    Object.assign(rawController, {
+      getSegmentationSummary: vi.fn(() => ({ activeTool: "ai-select" })),
+      beginSegmentationAiRegionConstraint,
+      cancelSegmentationAiRegionConstraint,
+      startSegmentationAiRegionConstraint,
+      finishSegmentationAiRegionConstraint
+    });
+
+    createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    }).bindEventListeners();
+
+    const mouseDownHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:down")?.[1];
+    const mouseUpHandler = rawCanvas.on.mock.calls.find(([eventName]) => eventName === "mouse:up")?.[1];
+    const roiGesture = { button: 0, shiftKey: true, ctrlKey: false, metaKey: false, altKey: false };
+
+    mouseDownHandler?.({ e: roiGesture });
+    expect(rawCanvas.upperCanvasEl.classList.contains("ai-region-constraint-cursor")).toBe(true);
+    expect(startSegmentationAiRegionConstraint).toHaveBeenCalledWith({ x: 18, y: 24 });
+    mouseUpHandler?.({ e: roiGesture });
+    await Promise.resolve();
+    expect(rawCanvas.upperCanvasEl.classList.contains("ai-region-constraint-cursor")).toBe(false);
+
+    mouseDownHandler?.({ e: roiGesture });
+    expect(beginSegmentationAiRegionConstraint).toHaveBeenCalledTimes(2);
+    expect(startSegmentationAiRegionConstraint).toHaveBeenCalledTimes(2);
+    expect(finishSegmentationAiRegionConstraint).toHaveBeenCalledOnce();
   });
 
   it("routes Ctrl+B to pointer-based segmentation relabel when no region is selected", async () => {
