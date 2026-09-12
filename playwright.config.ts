@@ -7,6 +7,7 @@ const runtimeLibPath = path.resolve(
 const ldLibraryPath = process.env.LD_LIBRARY_PATH
   ? `${runtimeLibPath}:${process.env.LD_LIBRARY_PATH}`
   : runtimeLibPath;
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -24,6 +25,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
+          ...(chromiumExecutablePath ? { executablePath: chromiumExecutablePath } : {}),
           env: {
             ...process.env,
             LD_LIBRARY_PATH: ldLibraryPath

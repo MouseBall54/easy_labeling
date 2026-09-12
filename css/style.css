@@ -3543,3 +3543,243 @@ summary {
         font-size: 0.72rem;
     }
 }
+
+/* Shared interaction and typography polish
+   Keep data-heavy lists compact while giving primary workbench controls a
+   consistent, readable rhythm in both themes. */
+:root {
+    --workbench-control-height-sm: 34px;
+    --workbench-control-height: 38px;
+    --workbench-focus-ring: rgba(23, 105, 224, 0.28);
+}
+
+.control-panel .btn,
+.modal .btn,
+.canvas-empty-state .btn,
+.workspace-standby-panel .btn,
+.active-operation-panel .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    line-height: 1.2;
+}
+
+.control-panel .btn-sm,
+.modal .btn-sm,
+.canvas-empty-state .btn,
+.workspace-standby-panel .btn-sm,
+.active-operation-panel .btn-sm {
+    min-height: var(--workbench-control-height-sm);
+    padding-block: 0.35rem;
+    font-size: 0.76rem;
+}
+
+.control-panel .form-control-sm,
+.control-panel .form-select-sm,
+.modal .form-control-sm,
+.modal .form-select-sm {
+    min-height: var(--workbench-control-height-sm);
+    padding-block: 0.35rem;
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+
+.control-panel .panel-content,
+.modal-body {
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.panel-subtitle {
+    font-size: 0.74rem;
+    line-height: 1.3;
+}
+
+.section-heading-row h3,
+.inspector-section h3,
+.review-queue-controls h4 {
+    font-size: 0.82rem;
+}
+
+.section-value,
+.class-filter-summary,
+.segmentation-class-summary,
+.active-operation-meta,
+.review-rule-grid label,
+.geometry-grid label span,
+.inspector-empty-state p,
+.inline-switch-row,
+.advanced-disclosure summary {
+    font-size: 0.72rem;
+}
+
+.segmented-filter .btn,
+.segmented-control .btn,
+.inspector-tab,
+.ai-region-constraint-actions .btn {
+    font-size: 0.74rem;
+}
+
+.segmentation-preprocessing-label,
+.segmentation-preprocessing-controls .form-label,
+.segmentation-preprocessing-block .form-label,
+.segmentation-preprocessing-inputs label > span,
+.ai-region-constraint-heading small {
+    font-size: 0.72rem;
+}
+
+.segmentation-preprocessing-label small,
+.automation-result-metric dt,
+.automation-result-message-label,
+.template-match-class-badge,
+.summary-hint {
+    font-size: 0.68rem;
+}
+
+.automation-batch-progress .progress-bar {
+    font-size: 0.64rem;
+}
+
+.label-list-panel {
+    font-size: 0.72rem;
+    line-height: 1.3;
+}
+
+.label-group-count {
+    font-size: 0.64rem;
+}
+
+.label-list-item .edit-btn,
+.label-list-item .delete-btn,
+.label-group-select-btn {
+    min-height: 26px;
+}
+
+.modal-content {
+    color: var(--workbench-text);
+    background: var(--workbench-surface);
+    border-color: var(--workbench-border-strong);
+    border-radius: 8px;
+    box-shadow: 0 22px 60px rgba(15, 23, 32, 0.28);
+}
+
+.modal-header,
+.modal-footer {
+    min-height: 62px;
+    padding: 0.8rem 1rem;
+    border-color: var(--workbench-border);
+}
+
+.modal-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.modal-footer {
+    gap: 0.5rem;
+}
+
+.modal-footer .btn:not(.btn-sm) {
+    min-height: var(--workbench-control-height);
+}
+
+.modal .form-label,
+.modal label.small {
+    font-size: 0.76rem;
+    line-height: 1.3;
+}
+
+.modal .form-text,
+.modal .text-muted,
+.modal small {
+    line-height: 1.35;
+}
+
+:where(button, .btn, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--workbench-primary);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px var(--workbench-focus-ring) !important;
+}
+
+:where(button, .btn, input, select, textarea):disabled,
+:where(button, .btn)[aria-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.control-panel .btn,
+.modal .btn,
+.task-rail-button,
+.inspector-tab,
+.app-icon-button,
+.panel-icon-button {
+    transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+body.dark-mode .modal-content,
+body.dark-mode .dropdown-menu,
+body.dark-mode .list-group,
+body.dark-mode .card {
+    color: var(--workbench-text);
+    background-color: var(--workbench-surface);
+    border-color: var(--workbench-border);
+}
+
+body.dark-mode .modal .form-control,
+body.dark-mode .modal .form-select,
+body.dark-mode .control-panel .form-control,
+body.dark-mode .control-panel .form-select {
+    color: var(--workbench-text);
+    background-color: var(--input-bg);
+    border-color: var(--input-border);
+}
+
+body.dark-mode .modal .form-select,
+body.dark-mode .control-panel .form-select {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23c5c8cc' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+}
+
+body.dark-mode .modal .btn-close,
+body.dark-mode .control-panel .btn-close {
+    filter: var(--bs-btn-close-white-filter);
+}
+
+body.dark-mode .loading-overlay {
+    background: rgba(20, 25, 30, 0.84);
+}
+
+@media (max-width: 800px) {
+    .segmentation-canvas-toolbar .segmented-control .btn {
+        min-height: 38px;
+        padding-inline: 0.35rem;
+        font-size: 0.72rem;
+    }
+
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+
+    .modal-header,
+    .modal-footer {
+        min-height: 54px;
+        padding: 0.65rem 0.75rem;
+    }
+
+    .modal-footer {
+        align-items: stretch;
+    }
+
+    .modal-footer .btn {
+        flex: 1 1 auto;
+    }
+
+    .empty-state-actions {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}
