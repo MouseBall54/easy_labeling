@@ -145,6 +145,7 @@ export function createCanvasControllerAdapter(input: {
     getDisplayNameForClass: (labelClass: string | undefined) => {
       return uiManager?.getDisplayNameForClass(labelClass) ?? String(labelClass ?? "");
     },
+    getSegmentationClassIds: () => [...input.state.session.classNames.keys()],
     notify: (message: string, duration?: number) => {
       uiManager?.notify(message, duration);
     },

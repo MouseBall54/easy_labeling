@@ -153,6 +153,13 @@ export function createSegmentationCanvasWorkflow(
   let overlayRenderRequestId: number | null = null;
   let workflowActive = true;
 
+  const getDefaultPaintClassId = (): string | null => {
+    const positiveClassIds = [...new Set(deps.getSegmentationClassIds?.() ?? [])]
+      .filter((classId) => /^\d+$/.test(classId) && Number(classId) > 0)
+      .sort((left, right) => Number(left) - Number(right));
+    return positiveClassIds.includes("1") ? "1" : positiveClassIds[0] ?? null;
+  };
+
   const canPaintWithActiveClass = (notifyOnFailure = true): boolean => {
     if (hasExplicitPaintClassSelection) {
       return true;
@@ -408,10 +415,11 @@ export function createSegmentationCanvasWorkflow(
       return;
     }
 
+    const defaultPaintClassId = getDefaultPaintClassId();
     document = createSegmentationDocument({
       width: state.currentImage.width,
       height: state.currentImage.height,
-      activeClassId: document?.activeClassId ?? "1",
+      activeClassId: defaultPaintClassId ?? document?.activeClassId ?? "1",
       activeTool: document?.activeTool ?? "brush",
       brushRadius: document?.brushRadius ?? 6,
       overlayVisible: document?.overlayVisible ?? true,
@@ -419,7 +427,7 @@ export function createSegmentationCanvasWorkflow(
       edgeHighlightVisible: document?.edgeHighlightVisible ?? true,
       edgeHighlightIntensity: document?.edgeHighlightIntensity ?? 0.7
     });
-    hasExplicitPaintClassSelection = false;
+    hasExplicitPaintClassSelection = defaultPaintClassId !== null;
     removeMaskOverlayLayer();
     removeSelectionOverlayLayer();
     removeSmartPreviewOverlayLayer();
@@ -1881,7 +1889,12 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.restoreSnapshot(snapshot);
-      hasExplicitPaintClassSelection = snapshot.mask.some((classId) => classId !== 0);
+      const hasPaintedMask = snapshot.mask.some((classId) => classId !== 0);
+      const defaultPaintClassId = getDefaultPaintClassId();
+      if (!hasPaintedMask && defaultPaintClassId) {
+        doc.setActiveClass(defaultPaintClassId);
+      }
+      hasExplicitPaintClassSelection = hasPaintedMask || defaultPaintClassId !== null;
       doc.clearHistory();
       clearSelection();
       smartPreview = null;

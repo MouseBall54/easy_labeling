@@ -250,6 +250,25 @@
                             <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file" title="Edit class file" aria-label="Edit class file"><i class="bi bi-eye" aria-hidden="true"></i></button>
                         </div>
                     </section>
+
+                    <section id="detectionReviewWorkspace" class="panel-section review-workspace-section" hidden>
+                        <div class="section-heading-row"><h3>Review</h3><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
+                        <div id="reviewIssueList" class="list-group list-group-flush small mb-2" aria-live="polite"></div>
+                        <div class="d-grid gap-2 mb-2">
+                            <button id="markReviewedBtn" type="button" class="btn btn-success btn-sm">Mark reviewed</button>
+                            <button id="markNeedsReviewBtn" type="button" class="btn btn-outline-secondary btn-sm">Mark needs review</button>
+                        </div>
+                        <details data-ui="review-controls">
+                            <summary class="small fw-semibold">Quality rules</summary>
+                            <div class="review-rule-grid mt-2">
+                                <label><span>Min px</span><input id="reviewMinimumBoxSizeInput" type="number" class="form-control form-control-sm" min="1" step="1"></label>
+                                <label><span>Duplicate IoU</span><input id="reviewDuplicateIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01"></label>
+                            </div>
+                            <label class="form-label small mt-2" for="reviewRequiredClassesInput">Required classes (comma separated)</label>
+                            <input id="reviewRequiredClassesInput" type="text" class="form-control form-control-sm" placeholder="e.g. 0, 2">
+                            <button id="saveReviewRulesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2">Save rules and recheck</button>
+                        </details>
+                    </section>
                     </div>
                 </div>
                 <div id="segmentationFormatShortcut" class="px-3 pb-2" hidden>
@@ -365,24 +384,6 @@
                     </nav>
 
                     <section id="inspectorAnnotationPane" class="inspector-pane active" data-inspector-pane="annotation">
-                        <section class="inspector-section" data-ui="review-controls" hidden>
-                            <div class="section-heading-row"><h3>Review</h3><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
-                            <div id="reviewIssueList" class="list-group list-group-flush small mb-2" aria-live="polite"></div>
-                            <div class="d-grid gap-2 mb-2">
-                                <button id="markReviewedBtn" type="button" class="btn btn-success btn-sm">Mark reviewed</button>
-                                <button id="markNeedsReviewBtn" type="button" class="btn btn-outline-secondary btn-sm">Mark needs review</button>
-                            </div>
-                            <details>
-                                <summary class="small fw-semibold">Quality rules</summary>
-                                <div class="review-rule-grid mt-2">
-                                    <label><span>Min px</span><input id="reviewMinimumBoxSizeInput" type="number" class="form-control form-control-sm" min="1" step="1"></label>
-                                    <label><span>Duplicate IoU</span><input id="reviewDuplicateIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01"></label>
-                                </div>
-                                <label class="form-label small mt-2" for="reviewRequiredClassesInput">Required classes (comma separated)</label>
-                                <input id="reviewRequiredClassesInput" type="text" class="form-control form-control-sm" placeholder="e.g. 0, 2">
-                                <button id="saveReviewRulesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2">Save rules and recheck</button>
-                            </details>
-                        </section>
                         <section class="inspector-section selection-inspector-section">
                             <div class="section-heading-row"><h3>Selection</h3><span id="selectedAnnotationCount" class="count-badge">0</span></div>
                             <div id="selectionEmptyState" class="inspector-empty-state"><i class="bi bi-cursor" aria-hidden="true"></i><p>Select a box to edit its class and geometry.</p></div>
@@ -641,6 +642,7 @@
                     <div>
                         <h5 class="modal-title" id="templateMatchingModalLabel"><i class="bi bi-crosshair2"></i> Template Matching Setup</h5>
                         <div class="small text-muted" id="templateMatchingSourceName">Load an image to begin.</div>
+                        <div class="small text-muted" id="templateMatchingInputSource">Base input: Original</div>
                     </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
@@ -654,21 +656,21 @@
                             <div class="template-pointer-mode" role="group" aria-label="Template canvas mouse mode">
                                 <div class="btn-group btn-group-sm" role="group" aria-label="Template ROI mode">
                                     <input id="templatePointerRoiRadio" type="radio" class="btn-check" name="templatePointerMode" value="template-roi" checked>
-                                    <label class="btn btn-outline-secondary" for="templatePointerRoiRadio" title="Drag to define a new template region (Ctrl+Q from Edit ROI)"><i class="bi bi-crop" aria-hidden="true"></i> Template ROI</label>
+                                    <label class="btn btn-outline-secondary" for="templatePointerRoiRadio" title="Drag to define a new template region. Hold Ctrl and drag to pan. (Ctrl+Q from Edit ROI)"><i class="bi bi-crop" aria-hidden="true"></i> Template ROI</label>
                                     <input id="templatePointerEditRoiRadio" type="radio" class="btn-check" name="templatePointerMode" value="edit-roi" disabled>
-                                    <label class="btn btn-outline-secondary" for="templatePointerEditRoiRadio" title="Move or resize the current template region (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i> Edit ROI</label>
+                                    <label class="btn btn-outline-secondary" for="templatePointerEditRoiRadio" title="Move or resize the current template region. Hold Ctrl and drag to pan. (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i> Edit ROI</label>
                                 </div>
                                 <input id="templatePointerSelectRadio" type="radio" class="btn-check" name="templatePointerMode" value="select-results">
                                 <label class="btn btn-outline-secondary btn-sm" for="templatePointerSelectRadio" title="Select results or drag to pan"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
                             </div>
                             <div class="template-workspace-view-controls">
-                                <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="1000" value="100" step="1" title="Zoom workspace (Ctrl + mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
+                                <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="1000" value="100" step="1" title="Zoom workspace (mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
                                 <button id="templateWorkspaceFitBtn" type="button" class="panel-icon-button" title="Fit image to workspace" aria-label="Fit image to workspace"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i></button>
                             </div>
                         </div>
                         <div id="templateWorkspaceScroller" class="template-workspace-scroller">
                             <div id="templateWorkspaceStage" class="template-workspace-stage">
-                                <canvas id="templateMatchingCanvas" width="800" height="500" tabindex="0" aria-label="Draw template ROI on reference image"></canvas>
+                                <canvas id="templateMatchingCanvas" width="800" height="500" tabindex="0" aria-label="Draw template ROI on reference image. Hold Ctrl and drag to pan."></canvas>
                             </div>
                         </div>
                         <div class="template-preview-strip">

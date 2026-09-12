@@ -14,16 +14,18 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await page.locator("#emptyLoadSampleBtn").click();
   await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? -1), { timeout: 30_000 }).toBe(52);
 
-  await expect(page.locator('[data-ui="review-controls"]')).toBeHidden();
+  await expect(page.locator("#detectionReviewWorkspace")).toBeHidden();
   await page.locator("#taskReviewBtn").click();
   await expect(page.locator(".app-workspace")).toHaveAttribute("data-active-task", "review");
-  await expect(page.locator('[data-ui="review-controls"]')).toBeVisible();
-  await expect(page.locator("#inspectorTitle")).toHaveText("Review Inspector");
+  await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();
+  await expect(page.locator("#left-panel [data-ui=\"review-controls\"]")).toBeVisible();
+  await expect(page.locator("#right-panel [data-ui=\"review-controls\"]")).toHaveCount(0);
+  await expect(page.locator("#inspectorTitle")).toHaveText("Annotation Inspector");
   await expect(page.locator("#reviewFilterSelect")).toHaveValue("has-issues");
   await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("sample (1).jpg");
   await expect(page.locator("#reviewQueueSummary")).toHaveText("1 / 15");
   await expect(page.locator("#nextReviewIssueBtn")).toBeEnabled();
-  await page.locator('[data-ui="review-controls"] summary').click();
+  await page.locator('#detectionReviewWorkspace [data-ui="review-controls"] summary').click();
   await page.locator("#reviewMinimumBoxSizeInput").fill("10000");
   await page.locator("#saveReviewRulesBtn").click();
   await expect.poll(async () => page.evaluate(() => {

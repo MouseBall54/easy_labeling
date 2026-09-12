@@ -500,6 +500,7 @@ export function createUiManagerAdapter(input: {
     const segmentationSuperpixelWorkspace = input.documentRef.getElementById("segmentationSuperpixelWorkspace");
     const detectionDisplayWorkspace = input.documentRef.getElementById("detectionDisplayWorkspace");
     const detectionWorkspace = input.documentRef.getElementById("detectionLeftWorkspace");
+    const detectionReviewWorkspace = input.documentRef.getElementById("detectionReviewWorkspace");
     const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
     const preprocessingTaskButton = input.documentRef.getElementById("taskPreprocessingBtn");
     const sectionIds = ["segmentationClassSection"];
@@ -531,6 +532,7 @@ export function createUiManagerAdapter(input: {
       segmentationWorkspace?.toggleAttribute("hidden", !isLeftSegmentationWorkspace);
       detectionDisplayWorkspace?.setAttribute("hidden", "");
       detectionWorkspace?.toggleAttribute("hidden", isLeftSegmentationWorkspace);
+      detectionReviewWorkspace?.setAttribute("hidden", "");
       segmentationDisplayWorkspace?.toggleAttribute("hidden", activeTask !== "segmentation-display");
       segmentationSuperpixelWorkspace?.toggleAttribute("hidden", activeTask !== "superpixel");
       genericModeControls?.setAttribute("hidden", "");
@@ -570,6 +572,7 @@ export function createUiManagerAdapter(input: {
       segmentationSuperpixelWorkspace?.setAttribute("hidden", "");
       detectionDisplayWorkspace?.toggleAttribute("hidden", activeTask !== "detection-display");
       detectionWorkspace?.toggleAttribute("hidden", activeTask === "detection-display" || isPreprocessingTask);
+      detectionReviewWorkspace?.toggleAttribute("hidden", activeTask !== "review");
       genericModeControls?.removeAttribute("hidden");
       detectionCanvasToolbar?.removeAttribute("hidden");
       segmentationCanvasToolbar?.setAttribute("hidden", "");
@@ -618,10 +621,14 @@ export function createUiManagerAdapter(input: {
       const isPreprocessingTask = task === "preprocessing";
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display";
       const isLeftWorkspaceTask = isSegmentationTask || isPreprocessingTask;
-      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask;
+      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review";
       const preprocessingTaskButton = input.documentRef.getElementById("taskPreprocessingBtn");
       const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
-      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
+      if (task === "automate") {
+        manager.setInspectorTab("automation");
+        return;
+      }
+      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn]
         .filter((button): button is HTMLButtonElement => Boolean(button));
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
@@ -633,31 +640,23 @@ export function createUiManagerAdapter(input: {
           button.removeAttribute("aria-current");
         }
       });
-      if (task === "automate") {
-        elements.drawModeBtn.checked = false;
-        elements.editModeBtn.checked = false;
-      } else if (!isSegmentationTask) {
+      if (!isSegmentationTask) {
         elements.drawModeBtn.checked = input.state.view.currentMode === "draw";
         elements.editModeBtn.checked = input.state.view.currentMode === "edit";
       }
       syncWorkflowPanels();
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
       elements.leftPanel.classList.toggle("mobile-open", isCompactLeftPanelTask);
-      elements.rightPanel.classList.toggle("mobile-open", !isCompactLeftPanelTask);
-      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask);
-      elements.rightPanel.classList.toggle("task-focus", task !== "files");
+      elements.rightPanel.classList.toggle("mobile-open", false);
+      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask || task === "review");
+      elements.rightPanel.classList.toggle("task-focus", false);
       elements.expandRightPanelBtn.toggleAttribute("hidden", isPreprocessingTask);
       if (elements.reviewQueueControls) {
         elements.reviewQueueControls.hidden = task !== "review";
       }
-      const reviewControls = elements.reviewStatusBadge?.closest<HTMLElement>('[data-ui="review-controls"]');
-      if (reviewControls) {
-        reviewControls.hidden = task !== "review";
-      }
 
       if (task === "files") {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, true);
         elements.imageSearchInput.focus({ preventScroll: true });
         manager.syncWorkspaceState();
         return;
@@ -665,41 +664,38 @@ export function createUiManagerAdapter(input: {
 
       if (isPreprocessingTask) {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        elements.rightPanel.dataset.userCollapsed = "true";
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, true);
-        elements.inspectorTitle.textContent = "Inspector";
-        elements.inspectorSubtitle.textContent = "Closed while image preprocessing is active";
       } else if (isLeftWorkspaceTask) {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        elements.rightPanel.dataset.userCollapsed = "false";
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
-        elements.inspectorTitle.textContent = "Mask Inspector";
-        elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
-      } else if (task === "automate") {
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
-        manager.setInspectorTab("automation");
-        elements.automationPresetSelect.focus({ preventScroll: true });
+        if (isSegmentationTask) {
+          manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
+          elements.inspectorTitle.textContent = "Mask Inspector";
+          elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
+        }
       } else if (task === "review") {
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
         const hasIssues = [...input.state.session.reviewFindings.values()].some((finding) => finding.issues.length > 0);
         input.state.view.reviewFilter = hasIssues ? "has-issues" : "needs-review";
         elements.reviewFilterSelect.value = input.state.view.reviewFilter;
-        manager.setInspectorTab("annotation");
-        elements.inspectorTitle.textContent = "Review Inspector";
-        elements.inspectorSubtitle.textContent = "Resolve quality issues and mark each image reviewed";
+        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
         manager.renderImageList();
+        input.documentRef.getElementById("detectionReviewWorkspace")?.removeAttribute("hidden");
         elements.reviewFilterSelect.focus({ preventScroll: true });
       } else {
-        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        elements.inspectorTitle.textContent = "Annotation Inspector";
-        manager.setInspectorTab(activeInspectorTab === "transform" ? "transform" : "annotation");
       }
       manager.syncWorkspaceState();
     },
 
     setInspectorTab(tab: "annotation" | "transform" | "automation"): void {
       activeInspectorTab = tab;
+      const automationActive = tab === "automation";
+      elements.taskAutomateBtn.classList.toggle("active", automationActive);
+      elements.taskAutomateBtn.setAttribute("aria-pressed", String(automationActive));
+      const appWorkspace = input.documentRef.querySelector<HTMLElement>(".app-workspace");
+      if (automationActive) {
+        appWorkspace?.setAttribute("data-active-tool", "automation");
+      } else {
+        appWorkspace?.removeAttribute("data-active-tool");
+      }
       const controls = [
         { id: "annotation", button: elements.inspectorAnnotationTabBtn, pane: elements.inspectorAnnotationPane },
         { id: "transform", button: elements.inspectorTransformTabBtn, pane: elements.inspectorTransformPane },
@@ -713,6 +709,25 @@ export function createUiManagerAdapter(input: {
         control.pane.classList.toggle("active", active);
         control.pane.hidden = !active;
       });
+      if (input.state.session.workflow === "detection") {
+        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
+        elements.rightPanel.classList.add("task-focus");
+        elements.rightPanel.classList.add("mobile-open");
+        input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-inspector", tab);
+        if (tab === "automation") {
+          elements.inspectorTitle.textContent = "Automation Workspace";
+          const engineState = elements.matchingEngineStatus.dataset.state;
+          elements.inspectorSubtitle.textContent = engineState === "ready"
+            ? "Matching engine ready"
+            : engineState === "error"
+              ? "Matching engine requires retry"
+              : "Matching engine loading";
+          elements.automationPresetSelect.focus({ preventScroll: true });
+        } else {
+          elements.inspectorTitle.textContent = "Annotation Inspector";
+          elements.inspectorSubtitle.textContent = tab === "transform" ? "Adjust selected annotation geometry" : "Select a box to inspect or edit";
+        }
+      }
     },
 
     setLabelDisplayMode(mode: LabelDisplayMode, persist = true): void {
@@ -782,6 +797,10 @@ export function createUiManagerAdapter(input: {
     },
 
     syncWorkspaceState(): void {
+      input.documentRef.getElementById("detectionReviewWorkspace")?.toggleAttribute(
+        "hidden",
+        input.state.session.workflow !== "detection" || activeTask !== "review"
+      );
       const canvasController = getCanvasController();
       const currentFile = input.state.session.currentImageFile;
       const currentImage = input.state.session.currentImage;
@@ -864,7 +883,7 @@ export function createUiManagerAdapter(input: {
       if (input.state.session.workflow === "segmentation") {
         elements.inspectorTitle.textContent = "Mask Inspector";
         elements.inspectorSubtitle.textContent = "Selected region details and immediate edits";
-      } else if (activeTask === "automate") {
+      } else if (activeInspectorTab === "automation") {
         const engineState = elements.matchingEngineStatus.dataset.state;
         elements.inspectorTitle.textContent = "Automation Workspace";
         elements.inspectorSubtitle.textContent = engineState === "ready"
@@ -872,9 +891,6 @@ export function createUiManagerAdapter(input: {
           : engineState === "error"
             ? "Matching engine requires retry"
             : "Matching engine loading";
-      } else if (activeTask === "review") {
-        elements.inspectorTitle.textContent = "Review Inspector";
-        elements.inspectorSubtitle.textContent = "Resolve quality issues and mark each image reviewed";
       } else {
         elements.inspectorTitle.textContent = "Annotation Inspector";
       }

@@ -27,7 +27,7 @@ export interface TemplateWorkspace {
   focusMatch(index: number): void;
   setInteractionMode(mode: TemplateWorkspaceInteractionMode): void;
   getInteractionMode(): TemplateWorkspaceInteractionMode;
-  setImage(image: HTMLImageElement, roi?: PixelRect | null): void;
+  setImage(image: CanvasImageSource, roi?: PixelRect | null): void;
   setMatchResult(result: TemplateMatchResult | null): void;
   setMatchResults(results: readonly TemplateWorkspaceMatch[]): void;
   setLayoutPreview(preview: TemplateWorkspaceLayoutPreview | null): void;
@@ -99,7 +99,7 @@ export function createTemplateWorkspace(input: {
   onMatchClicked?(index: number): void;
   onMatchContextRequested?(request: TemplateMatchContextRequest): void;
 }): TemplateWorkspace {
-  let image: HTMLImageElement | null = null;
+  let image: CanvasImageSource | null = null;
   let storedTemplateImage: HTMLImageElement | null = null;
   let roi: PixelRect | null = null;
   let matchResults: TemplateWorkspaceMatch[] = [];
@@ -122,8 +122,14 @@ export function createTemplateWorkspace(input: {
     moved: boolean;
   } | null = null;
 
-  const imageWidth = (): number => image?.naturalWidth || image?.width || 0;
-  const imageHeight = (): number => image?.naturalHeight || image?.height || 0;
+  const imageWidth = (): number => {
+    const source = image as { naturalWidth?: number; width?: number } | null;
+    return source?.naturalWidth || source?.width || 0;
+  };
+  const imageHeight = (): number => {
+    const source = image as { naturalHeight?: number; height?: number } | null;
+    return source?.naturalHeight || source?.height || 0;
+  };
   const zoomPercent = (): number => clamp(
     Number.parseInt(input.zoomInput.value, 10) || 100,
     1,
@@ -499,7 +505,7 @@ export function createTemplateWorkspace(input: {
     bind(): void {
       input.zoomInput.addEventListener("input", render);
       input.scroller.addEventListener("wheel", (event) => {
-        if (!event.ctrlKey || !image) {
+        if (!image) {
           return;
         }
         event.preventDefault();
@@ -511,7 +517,7 @@ export function createTemplateWorkspace(input: {
           return;
         }
         const point = eventToImagePoint(event);
-        if (event.button === 1) {
+        if (event.button === 1 || (event.button === 0 && event.ctrlKey)) {
           beginPan(event, -1);
           return;
         }

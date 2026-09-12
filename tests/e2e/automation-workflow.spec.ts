@@ -122,7 +122,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#right-panel #layoutNameInput")).toHaveCount(0);
   await page.locator("#taskFilesBtn").click();
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
-  await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await page.locator("#taskAutomateBtn").click();
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
@@ -132,8 +132,9 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#detectionCanvasToolbar #editMode + label")).toBeVisible();
   await expect(page.locator(".task-rail #taskAutomateBtn")).toHaveCount(0);
   await expect(page.locator("#taskAutomateBtn")).toHaveClass(/active/);
-  await expect(page.locator("#drawMode")).not.toBeChecked();
-  await expect(page.locator("#editMode")).not.toBeChecked();
+  await expect(page.locator("#taskAutomateBtn")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".app-workspace")).toHaveAttribute("data-active-tool", "automation");
+  await expect(page.locator("#editMode")).toBeChecked();
   await expect(page.locator("#right-panel #genericModeControls")).toHaveCount(0);
   await expect(page.locator("#crosshairToggle")).toBeAttached();
   await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
@@ -141,9 +142,14 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#taskAnnotateBtn").click();
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
-  await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
+  await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
   await expect(page.locator("#taskAnnotateBtn")).toHaveAttribute("aria-current", "page");
   await expect(page.locator("#editMode")).toBeChecked();
+  await expect(page.locator("#taskAutomateBtn")).toHaveAttribute("aria-pressed", "true");
+  await page.locator('label[for="drawMode"]').click();
+  await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
+  await expect(page.locator("#taskAutomateBtn")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".app-workspace")).not.toHaveAttribute("data-active-tool", "automation");
   await page.locator("#inspectorTransformTabBtn").click();
   await expect(page.locator("#right-panel #openLayoutSetupBtn")).toBeHidden();
   await page.locator("#taskAutomateBtn").click();

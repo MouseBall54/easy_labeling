@@ -129,7 +129,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#detectionPreprocessingInputs")).toBeVisible();
   await expect(page.locator("#segmentationPreprocessingInputs")).toBeHidden();
   await expect(page.locator("#detectionAutomationInputSelect")).toBeVisible();
-  await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#expand-right-panel-btn")).toBeHidden();
   await expect(page.locator("#datasetConnectionStatus")).toContainText("Automation uses the source selected below");
   await page.locator("#taskAnnotateBtn").click();
@@ -139,6 +139,18 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#left-panel .label-display-section")).toBeVisible();
   await expect(page.locator("#right-panel .label-display-section")).toHaveCount(0);
   await expect(page.locator("#leftPanelTitle")).toHaveText("Display Settings");
+  await page.locator("#taskAutomateBtn").click();
+  await expect(page.locator("#taskDetectionDisplayBtn")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
+  await page.locator("#taskPreprocessingBtn").click();
+  await page.locator("#taskAutomateBtn").click();
+  await expect(page.locator("#taskPreprocessingBtn")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
+  await page.locator("#taskReviewBtn").click();
+  await page.locator("#taskAutomateBtn").click();
+  await expect(page.locator("#taskReviewBtn")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();
+  await expect(page.locator("#inspectorAutomationPane")).toBeVisible();
   await page.locator("#taskAnnotateBtn").click();
   await expect(page.locator("#detectionLeftWorkspace")).toBeVisible();
   await expect(page.locator("#detectionDisplayWorkspace")).toBeHidden();
@@ -204,7 +216,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#leftPanelTitle")).toHaveText("Mask Display");
 
   await page.locator("#taskPreprocessingBtn").click();
-  await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#left-panel #segmentationPreprocessingSection")).toBeVisible();
   await expect(page.locator("#datasetConnectionStatus")).toContainText("AI Select and Superpixel use the sources selected below");
   await expect(page.getByText("Enhance SEM structure without changing source data.")).toHaveCount(0);
@@ -235,7 +247,14 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
     await page.locator("#taskPreprocessingBtn").click();
     await expect(page.locator("#left-panel")).toHaveClass(/mobile-open/);
     await expect(page.locator("#right-panel")).not.toHaveClass(/mobile-open/);
+    await page.locator("#taskReviewBtn").click();
+    await expect(page.locator("#left-panel")).toHaveClass(/mobile-open/);
+    await expect(page.locator("#right-panel")).not.toHaveClass(/mobile-open/);
+    await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();
+    await expect(page.locator("#left-panel [data-ui=\"review-controls\"]")).toBeVisible();
+    await expect(page.locator("#right-panel [data-ui=\"review-controls\"]")).toHaveCount(0);
     await page.locator("#taskAnnotateBtn").click();
+    await page.locator(width === 800 ? 'label[for="drawMode"]' : 'label[for="editMode"]').click();
     await expect(page.locator("#left-panel")).not.toHaveClass(/mobile-open/);
     await expect(page.locator("#right-panel")).toHaveClass(/mobile-open/);
     await page.locator("#collapse-right-panel-btn").click();

@@ -109,6 +109,7 @@ export interface UiDomElements {
   retryFailedBatchBtn: HTMLButtonElement;
   templateMatchingModal: BootstrapModalLike;
   templateMatchingSourceName: HTMLElement;
+  templateMatchingInputSource: HTMLElement;
   templateSourceImageSelect: HTMLSelectElement;
   templatePointerRoiRadio: HTMLInputElement;
   templatePointerEditRoiRadio: HTMLInputElement;
@@ -443,6 +444,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     retryFailedBatchBtn: requireById<HTMLButtonElement>(documentRef, "retryFailedBatchBtn"),
     templateMatchingModal: new bootstrapRef.Modal(templateMatchingModalElement),
     templateMatchingSourceName: requireById<HTMLElement>(documentRef, "templateMatchingSourceName"),
+    templateMatchingInputSource: requireById<HTMLElement>(documentRef, "templateMatchingInputSource"),
     templateSourceImageSelect: requireById<HTMLSelectElement>(documentRef, "templateSourceImageSelect"),
     templatePointerRoiRadio: requireById<HTMLInputElement>(documentRef, "templatePointerRoiRadio"),
     templatePointerEditRoiRadio: requireById<HTMLInputElement>(documentRef, "templatePointerEditRoiRadio"),

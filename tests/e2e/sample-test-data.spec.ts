@@ -36,8 +36,17 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(page.locator("#boxLayoutSelect")).toHaveValue("sample-color-grid-layout");
   await expect(page.locator("#automationPresetSelect")).toHaveValue("sample-layout-preset");
   await page.locator("#taskAutomateBtn").click();
-  await expect(page.locator("#layoutPlacementNotice")).toContainText("4 box ghost preview");
+  await expect(page.locator("#layoutPlacementNotice")).toContainText("preview hidden");
+  await page.locator("#taskPreprocessingBtn").click();
+  await page.locator("#detectionAutomationInputSelect").selectOption("processed");
+  await page.locator("#taskAutomateBtn").click();
+  await page.locator("#openTemplateMatchingBtn").click();
+  await expect(page.locator("#templateMatchingModal")).toBeVisible();
+  await expect(page.locator("#templateMatchingInputSource")).toHaveText("Base input: Processed");
+  await page.locator('#templateMatchingModal [data-bs-dismiss="modal"]').first().click();
+  await page.locator("#detectionAutomationInputSelect").selectOption("original");
   await page.locator("#taskAnnotateBtn").click();
+  await page.locator("#inspectorAnnotationTabBtn").click();
   const firstAnnotation = page.locator('[data-ui="label-list-item"]').first();
   await expect(firstAnnotation).toContainText("#1");
   await firstAnnotation.focus();

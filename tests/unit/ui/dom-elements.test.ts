@@ -107,6 +107,7 @@ const REQUIRED_IDS = [
   "retryFailedBatchBtn",
   "templateMatchingModal",
   "templateMatchingSourceName",
+  "templateMatchingInputSource",
   "templateSourceImageSelect",
   "templatePointerRoiRadio",
   "templatePointerEditRoiRadio",

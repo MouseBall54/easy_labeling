@@ -60,6 +60,7 @@ export interface CanvasControllerDeps {
   updateLabelList(): void;
   updateZoomDisplay(): void;
   getDisplayNameForClass(labelClass: string | undefined): string;
+  getSegmentationClassIds?(): readonly string[];
   notify(message: string, duration?: number): void;
   getColorForClass?: (labelClass: string | undefined) => string;
   historyService?: CanvasHistoryService;

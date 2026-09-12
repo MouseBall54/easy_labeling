@@ -36,6 +36,7 @@ import {
   type AutomationPreset,
   type BoxLayout,
   type ExistingLabelsPolicy,
+  type PixelRect,
   type TemplateAsset,
   type TemplateMatchCandidate,
   type TemplateMatchResult,
@@ -53,6 +54,7 @@ export interface AutomationController {
   refreshLibrary(options?: { selectFirst?: boolean }): Promise<void>;
   prepareMatchingEngine(): Promise<void>;
   showSelectedLayoutPreview(): void;
+  hideSelectedLayoutPreview(): void;
   dispose(): void;
 }
 
@@ -113,6 +115,12 @@ async function decodeDataUrlImage(dataUrl: string): Promise<HTMLImageElement> {
   image.src = dataUrl;
   await image.decode();
   return image;
+}
+
+export function createNativeImageData(data: Uint8ClampedArray, width: number, height: number): ImageData {
+  const normalizedData = new Uint8ClampedArray(width * height * 4);
+  normalizedData.set(data);
+  return new ImageData(normalizedData, width, height);
 }
 
 export function createAutomationController(input: {
@@ -192,22 +200,36 @@ export function createAutomationController(input: {
     return matchingService;
   };
 
-  const prepareAutomationImageData = (imageData: ImageData): ImageData => {
+  const getAutomationInputSource = (): "original" | "processed" => {
     const source = input.documentRef.getElementById("detectionAutomationInputSelect");
-    if (!(source instanceof HTMLSelectElement) || source.value !== "processed") {
-      return imageData;
-    }
+    return source instanceof HTMLSelectElement && source.value === "processed" ? "processed" : "original";
+  };
+
+  const prepareAutomationImageData = (imageData: ImageData): ImageData => {
+    if (getAutomationInputSource() !== "processed") return imageData;
     const data = preprocessSegmentationImage({
       width: imageData.width,
       height: imageData.height,
       rgba: imageData.data
     }, input.canvasController.raw.getSegmentationPreprocessingConfig?.());
-    return {
-      data,
-      width: imageData.width,
-      height: imageData.height,
-      colorSpace: imageData.colorSpace
-    } as ImageData;
+    return createNativeImageData(data, imageData.width, imageData.height);
+  };
+
+  const createAutomationWorkspaceImage = (image: HTMLImageElement): CanvasImageSource => {
+    if (getAutomationInputSource() === "original") return image;
+    const imageData = prepareAutomationImageData(imageElementToImageData(image, input.documentRef));
+    const canvas = input.documentRef.createElement("canvas");
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas 2D context is unavailable");
+    context.putImageData(imageData, 0, 0);
+    return canvas;
+  };
+
+  const setTemplateWorkspaceImage = (image: HTMLImageElement, roi: PixelRect | null = null): void => {
+    workspace.setImage(createAutomationWorkspaceImage(image), roi);
+    elements.templateMatchingInputSource.textContent = `Base input: ${getAutomationInputSource() === "processed" ? "Processed" : "Original"}`;
   };
 
   const prepareMatchingEngine = (): Promise<void> => {
@@ -935,7 +957,7 @@ export function createAutomationController(input: {
     invalidateTemplateMatch();
     clearSettingsError();
     if (input.state.session.currentImage) {
-      workspace.setImage(input.state.session.currentImage);
+      setTemplateWorkspaceImage(input.state.session.currentImage);
       setTemplateInteractionMode("template-roi");
     }
   };
@@ -958,7 +980,7 @@ export function createAutomationController(input: {
       elements.applyBoxLayoutBtn.disabled = false;
     }
     if (input.state.session.currentImage) {
-      workspace.setImage(input.state.session.currentImage, template.roi);
+      setTemplateWorkspaceImage(input.state.session.currentImage, template.roi);
       setTemplateInteractionMode("edit-roi");
     }
     const storedImage = await decodeDataUrlImage(template.pngDataUrl);
@@ -1327,6 +1349,11 @@ export function createAutomationController(input: {
       workspace.bind();
       input.documentRef.getElementById("detectionAutomationInputSelect")?.addEventListener("change", () => {
         invalidateTemplateMatch();
+        const image = input.state.session.currentImage;
+        if (image && elements.templateMatchingModal._isShown) {
+          setTemplateWorkspaceImage(image, workspace.getRoi());
+          workspace.renderPreviews(readPreprocessing());
+        }
         input.uiManager.notify("Automation input source updated.", 1800);
       });
       elements.templateWorkspaceFitBtn.addEventListener("click", () => workspace.fitToView());
@@ -1705,7 +1732,7 @@ export function createAutomationController(input: {
           elements.templateMatchTimings.textContent = "";
           elements.templateMatchCandidates.replaceChildren();
           invalidateTemplateMatch();
-          workspace.setImage(image);
+          setTemplateWorkspaceImage(image);
           setTemplateInteractionMode("template-roi");
           workspace.renderPreviews(readPreprocessing());
           clearSettingsError();
@@ -2006,6 +2033,10 @@ export function createAutomationController(input: {
       input.windowRef.addEventListener("easy-labeling:canvas-view-change", () => {
         renderLayoutGhostPreview();
       });
+      input.windowRef.addEventListener("easy-labeling:image-change", () => {
+        layoutGhostVisible = false;
+        clearLayoutGhostPreview();
+      });
 
       elements.exportAutomationLibraryBtn.addEventListener("click", () => {
         void (async () => {
@@ -2095,8 +2126,13 @@ export function createAutomationController(input: {
     },
 
     showSelectedLayoutPreview(): void {
-      layoutGhostVisible = Boolean(selectedLayout());
-      renderLayoutGhostPreview();
+      layoutGhostVisible = false;
+      clearLayoutGhostPreview();
+    },
+
+    hideSelectedLayoutPreview(): void {
+      layoutGhostVisible = false;
+      clearLayoutGhostPreview();
     }
   };
 }

@@ -93,13 +93,21 @@ class FakeCanvas {
     this.attributes.set(name, value);
   }
 
-  dispatch(type: string, x: number, y: number, button = 0, pointerId = 1): { preventDefault: ReturnType<typeof vi.fn> } {
+  dispatch(
+    type: string,
+    x: number,
+    y: number,
+    button = 0,
+    pointerId = 1,
+    modifiers: { ctrlKey?: boolean } = {}
+  ): { preventDefault: ReturnType<typeof vi.fn> } {
     const preventDefault = vi.fn();
     const event = {
       clientX: x,
       clientY: y,
       button,
       pointerId,
+      ctrlKey: modifiers.ctrlKey ?? false,
       preventDefault
     } as unknown as PointerEvent;
     this.listeners.get(type)?.forEach((listener) => listener(event));
@@ -167,7 +175,7 @@ describe("template workspace interaction modes", () => {
     expect(scroller.scrollTop).toBe(scrollBeforePan.top + 15);
     expect(onMatchClicked).toHaveBeenCalledTimes(1);
 
-    const wheel = scroller.dispatchWheel(-100);
+    const wheel = scroller.dispatchWheel(-100, false);
     expect(wheel.preventDefault).toHaveBeenCalled();
     expect(zoomInput.value).toBe("110");
     expect(zoomValue.textContent).toBe("110%");
@@ -238,7 +246,7 @@ describe("template workspace interaction modes", () => {
     expect(onRoiChanged).toHaveBeenCalledTimes(3);
   });
 
-  it("pans before matches exist and supports middle-button pan in ROI mode", () => {
+  it("pans before matches exist and supports middle-button or Ctrl-drag pan in ROI mode", () => {
     const canvas = new FakeCanvas(120, 90);
     const scroller = new FakeScroller();
     const workspace = createTemplateWorkspace({
@@ -269,6 +277,14 @@ describe("template workspace interaction modes", () => {
     canvas.dispatch("pointerup", 50, 40);
     expect(scroller.scrollLeft).toBe(middlePanStart.left + 20);
     expect(scroller.scrollTop).toBe(middlePanStart.top + 10);
+    expect(workspace.getRoi()).toBeNull();
+
+    const ctrlPanStart = { left: scroller.scrollLeft, top: scroller.scrollTop };
+    canvas.dispatch("pointerdown", 70, 50, 0, 1, { ctrlKey: true });
+    canvas.dispatch("pointermove", 50, 40, 0, 1, { ctrlKey: true });
+    canvas.dispatch("pointerup", 50, 40, 0, 1, { ctrlKey: true });
+    expect(scroller.scrollLeft).toBe(ctrlPanStart.left + 20);
+    expect(scroller.scrollTop).toBe(ctrlPanStart.top + 10);
     expect(workspace.getRoi()).toBeNull();
   });
 

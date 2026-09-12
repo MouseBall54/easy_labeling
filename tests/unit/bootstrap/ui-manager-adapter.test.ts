@@ -259,6 +259,8 @@ function createElements() {
   taskSegmentationDisplayBtn.dataset.task = "segmentation-display";
   const taskAutomateBtn = new FakeElement("button");
   taskAutomateBtn.dataset.task = "automate";
+  const taskReviewBtn = new FakeElement("button");
+  taskReviewBtn.dataset.task = "review";
   const matchingEngineStatus = new FakeElement("div");
   matchingEngineStatus.dataset.state = "ready";
   const workspaceStandbySteps = new FakeElement("ol");
@@ -280,6 +282,8 @@ function createElements() {
     classSearchInput,
     showLabeledCheckbox,
     showUnlabeledCheckbox,
+    reviewFilterSelect: new FakeElement("select"),
+    reviewQueueControls: new FakeElement("div"),
     reviewIssueList: new FakeElement("div"),
     segmentationActiveClassSummary: new FakeElement("div"),
     segmentationRelabelRegionBtn: new FakeElement("button"),
@@ -344,6 +348,7 @@ function createElements() {
     taskSuperpixelBtn,
     taskSegmentationDisplayBtn,
     taskAutomateBtn,
+    taskReviewBtn,
     automationPresetSelect: new FakeElement("select"),
     matchingEngineStatus,
     loadingOverlay: new FakeElement("div"),
@@ -385,9 +390,11 @@ function createManagerWithRects(input: {
   const elements = createElements();
   getDOMElementsMock.mockReturnValue(elements);
 
+  const documentRef = new FakeDocument();
+  documentRef.elementsById.set("detectionReviewWorkspace", new FakeElement("section"));
   const manager = createUiManagerAdapter({
     state,
-    documentRef: new FakeDocument() as unknown as Document,
+    documentRef: documentRef as unknown as Document,
     bootstrapRef: {} as never,
     windowRef: { prompt: () => null },
     storage: {
@@ -822,26 +829,50 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     renderWorkflowPanelsMock.mockClear();
   });
 
-  it("switches panel composition instead of only changing inspector tabs", () => {
+  it("keeps the left workspace selected while tools change the detection inspector", () => {
     const { manager, elements } = createManagerWithRects({ rects: [] });
 
     manager.setActiveTask("files");
     expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.leftPanel.classList.contains("task-focus")).toBe(true);
-    expect(elements.rightPanel.classList.contains("collapsed")).toBe(true);
+    expect(elements.taskFilesBtn.classList.contains("active")).toBe(true);
 
     manager.setActiveTask("automate");
     expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("task-focus")).toBe(true);
+    expect(elements.taskFilesBtn.classList.contains("active")).toBe(true);
     expect(elements.inspectorAutomationPane.hidden).toBe(false);
+    expect(elements.taskAutomateBtn.classList.contains("active")).toBe(true);
     expect(elements.inspectorTitle.textContent).toBe("Automation Workspace");
     expect(elements.inspectorSubtitle.textContent).toBe("Matching engine ready");
 
-    manager.setActiveTask("annotate");
-    expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
-    expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
-    expect(elements.inspectorAnnotationPane.hidden).toBe(false);
+    manager.setActiveTask("detection-display");
+    manager.setInspectorTab("transform");
+    expect(elements.taskFilesBtn.classList.contains("active")).toBe(false);
+    expect(elements.inspectorTransformPane.hidden).toBe(false);
+    expect(elements.taskAutomateBtn.classList.contains("active")).toBe(false);
+    expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
+
+  });
+
+  it("keeps the active inspector when Review opens from Preprocessing and keeps Automation active alongside Edit", () => {
+    const { manager, elements } = createManagerWithRects({ rects: [] });
+
+    elements.editModeBtn.checked = true;
+    manager.setActiveTask("files");
+    manager.setInspectorTab("automation");
+    manager.setActiveTask("preprocessing");
+    manager.setActiveTask("review");
+
+    expect(elements.taskReviewBtn.classList.contains("active")).toBe(true);
+    expect(elements.inspectorAutomationPane.hidden).toBe(false);
+    expect(elements.inspectorTitle.textContent).toBe("Automation Workspace");
+    expect(elements.taskAutomateBtn.classList.contains("active")).toBe(true);
+    expect(elements.editModeBtn.checked).toBe(true);
+
+    manager.setInspectorTab("annotation");
+    expect(elements.taskAutomateBtn.classList.contains("active")).toBe(false);
     expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
   });
 

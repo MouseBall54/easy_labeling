@@ -51,6 +51,17 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     && element.closest("input:not([type='button']):not([type='checkbox']):not([type='file']):not([type='hidden']):not([type='image']):not([type='radio']):not([type='reset']):not([type='submit']), textarea, select, [contenteditable]:not([contenteditable='false'])") !== null;
 }
 
+function getNumericShortcut(event: KeyboardEvent): string | null {
+  if (/^[0-9]$/.test(event.key)) {
+    return event.key;
+  }
+  const numpadMatch = /^Numpad([0-9])$/.exec(event.code);
+  if (numpadMatch && event.location === 3 && event.getModifierState("NumLock")) {
+    return numpadMatch[1];
+  }
+  return null;
+}
+
 function invertViewportPoint(point: CanvasPointLike, transform: ViewportTransform): CanvasPointLike | null {
   const [scaleX, skewY, skewX, scaleY, translateX, translateY] = transform;
   const determinant = (scaleX * scaleY) - (skewX * skewY);
@@ -609,7 +620,8 @@ export function createEventManagerAdapter(input: {
           elements.rightPanel.dataset.userCollapsed = "false";
           input.uiManager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
         } else {
-          input.uiManager.setActiveTask?.("annotate");
+          automationController?.hideSelectedLayoutPreview();
+          input.uiManager.setInspectorTab?.("annotation");
         }
         input.uiManager.syncWorkspaceState?.();
       };
@@ -752,27 +764,44 @@ export function createEventManagerAdapter(input: {
         }
       };
 
-      elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
+      const hideAutomationLayoutGhost = (): void => automationController?.hideSelectedLayoutPreview();
+      elements.taskFilesBtn.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
+        input.uiManager.setActiveTask?.("files");
+      });
       elements.taskAnnotateBtn.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
         setWorkflow("detection");
         input.uiManager.setActiveTask?.("annotate");
       });
       input.documentRef?.getElementById("taskDetectionDisplayBtn")?.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
         setWorkflow("detection");
         input.uiManager.setActiveTask?.("detection-display");
       });
       elements.taskSegmentationBtn.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
         setWorkflow("segmentation");
         input.uiManager.setActiveTask?.("segmentation");
       });
-      elements.taskSuperpixelBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("superpixel"));
-      elements.taskSegmentationDisplayBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("segmentation-display"));
-      input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", () => input.uiManager.setActiveTask?.("preprocessing"));
+      elements.taskSuperpixelBtn.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
+        input.uiManager.setActiveTask?.("superpixel");
+      });
+      elements.taskSegmentationDisplayBtn.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
+        input.uiManager.setActiveTask?.("segmentation-display");
+      });
+      input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
+        input.uiManager.setActiveTask?.("preprocessing");
+      });
       elements.taskAutomateBtn.addEventListener("click", () => {
-        input.uiManager.setActiveTask?.("automate");
+        input.uiManager.setInspectorTab?.("automation");
         automationController?.showSelectedLayoutPreview();
       });
       elements.taskReviewBtn?.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
         input.uiManager.setActiveTask?.("review");
         ensureCurrentReviewQueueItem();
       });
@@ -781,15 +810,13 @@ export function createEventManagerAdapter(input: {
       elements.retryWorkspaceStandbyBtn.addEventListener("click", () => lastWorkspaceStandbyRetry?.());
       elements.dismissWorkspaceStandbyBtn.addEventListener("click", () => input.uiManager.hideWorkspaceStandby());
       elements.inspectorAnnotationTabBtn.addEventListener("click", () => {
-        input.uiManager.setActiveTask?.("annotate");
         input.uiManager.setInspectorTab?.("annotation");
       });
       elements.inspectorTransformTabBtn.addEventListener("click", () => {
-        input.uiManager.setActiveTask?.("annotate");
         input.uiManager.setInspectorTab?.("transform");
       });
       elements.inspectorAutomationTabBtn.addEventListener("click", () => {
-        input.uiManager.setActiveTask?.("automate");
+        input.uiManager.setInspectorTab?.("automation");
         automationController?.showSelectedLayoutPreview();
       });
       elements.emptyOpenDatasetBtn.addEventListener("click", () => elements.selectImageFolderBtn.click());
@@ -2183,10 +2210,11 @@ export function createEventManagerAdapter(input: {
           }
         }
 
-        if (/^[0-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const numericShortcut = getNumericShortcut(event);
+        if (numericShortcut !== null && !event.ctrlKey && !event.metaKey && !event.altKey) {
           event.preventDefault();
           if (input.state.session.workflow === "segmentation") {
-            if (event.key === "0") {
+            if (numericShortcut === "0") {
               input.canvasController.raw.setSegmentationTool?.("erase");
             } else {
               const summary = input.canvasController.raw.getSegmentationSummary?.();
@@ -2194,12 +2222,11 @@ export function createEventManagerAdapter(input: {
                 ...input.state.session.classNames.keys(),
                 ...(summary?.allClassIds ?? [])
               ]);
-              if (!availableClassIds.has(event.key)) {
+              if (!availableClassIds.has(numericShortcut)) {
                 input.uiManager.notify("Load or create a class file, then choose a paint class.", 3500);
                 return;
               }
-              input.canvasController.raw.setSegmentationActiveClass?.(event.key);
-              input.canvasController.raw.setSegmentationTool?.("brush");
+              input.canvasController.raw.setSegmentationActiveClass?.(numericShortcut);
             }
             input.uiManager.setWorkflow?.(input.state.session.workflow);
             syncToolbarActionState();
@@ -2207,7 +2234,7 @@ export function createEventManagerAdapter(input: {
           }
 
           if (input.state.session.workflow === "detection") {
-            const changed = input.canvasController.raw.setSelectedLabelClass?.(event.key) ?? false;
+            const changed = input.canvasController.raw.setSelectedLabelClass?.(numericShortcut) ?? false;
             if (changed) {
               syncToolbarActionState();
             }

@@ -353,6 +353,7 @@ export function createFileSystemAdapter(input: {
     await imageSessionService.loadImageAndLabels(fileHandle);
     throwIfOperationCancelled(operation?.signal);
     applyCurrentImageToCanvas();
+    input.windowRef.dispatchEvent?.(new Event("easy-labeling:image-change"));
   };
 
   const refreshClassFileStateFromAvailableFolder = async (

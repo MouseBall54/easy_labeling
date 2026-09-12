@@ -112,12 +112,9 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
       baseImages: api?.getCanvasLayerCounts?.().baseImages ?? 0,
       canUndo: api?.canUndo?.() ?? false
     };
-  })).toEqual({ activeClassId: '1', requiresClassSelection: true, baseImages: 1, canUndo: false });
-  await expect(page.locator("#segmentationActiveClassSummary")).toHaveText("Choose a paint class before drawing.");
-  await expect(page.locator("#segmentationBrushModeBtn")).toBeDisabled();
-  await page.locator("#segmentationPaintClassList [data-class-id='1']").click();
+  })).toEqual({ activeClassId: '1', requiresClassSelection: false, baseImages: 1, canUndo: false });
+  await expect(page.locator("#segmentationActiveClassSummary")).toContainText("Painting: 1");
   await expect(page.locator("#segmentationBrushModeBtn")).toBeEnabled();
-  await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSummary?.()?.requiresClassSelection ?? null)).toBe(false);
   await page.waitForTimeout(1000);
   await page.locator("#segmentationBrushModeBtn").click();
   await expect.poll(async () => page.evaluate(() => {

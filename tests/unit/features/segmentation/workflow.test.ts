@@ -66,6 +66,44 @@ function createOpenSquarePoints(): Array<{ x: number; y: number }> {
 }
 
 describe("features/segmentation/workflow", () => {
+  it("uses class 1 as the default paint class for a blank mask when it is available", async () => {
+    const controller = createCanvasControllerForWorkflow(
+      "segmentation",
+      createState({ currentMode: "draw" }),
+      createDeps({ getSegmentationClassIds: () => ["0", "2", "1"] })
+    );
+    controller.setBackgroundImage({ width: 16, height: 16 });
+
+    expect(controller.getSegmentationSummary?.()).toMatchObject({
+      activeClassId: "1",
+      requiresClassSelection: false
+    });
+
+    await drawStroke(controller, [{ x: 5, y: 5 }]);
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("1");
+  });
+
+  it("uses the first positive class when class 1 is unavailable and still blocks a background-only class list", () => {
+    const fallbackController = createCanvasControllerForWorkflow(
+      "segmentation",
+      createState({ currentMode: "draw" }),
+      createDeps({ getSegmentationClassIds: () => ["0", "4", "2"] })
+    );
+    fallbackController.setBackgroundImage({ width: 16, height: 16 });
+    expect(fallbackController.getSegmentationSummary?.()).toMatchObject({
+      activeClassId: "2",
+      requiresClassSelection: false
+    });
+
+    const backgroundOnlyController = createCanvasControllerForWorkflow(
+      "segmentation",
+      createState({ currentMode: "draw" }),
+      createDeps({ getSegmentationClassIds: () => ["0"] })
+    );
+    backgroundOnlyController.setBackgroundImage({ width: 16, height: 16 });
+    expect(backgroundOnlyController.getSegmentationSummary?.()?.requiresClassSelection).toBe(true);
+  });
+
   it("requires an explicit class selection before painting a blank mask", async () => {
     const notify = vi.fn();
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps({ notify }));

@@ -2191,11 +2191,83 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(zeroPrevent).toHaveBeenCalledTimes(1);
     expect(fourPrevent).toHaveBeenCalledTimes(1);
     expect(ctrlPrevent).not.toHaveBeenCalled();
-    expect(rawController.setSegmentationTool).toHaveBeenNthCalledWith(1, "erase");
+    expect(rawController.setSegmentationTool).toHaveBeenCalledTimes(1);
+    expect(rawController.setSegmentationTool).toHaveBeenCalledWith("erase");
     expect(rawController.setSegmentationActiveClass).toHaveBeenCalledWith("4");
-    expect(rawController.setSegmentationTool).toHaveBeenNthCalledWith(2, "brush");
     expect(rawController.setSelectedLabelClass).not.toHaveBeenCalled();
     expect(setWorkflow).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the active segmentation tool when a Num Lock-enabled numpad key changes class", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.session.classNames.set("2", "Foreground");
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "End",
+      code: "Numpad2",
+      location: 3,
+      getModifierState: (name: string) => name === "NumLock",
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(rawController.setSegmentationActiveClass).toHaveBeenCalledWith("2");
+    expect(rawController.setSegmentationTool).not.toHaveBeenCalled();
+  });
+
+  it("does not hijack a Num Lock-disabled numpad navigation key", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.session.classNames.set("2", "Foreground");
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    const preventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "End",
+      code: "Numpad2",
+      location: 3,
+      getModifierState: () => false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new FakeHtmlElement(),
+      preventDefault
+    });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(rawController.setSegmentationActiveClass).not.toHaveBeenCalled();
+    expect(rawController.setSegmentationTool).not.toHaveBeenCalled();
   });
 
   it("updates and recalculates superpixels without changing the active task", () => {
