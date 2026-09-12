@@ -66,6 +66,25 @@ function createOpenSquarePoints(): Array<{ x: number; y: number }> {
 }
 
 describe("features/segmentation/workflow", () => {
+  it("requires an explicit class selection before painting a blank mask", async () => {
+    const notify = vi.fn();
+    const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps({ notify }));
+    controller.setBackgroundImage({ width: 16, height: 16 });
+
+    await drawStroke(controller, [{ x: 5, y: 5 }]);
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBeNull();
+    expect(controller.getSegmentationSummary?.()?.requiresClassSelection).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+    expect(notify).toHaveBeenCalledWith("Select a paint class before drawing.", 3000);
+
+    controller.setSegmentationActiveClass?.("2");
+    await drawStroke(controller, [{ x: 5, y: 5 }]);
+
+    expect(controller.getSegmentationClassAtPoint?.({ x: 5, y: 5 })).toBe("2");
+    expect(controller.getSegmentationSummary?.()?.requiresClassSelection).toBe(false);
+  });
+
   it("fills a polygon as one undoable mask operation", () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 16, height: 16 });
@@ -89,6 +108,7 @@ describe("features/segmentation/workflow", () => {
   it("cancels an unfinished polygon without changing its mask or history", () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationActiveClass?.("1");
     controller.setSegmentationTool?.("polygon");
     controller.startDrawing({ x: 2, y: 2 });
     controller.startDrawing({ x: 12, y: 2 });
@@ -117,6 +137,7 @@ describe("features/segmentation/workflow", () => {
       createDeps({ edgeSamService, onDocumentMutation })
     );
     controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationActiveClass?.("1");
     controller.setSegmentationTool?.("ai-select");
 
     await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
@@ -179,6 +200,7 @@ describe("features/segmentation/workflow", () => {
       createDeps({ edgeSamService })
     );
     controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationActiveClass?.("1");
     controller.setSegmentationTool?.("ai-select");
 
     await controller.startSegmentationAiSelect?.({ x: 5, y: 5 }, "positive");
@@ -297,6 +319,7 @@ describe("features/segmentation/workflow", () => {
 
     expect(controller.getSegmentationSummary?.()).toEqual({
       activeClassId: "4",
+      requiresClassSelection: false,
       activeTool: "brush",
       brushRadius: 6,
       overlayVisible: true,
@@ -322,6 +345,7 @@ describe("features/segmentation/workflow", () => {
   it("uses document-level undo/redo and overlay state controls", async () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 16, height: 16 });
+    controller.setSegmentationActiveClass?.("1");
     controller.startDrawing({ x: 2, y: 2 });
     await controller.finishDrawing();
 

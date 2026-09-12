@@ -81,13 +81,18 @@ test("bootstrap-smoke: 200 percent equivalent viewport keeps empty actions visib
 
 test("bootstrap-smoke: matching startup failure stays actionable", async ({ page }) => {
   await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
     Object.defineProperty(window, "Worker", {
       configurable: true,
-      value: class BrokenWorker {
-        constructor() {
-          throw new Error("Worker unavailable for readiness test");
+      value: new Proxy(NativeWorker, {
+        construct(target, args) {
+          const options = args[1] as WorkerOptions | undefined;
+          if (options?.name === "easy-labeling-template-matching") {
+            throw new Error("Worker unavailable for readiness test");
+          }
+          return Reflect.construct(target, args);
         }
-      }
+      })
     });
   });
 

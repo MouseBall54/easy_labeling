@@ -52,6 +52,7 @@ export interface AutomationController {
   bind(): void;
   refreshLibrary(options?: { selectFirst?: boolean }): Promise<void>;
   prepareMatchingEngine(): Promise<void>;
+  showSelectedLayoutPreview(): void;
   dispose(): void;
 }
 
@@ -2090,6 +2091,11 @@ export function createAutomationController(input: {
       activePresetId = presetId || null;
       refreshSelects({ layoutId, presetId });
       layoutGhostVisible = false;
+      renderLayoutGhostPreview();
+    },
+
+    showSelectedLayoutPreview(): void {
+      layoutGhostVisible = Boolean(selectedLayout());
       renderLayoutGhostPreview();
     }
   };

@@ -742,6 +742,16 @@ export function createEventManagerAdapter(input: {
         }
       };
 
+      const ensureCurrentReviewQueueItem = (): void => {
+        const queueImageNames = [...elements.imageList.querySelectorAll<HTMLElement>("[data-file-name]")]
+          .map((item) => item.dataset.fileName)
+          .filter((name): name is string => Boolean(name));
+        const currentImageName = input.state.session.currentImageFile?.name;
+        if (queueImageNames.length > 0 && !queueImageNames.includes(currentImageName ?? "")) {
+          navigateReviewQueue(1);
+        }
+      };
+
       elements.taskFilesBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("files"));
       elements.taskAnnotateBtn.addEventListener("click", () => {
         setWorkflow("detection");
@@ -758,8 +768,14 @@ export function createEventManagerAdapter(input: {
       elements.taskSuperpixelBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("superpixel"));
       elements.taskSegmentationDisplayBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("segmentation-display"));
       input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", () => input.uiManager.setActiveTask?.("preprocessing"));
-      elements.taskAutomateBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
-      elements.taskReviewBtn?.addEventListener("click", () => input.uiManager.setActiveTask?.("review"));
+      elements.taskAutomateBtn.addEventListener("click", () => {
+        input.uiManager.setActiveTask?.("automate");
+        automationController?.showSelectedLayoutPreview();
+      });
+      elements.taskReviewBtn?.addEventListener("click", () => {
+        input.uiManager.setActiveTask?.("review");
+        ensureCurrentReviewQueueItem();
+      });
       elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));
       elements.nextReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(1));
       elements.retryWorkspaceStandbyBtn.addEventListener("click", () => lastWorkspaceStandbyRetry?.());
@@ -772,7 +788,10 @@ export function createEventManagerAdapter(input: {
         input.uiManager.setActiveTask?.("annotate");
         input.uiManager.setInspectorTab?.("transform");
       });
-      elements.inspectorAutomationTabBtn.addEventListener("click", () => input.uiManager.setActiveTask?.("automate"));
+      elements.inspectorAutomationTabBtn.addEventListener("click", () => {
+        input.uiManager.setActiveTask?.("automate");
+        automationController?.showSelectedLayoutPreview();
+      });
       elements.emptyOpenDatasetBtn.addEventListener("click", () => elements.selectImageFolderBtn.click());
       elements.emptyLoadSampleBtn.addEventListener("click", () => {
         runExclusive("load-sample", automationController
@@ -1545,16 +1564,22 @@ export function createEventManagerAdapter(input: {
       });
 
       elements.collapseLeftPanelBtn.addEventListener("click", () => {
+        elements.leftPanel.classList.remove("mobile-open");
         input.uiManager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, true);
       });
       elements.expandLeftPanelBtn.addEventListener("click", () => {
+        elements.rightPanel.classList.remove("mobile-open");
+        elements.leftPanel.classList.add("mobile-open");
         input.uiManager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
       });
       elements.collapseRightPanelBtn.addEventListener("click", () => {
+        elements.rightPanel.classList.remove("mobile-open");
         elements.rightPanel.dataset.userCollapsed = "true";
         input.uiManager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, true);
       });
       elements.expandRightPanelBtn.addEventListener("click", () => {
+        elements.leftPanel.classList.remove("mobile-open");
+        elements.rightPanel.classList.add("mobile-open");
         elements.rightPanel.dataset.userCollapsed = "false";
         input.uiManager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
       });
@@ -2164,6 +2189,15 @@ export function createEventManagerAdapter(input: {
             if (event.key === "0") {
               input.canvasController.raw.setSegmentationTool?.("erase");
             } else {
+              const summary = input.canvasController.raw.getSegmentationSummary?.();
+              const availableClassIds = new Set([
+                ...input.state.session.classNames.keys(),
+                ...(summary?.allClassIds ?? [])
+              ]);
+              if (!availableClassIds.has(event.key)) {
+                input.uiManager.notify("Load or create a class file, then choose a paint class.", 3500);
+                return;
+              }
               input.canvasController.raw.setSegmentationActiveClass?.(event.key);
               input.canvasController.raw.setSegmentationTool?.("brush");
             }

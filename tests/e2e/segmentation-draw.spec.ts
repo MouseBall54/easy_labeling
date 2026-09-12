@@ -87,7 +87,9 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
 
     const imageFolder = new MockDirectoryHandle("images");
     imageFolder.setEntry("scene-a.png", new MockFileHandle("scene-a.png", imageMarkup, "image/svg+xml"));
-    imageFolder.setEntry("label", new MockDirectoryHandle("label"));
+    const labelFolder = new MockDirectoryHandle("label");
+    labelFolder.setEntry("classes.yaml", new MockFileHandle("classes.yaml", "0: Background\n1: Foreground\n3: Detail\n"));
+    imageFolder.setEntry("label", labelFolder);
 
     Object.defineProperty(window, "showDirectoryPicker", {
       configurable: true,
@@ -106,10 +108,16 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     const api = Reflect.get(window, '__easyLabelingTestApi');
     return {
       activeClassId: api?.getSegmentationSummary?.()?.activeClassId ?? null,
+      requiresClassSelection: api?.getSegmentationSummary?.()?.requiresClassSelection ?? null,
       baseImages: api?.getCanvasLayerCounts?.().baseImages ?? 0,
       canUndo: api?.canUndo?.() ?? false
     };
-  })).toEqual({ activeClassId: '1', baseImages: 1, canUndo: false });
+  })).toEqual({ activeClassId: '1', requiresClassSelection: true, baseImages: 1, canUndo: false });
+  await expect(page.locator("#segmentationActiveClassSummary")).toHaveText("Choose a paint class before drawing.");
+  await expect(page.locator("#segmentationBrushModeBtn")).toBeDisabled();
+  await page.locator("#segmentationPaintClassList [data-class-id='1']").click();
+  await expect(page.locator("#segmentationBrushModeBtn")).toBeEnabled();
+  await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSummary?.()?.requiresClassSelection ?? null)).toBe(false);
   await page.waitForTimeout(1000);
   await page.locator("#segmentationBrushModeBtn").click();
   await expect.poll(async () => page.evaluate(() => {
@@ -153,7 +161,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
       }
     : {
         x: imageCenter.x,
-        y: box.y + Math.max(2, imagePlacement.top / 2)
+        y: box.y + box.height - Math.max(2, imagePlacement.top / 2)
       };
   const imageTopLeftSample = {
     x: box.x + imagePlacement.left + (16 * imagePlacement.scale),

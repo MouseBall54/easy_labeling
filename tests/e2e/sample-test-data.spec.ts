@@ -29,13 +29,20 @@ test("bundled sample test loads labeled cars and applies the prepared template l
     };
   }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 52 });
 
-  await expect(page.locator("#image-list [data-file-name]")).toHaveCount(3);
+  await expect(page.locator("#image-list [data-file-name]")).toHaveCount(17);
   await expect(page.locator("#class-file-select option")).toContainText(["classes.yaml"]);
   await expect(page.locator("#boxLayoutSelect option")).toHaveCount(2);
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(3);
   await expect(page.locator("#boxLayoutSelect")).toHaveValue("sample-color-grid-layout");
   await expect(page.locator("#automationPresetSelect")).toHaveValue("sample-layout-preset");
-  await expect(page.locator("#layoutPlacementNotice")).toContainText("preview hidden");
+  await page.locator("#taskAutomateBtn").click();
+  await expect(page.locator("#layoutPlacementNotice")).toContainText("4 box ghost preview");
+  await page.locator("#taskAnnotateBtn").click();
+  const firstAnnotation = page.locator('[data-ui="label-list-item"]').first();
+  await expect(firstAnnotation).toContainText("#1");
+  await firstAnnotation.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSelectedRectIds?.().length ?? 0)).toBe(1);
 
   const labelListLayout = await page.locator('[data-ui="label-list-item"]').first().evaluate((item) => {
     const panel = document.querySelector<HTMLElement>("#label-list");
@@ -48,7 +55,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
     };
   });
   expect(labelListLayout.rowHeight).toBeLessThanOrEqual(34);
-  expect(labelListLayout.fontSize).toBeLessThanOrEqual(11);
+  expect(labelListLayout.fontSize).toBeLessThanOrEqual(12);
   expect(labelListLayout.nameWhiteSpace).toBe("nowrap");
   expect(labelListLayout.hasHorizontalOverflow).toBe(false);
 

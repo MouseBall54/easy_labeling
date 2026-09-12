@@ -20,6 +20,9 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await expect(page.locator('[data-ui="review-controls"]')).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Review Inspector");
   await expect(page.locator("#reviewFilterSelect")).toHaveValue("has-issues");
+  await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("sample (1).jpg");
+  await expect(page.locator("#reviewQueueSummary")).toHaveText("1 / 15");
+  await expect(page.locator("#nextReviewIssueBtn")).toBeEnabled();
   await page.locator('[data-ui="review-controls"] summary').click();
   await page.locator("#reviewMinimumBoxSizeInput").fill("10000");
   await page.locator("#saveReviewRulesBtn").click();
@@ -27,12 +30,14 @@ test("review workspace filters quality findings, selects an affected box, naviga
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getReviewSummary?: () => { minimumBoxSizePx: number; findingCount: number } } | undefined;
     return api?.getReviewSummary?.() ?? null;
   })).toEqual(expect.objectContaining({ minimumBoxSizePx: 10000 }));
-  await expect(page.locator('[data-ui="review-issue-count"]')).toHaveCount(3);
+  await expect(page.locator('[data-ui="review-issue-count"]')).toHaveCount(17);
 
   await page.locator("#taskReviewBtn").click();
   await expect(page.locator("#reviewFilterSelect")).toHaveValue("has-issues");
-  await expect(page.locator("#image-list [data-file-name]")).toHaveCount(3);
-  await expect(page.locator("#reviewQueueSummary")).toHaveText("3");
+  await expect(page.locator("#image-list [data-file-name]")).toHaveCount(17);
+  await expect(page.locator("#reviewQueueSummary")).toHaveText("1 / 17");
+  await page.locator('#image-list [data-file-name="sample_1.jpg"]').click();
+  await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("sample_1.jpg");
   await page.locator("#nextReviewIssueBtn").click();
   await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("sample_2.jpg");
   await page.locator("#previousReviewIssueBtn").click();

@@ -677,6 +677,10 @@ export function createFileSystemAdapter(input: {
             throwIfOperationCancelled(operation?.signal);
             reportProgress?.("dataset", "ready", imageFolderHandle.name || "Sample workspace connected");
             await activateImageFolder(imageFolderHandle as unknown as DirectoryHandleLike, operation, reportProgress);
+            const demoStartImage = input.state.session.imageFiles.find((file) => file.name === "sample_1.jpg");
+            if (demoStartImage && demoStartImage.name !== input.state.session.currentImageFile?.name) {
+              await syncAfterImageLoad(demoStartImage as unknown as FileHandleLike, operation);
+            }
             uiManager?.notify(`Sample test data loaded: ${input.state.session.imageFiles.length} images, color labels, layouts, and template presets.`, 5000);
           });
         });

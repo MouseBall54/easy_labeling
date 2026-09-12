@@ -43,6 +43,7 @@ import {
 function createEmptySummary(): SegmentationSummary {
   return {
     activeClassId: "1",
+    requiresClassSelection: true,
     activeTool: "brush",
     brushRadius: 6,
     overlayVisible: true,
@@ -91,6 +92,7 @@ export function createSegmentationCanvasWorkflow(
   const getColorForClass = deps.getColorForClass ?? defaultGetColorForClass;
 
   let document: SegmentationDocument | null = null;
+  let hasExplicitPaintClassSelection = false;
   let maskOverlayLayer: SegmentationMaskOverlayLayer | null = null;
   let selectionOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
   let smartPreviewOverlayLayer: SegmentationSelectionOverlayLayer | null = null;
@@ -150,6 +152,16 @@ export function createSegmentationCanvasWorkflow(
   let overlayRenderScheduled = false;
   let overlayRenderRequestId: number | null = null;
   let workflowActive = true;
+
+  const canPaintWithActiveClass = (notifyOnFailure = true): boolean => {
+    if (hasExplicitPaintClassSelection) {
+      return true;
+    }
+    if (notifyOnFailure) {
+      deps.notify("Select a paint class before drawing.", 3000);
+    }
+    return false;
+  };
 
   const clearPendingOverlayRenderState = (): void => {
     pendingMaskDirtyBounds = null;
@@ -383,6 +395,7 @@ export function createSegmentationCanvasWorkflow(
 
     if (!state.currentImage) {
       document = null;
+      hasExplicitPaintClassSelection = false;
       removeMaskOverlayLayer();
       removeSelectionOverlayLayer();
       removeSmartPreviewOverlayLayer();
@@ -406,6 +419,7 @@ export function createSegmentationCanvasWorkflow(
       edgeHighlightVisible: document?.edgeHighlightVisible ?? true,
       edgeHighlightIntensity: document?.edgeHighlightIntensity ?? 0.7
     });
+    hasExplicitPaintClassSelection = false;
     removeMaskOverlayLayer();
     removeSelectionOverlayLayer();
     removeSmartPreviewOverlayLayer();
@@ -880,6 +894,9 @@ export function createSegmentationCanvasWorkflow(
       if (!doc) {
         return;
       }
+      if (doc.activeTool !== "erase" && !canPaintWithActiveClass()) {
+        return;
+      }
       clearSelection();
       if (doc.activeTool === "polygon") {
         if (!strokeBaseline) {
@@ -1231,6 +1248,7 @@ export function createSegmentationCanvasWorkflow(
     startSegmentationSuperpixelPaint(pointer: CanvasPoint, mode: "add" | "remove"): boolean {
       const doc = ensureDocument();
       if (!doc || !superpixelResult) return false;
+      if (mode === "add" && !canPaintWithActiveClass()) return false;
       const x = Math.round(pointer.x);
       const y = Math.round(pointer.y);
       if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return false;
@@ -1271,10 +1289,12 @@ export function createSegmentationCanvasWorkflow(
     },
 
     startSegmentationSmartGrow(pointer: CanvasPoint, mode: "add" | "remove"): boolean {
+      if (mode === "add" && !canPaintWithActiveClass()) return false;
       return buildSmartPreview(pointer, mode);
     },
 
     applySegmentationSmartGrow(pointer: CanvasPoint, similarity: number, edgeStop: number, mode: "add" | "remove" = "add"): boolean {
+      if (mode === "add" && !canPaintWithActiveClass()) return false;
       smartGrowSimilarity = Math.min(1, Math.max(0, similarity));
       smartGrowEdgeStop = Math.min(1, Math.max(0, edgeStop));
       return buildSmartPreview(pointer, mode);
@@ -1287,6 +1307,7 @@ export function createSegmentationCanvasWorkflow(
     applySegmentationSmartPreview(): boolean {
       const doc = ensureDocument();
       if (!doc || !smartPreview) return false;
+      if (smartPreview.mode === "add" && !canPaintWithActiveClass()) return false;
       const before = doc.cloneSnapshot();
       const nextClassId = smartPreview.mode === "remove" ? 0 : Number.parseInt(smartPreview.selection.classId, 10);
       for (const index of smartPreview.selection.pixelIndices) doc.mask[index] = nextClassId;
@@ -1314,6 +1335,7 @@ export function createSegmentationCanvasWorkflow(
     async startSegmentationAiSelect(pointer: CanvasPoint, label: "positive" | "negative"): Promise<boolean> {
       const doc = ensureDocument();
       if (!doc || doc.activeTool !== "ai-select") return false;
+      if (!canPaintWithActiveClass()) return false;
       const x = Math.round(pointer.x);
       const y = Math.round(pointer.y);
       if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) {
@@ -1328,6 +1350,7 @@ export function createSegmentationCanvasWorkflow(
     startSegmentationAiBox(pointer: CanvasPoint): void {
       const doc = ensureDocument();
       if (!doc || doc.activeTool !== "ai-select") return;
+      if (!canPaintWithActiveClass()) return;
       aiBoxStart = { x: Math.max(0, Math.min(doc.width - 1, pointer.x)), y: Math.max(0, Math.min(doc.height - 1, pointer.y)) };
       aiBox = { left: aiBoxStart.x, top: aiBoxStart.y, right: aiBoxStart.x, bottom: aiBoxStart.y };
       renderAiPromptOverlay();
@@ -1366,6 +1389,7 @@ export function createSegmentationCanvasWorkflow(
     applySegmentationAiPreview(): boolean {
       const doc = ensureDocument();
       if (!doc || !aiPreview) return false;
+      if (!canPaintWithActiveClass()) return false;
       const before = doc.cloneSnapshot();
       const classId = Number.parseInt(aiPreview.selection.classId, 10);
       for (const index of aiPreview.selection.pixelIndices) doc.mask[index] = classId;
@@ -1590,6 +1614,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.setActiveClass(classId);
+      hasExplicitPaintClassSelection = true;
       shell.renderAll();
     },
 
@@ -1830,6 +1855,7 @@ export function createSegmentationCanvasWorkflow(
       const aiPreview = getAiPreviewSummary();
       return {
         ...summary,
+        requiresClassSelection: !hasExplicitPaintClassSelection,
         ...(smartPreview ? { smartPreview } : {}),
         ...(aiPreview ? { aiPreview } : {})
       };
@@ -1855,6 +1881,7 @@ export function createSegmentationCanvasWorkflow(
         return;
       }
       doc.restoreSnapshot(snapshot);
+      hasExplicitPaintClassSelection = snapshot.mask.some((classId) => classId !== 0);
       doc.clearHistory();
       clearSelection();
       smartPreview = null;

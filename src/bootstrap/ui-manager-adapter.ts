@@ -292,6 +292,12 @@ export function createUiManagerAdapter(input: {
     const edgeHighlightVisible = summary?.edgeHighlightVisible ?? elements.segmentationEdgeHighlightToggle.checked;
     const edgeHighlightIntensity = summary?.edgeHighlightIntensity ?? (Number.parseInt(elements.segmentationEdgeGlowSlider.value, 10) / 100);
     const visibleClassIds = summary?.visibleClassIds ?? [];
+    const segmentationClassIds = summary
+      ? [...new Set([...summary.allClassIds, ...input.state.session.classNames.keys()])]
+          .filter((classId) => Number.parseInt(classId, 10) > 0)
+          .sort((left, right) => Number(left) - Number(right))
+      : [];
+    const requiresClassSelection = Boolean(input.state.session.currentImage && summary?.requiresClassSelection);
     const autoFillClosedRegionEnabled = canvasController?.raw.getSegmentationAutoFillClosedRegionEnabled?.() ?? false;
     const annotationType = input.state.session.segmentationAnnotationType ?? "semantic";
     if (elements.segmentationAnnotationTypeSelect && elements.segmentationSourceFormatSelect && elements.segmentationExportFormatSelect && elements.segmentationFormatGuidance) {
@@ -309,7 +315,14 @@ export function createUiManagerAdapter(input: {
         : "YOLO, COCO, and LabelMe export each disconnected mask region as an instance.";
     }
 
-    elements.segmentationActiveClassSummary.textContent = `Painting: ${manager.getDisplayNameForClass(activeClassId)}`;
+    elements.segmentationActiveClassSummary.textContent = requiresClassSelection
+      ? segmentationClassIds.length > 0
+        ? "Choose a paint class before drawing."
+        : "Load or create a class file before drawing."
+      : `Painting: ${manager.getDisplayNameForClass(activeClassId)}`;
+    elements.segmentationActiveClassSummary.dataset.state = requiresClassSelection ? "selection-required" : "ready";
+    elements.segmentationActiveClassSummary.hidden = !input.state.session.currentImage;
+    (elements.segmentationActiveClassSummary as HTMLButtonElement).disabled = requiresClassSelection;
     const selectedRegion = canvasController?.raw.getSelectedSegmentationRegion?.() ?? null;
     const selectedRegionSummary = input.documentRef.getElementById("segmentationSelectedRegionSummary");
     const regionActions = input.documentRef.getElementById("segmentationRegionActions");
@@ -328,8 +341,13 @@ export function createUiManagerAdapter(input: {
     elements.segmentationEraseModeBtn.classList.toggle("active", isDrawingMode && activeTool === "erase");
     elements.segmentationPolygonModeBtn?.classList.toggle("active", isDrawingMode && activeTool === "polygon");
     elements.segmentationSuperpixelModeBtn?.classList.toggle("active", isDrawingMode && activeTool === "superpixel");
-    input.documentRef.getElementById("segmentationAiSelectModeBtn")?.classList.toggle("active", isDrawingMode && activeTool === "ai-select");
+    const aiSelectModeButton = input.documentRef.getElementById("segmentationAiSelectModeBtn") as HTMLButtonElement | null;
+    aiSelectModeButton?.classList.toggle("active", isDrawingMode && activeTool === "ai-select");
     input.documentRef.getElementById("segmentationEditModeBtn")?.classList.toggle("active", !isDrawingMode);
+    (elements.segmentationBrushModeBtn as HTMLButtonElement).disabled = requiresClassSelection;
+    if (elements.segmentationPolygonModeBtn) (elements.segmentationPolygonModeBtn as HTMLButtonElement).disabled = requiresClassSelection;
+    if (elements.segmentationSuperpixelModeBtn) (elements.segmentationSuperpixelModeBtn as HTMLButtonElement).disabled = requiresClassSelection;
+    if (aiSelectModeButton) aiSelectModeButton.disabled = requiresClassSelection;
     const aiPreviewSection = input.documentRef.getElementById("segmentationAiPreviewSection");
     if (aiPreviewSection) aiPreviewSection.hidden = input.state.session.workflow !== "segmentation" || activeTool !== "ai-select";
     const polygonActionsSection = input.documentRef.getElementById("segmentationPolygonActionsSection");
@@ -387,10 +405,6 @@ export function createUiManagerAdapter(input: {
     const paintClassList = elements.segmentationPaintClassList;
     elements.segmentationClassSummary.innerHTML = "";
     if (paintClassList) paintClassList.innerHTML = "";
-    const segmentationClassIds = summary
-      ? [...new Set([...summary.allClassIds, ...input.state.session.classNames.keys()])].sort((left, right) => Number(left) - Number(right))
-      : [];
-    elements.segmentationActiveClassSummary.hidden = segmentationClassIds.length === 0;
     if (summary && segmentationClassIds.length > 0) {
       segmentationClassIds.forEach((classId) => {
         const paintClassButton = input.documentRef.createElement("button");
@@ -604,6 +618,7 @@ export function createUiManagerAdapter(input: {
       const isPreprocessingTask = task === "preprocessing";
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display";
       const isLeftWorkspaceTask = isSegmentationTask || isPreprocessingTask;
+      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask;
       const preprocessingTaskButton = input.documentRef.getElementById("taskPreprocessingBtn");
       const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
       const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
@@ -627,10 +642,11 @@ export function createUiManagerAdapter(input: {
       }
       syncWorkflowPanels();
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
-      elements.leftPanel.classList.toggle("mobile-open", task === "files" || task === "detection-display" || isLeftWorkspaceTask);
-      elements.rightPanel.classList.toggle("mobile-open", task !== "files");
+      elements.leftPanel.classList.toggle("mobile-open", isCompactLeftPanelTask);
+      elements.rightPanel.classList.toggle("mobile-open", !isCompactLeftPanelTask);
       elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask);
       elements.rightPanel.classList.toggle("task-focus", task !== "files");
+      elements.expandRightPanelBtn.toggleAttribute("hidden", isPreprocessingTask);
       if (elements.reviewQueueControls) {
         elements.reviewQueueControls.hidden = task !== "review";
       }
@@ -647,7 +663,13 @@ export function createUiManagerAdapter(input: {
         return;
       }
 
-      if (isLeftWorkspaceTask) {
+      if (isPreprocessingTask) {
+        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
+        elements.rightPanel.dataset.userCollapsed = "true";
+        manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, true);
+        elements.inspectorTitle.textContent = "Inspector";
+        elements.inspectorSubtitle.textContent = "Closed while image preprocessing is active";
+      } else if (isLeftWorkspaceTask) {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
         elements.rightPanel.dataset.userCollapsed = "false";
         manager.togglePanel(elements.rightPanel, elements.rightSplitter, elements.expandRightPanelBtn, false);
@@ -798,8 +820,10 @@ export function createUiManagerAdapter(input: {
       const leftPanelTitle = input.documentRef.getElementById("leftPanelTitle");
       if (activeTask === "preprocessing") {
         if (leftPanelTitle) leftPanelTitle.textContent = "Image Preprocessing";
-        elements.datasetConnectionStatus.textContent = "";
-        elements.datasetConnectionStatus.hidden = true;
+        elements.datasetConnectionStatus.textContent = input.state.session.workflow === "segmentation"
+          ? "Preview processing; AI Select and Superpixel use the sources selected below"
+          : "Preview processing; Automation uses the source selected below";
+        elements.datasetConnectionStatus.hidden = false;
       } else if (activeTask === "segmentation-display") {
         if (leftPanelTitle) leftPanelTitle.textContent = "Mask Display";
         elements.datasetConnectionStatus.textContent = "";
@@ -1172,7 +1196,11 @@ export function createUiManagerAdapter(input: {
       const queueItems = [...elements.imageList.querySelectorAll<HTMLElement>("[data-file-name]")];
       const currentImageName = input.state.session.currentImageFile?.name;
       const currentQueueIndex = queueItems.findIndex((item) => item.dataset.fileName === currentImageName);
-      elements.reviewQueueSummary.textContent = String(queueItems.length);
+      elements.reviewQueueSummary.textContent = queueItems.length === 0
+        ? "0"
+        : currentQueueIndex >= 0
+          ? `${currentQueueIndex + 1} / ${queueItems.length}`
+          : String(queueItems.length);
       elements.previousReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex <= 0;
       elements.nextReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex < 0 || currentQueueIndex >= queueItems.length - 1;
       elements.reviewIssueList.replaceChildren();
@@ -1389,13 +1417,29 @@ export function createUiManagerAdapter(input: {
             item.classList.add("active");
           }
 
-          item.innerHTML = `<span class="label-list-item-main"><span class="label-color-swatch" style="background-color: ${getColorForClass(rect.labelClass)};"></span><span class="label-list-item-name">${manager.getDisplayNameForClass(rect.labelClass)}</span></span><span class="label-list-item-actions"><button class="btn btn-sm btn-outline-primary edit-btn" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}" title="Edit annotation" aria-label="Edit annotation ${originalIndex + 1}"><i class="bi bi-pencil" aria-hidden="true"></i></button><button class="btn btn-sm btn-outline-danger delete-btn" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}" title="Delete annotation" aria-label="Delete annotation ${originalIndex + 1}"><i class="bi bi-trash" aria-hidden="true"></i></button></span>`;
+          const annotationWidth = Math.round(Math.abs(rect.width * (rect.scaleX ?? 1)));
+          const annotationHeight = Math.round(Math.abs(rect.height * (rect.scaleY ?? 1)));
+          const annotationSummary = `#${originalIndex + 1} · ${annotationWidth}×${annotationHeight}`;
+          const annotationName = `${manager.getDisplayNameForClass(rect.labelClass)} · ${annotationSummary}`;
+          item.tabIndex = 0;
+          item.setAttribute("aria-label", annotationName);
+          item.innerHTML = `<span class="label-list-item-main"><span class="label-color-swatch" style="background-color: ${getColorForClass(rect.labelClass)};"></span><span class="label-list-item-name">${annotationName}</span></span><span class="label-list-item-actions"><button class="btn btn-sm btn-outline-primary edit-btn" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}" title="Edit annotation" aria-label="Edit annotation ${originalIndex + 1}"><i class="bi bi-pencil" aria-hidden="true"></i></button><button class="btn btn-sm btn-outline-danger delete-btn" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}" title="Delete annotation" aria-label="Delete annotation ${originalIndex + 1}"><i class="bi bi-trash" aria-hidden="true"></i></button></span>`;
+          const selectAnnotation = (): void => {
+            canvasController.raw.canvas.setActiveObject(rect);
+            canvasController.raw.highlightSelection();
+          };
           item.addEventListener("click", (event) => {
             if ((event.target as HTMLElement | null)?.closest('[data-ui="edit-label"], [data-ui="delete-label"]')) {
               return;
             }
-            canvasController.raw.canvas.setActiveObject(rect);
-            canvasController.raw.highlightSelection();
+            selectAnnotation();
+          });
+          item.addEventListener("keydown", (event) => {
+            if (event.target !== item || (event.key !== "Enter" && event.key !== " ")) {
+              return;
+            }
+            event.preventDefault();
+            selectAnnotation();
           });
 
           item.querySelector<HTMLElement>('[data-ui="edit-label"]')?.addEventListener("click", (event) => {

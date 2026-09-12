@@ -129,6 +129,9 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#detectionPreprocessingInputs")).toBeVisible();
   await expect(page.locator("#segmentationPreprocessingInputs")).toBeHidden();
   await expect(page.locator("#detectionAutomationInputSelect")).toBeVisible();
+  await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
+  await expect(page.locator("#expand-right-panel-btn")).toBeHidden();
+  await expect(page.locator("#datasetConnectionStatus")).toContainText("Automation uses the source selected below");
   await page.locator("#taskAnnotateBtn").click();
   await page.locator("#taskDetectionDisplayBtn").click();
   await expect(page.locator("#detectionLeftWorkspace")).toBeHidden();
@@ -148,7 +151,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await page.keyboard.press("3");
   await expect(page.locator("#undoBtn")).toBeEnabled();
 
-  await page.locator("#taskSegmentationBtn").click();
+  await page.locator('label[for="segmentationWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeHidden();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeVisible();
   await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
@@ -167,15 +170,16 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#segmentationRelabelRegionBtn")).toBeDisabled();
   await expect(page.locator("#segmentationDeleteRegionBtn")).toBeDisabled();
   await expect(page.locator("#segmentationRegionActions #segmentationDeleteRegionBtn")).toHaveCount(1);
-  await expect(page.locator('#segmentationActiveClassSummary')).toContainText('Painting:');
-  await expect(page.locator("#segmentationPaintClassList [data-ui='segmentation-active-class']")).toHaveText(["0", "1", "2", "3", "4"]);
+  await expect(page.locator('#segmentationActiveClassSummary')).toHaveText('Load or create a class file before drawing.');
+  await expect(page.locator("#segmentationPaintClassList [data-ui='segmentation-active-class']")).toHaveCount(0);
+  await expect(page.locator("#segmentationBrushModeBtn")).toBeDisabled();
   await expect(page.locator("#taskAnnotateBtn")).toBeHidden();
   await expect(page.locator("#taskSuperpixelBtn")).toBeVisible();
   await expect(page.locator("#taskSegmentationDisplayBtn")).toBeVisible();
 
   await page.locator("#collapse-right-panel-btn").click();
   await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
-  await page.locator("#segmentationBrushModeBtn").click();
+  await page.locator("#segmentationEraseModeBtn").click();
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#sharedToolSection #segmentationToolSizeSection")).toBeVisible();
   await expect(page.locator("#segmentationSelectedRegionSummary")).toBeHidden();
@@ -200,9 +204,9 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#leftPanelTitle")).toHaveText("Mask Display");
 
   await page.locator("#taskPreprocessingBtn").click();
-  await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
+  await expect(page.locator("#right-panel")).toHaveClass(/collapsed/);
   await expect(page.locator("#left-panel #segmentationPreprocessingSection")).toBeVisible();
-  await expect(page.locator("#datasetConnectionStatus")).toBeHidden();
+  await expect(page.locator("#datasetConnectionStatus")).toContainText("AI Select and Superpixel use the sources selected below");
   await expect(page.getByText("Enhance SEM structure without changing source data.")).toHaveCount(0);
 
   await page.locator("#taskSuperpixelBtn").click();
@@ -214,7 +218,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator('#openSegmentationFormatBtn')).toBeVisible();
   await expect(page.locator("#inspectorTitle")).toHaveText("Mask Inspector");
 
-  await page.locator("#taskAnnotateBtn").click();
+  await page.locator('label[for="detectionWorkflowTab"]').click();
   await expect(page.locator('#detectionWorkflowPanel')).toBeVisible();
   await expect(page.locator('#segmentationWorkflowPanel')).toBeHidden();
   await expect(page.locator('#detectionLeftWorkspace')).toBeVisible();
@@ -225,4 +229,16 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect.poll(async () => {
     return page.evaluate(() => Reflect.get(window, '__easyLabelingTestApi')?.getRectCount?.() ?? 0);
   }).toBe(2);
+
+  for (const width of [800, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.locator("#taskPreprocessingBtn").click();
+    await expect(page.locator("#left-panel")).toHaveClass(/mobile-open/);
+    await expect(page.locator("#right-panel")).not.toHaveClass(/mobile-open/);
+    await page.locator("#taskAnnotateBtn").click();
+    await expect(page.locator("#left-panel")).not.toHaveClass(/mobile-open/);
+    await expect(page.locator("#right-panel")).toHaveClass(/mobile-open/);
+    await page.locator("#collapse-right-panel-btn").click();
+    await expect(page.locator("#right-panel")).not.toHaveClass(/mobile-open/);
+  }
 });

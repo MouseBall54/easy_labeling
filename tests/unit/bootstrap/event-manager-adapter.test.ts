@@ -2114,6 +2114,7 @@ describe("bootstrap/event-manager-adapter", () => {
   it("routes numeric shortcuts to segmentation tool/class controls", () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";
+    state.session.classNames.set("4", "Foreground");
     const elements = createElements();
     const windowRef = new FakeWindow();
     const rawCanvas = createRawCanvas();

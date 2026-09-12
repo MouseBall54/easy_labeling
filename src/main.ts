@@ -44,6 +44,7 @@ interface TestApi {
   } | null;
   getSegmentationSummary(): {
     activeClassId: string;
+    requiresClassSelection?: boolean;
     activeTool: string;
     overlayVisible: boolean;
     overlayOpacity: number;

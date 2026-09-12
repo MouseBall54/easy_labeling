@@ -45,6 +45,7 @@ export interface SegmentationStrokeInput {
 
 export interface SegmentationSummary {
   activeClassId: string;
+  requiresClassSelection?: boolean;
   activeTool: SegmentationTool;
   brushRadius: number;
   overlayVisible: boolean;
