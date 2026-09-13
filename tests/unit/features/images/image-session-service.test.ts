@@ -210,6 +210,53 @@ describe("features/images/image-session-service", () => {
     expect(applyLoadedYolo).toHaveBeenCalledWith("1 0.5 0.5 0.1 0.1");
   });
 
+  it("asks whether to create the label folder when segmentation loads a folder without one", async () => {
+    const imageDir = new MockDirectoryHandle("images")
+      .withFile(new MockFileHandle("1.jpg"));
+    const state = createState();
+    state.workflow = "segmentation";
+    const shouldCreateMissingLabelFolder = vi.fn(async () => false);
+    const service = createImageSessionService(state, {
+      decodeImage: vi.fn(async () => "decoded"),
+      readCurrentLabelsAsYolo: () => "",
+      readCurrentSegmentationSnapshot: () => null,
+      applyLoadedYolo: vi.fn(),
+      applyLoadedSegmentationSnapshot: vi.fn(),
+      clearPendingSaveTimeout: vi.fn(),
+      shouldCreateMissingLabelFolder
+    });
+
+    const result = await service.selectImageFolder(imageDir);
+
+    expect(shouldCreateMissingLabelFolder).toHaveBeenCalledOnce();
+    expect(result.labelFolderStatus).toBe("missing");
+    expect(result.labelFolderHandle).toBeNull();
+  });
+
+  it("creates a default classes.yaml when the confirmed label folder is created", async () => {
+    const imageDir = new MockDirectoryHandle("images")
+      .withFile(new MockFileHandle("1.jpg"));
+    const state = createState();
+    const service = createImageSessionService(state, {
+      decodeImage: vi.fn(async () => "decoded"),
+      readCurrentLabelsAsYolo: () => "",
+      readCurrentSegmentationSnapshot: () => null,
+      applyLoadedYolo: vi.fn(),
+      applyLoadedSegmentationSnapshot: vi.fn(),
+      clearPendingSaveTimeout: vi.fn(),
+      shouldCreateMissingLabelFolder: vi.fn(async () => true)
+    });
+
+    const result = await service.selectImageFolder(imageDir);
+    const labelFolder = await imageDir.getDirectoryHandle("label");
+    const classFile = await labelFolder.getFileHandle("classes.yaml");
+
+    expect(result.labelFolderStatus).toBe("created");
+    expect(await classFile.getFile().then((file) => file.text())).toBe(
+      "0: class 0\n1: class 1\n2: class 2\n3: class 3\n4: class 4\n"
+    );
+  });
+
   it("saves detection labels as YOLO txt when workflow is detection", async () => {
     const labelDir = new MockDirectoryHandle("label");
     const imageDir = new MockDirectoryHandle("images")

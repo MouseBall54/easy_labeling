@@ -72,8 +72,11 @@ test("keeps text and numeric inputs editable immediately after creating a missin
   });
 
   await page.goto("/index.html");
+  await page.locator('label[for="segmentationWorkflowTab"]').click();
+  await expect(page.locator("#segmentationWorkflowTab")).toBeChecked();
   await page.locator("#selectImageFolderBtn").click();
   await expect(page.locator("#missingLabelFolderModal")).toBeVisible();
+  await expect(page.locator("#missingLabelFolderModal .modal-body")).toContainText("save annotations");
   await page.locator("#createMissingLabelFolderBtn").click();
   await expect(page.locator("#missingLabelFolderModal")).toBeHidden();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__missingLabelFolderCreated"))).toBe(true);

@@ -30,6 +30,10 @@ import type { DirectoryHandleLike, FileHandleLike } from "../../types/files.js";
 import type { WorkflowType } from "../../types/labels.js";
 import type { SegmentationExternalFormat } from "../../domain/annotations/segmentation-format.js";
 
+const DEFAULT_CLASS_INFO_YAML = [0, 1, 2, 3, 4]
+  .map((classId) => `${classId}: class ${classId}`)
+  .join("\n") + "\n";
+
 export interface ImageSessionServiceState {
   imageFolderHandle: DirectoryHandleLike | null;
   labelFolderHandle: DirectoryHandleLike | null;
@@ -108,6 +112,14 @@ async function resolveLabelFolder(
     }
 
     const labelFolderHandle = await getSubdirectoryHandle(imageFolderHandle, "label", { create: true });
+    try {
+      await labelFolderHandle.getFileHandle("classes.yaml");
+    } catch (error: unknown) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+      await writeTextFileByName(labelFolderHandle, "classes.yaml", DEFAULT_CLASS_INFO_YAML);
+    }
     return {
       labelFolderHandle,
       labelFolderStatus: "created"
@@ -225,7 +237,7 @@ export function createImageSessionService(
 
       const labelSelection = await resolveLabelFolder(
         imageFolderHandle,
-        state.workflow === "detection" ? deps.shouldCreateMissingLabelFolder : undefined
+        deps.shouldCreateMissingLabelFolder
       );
       state.labelFolderHandle = labelSelection.labelFolderHandle;
 
