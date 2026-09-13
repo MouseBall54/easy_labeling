@@ -1,10 +1,10 @@
 import type {
   SuperResolutionImageInput,
   SuperResolutionImageResult,
-  SuperResolutionMode,
   SuperResolutionService,
   SuperResolutionStatus
 } from "./types.js";
+import { getSuperResolutionModel } from "./model-registry.js";
 
 interface WorkerMessageEvent {
   data: {
@@ -35,10 +35,6 @@ const initialStatus = (): SuperResolutionStatus => ({
   runs: 0,
   message: null
 });
-
-function getScale(mode: SuperResolutionMode): number {
-  return mode === "cfsr-x4" ? 4 : 2;
-}
 
 export function createSuperResolutionService(workerFactory?: () => WorkerLike): SuperResolutionService {
   const createWorker = workerFactory ?? (() => new Worker(
@@ -102,9 +98,11 @@ export function createSuperResolutionService(workerFactory?: () => WorkerLike): 
       const result = await request<SuperResolutionImageResult>("UPSCALE", {
         image: { ...input, rgba: rgba.buffer }
       }, [rgba.buffer]);
-      const scale = getScale(input.mode);
-      if (result.mode !== input.mode || result.width !== input.width * scale || result.height !== input.height * scale || result.rgba.length !== result.width * result.height * 4) {
-        throw new Error(`Super Resolution model did not produce ${input.mode} RGBA output`);
+      const model = getSuperResolutionModel(input.mode);
+      const expectedWidth = input.width * model.outputScale;
+      const expectedHeight = input.height * model.outputScale;
+      if (result.mode !== input.mode || result.width !== expectedWidth || result.height !== expectedHeight || result.rgba.length !== result.width * result.height * 4) {
+        throw new Error(`Enhancement model ${model.label} produced an unexpected RGBA output`);
       }
       const cachedResult = { ...result, rgba: new Uint8ClampedArray(result.rgba) };
       cache.set(input.cacheKey, cachedResult);

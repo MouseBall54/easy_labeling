@@ -1,5 +1,11 @@
 export type SuperResolutionBackend = "webgpu" | "wasm";
-export type SuperResolutionMode = "cfsr-x2" | "cfsr-x4";
+export type SuperResolutionMode =
+  | "cfsr-x2"
+  | "cfsr-x4"
+  | "tk-r-em-hrsem"
+  | "tk-r-em-hrtem"
+  | "tk-r-em-lrsem"
+  | "tk-r-em-lrtem";
 
 export interface SuperResolutionImageInput {
   cacheKey: string;

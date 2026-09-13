@@ -1863,6 +1863,19 @@ body {
     padding: 15px 0 0;
 }
 
+.segmentation-view-settings[hidden] {
+    display: none;
+}
+
+.segmentation-view-settings {
+    animation: segmentation-view-settings-in 120ms ease-out;
+}
+
+@keyframes segmentation-view-settings-in {
+    from { opacity: 0; transform: translateY(-2px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 .segmentation-preprocessing-label {
     display: flex;
     align-items: center;
@@ -1906,6 +1919,24 @@ body {
     grid-template-columns: 1fr 1fr;
     gap: 12px;
     padding-top: 14px;
+}
+
+.segmentation-sr-model-control {
+    margin-top: 0;
+}
+
+.segmentation-preprocess-source-label {
+    margin-top: 12px;
+}
+
+.segmentation-sr-roi-group .segmentation-sr-roi-controls {
+    margin-top: 0;
+}
+
+.segmentation-sr-model-control .form-label {
+    color: var(--workbench-text-muted);
+    font-size: 0.7rem;
+    font-weight: 650;
 }
 
 .segmentation-preprocessing-controls .form-label,
@@ -2291,16 +2322,20 @@ main.canvas-container > .canvas-container {
 
 .segmentation-sr-mode-picker {
     display: none;
-    grid-template-columns: minmax(0, 1fr) repeat(2, auto);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: center;
     gap: 6px;
     margin-top: 7px;
     padding: 7px;
     border: 1px solid var(--workbench-border-strong);
     border-radius: 4px;
-    background: var(--workbench-surface-soft);
+    background: var(--workbench-surface-muted);
     color: var(--workbench-text-muted);
     font-size: 0.72rem;
+}
+
+.segmentation-sr-mode-picker [data-segmentation-sr-status] {
+    grid-column: 1 / -1;
 }
 
 .segmentation-sr-mode-picker.is-open {
@@ -2308,6 +2343,9 @@ main.canvas-container > .canvas-container {
 }
 
 .segmentation-sr-mode-picker .btn {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -2332,7 +2370,7 @@ main.canvas-container > .canvas-container {
     padding: 7px 8px;
     border: 1px solid var(--workbench-border);
     border-radius: 4px;
-    background: var(--workbench-surface-soft);
+    background: var(--workbench-surface-muted);
     color: var(--workbench-text-muted);
 }
 

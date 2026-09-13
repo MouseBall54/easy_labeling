@@ -66,6 +66,8 @@ interface TestApi {
     visible: boolean;
   } | null;
   getSegmentationViewSource(): string | null;
+  getSegmentationEdgeSamInputSource(): string | null;
+  getSegmentationSuperpixelInputSource(): string | null;
   isSegmentationSrRoiSelecting(): boolean;
   getCanvasViewportTransform(): [number, number, number, number, number, number];
   getSegmentationMaskBounds(): {
@@ -286,6 +288,8 @@ function bootstrapBrowserRuntime(): void {
     getSegmentationSrRoi: () => runtimeCanvasController.raw.getSegmentationSrRoi?.() ?? null,
     getSegmentationSrPreviewInfo: () => runtimeCanvasController.raw.getSegmentationSrPreviewInfo?.() ?? null,
     getSegmentationViewSource: () => runtimeCanvasController.raw.getSegmentationViewSource?.() ?? null,
+    getSegmentationEdgeSamInputSource: () => runtimeCanvasController.raw.getSegmentationEdgeSamInputSource?.() ?? null,
+    getSegmentationSuperpixelInputSource: () => runtimeCanvasController.raw.getSegmentationSuperpixelInputSource?.() ?? null,
     isSegmentationSrRoiSelecting: () => runtimeCanvasController.raw.isSegmentationSrRoiSelecting?.() ?? false,
     getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
     getSegmentationMaskBounds: () => {

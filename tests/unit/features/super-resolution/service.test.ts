@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createSuperResolutionService } from "../../../../src/features/super-resolution/service.js";
+import type { SuperResolutionMode } from "../../../../src/features/super-resolution/types.js";
 
 function createWorker() {
   const worker = {
     onmessage: null as ((event: { data: unknown }) => void) | null,
     onerror: null as ((event: ErrorEvent) => void) | null,
-    postMessage: vi.fn((message: { id: number; operation: string; image?: { width: number; height: number; cacheKey: string; mode: "cfsr-x2" | "cfsr-x4" } }) => {
+    postMessage: vi.fn((message: { id: number; operation: string; image?: { width: number; height: number; cacheKey: string; mode: SuperResolutionMode } }) => {
       if (message.operation !== "UPSCALE") return;
-      const scale = message.image?.mode === "cfsr-x4" ? 4 : 2;
+      const scale = message.image?.mode === "cfsr-x4" ? 4 : message.image?.mode === "cfsr-x2" ? 2 : 1;
       const width = (message.image?.width ?? 0) * scale;
       const height = (message.image?.height ?? 0) * scale;
       queueMicrotask(() => worker.onmessage?.({
@@ -46,4 +47,14 @@ describe("super resolution service", () => {
 
     await expect(service.upscale(input)).resolves.toMatchObject({ mode: "cfsr-x4", width: 8, height: 12 });
   });
+
+  it.each(["tk-r-em-hrsem", "tk-r-em-hrtem", "tk-r-em-lrsem", "tk-r-em-lrtem"] as const)(
+    "validates same-size %s restoration results",
+    async (mode) => {
+      const service = createSuperResolutionService(createWorker);
+      const input = { cacheKey: `image-1:sr:${mode}`, mode, width: 5, height: 7, rgba: new Uint8ClampedArray(5 * 7 * 4) };
+
+      await expect(service.upscale(input)).resolves.toMatchObject({ mode, width: 5, height: 7 });
+    }
+  );
 });

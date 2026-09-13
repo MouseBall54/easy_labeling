@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("layout and automation: modal management, both matching modes, and offscreen batch labeling", async ({ page }) => {
+  const selectAllShortcut = process.platform === "darwin" ? "Meta+A" : "Control+A";
   test.setTimeout(120_000);
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
@@ -236,12 +237,12 @@ test("layout and automation: modal management, both matching modes, and offscree
   await modal.locator(".template-advanced-settings > summary").click();
   await expect(page.locator("#templateBlurKernelInput")).toHaveValue("13");
   await page.locator("#templateBlurKernelInput").click();
-  await page.keyboard.press("Control+A");
+  await page.keyboard.press(selectAllShortcut);
   await page.keyboard.type("21");
   await expect(page.locator("#templateBlurKernelInput")).toHaveValue("21");
   await page.keyboard.press("Tab");
   await expect(page.locator("#templateBlurSigmaInput")).toBeFocused();
-  await page.keyboard.press("Control+A");
+  await page.keyboard.press(selectAllShortcut);
   await page.keyboard.type("1.5");
   await expect(page.locator("#templateBlurSigmaInput")).toHaveValue("1.5");
   await page.locator("#templateBlurKernelInput").fill("13");

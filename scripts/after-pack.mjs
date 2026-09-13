@@ -2,7 +2,7 @@ import path from "node:path";
 import { rcedit } from "rcedit";
 
 export default async function afterPack(context) {
-  if (context.electronPlatformName !== "win32") {
+  if (context.electronPlatformName !== "win32" || process.env.EASY_LABELING_SKIP_RCEDIT === "1") {
     return;
   }
 

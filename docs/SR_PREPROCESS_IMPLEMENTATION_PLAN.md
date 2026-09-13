@@ -1,157 +1,219 @@
-# ROI 기반 CFSR x2/x4 및 Algorithm Input 구현 계획
+# EasyLabeling SR / 복원 모델 통합 구현 계획
 
 - 작성일: 2026-09-12
 - 최종 갱신일: 2026-09-13
 - 상태: 완료
-- 범위: Segmentation의 ROI 기반 CFSR x2/x4, source별 preprocessing, EdgeSAM/Superpixel 독립 입력, Original 좌표 저장
+- 범위: CFSR x2/x4 및 tk_r_em 4종을 Working Image 생성 단계에 통합하고, Preprocessing / EdgeSAM / Superpixel 결과를 Original 좌표로 저장
 
 ## 1. 목표와 불변 조건
 
-- Canvas, segmentation document, 최종 mask/region/polygon 저장 좌표는 항상 Original Image 기준이다.
-- CFSR은 전체 이미지가 아니라 사용자가 Original 좌표로 Drag한 ROI crop에만 실행한다.
-- SR 결과의 고해상도 픽셀은 별도 Fabric image layer로 보존하고, Original 좌표의 같은 ROI 위치에 배치한다. Canvas 확대 시 x2/x4 원본 픽셀 밀도를 그대로 사용한다.
-- View source, EdgeSAM input, Superpixel input은 서로 독립된 상태다.
-- 좌표 및 mask 복원은 `working-image.ts`의 공통 변환 함수만 사용하며 호출부에 `/2`, `/4`를 직접 작성하지 않는다.
+- 지원 모델은 `CFSR x2`, `CFSR x4`, `tk_r_em hrsem`, `hrtem`, `lrsem`, `lrtem`의 6종이다.
+- 모든 모델 출력은 annotation 원본이 아니라 파생된 Working Image다.
+- Canvas document, 최종 mask/region/polygon, 저장 파일 좌표와 해상도는 항상 Original Image 기준이다.
+- Canvas View를 변경하면 EdgeSAM Input Source와 Superpixel Input Source가 같은 실제 이미지 source로 함께 이동한다.
+- EdgeSAM과 Superpixel 입력을 직접 선택하면 Canvas View를 변경하지 않으며, 두 도구의 직접 선택은 서로 독립적이다.
+- 좌표 및 mask 복원은 `working-image.ts`의 descriptor 기반 공통 변환만 사용한다. 호출부에 x2/x4 또는 모델별 역변환을 하드코딩하지 않는다.
+- 모델 input/output name, dtype, shape는 ONNX metadata와 실제 샘플 추론으로 확인한 값만 사용한다.
 
-기존의 full-image SR 구현과 검증 기록은 이 설계로 대체한다. full-image SR 결과를 Fabric base image로 직접 넣는 방식은 더 이상 현재 동작 계약이 아니다.
+## 2. 현재 관련 코드 구조
 
-## 2. 현재 구조와 변경 지점
+- `src/features/super-resolution/types.ts`: 모델 ID, worker 요청/응답, backend/status 계약.
+- `src/features/super-resolution/service.ts`: Working Image cache와 worker lifecycle.
+- `workers/super-resolution-worker.js`: local ONNX 로딩, 모델별 backend 정책, tensor 변환, tiled inference와 overlap blending.
+- `src/features/segmentation/workflow.ts`: Original RGBA, ROI, AI, Processed cache와 View/EdgeSAM/Superpixel source 상태.
+- `src/features/segmentation/working-image.ts`: Working descriptor와 Original↔Working 좌표 및 mask 복원.
+- `src/bootstrap/event-manager-adapter.ts`, `index.html`: 모델 선택과 source UI 연결.
+- `scripts/copy-offline-assets.mjs`, `package.json`: 브라우저 offline asset 복사 및 Electron package 포함.
 
-- `src/features/segmentation/workflow.ts`
-  - Original RGBA와 ROI를 보관한다.
-  - `image key + ROI + CFSR mode`별 SR ROI cache를 관리한다.
-  - Original Processed와 SR ROI Processed를 서로 다른 cache key로 관리한다.
-  - Original base image 위에 실제 고해상도 SR ROI layer를 배치한다. annotation/mask layer는 그 위에 유지한다.
-- `src/features/segmentation/working-image.ts`
-  - Original, Original Processed, SR ROI, SR ROI Processed descriptor를 표현한다.
-  - Original↔Working point/rect 변환과 Working mask→Original full-size mask 복원을 담당한다.
-- `src/features/super-resolution/*`, `workers/super-resolution-worker.js`
-  - local CFSR x2/x4 ONNX 실행, tile 처리, WebGPU 우선 및 WASM fallback을 담당한다.
-- `src/bootstrap/event-manager-adapter.ts`
-  - SR ROI 선택 gesture, x2/x4 picker, 각 source UI 상태를 연결한다.
+## 3. 모델 파일 경로와 출처
 
-## 3. 데이터 흐름
+| UI 모델 | 파일 경로 | upstream tag | 상태 |
+| --- | --- | --- | --- |
+| CFSR x2 | `resources/models/sr/cfsr_x2.onnx` | project existing | 있음 |
+| CFSR x4 | `resources/models/sr/cfsr_x4.onnx` | project existing | 있음 |
+| tk_r_em hrsem | `resources/models/sr/sfr_hrsem.onnx` | `sfr_hrsem` | 있음 |
+| tk_r_em hrtem | `resources/models/sr/sfr_hrtem.onnx` | `sfr_hrtem` | 있음 |
+| tk_r_em lrsem | `resources/models/sr/sfr_lrsem.onnx` | `sfr_lrsem` | 있음 |
+| tk_r_em lrtem | `resources/models/sr/sfr_lrtem.onnx` | `sfr_lrtem` | 있음 |
+
+tk_r_em 모델과 inference reference의 원본은 GPL-3.0-only인
+`https://github.com/Ivanlh20/tk_r_em`이다. 모델 파일과 함께 upstream license 및 출처를 보존한다.
+
+## 4. 실제 모델 입출력 규격
+
+### CFSR x2 / x4
+
+2026-09-13 ONNX Runtime metadata 확인 결과:
+
+| 모델 | input | input dtype / shape | output | output dtype / metadata shape | 실제 출력 정책 |
+| --- | --- | --- | --- | --- | --- |
+| CFSR x2 | `modelInput` | `float32`, `[batch_size, 3, H, W]` | `modelOutput` | `float32`, `[batch_size, 3, H, W]` | 실제 inference는 input H/W의 2배 |
+| CFSR x4 | `modelInput` | `float32`, `[batch_size, 3, H, W]` | `modelOutput` | `float32`, `[batch_size, 3, H, W]` | 실제 inference는 input H/W의 4배 |
+
+metadata의 symbolic output shape만으로 배율을 추정하지 않고 실제 결과 tensor 크기로 검증한다.
+
+### tk_r_em hrsem / hrtem / lrsem / lrtem
+
+Upstream reference implementation은 입력을 `float32` grayscale NHWC `(N,H,W,1)`로 만들고,
+홀수 H/W를 평균값으로 even padding한 다음 inference 후 원래 크기로 crop한다. 대형 이미지는
+최소 128 px patch와 50% overlap, Butterworth window blending을 사용한다.
+
+2026-09-13 ONNX Runtime metadata와 WASM 샘플 inference로 확인한 결과는 다음과 같다.
+
+| 모델 | input name / dtype / shape | output name / dtype / shape | 샘플 입력→출력 | 판정 |
+| --- | --- | --- | --- | --- |
+| hrsem | `input_gen`, `float32`, `[N,H,W,1]` | `Identity:0`, `float32`, `[N,H,W,1]` | `[1,32,34,1]` → `[1,32,34,1]` | 동일 해상도 |
+| hrtem | `input_gen`, `float32`, `[N,H,W,1]` | `Identity:0`, `float32`, `[N,H,W,1]` | `[1,32,34,1]` → `[1,32,34,1]` | 동일 해상도 |
+| lrsem | `input_gen`, `float32`, `[N,H,W,1]` | `Identity:0`, `float32`, `[N,H,W,1]` | `[1,32,34,1]` → `[1,32,34,1]` | 동일 해상도 |
+| lrtem | `input_gen`, `float32`, `[N,H,W,1]` | `Identity:0`, `float32`, `[N,H,W,1]` | `[1,32,34,1]` → `[1,32,34,1]` | 동일 해상도 |
+
+실제 worker runtime에서는 홀수 크기 `65×49` 입력도 내부 even padding/crop을 거쳐 네 모델 모두
+`65×49` RGBA Working Image로 복원되는 것을 확인했다.
+
+## 5. 데이터 흐름
 
 ```text
 Original Image / Original Coordinate
-  ↓ 사용자가 ROI Drag
-Original ROI Crop
-  ↓ CFSR x2 또는 x4
-High-resolution SR ROI ───────────────┐
-  ├─ SR ROI Algorithm Input           │ cache
-  └─ Preprocessing → SR ROI Processed │
-                                      │
-Original Image ───────────────────────┤
-  └─ Preprocessing → Original Processed
+  ↓ 사용자가 선택한 모델 (Off이면 통과)
+AI / Working Image
+  ↓ 선택적 Preprocessing
+Processed Working Image
 
-View
-  Original 크기 canvas
-  ├─ ROI 밖: Original
-  └─ ROI 안: 고해상도 SR ROI 또는 SR ROI Processed layer
-      ├─ x2 적용 직후 ROI 중심 200% 확대
-      ├─ x4 적용 직후 ROI 중심 400% 확대
-      └─ Hold Original 비교 / Full image 복귀
+View Source ─────────────── Original | AI | Processed
+EdgeSAM Input Source ───── Original | AI | Processed
+Superpixel Input Source ── Original | AI | Processed
 
-EdgeSAM/Superpixel 결과
-  Working ROI 좌표/Mask
-  ↓ 공통 converter
-Original ROI 위치
-  ↓ full-size Original mask
+EdgeSAM / Superpixel 결과
+  ↓ WorkingImageDescriptor 기반 좌표·mask 복원
+Original resolution / coordinate
+  ↓
 기존 Annotation Pipeline / 저장 형식
 ```
 
-## 4. 상태 및 Cache 계약
+기존 CFSR ROI workflow는 유지하되 모델 종류와 실제 출력 크기를 descriptor에 기록한다. tk_r_em도
+동일한 Working Image 계약을 사용하며, 동일 크기 출력이면 scale 1, 다른 크기 출력이면 실제
+`outputWidth / originalRect.width`, `outputHeight / originalRect.height`를 공통 converter가 사용한다.
 
-### Algorithm Input
+## 6. Source 및 Preprocessing 계약
 
-EdgeSAM과 Superpixel이 각각 다음 네 값을 독립 보관한다.
+- UI 명칭은 `Original`, `AI`, `Processed`로 통일한다.
+- 내부 descriptor는 원본 전체/ROI 여부를 유지해 실제 픽셀 범위와 Original rect를 식별한다.
+- Preprocessing source는 `Original` 또는 `AI`를 선택할 수 있다.
+- `Processed`는 선택된 preprocessing source와 config에서 만들어진다.
+- View source 변경은 AI Select와 Superpixel 입력도 같은 source로 동기화한다. `Processed`는 현재
+  preprocessing source에 따라 `Original Processed` 또는 `Processed AI`로 해석한다.
+- AI Select 또는 Superpixel 입력을 직접 바꾸면 해당 선택만 적용되고 Canvas View는 유지된다.
+- AI 결과가 아직 없을 때 해당 source 선택은 거부하고 사용 가능한 Original로 되돌린다.
 
-1. `original` — Original
-2. `original-processed` — Original Processed
-3. `sr-roi` — SR ROI
-4. `sr-roi-processed` — SR ROI Processed
+## 7. 좌표와 Mask 복원
 
-한 도구의 source 변경은 다른 도구의 source를 변경하지 않는다. SR ROI source는 ROI와 활성 CFSR 결과가 모두 있을 때만 선택할 수 있다.
-
-### Cache
-
-| 결과 | Cache key | 무효화/분리 기준 |
-| --- | --- | --- |
-| SR ROI | image id + ROI 좌표/크기 + CFSR mode | 이미지 또는 ROI 변경 시 별도 key |
-| Processed | base descriptor key + preprocessing config | Original과 SR ROI를 별도 보관 |
-| EdgeSAM embedding | 실제 선택 input descriptor key | EdgeSAM input 변경 시 준비 |
-| Superpixel | 실제 선택 input descriptor key + settings | Superpixel input/settings 변경 시 재계산 |
-
-## 5. 좌표와 Mask 계약
-
-`WorkingImageDescriptor`는 다음을 가진다.
-
-- Working pixel `width`, `height`
-- full Original `originalWidth`, `originalHeight`
-- ROI source일 때 `originalRoi: { x, y, width, height }`
-- 실제 픽셀을 식별하는 `cacheKey`
-
-예를 들어 Original ROI가 `(x=100, y=150, width=300, height=200)`이고 CFSR x2라면 Working ROI는 `600×400`이다. Working `(200,100)`은 ROI 내부 Original `(100,50)`, full Original `(200,200)`으로 복원한다. 배율은 descriptor의 실제 크기로 계산한다.
-
-Working mask는 Original ROI 크기로 nearest-neighbor 복원한 뒤 full Original 크기의 빈 mask에서 ROI 위치에만 기록한다. ROI 밖은 변경하지 않는다. Superpixel label map도 같은 원칙으로 full Original grid에 복원하고 ROI 밖은 선택 불가 값으로 둔다.
-
-## 6. 단계별 계획 및 진척도
-
-| 단계 | 작업 | 상태 | 현재 검증 근거 |
-| --- | --- | --- | --- |
-| 1 | SR ROI 선택 및 정확한 RGBA crop | 완료 | `(1,1,2,2)` ROI가 원본 pixel index `[5,6,9,10]`만 SR service에 전달되는 unit |
-| 2 | ROI에만 CFSR x2/x4 적용 및 cache | 완료 | 2×2 ROI→x2 4×4, x4 8×8 service input/output 계약; 300×200→600×400 descriptor unit |
-| 3 | Original 좌표를 유지한 고해상도 SR ROI layer preview | 완료 | unit에서 natural x2/x4 source 크기와 0.5/0.25 배치 scale 검증; E2E에서 Original base 크기 및 annotation 편집 좌표 유지 |
-| 4 | Algorithm Input 4종 및 도구별 독립 상태 | 완료 | UI option E2E와 EdgeSAM/Superpixel source 독립 workflow unit |
-| 5 | EdgeSAM/Superpixel의 SR ROI 입력 | 완료 | EdgeSAM prompt의 ROI Working 변환, Superpixel ROI 밖 선택 거부 workflow unit |
-| 6 | SR mask/region을 Original에 복원 | 완료 | SR ROI mask가 full Original mask의 ROI 위치에만 기록되고 기존 Original document에 적용되는 unit/E2E |
-| 7 | 전체 회귀 및 배포 자산 검증 | 완료 | typecheck/build, unit 59 files·357 tests, Chromium E2E 22 tests, diff 검사 통과 |
-| 8 | SR 효과 가시화 및 즉시 비교 | 완료 | E2E에서 x2 자동 200% focus, Hold Original press/release, 기존 상단 Fit to screen 복귀, Original→SR 해상도 표시 검증 |
-| 9 | ROI 조작·상태 UI 분리 및 Reset ROI | 완료 | Select/Reset 조작 행과 상태 정보 행 분리, Focus/Hold 2열 배치, workflow reset의 annotation/history 보존 unit 및 900px overflow E2E 검증 |
-
-## 7. UI 사용자 흐름
+`WorkingImageDescriptor`는 Working `width/height`, Original `originalWidth/originalHeight`, 필요한 경우
+`originalRoi`, 실제 픽셀을 식별하는 `cacheKey`를 가진다.
 
 ```text
-SR ROI 클릭
-  ↓ ROI가 없으면
-Original image에서 ROI Drag
-  ↓
-x2 또는 x4 선택
-  ↓
-선택 ROI만 CFSR 실행 및 cache
-  ↓
-Original 위 고해상도 SR ROI layer + ROI 자동 확대
-  ↓
-Hold Original로 전/후 즉시 비교 또는 Full image로 복귀
-  ↓
-필요 시 Processing Input을 SR ROI로 선택
-  ↓
-EdgeSAM 또는 Superpixel의 Algorithm Input 4종 중 독립 선택
-  ↓
-결과를 Original 좌표로 복원하여 기존 형식으로 저장
+Screen → Canvas(Original document space) → Working Image → Original Image
+Working Mask → descriptor의 실제 scale로 nearest-neighbor 복원
+             → Original full-size mask의 해당 rect에 배치
+             → 기존 segmentation annotation pipeline
 ```
 
-Canvas View의 `Original / SR ROI / Processed`는 한 행에 표시한다. ROI 재선택 시 기존 annotation 좌표와 document 크기는 유지하고, 활성 SR/source 상태만 안전하게 Original로 되돌린다.
+CFSR x2/x4와 tk_r_em을 구분하는 문자열 분기로 좌표를 환산하지 않는다. 출력이 input과 같은
+tk_r_em 모델은 descriptor scale이 1이 되어 변환 없이 저장되고, 출력 크기가 다르면 실제 크기 비율로
+복원된다.
 
-## 8. 완료 체크리스트
+## 8. Cache 전략과 무효화
 
-- [x] SR 적용 후 확대 결과의 좌상단 일부만 보이는 문제 제거
-- [x] Canvas와 annotation의 Original 크기/좌표 유지
-- [x] SR ROI를 사전 축소 합성하지 않고 실제 x2/x4 해상도 layer로 표시
-- [x] x2 200% / x4 400% ROI 자동 focus
-- [x] Hold Original press-and-hold 비교 및 기존 상단 Fit to screen 복귀
-- [x] Original ROI와 CFSR 결과 해상도 수치 표시
-- [x] SR 전용 Full image 중복 버튼 제거 및 기존 상단 Fit to screen 유지
-- [x] Select ROI / Reset ROI 조작 행과 ROI·해상도 상태 행 분리
-- [x] Reset ROI 시 SR 파생 상태만 초기화하고 annotation/mask/history 보존
-- [x] ROI Drag 및 실제 crop 좌표 일치
-- [x] ROI에만 CFSR x2/x4 실행 및 ROI/mode cache
-- [x] Original Processed와 SR ROI Processed 분리
-- [x] EdgeSAM 입력 4종과 독립 상태
-- [x] Superpixel 입력 4종과 독립 상태
-- [x] EdgeSAM/Superpixel 결과의 ROI 범위 제한
-- [x] SR ROI mask/region의 Original 좌표 복원
-- [x] 기존 segmentation document 및 저장 형식 유지
-- [x] 전체 unit/E2E, typecheck, build, diff 검사 최종 통과
+| 결과 | Cache key |
+| --- | --- |
+| AI | imageId + modelId + original rect |
+| Processed | imageId + source descriptor key + preprocessingConfig |
+| EdgeSAM embedding | imageId + actual input descriptor key + modelId + preprocessingConfig |
+| Superpixel result | imageId + actual input descriptor key + modelId + preprocessingConfig + superpixelConfig |
 
-완료 표시는 실제 코드와 해당 범위를 직접 증명하는 검증이 모두 통과한 경우에만 갱신한다.
+무효화 규칙:
+
+- 이미지 변경: 해당 image의 active descriptor/source를 교체한다.
+- 모델 변경: AI/Processed/EdgeSAM/Superpixel active result를 새 key로 전환한다.
+- preprocessing source/config 변경: Processed 및 이를 사용하는 algorithm cache를 전환한다.
+- EdgeSAM/Superpixel input 변경: 해당 algorithm만 새 cache key를 사용한다.
+- View 변경: inference cache를 무효화하지 않는다.
+
+## 9. 단계별 구현 계획과 검증 상태
+
+| 단계 | 작업 | 상태 | 검증 근거 / 남은 작업 |
+| --- | --- | --- | --- |
+| 1 | 기존 구조 분석 및 본 문서 갱신 | 완료 | 코드/worker/UI/cache/좌표 흐름 확인 |
+| 2 | 6개 모델 파일 및 metadata 확인 | 완료 | 6종 metadata 및 실제 출력 크기 확인 |
+| 3 | 모델 registry 및 6종 선택 UI | 완료 | 공통 registry, select와 quick picker 6종 |
+| 4 | 모델별 Working Image 생성 | 완료 | NCHW RGB CFSR / NHWC grayscale tk_r_em adapter, even padding/crop |
+| 5 | Original / AI / Processed View | 완료 | 사용자 UI 3종, 내부 descriptor가 Original ROI 범위 유지 |
+| 6 | EdgeSAM Input Source 연결 | 완료 | 공통 Working descriptor/cache key 재사용 |
+| 7 | Algorithm Input Source 연결 | 완료 | Canvas View 연동과 도구별 직접 선택 독립성 unit/E2E 검증 |
+| 8 | Original 좌표/Mask 복원 통합 | 완료 | x2/x4 및 scale 1 ROI point/mask unit 검증 |
+| 9 | cache / invalidation 정리 | 완료 | image+ROI+model key와 processed/algorithm 파생 key 사용 |
+| 10 | Backend 품질/WASM/Packaging/Offline | 완료 | 6종 browser runtime, tk_r_em 품질 안전 정책, 타일 경계 회귀, offline URL, Windows ASAR 자산 확인 |
+
+## 10. 필수 검증 체크리스트
+
+- [x] CFSR x2 로딩 및 실행
+- [x] CFSR x4 로딩 및 실행
+- [x] tk_r_em hrsem 로딩 및 실행
+- [x] tk_r_em hrtem 로딩 및 실행
+- [x] tk_r_em lrsem 로딩 및 실행
+- [x] tk_r_em lrtem 로딩 및 실행
+- [x] CFSR input/output name, dtype, metadata shape 확인
+- [x] tk_r_em 4종 input/output name, dtype, shape 확인
+- [x] 6종 샘플 inference의 실제 출력 해상도 확인
+- [x] AI Select / Superpixel의 직접 선택이 서로와 Canvas View를 역변경하지 않음 확인
+- [x] Canvas View 변경 시 AI Select / Superpixel source 동기화 확인
+- [x] Original 및 AI의 Preprocessing 연계 확인
+- [x] EdgeSAM 정상 동작
+- [x] Superpixel 정상 동작
+- [x] Working 결과의 Original 좌표 복원 확인
+- [x] Mask 원본 크기 복원 확인
+- [x] WebGPU 실행 또는 명시적 fallback 확인
+- [x] WASM fallback 확인
+- [x] tk_r_em whole/tiled 출력 유사도와 tile boundary artifact 확인
+- [x] Offline 실행 및 Electron packaging asset 확인
+
+검증하지 않은 항목은 완료 처리하지 않는다. 각 구현 단계가 끝날 때 이 문서의 실제 metadata,
+샘플 크기, 테스트 명령, 결과와 해결한 이슈를 갱신한다.
+
+## 11. 최종 검증 결과
+
+2026-09-13 기준:
+
+- `npm run test:unit`: 59 files, 365 tests 통과.
+- `npm run typecheck`: 통과.
+- `npm run build`: 통과.
+- `npm run test:e2e`: Chromium 23개 중 22개 통과. 기존 Review Queue 저장 대기 1건은
+  일시적으로 `Saving...`에서 timeout 후 동일 spec 단독 재실행에서 통과.
+- `super-resolution-runtime.spec.ts`: CFSR 2종과 tk_r_em 4종 실제 worker inference 통과.
+  - 현재 검증 장치에서 CFSR은 WebGPU session 생성 후 WASM fallback으로 통과.
+  - tk_r_em 4종은 품질 안전 정책에 따라 WASM으로 실행한다.
+  - 진단용 `?backend=webgpu`와 강제 `?backend=wasm` 경로를 모두 유지한다.
+  - tk_r_em tiled 결과와 whole-image WASM 결과의 MAE는 실제 이미지에서 `0.326`, 합성 회귀 입력에서 `0.5` 미만이다.
+  - 실제 이미지의 tile boundary 불연속은 주변 baseline 이하로 확인했다.
+- 홀수 입력 `65×49`에서 CFSR은 각각 `130×98`, `260×196`, tk_r_em은 네 모델 모두 `65×49` 출력.
+- Vite offline URL에서 tk_r_em 4개 모델이 HTTP 200과 원본 byte 크기로 제공됨.
+- `EASY_LABELING_SKIP_RCEDIT=1 npm run electron:pack`: Windows unpacked package 생성 통과.
+- 생성된 `app.asar`에 worker, CFSR 2종, tk_r_em 요구 모델 4종, third-party notice 포함 확인.
+
+## 12. 이슈 및 해결 내용
+
+- 제공된 파일 중 요구 대상 `sfr_hrtem.onnx` 대신 추가 `sfr_hrstem.onnx`가 있었다. 요구된 hrtem은
+  upstream 공식 파일로 보충했고, 사용자 제공 hrstem은 로컬에 보존하되 Git 및 패키징 대상에서 제외했다.
+- CFSR metadata의 output symbolic shape는 배율을 표현하지 않으므로 실제 inference tensor 크기로 x2/x4를 검증했다.
+- tk_r_em은 CFSR과 tensor layout이 달라 공통 변환을 강제하지 않고 NHWC grayscale adapter를 추가했다.
+- tk_r_em의 홀수 H/W는 upstream 계약대로 평균값 even padding 후 inference하고 원래 크기로 crop한다.
+- tk_r_em을 WebGPU에서 반복 타일 추론하면 모델 자체와 무관한 수치 불안정으로 가로·세로 줄무늬와
+  격자 잡음이 발생했다. 같은 입력의 whole-image 및 WASM 추론에서는 재현되지 않아 backend와 단순
+  crop-stitch 조합이 원인임을 확인했다. production 기본 backend를 WASM으로 고정하고, upstream 방식의
+  50% overlap 및 separable Butterworth window blending을 적용해 경계 누적 오차를 제거했다.
+- 실제 `640×336` 입력에서 강제 WebGPU tiled 결과의 whole-image WASM 대비 MAE는 `4.616`이었으나,
+  수정된 WASM blended tiled 결과는 `0.326`으로 감소했다. 재현 및 수정 비교 이미지는 각각
+  `output/model-stripe-reproduction.png`, `output/model-stripe-fixed.png`에 기록했다.
+- macOS에서 기본 Windows `afterPack`은 `rcedit` 실행을 위한 Wine이 없으면 실패한다. production 동작은
+  유지하면서 자산 패키징 검증 시에만 `EASY_LABELING_SKIP_RCEDIT=1`로 metadata 후처리를 생략할 수 있게 했다.
+- 기존 Automation E2E의 `Control+A`는 macOS Chrome에서 전체 선택으로 동작하지 않았다. OS별로
+  `Meta+A`/`Control+A`를 선택하도록 수정해 동일한 입력 포커스 검증을 유지했다.

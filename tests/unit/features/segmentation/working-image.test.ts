@@ -93,4 +93,23 @@ describe("segmentation working image coordinates", () => {
     expect(getWorkingImageScale(descriptor)).toEqual({ x: 2, y: 2 });
     expect(workingPointToOriginal({ x: 200, y: 100 }, descriptor)).toEqual({ x: 200, y: 200 });
   });
+
+  it("keeps same-resolution restoration ROI coordinates and restores its mask to Original", () => {
+    const descriptor = {
+      source: "sr-roi" as const,
+      width: 3,
+      height: 2,
+      originalWidth: 7,
+      originalHeight: 5,
+      originalRoi: { x: 2, y: 1, width: 3, height: 2 },
+      cacheKey: "image-1:roi:2,1,3,2:sr:tk-r-em-hrsem"
+    };
+
+    expect(getWorkingImageScale(descriptor)).toEqual({ x: 1, y: 1 });
+    expect(originalPointToWorking({ x: 4, y: 2 }, descriptor)).toEqual({ x: 2, y: 1 });
+    expect(workingPointToOriginal({ x: 2, y: 1 }, descriptor)).toEqual({ x: 4, y: 2 });
+    const restored = workingMaskToOriginal({ descriptor, mask: new Uint8Array(6).fill(1) });
+    expect(restored).toHaveLength(35);
+    expect(restored.reduce((sum, value) => sum + value, 0)).toBe(6);
+  });
 });

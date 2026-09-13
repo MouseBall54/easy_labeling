@@ -49,6 +49,7 @@ import {
   type WorkingImageRect
 } from "./working-image.js";
 import type { SuperResolutionMode } from "../super-resolution/types.js";
+import { getSuperResolutionModelLabel } from "../super-resolution/model-registry.js";
 
 interface SegmentationImageInput {
   source: CanvasImageSource;
@@ -650,7 +651,7 @@ export function createSegmentationCanvasWorkflow(
       srImages.set(cacheKey, input);
       return input;
     } catch (error) {
-      deps.notify(`Super Resolution is unavailable: ${error instanceof Error ? error.message : "model initialization failed"}`, 5000);
+      deps.notify(`AI enhancement is unavailable: ${error instanceof Error ? error.message : "model initialization failed"}`, 5000);
       return null;
     }
   };
@@ -1670,7 +1671,7 @@ export function createSegmentationCanvasWorkflow(
       }
       const algorithmInput = getImageInput(edgeSamInputSource);
       if (algorithmInput?.descriptor.originalRoi && !isOriginalPointInWorkingImage({ x, y }, algorithmInput.descriptor)) {
-        deps.notify("Click inside the selected SR ROI for this Algorithm Input.", 3000);
+        deps.notify("Click inside the selected AI ROI for this Algorithm Input.", 3000);
         return false;
       }
       aiPoints.push({ x, y, label });
@@ -1684,7 +1685,7 @@ export function createSegmentationCanvasWorkflow(
       if (!canPaintWithActiveClass()) return;
       const algorithmInput = getImageInput(edgeSamInputSource);
       if (algorithmInput?.descriptor.originalRoi && !isOriginalPointInWorkingImage(pointer, algorithmInput.descriptor)) {
-        deps.notify("Start the box inside the selected SR ROI for this Algorithm Input.", 3000);
+        deps.notify("Start the box inside the selected AI ROI for this Algorithm Input.", 3000);
         return;
       }
       const inputRect = algorithmInput ? getWorkingImageOriginalRect(algorithmInput.descriptor) : { x: 0, y: 0, width: doc.width, height: doc.height };
@@ -1860,7 +1861,7 @@ export function createSegmentationCanvasWorkflow(
       srOriginalComparisonVisible = false;
       removeSrRoiPreview();
       if (originalImageSource) shell.setBackgroundImage(originalImageSource);
-      deps.notify("Drag on the Original image to select the SR ROI.", 3000);
+      deps.notify("Drag on the Original image to select the AI ROI.", 3000);
       return true;
     },
 
@@ -1916,7 +1917,7 @@ export function createSegmentationCanvasWorkflow(
         srRoi = null;
         removeSrRoiOverlay();
         removeSrRoiPreview();
-        deps.notify("SR ROI must be at least 2 px wide and high.", 3000);
+        deps.notify("AI ROI must be at least 2 px wide and high.", 3000);
         return false;
       }
       srRoi = { x: left, y: top, width: right - left, height: bottom - top };
@@ -1991,7 +1992,12 @@ export function createSegmentationCanvasWorkflow(
 
     focusSegmentationSrRoi(): boolean {
       if (!srRoi || superResolutionMode === "off") return false;
-      const zoom = superResolutionMode === "cfsr-x4" ? 4 : 2;
+      const input = getSrImageInput();
+      if (!input) return false;
+      const zoom = Math.max(
+        input.descriptor.width / srRoi.width,
+        input.descriptor.height / srRoi.height
+      );
       const centerX = srRoi.x + (srRoi.width / 2);
       const centerY = srRoi.y + (srRoi.height / 2);
       canvas.setViewportTransform([
@@ -2039,7 +2045,26 @@ export function createSegmentationCanvasWorkflow(
       if (preprocessingSource === source) return false;
       if (source === "sr-roi" && !getSrImageInput()) return false;
       preprocessingSource = source;
-      if (viewSource === "processed") refreshViewSource();
+      if (viewSource === "processed") {
+        const linkedInputSource: SegmentationImageSourceMode = source === "sr-roi"
+          ? "sr-roi-processed"
+          : "original-processed";
+        if (edgeSamInputSource !== linkedInputSource) {
+          edgeSamInputSource = linkedInputSource;
+          clearAiPreview();
+          void prepareEdgeSamImage();
+        }
+        if (superpixelInputSource !== linkedInputSource) {
+          const regionSize = superpixelResult?.regionSize ?? null;
+          superpixelInputSource = linkedInputSource;
+          smartPreview = null;
+          superpixelResult = null;
+          superpixelCache.clear();
+          removeSuperpixelOverlayLayer();
+          if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+        }
+        refreshViewSource();
+      }
       return true;
     },
 
@@ -2050,7 +2075,7 @@ export function createSegmentationCanvasWorkflow(
     async setSegmentationSuperResolutionMode(mode: "off" | SuperResolutionMode): Promise<boolean> {
       if (mode === superResolutionMode) return false;
       if (mode !== "off" && !srRoi) {
-        deps.notify("Select an SR ROI before choosing x2 or x4.", 3500);
+        deps.notify(`Select an ROI before choosing ${getSuperResolutionModelLabel(mode)}.`, 3500);
         return false;
       }
       if (mode !== "off" && !await ensureSuperResolutionImage(mode)) return false;
@@ -2086,6 +2111,27 @@ export function createSegmentationCanvasWorkflow(
       if (source === "sr-roi" && !getSrImageInput()) return false;
       if (source === "processed" && !ensureProcessedImage(preprocessingSource)) return false;
       viewSource = source;
+      const linkedInputSource: SegmentationImageSourceMode = source === "original"
+        ? "original"
+        : source === "sr-roi"
+          ? "sr-roi"
+          : preprocessingSource === "sr-roi"
+            ? "sr-roi-processed"
+            : "original-processed";
+      if (edgeSamInputSource !== linkedInputSource) {
+        edgeSamInputSource = linkedInputSource;
+        clearAiPreview();
+        void prepareEdgeSamImage();
+      }
+      if (superpixelInputSource !== linkedInputSource) {
+        const regionSize = superpixelResult?.regionSize ?? null;
+        superpixelInputSource = linkedInputSource;
+        smartPreview = null;
+        superpixelResult = null;
+        superpixelCache.clear();
+        removeSuperpixelOverlayLayer();
+        if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      }
       return refreshViewSource();
     },
 
