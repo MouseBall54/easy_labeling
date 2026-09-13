@@ -839,10 +839,8 @@ export function createUiManagerAdapter(input: {
       const leftPanelTitle = input.documentRef.getElementById("leftPanelTitle");
       if (activeTask === "preprocessing") {
         if (leftPanelTitle) leftPanelTitle.textContent = "Image Preprocessing";
-        elements.datasetConnectionStatus.textContent = input.state.session.workflow === "segmentation"
-          ? "Preview processing; AI Select and Superpixel use the sources selected below"
-          : "Preview processing; Automation uses the source selected below";
-        elements.datasetConnectionStatus.hidden = false;
+        elements.datasetConnectionStatus.textContent = "";
+        elements.datasetConnectionStatus.hidden = true;
       } else if (activeTask === "segmentation-display") {
         if (leftPanelTitle) leftPanelTitle.textContent = "Mask Display";
         elements.datasetConnectionStatus.textContent = "";

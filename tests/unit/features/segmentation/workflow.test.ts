@@ -318,13 +318,13 @@ describe("features/segmentation/workflow", () => {
       expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:original" }));
 
       const callsBeforeSuperpixelSourceChange = edgeSamService.prepareImage.mock.calls.length;
-      expect(controller.setSegmentationSuperpixelInputSource?.("processed")).toBe(true);
+      expect(controller.setSegmentationSuperpixelInputSource?.("original-processed")).toBe(true);
       expect(controller.recalculateSegmentationSuperpixels?.(8)).toBe(true);
       expect(edgeSamService.prepareImage).toHaveBeenCalledTimes(callsBeforeSuperpixelSourceChange);
 
-      expect(controller.setSegmentationEdgeSamInputSource?.("processed")).toBe(true);
+      expect(controller.setSegmentationEdgeSamInputSource?.("original-processed")).toBe(true);
       await Promise.resolve();
-      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:processed:edge-blend:2:0.650" }));
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:original:processed:edge-blend:2:0.650" }));
       const callsBeforeViewChange = edgeSamService.prepareImage.mock.calls.length;
       controller.setSegmentationViewSource?.("processed");
       await Promise.resolve();
@@ -332,7 +332,7 @@ describe("features/segmentation/workflow", () => {
 
       controller.setSegmentationPreprocessingConfig?.({ blurStrength: 3 });
       await Promise.resolve();
-      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:processed:edge-blend:3:0.650" }));
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:original:processed:edge-blend:3:0.650" }));
       expect(controller.setSegmentationEdgeSamInputSource?.("original")).toBe(true);
       await Promise.resolve();
       const callsBeforeOriginalConfigChange = edgeSamService.prepareImage.mock.calls.length;
@@ -644,5 +644,138 @@ describe("features/segmentation/workflow", () => {
 
     controller.redo();
     expect(controller.getSegmentationClassAtPoint?.({ x: 10, y: 10 })).toBe("4");
+  });
+  it("uses CFSR working sources for preprocessing, EdgeSAM, and superpixels while retaining an Original document", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const sourcePixels = new Uint8ClampedArray(4 * 4 * 4);
+    for (let index = 0; index < 16; index += 1) {
+      sourcePixels[index * 4] = index;
+      sourcePixels[(index * 4) + 1] = index;
+      sourcePixels[(index * 4) + 2] = index;
+      sourcePixels[(index * 4) + 3] = 255;
+    }
+    const fakeDocument = {
+      createElement: () => {
+        const element = {
+          width: 0,
+          height: 0,
+          dataset: {} as DOMStringMap,
+          pixels: new Uint8ClampedArray(),
+          getContext: () => ({
+            drawImage: (image: { rgba?: Uint8ClampedArray }) => {
+              element.pixels = new Uint8ClampedArray(image.rgba ?? sourcePixels);
+            },
+            getImageData: () => ({ width: element.width, height: element.height, data: new Uint8ClampedArray(element.pixels) }),
+            createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+            putImageData: (imageData: { data: Uint8ClampedArray }) => { element.pixels = new Uint8ClampedArray(imageData.data); }
+          })
+        };
+        return element;
+      }
+    };
+    Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
+    const superResolutionService = {
+      upscale: vi.fn(async (input: { mode: "cfsr-x2" | "cfsr-x4"; width: number; height: number; cacheKey: string; rgba: Uint8ClampedArray }) => {
+        const scale = input.mode === "cfsr-x4" ? 4 : 2;
+        return { mode: input.mode, width: input.width * scale, height: input.height * scale, rgba: new Uint8ClampedArray(input.width * input.height * scale * scale * 4).fill(144), cacheKey: input.cacheKey };
+      }),
+      clear: vi.fn(), dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, runs: 0, message: null })
+    };
+    const edgeSamService = {
+      prepareImage: vi.fn(async () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 0, message: null })),
+      decode: vi.fn(), clear: vi.fn(), dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 0, message: null })
+    };
+    try {
+      const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentImage: { width: 4, height: 4 } }), createDeps({ superResolutionService, edgeSamService }));
+      const source = { width: 4, height: 4, rgba: sourcePixels } as unknown as CanvasImageSource;
+      controller.setBackgroundImage(source);
+      expect(controller.resetSegmentationSrRoi?.()).toBe(false);
+
+      expect(controller.beginSegmentationSrRoiSelection?.()).toBe(true);
+      controller.startSegmentationSrRoiSelection?.({ x: 1, y: 1 });
+      controller.continueSegmentationSrRoiSelection?.({ x: 3, y: 3 });
+      expect(controller.finishSegmentationSrRoiSelection?.({ x: 3, y: 3 })).toBe(true);
+      expect(controller.getSegmentationSrRoi?.()).toEqual({ x: 1, y: 1, width: 2, height: 2 });
+
+      await expect(controller.setSegmentationSuperResolutionMode?.("cfsr-x2")).resolves.toBe(true);
+      expect(superResolutionService.upscale).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "cfsr-x2", width: 2, height: 2 }));
+      const croppedRgba = superResolutionService.upscale.mock.calls.at(-1)?.[0].rgba ?? new Uint8ClampedArray();
+      expect(croppedRgba).toHaveLength(2 * 2 * 4);
+      expect(Array.from(croppedRgba.filter((_, index) => index % 4 === 0))).toEqual([5, 6, 9, 10]);
+      expect(controller.setSegmentationPreprocessingSource?.("sr-roi")).toBe(true);
+      expect(controller.setSegmentationViewSource?.("sr-roi")).toBe(true);
+      const srPreview = controller.getObjects("image").find((object) => (object as { _isSrRoiPreview?: boolean })._isSrRoiPreview);
+      expect(srPreview).toMatchObject({ left: 1, top: 1, width: 4, height: 4, scaleX: 0.5, scaleY: 0.5, visible: true });
+      expect(controller.getSegmentationSrPreviewInfo?.()).toEqual({
+        mode: "cfsr-x2",
+        originalRoi: { x: 1, y: 1, width: 2, height: 2 },
+        workingWidth: 4,
+        workingHeight: 4,
+        visible: true
+      });
+      expect(controller.focusSegmentationSrRoi?.()).toBe(true);
+      expect(controller.canvas.viewportTransform).toEqual([2, 0, 0, 2, 316, 236]);
+      expect(controller.setSegmentationSrOriginalComparison?.(true)).toBe(true);
+      expect(srPreview?.visible).toBe(false);
+      expect(controller.setSegmentationSrOriginalComparison?.(false)).toBe(true);
+      expect(srPreview?.visible).toBe(true);
+      expect(controller.setSegmentationEdgeSamInputSource?.("sr-roi")).toBe(true);
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ width: 4, height: 4, cacheKey: "local-image:1:roi:1,1,2,2:sr:cfsr-x2" }));
+      const workingMask = new Uint8Array(4 * 4);
+      workingMask[(3 * 4) + 3] = 1;
+      edgeSamService.decode.mockResolvedValueOnce({ width: 4, height: 4, mask: workingMask, score: 0.8 });
+      controller.setSegmentationActiveClass?.("1");
+      controller.setSegmentationTool?.("ai-select");
+      await expect(controller.startSegmentationAiSelect?.({ x: 2, y: 2 }, "positive")).resolves.toBe(true);
+      expect(edgeSamService.decode).toHaveBeenLastCalledWith(expect.objectContaining({ points: [{ x: 2, y: 2, label: "positive" }] }));
+      expect(controller.getSegmentationAiPreview?.()).toMatchObject({ pixelCount: 1 });
+      expect(controller.applySegmentationAiPreview?.()).toBe(true);
+      expect(controller.getSegmentationClassAtPoint?.({ x: 2, y: 2 })).toBe("1");
+      expect(controller.getSegmentationClassAtPoint?.({ x: 0, y: 0 })).toBeNull();
+      expect(controller.setSegmentationSuperpixelInputSource?.("sr-roi-processed")).toBe(true);
+      expect(controller.getSegmentationEdgeSamInputSource?.()).toBe("sr-roi");
+      expect(controller.recalculateSegmentationSuperpixels?.(2)).toBe(true);
+      expect(controller.startSegmentationSuperpixelPaint?.({ x: 0, y: 0 }, "add")).toBe(false);
+      expect(controller.getSegmentationDocumentSnapshot?.()).toMatchObject({ width: 4, height: 4 });
+
+      expect(controller.setSegmentationEdgeSamInputSource?.("sr-roi-processed")).toBe(true);
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({
+        width: 4,
+        height: 4,
+        cacheKey: "local-image:1:roi:1,1,2,2:sr:cfsr-x2:processed:edge-blend:2:0.650"
+      }));
+      expect(controller.getSegmentationSuperpixelInputSource?.()).toBe("sr-roi-processed");
+
+      await expect(controller.setSegmentationSuperResolutionMode?.("cfsr-x4")).resolves.toBe(true);
+      expect(superResolutionService.upscale).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "cfsr-x4", width: 2, height: 2 }));
+      expect(controller.getSegmentationSrPreviewInfo?.()).toMatchObject({ mode: "cfsr-x4", workingWidth: 8, workingHeight: 8 });
+      expect(controller.getObjects("image").find((object) => (object as { _isSrRoiPreview?: boolean })._isSrRoiPreview)).toMatchObject({ width: 8, height: 8, scaleX: 0.25, scaleY: 0.25 });
+      expect(controller.focusSegmentationSrRoi?.()).toBe(true);
+      expect(controller.canvas.viewportTransform).toEqual([4, 0, 0, 4, 312, 232]);
+
+      const snapshotBeforeReset = controller.getSegmentationDocumentSnapshot?.();
+      expect(controller.canUndo()).toBe(true);
+      expect(controller.resetSegmentationSrRoi?.()).toBe(true);
+      expect(controller.getSegmentationSrRoi?.()).toBeNull();
+      expect(controller.getSegmentationSrPreviewInfo?.()).toBeNull();
+      expect(controller.getSegmentationSuperResolutionMode?.()).toBe("off");
+      expect(controller.getSegmentationPreprocessingSource?.()).toBe("original");
+      expect(controller.getSegmentationViewSource?.()).toBe("original");
+      expect(controller.getSegmentationEdgeSamInputSource?.()).toBe("original");
+      expect(controller.getSegmentationSuperpixelInputSource?.()).toBe("original");
+      expect(controller.getObjects("image").some((object) => (object as { _isSrRoiPreview?: boolean })._isSrRoiPreview)).toBe(false);
+      expect(controller.getSegmentationDocumentSnapshot?.()).toEqual(snapshotBeforeReset);
+      expect(controller.getSegmentationClassAtPoint?.({ x: 2, y: 2 })).toBe("1");
+      expect(controller.canUndo()).toBe(true);
+      expect(superResolutionService.clear).toHaveBeenCalledTimes(1);
+      expect(controller.resetSegmentationSrRoi?.()).toBe(false);
+    } finally {
+      if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+      else Reflect.deleteProperty(globalThis, "document");
+    }
   });
 });

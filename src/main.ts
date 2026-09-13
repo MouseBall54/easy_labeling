@@ -57,6 +57,16 @@ interface TestApi {
     encoderRuns: number;
     message: string | null;
   } | null;
+  getSegmentationSrRoi(): { x: number; y: number; width: number; height: number } | null;
+  getSegmentationSrPreviewInfo(): {
+    mode: string;
+    originalRoi: { x: number; y: number; width: number; height: number };
+    workingWidth: number;
+    workingHeight: number;
+    visible: boolean;
+  } | null;
+  getSegmentationViewSource(): string | null;
+  isSegmentationSrRoiSelecting(): boolean;
   getCanvasViewportTransform(): [number, number, number, number, number, number];
   getSegmentationMaskBounds(): {
     left: number;
@@ -74,6 +84,12 @@ interface TestApi {
     segmentationOverlays: number;
     otherImages: number;
   };
+  getCanvasBaseImageInfo(): {
+    width: number;
+    height: number;
+    sourceWidth: number;
+    sourceHeight: number;
+  } | null;
   canUndo(): boolean;
   canRedo(): boolean;
   selectRectsByIndex(indices: number[]): void;
@@ -267,6 +283,10 @@ function bootstrapBrowserRuntime(): void {
     },
     getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
     getEdgeSamStatus: () => runtimeCanvasController.raw.getEdgeSamStatus?.() ?? null,
+    getSegmentationSrRoi: () => runtimeCanvasController.raw.getSegmentationSrRoi?.() ?? null,
+    getSegmentationSrPreviewInfo: () => runtimeCanvasController.raw.getSegmentationSrPreviewInfo?.() ?? null,
+    getSegmentationViewSource: () => runtimeCanvasController.raw.getSegmentationViewSource?.() ?? null,
+    isSegmentationSrRoiSelecting: () => runtimeCanvasController.raw.isSegmentationSrRoiSelecting?.() ?? false,
     getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
     getSegmentationMaskBounds: () => {
       const snapshot = runtimeCanvasController.raw.getSegmentationDocumentSnapshot?.();
@@ -369,6 +389,29 @@ function bootstrapBrowserRuntime(): void {
         baseImages: imageObjects.filter((object) => object._isBaseImage).length,
         segmentationOverlays: imageObjects.filter((object) => object._isSegmentationOverlay).length,
         otherImages: imageObjects.filter((object) => !object._isBaseImage && !object._isSegmentationOverlay).length
+      };
+    },
+    getCanvasBaseImageInfo: () => {
+      const imageObjects = runtimeCanvasController.raw.getObjects("image") as Array<{
+        _isBaseImage?: boolean;
+        width: number;
+        height: number;
+        element?: unknown;
+        _element?: unknown;
+        _originalElement?: unknown;
+        getElement?: () => unknown;
+      }>;
+      const baseImage = imageObjects.find((object) => object._isBaseImage);
+      if (!baseImage) return null;
+      const source = baseImage.element ?? baseImage.getElement?.() ?? baseImage._element ?? baseImage._originalElement;
+      const sourceSize = source && typeof source === "object" && "width" in source && "height" in source
+        ? source as { width: number; height: number }
+        : null;
+      return {
+        width: baseImage.width,
+        height: baseImage.height,
+        sourceWidth: sourceSize?.width ?? 0,
+        sourceHeight: sourceSize?.height ?? 0
       };
     },
     canUndo: () => runtimeCanvasController.raw.canUndo(),

@@ -168,6 +168,7 @@ export interface FabricImageLike extends FabricObjectLike {
   element?: unknown;
   _isBaseImage?: boolean;
   _isSegmentationOverlay?: boolean;
+  _isSrRoiPreview?: boolean;
   setElement?(element: unknown): void;
 }
 

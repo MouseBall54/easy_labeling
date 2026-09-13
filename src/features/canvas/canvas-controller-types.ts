@@ -10,7 +10,8 @@ import type {
 import type { CanvasHistoryGestureBaseline, CanvasHistoryService } from "./history.js";
 import type { SegmentationAiPreviewSummary, SegmentationDocumentSnapshot, SegmentationRegionSelection, SegmentationSmartPreviewSummary, SegmentationSummary, SegmentationSuperpixelSettings, SegmentationTool } from "../segmentation/types.js";
 import type { EdgeSamStatus } from "../edgesam/types.js";
-import type { SegmentationImageSourceMode, SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
+import type { SegmentationImageSourceMode, SegmentationPreprocessingConfig, SegmentationViewSourceMode } from "../segmentation/preprocessing.js";
+import type { WorkingImageRect } from "../segmentation/working-image.js";
 import type { AiSelectRegionConstraint } from "../segmentation/ai-region-constraint.js";
 import type { BoxLayout, PixelPoint } from "../automation/types.js";
 
@@ -66,6 +67,7 @@ export interface CanvasControllerDeps {
   historyService?: CanvasHistoryService;
   onDocumentMutation?(): void;
   edgeSamService?: import("../edgesam/types.js").EdgeSamService;
+  superResolutionService?: import("../super-resolution/types.js").SuperResolutionService;
 }
 
 export interface CanvasShell {
@@ -196,8 +198,29 @@ export interface CanvasController {
   getEdgeSamStatus?(): EdgeSamStatus;
   getSegmentationPreprocessingConfig?(): SegmentationPreprocessingConfig;
   setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
-  setSegmentationViewSource?(source: SegmentationImageSourceMode): boolean;
-  getSegmentationViewSource?(): SegmentationImageSourceMode;
+  setSegmentationPreprocessingSource?(source: "original" | "sr-roi"): boolean;
+  getSegmentationPreprocessingSource?(): "original" | "sr-roi";
+  beginSegmentationSrRoiSelection?(): boolean;
+  cancelSegmentationSrRoiSelection?(): boolean;
+  isSegmentationSrRoiSelecting?(): boolean;
+  startSegmentationSrRoiSelection?(pointer: CanvasPoint): void;
+  continueSegmentationSrRoiSelection?(pointer: CanvasPoint): void;
+  finishSegmentationSrRoiSelection?(pointer: CanvasPoint): boolean;
+  getSegmentationSrRoi?(): WorkingImageRect | null;
+  resetSegmentationSrRoi?(): boolean;
+  getSegmentationSrPreviewInfo?(): {
+    mode: import("../super-resolution/types.js").SuperResolutionMode;
+    originalRoi: WorkingImageRect;
+    workingWidth: number;
+    workingHeight: number;
+    visible: boolean;
+  } | null;
+  focusSegmentationSrRoi?(): boolean;
+  setSegmentationSrOriginalComparison?(enabled: boolean): boolean;
+  setSegmentationSuperResolutionMode?(mode: "off" | import("../super-resolution/types.js").SuperResolutionMode): Promise<boolean>;
+  getSegmentationSuperResolutionMode?(): "off" | import("../super-resolution/types.js").SuperResolutionMode;
+  setSegmentationViewSource?(source: SegmentationViewSourceMode): boolean;
+  getSegmentationViewSource?(): SegmentationViewSourceMode;
   setSegmentationEdgeSamInputSource?(source: SegmentationImageSourceMode): boolean;
   getSegmentationEdgeSamInputSource?(): SegmentationImageSourceMode;
   setSegmentationSuperpixelInputSource?(source: SegmentationImageSourceMode): boolean;

@@ -131,7 +131,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await expect(page.locator("#detectionAutomationInputSelect")).toBeVisible();
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#expand-right-panel-btn")).toBeHidden();
-  await expect(page.locator("#datasetConnectionStatus")).toContainText("Automation uses the source selected below");
+  await expect(page.locator("#datasetConnectionStatus")).toBeHidden();
   await page.locator("#taskAnnotateBtn").click();
   await page.locator("#taskDetectionDisplayBtn").click();
   await expect(page.locator("#detectionLeftWorkspace")).toBeHidden();
@@ -218,7 +218,7 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await page.locator("#taskPreprocessingBtn").click();
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#left-panel #segmentationPreprocessingSection")).toBeVisible();
-  await expect(page.locator("#datasetConnectionStatus")).toContainText("AI Select and Superpixel use the sources selected below");
+  await expect(page.locator("#datasetConnectionStatus")).toBeHidden();
   await expect(page.getByText("Enhance SEM structure without changing source data.")).toHaveCount(0);
 
   await page.locator("#taskSuperpixelBtn").click();

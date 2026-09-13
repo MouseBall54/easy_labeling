@@ -2285,6 +2285,82 @@ main.canvas-container > .canvas-container {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.segmentation-preprocessing-toggle {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmentation-sr-mode-picker {
+    display: none;
+    grid-template-columns: minmax(0, 1fr) repeat(2, auto);
+    align-items: center;
+    gap: 6px;
+    margin-top: 7px;
+    padding: 7px;
+    border: 1px solid var(--workbench-border-strong);
+    border-radius: 4px;
+    background: var(--workbench-surface-soft);
+    color: var(--workbench-text-muted);
+    font-size: 0.72rem;
+}
+
+.segmentation-sr-mode-picker.is-open {
+    display: grid;
+}
+
+.segmentation-sr-mode-picker .btn {
+    white-space: nowrap;
+}
+
+.segmentation-sr-roi-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.segmentation-sr-roi-summary {
+    display: grid;
+    gap: 2px;
+    margin-top: 7px;
+    padding: 7px 8px;
+    border: 1px solid var(--workbench-border);
+    border-radius: 4px;
+    background: var(--workbench-surface-soft);
+    color: var(--workbench-text-muted);
+}
+
+.segmentation-sr-roi-summary small {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+#segmentationSrResultStatus {
+    margin-top: 2px;
+    color: var(--workbench-text);
+    font-size: 0.68rem;
+}
+
+.segmentation-sr-preview-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.segmentation-sr-preview-actions .btn {
+    min-width: 0;
+    padding-inline: 5px;
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
+#segmentationCompareOriginalBtn.is-comparing {
+    color: #fff;
+    background: #b45309;
+    border-color: #92400e;
+}
+
 .detection-canvas-toolbar #taskAutomateBtn.active {
     color: #fff;
     background: #61439b;

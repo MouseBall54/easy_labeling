@@ -12,6 +12,7 @@ import type { WorkflowType } from "../types/labels.js";
 import type { SegmentationDocumentSnapshot, SegmentationTool } from "../features/segmentation/types.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { createEdgeSamService } from "../features/edgesam/service.js";
+import { createSuperResolutionService } from "../features/super-resolution/service.js";
 
 class LiveCanvasControllerState implements CanvasControllerState {
   constructor(private readonly appState: AppState) {}
@@ -117,6 +118,7 @@ export function createCanvasControllerAdapter(input: {
 
   const liveState = new LiveCanvasControllerState(input.state);
   const edgeSamService = createEdgeSamService();
+  const superResolutionService = createSuperResolutionService();
   const controllerDeps = {
     fabric: input.fabricRef,
     getCanvasContainerSize: () => {
@@ -153,7 +155,8 @@ export function createCanvasControllerAdapter(input: {
       markCurrentDocumentDirty(input.state);
       input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
     },
-    edgeSamService
+    edgeSamService,
+    superResolutionService
   } satisfies Parameters<typeof createCanvasControllerForWorkflow>[2];
 
   const sharedShell = createCanvasShell(liveState, controllerDeps);

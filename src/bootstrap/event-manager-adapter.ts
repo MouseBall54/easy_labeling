@@ -1159,13 +1159,18 @@ export function createEventManagerAdapter(input: {
       });
       const segmentationDocument = input.documentRef;
       const viewOriginalButton = segmentationDocument?.getElementById("segmentationViewOriginalBtn");
+      const viewSrButton = segmentationDocument?.getElementById("segmentationViewSrBtn");
       const viewProcessedButton = segmentationDocument?.getElementById("segmentationViewProcessedBtn");
       const preprocessModeSelect = segmentationDocument?.getElementById("segmentationPreprocessModeSelect");
+      const preprocessSourceSelect = segmentationDocument?.getElementById("segmentationPreprocessSourceSelect");
       const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
       const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
       const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
+      const focusSrRoiButton = segmentationDocument?.getElementById("segmentationFocusSrRoiBtn");
+      const compareOriginalButton = segmentationDocument?.getElementById("segmentationCompareOriginalBtn");
+      const resetSrRoiButton = segmentationDocument?.getElementById("segmentationResetSrRoiBtn");
       const aiRegionConstraintToggle = segmentationDocument?.getElementById("segmentationAiRegionConstraintToggle");
       const aiRegionConstraintStatus = segmentationDocument?.getElementById("segmentationAiRegionConstraintStatus");
       const aiRegionConstraintSetButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintSetBtn");
@@ -1186,11 +1191,13 @@ export function createEventManagerAdapter(input: {
       const syncSegmentationViewSource = (): void => {
         const source = input.canvasController.raw.getSegmentationViewSource?.() ?? "original";
         viewOriginalButton?.classList.toggle("active", source === "original");
+        viewSrButton?.classList.toggle("active", source === "sr-roi");
         viewProcessedButton?.classList.toggle("active", source === "processed");
       };
       viewOriginalButton?.addEventListener("click", () => {
         input.canvasController.raw.setSegmentationViewSource?.("original");
         syncSegmentationViewSource();
+        syncSuperResolutionControls();
       });
       viewProcessedButton?.addEventListener("click", () => {
         const currentSource = input.canvasController.raw.getSegmentationViewSource?.();
@@ -1199,6 +1206,182 @@ export function createEventManagerAdapter(input: {
           input.uiManager.notify("Processed preview could not be created for this image.", 3500);
         }
         syncSegmentationViewSource();
+        syncSuperResolutionControls();
+      });
+      const setSuperResolutionPickerVisible = (visible: boolean): void => {
+        const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
+        const button = segmentationDocument?.getElementById("segmentationViewSrBtn");
+        if (!(picker instanceof HTMLElement)) return;
+        picker.classList.toggle("is-open", visible);
+        button?.setAttribute("aria-expanded", String(visible));
+      };
+      const syncSuperResolutionControls = (): void => {
+        const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
+        const sourceSelect = segmentationDocument?.getElementById("segmentationPreprocessSourceSelect");
+        if (select instanceof HTMLSelectElement) {
+          select.value = input.canvasController.raw.getSegmentationSuperResolutionMode?.() ?? "off";
+        }
+        if (sourceSelect instanceof HTMLSelectElement) {
+          sourceSelect.value = input.canvasController.raw.getSegmentationPreprocessingSource?.() ?? "original";
+        }
+        const edgeSamSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
+        const superpixelSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
+        if (edgeSamSelect instanceof HTMLSelectElement) {
+          edgeSamSelect.value = input.canvasController.raw.getSegmentationEdgeSamInputSource?.() ?? "original";
+        }
+        if (superpixelSelect instanceof HTMLSelectElement) {
+          superpixelSelect.value = input.canvasController.raw.getSegmentationSuperpixelInputSource?.() ?? "original";
+        }
+        const roiStatus = segmentationDocument?.getElementById("segmentationSrRoiStatus");
+        const resultStatus = segmentationDocument?.getElementById("segmentationSrResultStatus");
+        const roi = input.canvasController.raw.getSegmentationSrRoi?.();
+        const preview = input.canvasController.raw.getSegmentationSrPreviewInfo?.();
+        if (roiStatus) roiStatus.textContent = roi
+          ? `ROI ${roi.x}, ${roi.y} · ${roi.width} × ${roi.height} px`
+          : "No ROI selected";
+        if (resultStatus) resultStatus.textContent = preview
+          ? `Original ${preview.originalRoi.width} × ${preview.originalRoi.height} → ${preview.mode === "cfsr-x4" ? "CFSR x4" : "CFSR x2"} ${preview.workingWidth} × ${preview.workingHeight} · coordinates: Original`
+          : roi
+            ? "Coordinates: Original · Choose CFSR x2 or x4."
+            : "Select an ROI to enable Super Resolution.";
+        const hasPreview = preview !== null;
+        if (focusSrRoiButton instanceof HTMLButtonElement) focusSrRoiButton.disabled = !hasPreview;
+        if (resetSrRoiButton instanceof HTMLButtonElement) resetSrRoiButton.disabled = roi === null;
+        if (compareOriginalButton instanceof HTMLButtonElement) {
+          const source = input.canvasController.raw.getSegmentationViewSource?.() ?? "original";
+          const showsSrPreview = source === "sr-roi" || (source === "processed" && input.canvasController.raw.getSegmentationPreprocessingSource?.() === "sr-roi");
+          compareOriginalButton.disabled = !hasPreview || !showsSrPreview;
+          if (compareOriginalButton.disabled) {
+            input.canvasController.raw.setSegmentationSrOriginalComparison?.(false);
+            compareOriginalButton.classList.remove("is-comparing");
+            compareOriginalButton.setAttribute("aria-pressed", "false");
+            const label = compareOriginalButton.querySelector("span");
+            if (label) label.textContent = "Hold Original";
+          }
+        }
+      };
+      const setSuperResolutionBusy = (mode: "cfsr-x2" | "cfsr-x4" | null): void => {
+        const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
+        const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
+        picker?.toggleAttribute("aria-busy", mode !== null);
+        picker?.querySelectorAll<HTMLButtonElement>("[data-segmentation-sr-mode]").forEach((button) => {
+          button.disabled = mode !== null;
+        });
+        const label = picker?.querySelector<HTMLElement>("[data-segmentation-sr-status]");
+        if (label) label.textContent = mode ? `Creating ${mode === "cfsr-x4" ? "CFSR x4" : "CFSR x2"}…` : "Choose SR scale";
+        if (select instanceof HTMLSelectElement) select.disabled = mode !== null;
+      };
+      const applySuperResolutionMode = (select: HTMLSelectElement): void => {
+        runAsync(async () => {
+          const requestedMode = select.value as "off" | "cfsr-x2" | "cfsr-x4";
+          setSuperResolutionBusy(requestedMode === "off" ? null : requestedMode);
+          try {
+            const changed = await input.canvasController.raw.setSegmentationSuperResolutionMode?.(requestedMode) ?? false;
+            if (!changed && requestedMode !== input.canvasController.raw.getSegmentationSuperResolutionMode?.()) {
+              input.uiManager.notify("Super Resolution image could not be created.", 4000);
+            }
+            if (input.canvasController.raw.getSegmentationSuperResolutionMode?.() !== "off") {
+              input.canvasController.raw.setSegmentationViewSource?.("sr-roi");
+              input.canvasController.raw.focusSegmentationSrRoi?.();
+              setSuperResolutionPickerVisible(false);
+            }
+            syncSuperResolutionControls();
+            syncSegmentationViewSource();
+          } finally {
+            setSuperResolutionBusy(null);
+          }
+        });
+      };
+      const chooseSuperResolutionMode = async (mode: "cfsr-x2" | "cfsr-x4"): Promise<void> => {
+        setSuperResolutionBusy(mode);
+        try {
+          const changed = await input.canvasController.raw.setSegmentationSuperResolutionMode?.(mode) ?? false;
+          if (!changed && input.canvasController.raw.getSegmentationSuperResolutionMode?.() !== mode) {
+            input.uiManager.notify("Super Resolution image could not be created.", 4000);
+            return;
+          }
+          input.canvasController.raw.setSegmentationViewSource?.("sr-roi");
+          input.canvasController.raw.focusSegmentationSrRoi?.();
+          setSuperResolutionPickerVisible(false);
+          if (segmentationDocument?.activeElement instanceof HTMLElement) segmentationDocument.activeElement.blur();
+          syncSuperResolutionControls();
+          syncSegmentationViewSource();
+        } finally {
+          setSuperResolutionBusy(null);
+        }
+      };
+      const handleSuperResolutionView = (): void => {
+        const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
+        const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
+        const mode = select instanceof HTMLSelectElement ? select.value : input.canvasController.raw.getSegmentationSuperResolutionMode?.() ?? "off";
+        const roi = input.canvasController.raw.getSegmentationSrRoi?.();
+        if (!roi) {
+          setSuperResolutionPickerVisible(false);
+          input.canvasController.raw.beginSegmentationSrRoiSelection?.();
+          syncSuperResolutionControls();
+          return;
+        }
+        if (mode === "off") {
+          const willOpen = picker instanceof HTMLElement && !picker.classList.contains("is-open");
+          setSuperResolutionPickerVisible(willOpen);
+          if (willOpen) picker?.querySelector<HTMLButtonElement>("[data-segmentation-sr-mode]")?.focus();
+          return;
+        }
+        input.canvasController.raw.setSegmentationViewSource?.("sr-roi");
+        syncSegmentationViewSource();
+        syncSuperResolutionControls();
+      };
+      input.windowRef.addEventListener("change", (event) => {
+        if (event.target instanceof HTMLSelectElement && event.target.id === "segmentationSuperResolutionSelect") applySuperResolutionMode(event.target);
+      });
+      input.windowRef.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target.closest<HTMLElement>("#segmentationViewSrBtn, #segmentationSelectSrRoiBtn, [data-segmentation-sr-mode]") : null;
+        if (!target) return;
+        if (target.id === "segmentationSelectSrRoiBtn") {
+          setSuperResolutionPickerVisible(false);
+          input.canvasController.raw.beginSegmentationSrRoiSelection?.();
+          return;
+        }
+        if (target.id === "segmentationViewSrBtn") {
+          handleSuperResolutionView();
+          return;
+        }
+        const mode = target.dataset.segmentationSrMode;
+        if (mode === "cfsr-x2" || mode === "cfsr-x4") runAsync(() => chooseSuperResolutionMode(mode));
+      }, { capture: true });
+      focusSrRoiButton?.addEventListener("click", () => {
+        input.canvasController.raw.focusSegmentationSrRoi?.();
+      });
+      resetSrRoiButton?.addEventListener("click", () => {
+        setSuperResolutionPickerVisible(false);
+        input.canvasController.raw.resetSegmentationSrRoi?.();
+        syncSuperResolutionControls();
+        syncSegmentationViewSource();
+      });
+      const setOriginalComparison = (enabled: boolean): void => {
+        if (!(compareOriginalButton instanceof HTMLButtonElement) || compareOriginalButton.disabled) return;
+        input.canvasController.raw.setSegmentationSrOriginalComparison?.(enabled);
+        compareOriginalButton.classList.toggle("is-comparing", enabled);
+        compareOriginalButton.setAttribute("aria-pressed", String(enabled));
+        const label = compareOriginalButton.querySelector("span");
+        if (label) label.textContent = enabled ? "Showing Original" : "Hold Original";
+      };
+      compareOriginalButton?.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        setOriginalComparison(true);
+      });
+      compareOriginalButton?.addEventListener("pointerup", () => setOriginalComparison(false));
+      compareOriginalButton?.addEventListener("pointerleave", () => setOriginalComparison(false));
+      compareOriginalButton?.addEventListener("pointercancel", () => setOriginalComparison(false));
+      compareOriginalButton?.addEventListener("keydown", (event) => {
+        if (event.key !== " " && event.key !== "Enter") return;
+        event.preventDefault();
+        setOriginalComparison(true);
+      });
+      compareOriginalButton?.addEventListener("keyup", (event) => {
+        if (event.key !== " " && event.key !== "Enter") return;
+        event.preventDefault();
+        setOriginalComparison(false);
       });
       const applyPreprocessing = (): void => {
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
@@ -1218,13 +1401,25 @@ export function createEventManagerAdapter(input: {
         if (preprocessEdgeWeightInput instanceof HTMLInputElement && preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
       });
       preprocessEdgeWeightInput?.addEventListener("change", applyPreprocessing);
+      preprocessSourceSelect?.addEventListener("change", () => {
+        if (!(preprocessSourceSelect instanceof HTMLSelectElement)) return;
+        const changed = input.canvasController.raw.setSegmentationPreprocessingSource?.(
+          preprocessSourceSelect.value as "original" | "sr-roi"
+        );
+        if (changed === false && preprocessSourceSelect.value === "sr-roi") {
+          input.uiManager.notify("Select and generate an SR ROI before preprocessing it.", 3500);
+        }
+        syncSuperResolutionControls();
+      });
       edgeSamInputSelect?.addEventListener("change", () => {
         if (!(edgeSamInputSelect instanceof HTMLSelectElement)) return;
-        input.canvasController.raw.setSegmentationEdgeSamInputSource?.(edgeSamInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
+        const changed = input.canvasController.raw.setSegmentationEdgeSamInputSource?.(edgeSamInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
+        if (changed === false) edgeSamInputSelect.value = input.canvasController.raw.getSegmentationEdgeSamInputSource?.() ?? "original";
       });
       superpixelInputSelect?.addEventListener("change", () => {
         if (!(superpixelInputSelect instanceof HTMLSelectElement)) return;
-        input.canvasController.raw.setSegmentationSuperpixelInputSource?.(superpixelInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
+        const changed = input.canvasController.raw.setSegmentationSuperpixelInputSource?.(superpixelInputSelect.value as import("../features/segmentation/preprocessing.js").SegmentationImageSourceMode);
+        if (changed === false) superpixelInputSelect.value = input.canvasController.raw.getSegmentationSuperpixelInputSource?.() ?? "original";
       });
       aiRegionConstraintToggle?.addEventListener("change", (event) => {
         const toggle = event.currentTarget;
@@ -1652,6 +1847,15 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
+        if (input.state.session.workflow === "segmentation"
+          && input.canvasController.raw.isSegmentationSrRoiSelecting?.()
+          && mouseEvent.button === 0) {
+          suppressSelectionForSegmentationStroke = true;
+          rawCanvas.selection = false;
+          input.canvasController.raw.startSegmentationSrRoiSelection?.(pointer);
+          return;
+        }
+
         const isAiSelect = input.state.session.workflow === "segmentation"
           && input.state.view.currentMode === "draw"
           && input.canvasController.raw.getSegmentationSummary?.().activeTool === "ai-select";
@@ -1728,6 +1932,10 @@ export function createEventManagerAdapter(input: {
         }
         input.state.view.lastMousePosition = pointer;
         syncSegmentationBrushCursorPreview(mouseEvent, pointer);
+        if (input.state.session.workflow === "segmentation" && input.canvasController.raw.isSegmentationSrRoiSelecting?.()) {
+          input.canvasController.raw.continueSegmentationSrRoiSelection?.(pointer);
+          return;
+        }
         if (isMovingSegmentationRegion) {
           const moved = input.canvasController.raw.continueSegmentationRegionMove?.(pointer) ?? false;
           if (input.state.view.isCrosshairVisible) {
@@ -1765,6 +1973,14 @@ export function createEventManagerAdapter(input: {
           input.canvasController.raw.updateAllLabelTexts();
           rawCanvas.requestRenderAll();
           input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
+          return;
+        }
+        if (input.state.session.workflow === "segmentation" && input.canvasController.raw.isSegmentationSrRoiSelecting?.()) {
+          const pointer = getCanvasPointer(event.e) ?? input.state.view.lastMousePosition;
+          const selected = input.canvasController.raw.finishSegmentationSrRoiSelection?.(pointer) ?? false;
+          clearTemporarySelectionSuppression();
+          syncSuperResolutionControls();
+          if (selected) setSuperResolutionPickerVisible(true);
           return;
         }
         if (isMovingSegmentationRegion) {
@@ -1988,6 +2204,36 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
+        const numpadBrushSizeDelta = event.code === "NumpadAdd"
+          ? 1
+          : event.code === "NumpadSubtract"
+            ? -1
+            : 0;
+        if (numpadBrushSizeDelta !== 0
+          && input.state.session.workflow === "segmentation"
+          && input.state.session.currentImage !== null
+          && input.state.view.currentMode === "draw"
+          && !event.ctrlKey
+          && !event.metaKey
+          && !event.altKey
+          && !event.shiftKey
+          && input.documentRef?.querySelector(".modal.show") == null) {
+          const summary = input.canvasController.raw.getSegmentationSummary?.();
+          if (summary?.activeTool === "brush" || summary?.activeTool === "erase") {
+            event.preventDefault();
+            const slider = elements.segmentationToolSizeSlider;
+            const minimum = Number.parseInt(slider.min, 10) || 1;
+            const maximum = Number.parseInt(slider.max, 10) || 48;
+            const step = Number.parseInt(slider.step, 10) || 1;
+            const nextRadius = Math.max(minimum, Math.min(maximum, summary.brushRadius + (numpadBrushSizeDelta * step)));
+            if (nextRadius !== summary.brushRadius) {
+              input.canvasController.raw.setSegmentationBrushRadius?.(nextRadius);
+              input.uiManager.setWorkflow?.("segmentation");
+            }
+            return;
+          }
+        }
+
         const canUseLabelOnlyShortcut = input.state.session.currentImage !== null
           && input.documentRef?.querySelector(".modal.show") === null;
         if (canUseLabelOnlyShortcut
@@ -2038,6 +2284,12 @@ export function createEventManagerAdapter(input: {
         }
 
         if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          if (event.key === "Escape" && input.canvasController.raw.isSegmentationSrRoiSelecting?.()) {
+            event.preventDefault();
+            input.canvasController.raw.cancelSegmentationSrRoiSelection?.();
+            syncSuperResolutionControls();
+            return;
+          }
           if (event.key.toLowerCase() === "q") {
             event.preventDefault();
             const nextSource = input.canvasController.raw.getSegmentationViewSource?.() === "processed" ? "original" : "processed";

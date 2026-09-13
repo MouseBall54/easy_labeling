@@ -1,6 +1,6 @@
 import type { FabricActiveSelectionLike, FabricAnimationOptions, FabricCanvasLike, FabricCircleLike, FabricImageLike, FabricLineLike, FabricObjectLike, FabricRectLike, FabricRuntimeLike, FabricTextLike, YoloMetadata } from "../../../../src/features/canvas/fabric-types.js";
 
-type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element" | "overlayPixels" | "overlayVisible" | "overlayOpacity" | "_isBaseImage" | "_isSegmentationOverlay";
+type KnownFabricProperty = keyof FabricObjectLike | "text" | "x1" | "y1" | "x2" | "y2" | "radius" | "opacity" | "element" | "overlayPixels" | "overlayVisible" | "overlayOpacity" | "_isBaseImage" | "_isSegmentationOverlay" | "_isSrRoiPreview" | "objectCaching" | "noScaleCache";
 
 function cloneMetadata(metadata: YoloMetadata | null | undefined): YoloMetadata | null | undefined {
   if (metadata === null || metadata === undefined) {
@@ -264,6 +264,7 @@ class FakeFabricImage extends FakeFabricObject<"image"> implements FabricImageLi
   public element: unknown;
   public _isBaseImage = false;
   public _isSegmentationOverlay = false;
+  public _isSrRoiPreview = false;
 
   constructor(element: unknown, options: Record<string, unknown> = {}) {
     super("image", Number(options.left ?? 0), Number(options.top ?? 0), Number(options.width ?? 0), Number(options.height ?? 0));

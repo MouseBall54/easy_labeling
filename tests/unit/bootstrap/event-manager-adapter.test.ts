@@ -2270,6 +2270,81 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.setSegmentationTool).not.toHaveBeenCalled();
   });
 
+  it("adjusts Brush and Erase size with numpad plus and minus without changing tools", () => {
+    const state = createInitialAppState();
+    state.session.workflow = "segmentation";
+    state.session.currentImage = { width: 800, height: 400 } as HTMLImageElement;
+    state.view.currentMode = "draw";
+    const elements = createElements();
+    Object.assign(elements.segmentationToolSizeSlider, { min: "1", max: "48", step: "1", value: "6" });
+    const windowRef = new FakeWindow();
+    const rawCanvas = createRawCanvas();
+    const rawController = createRawController(rawCanvas);
+    const setWorkflow = vi.fn();
+    let activeTool: "brush" | "erase" = "brush";
+    let brushRadius = 6;
+    Object.assign(rawController, {
+      getSegmentationSummary: vi.fn(() => ({ activeTool, brushRadius }))
+    });
+    rawController.setSegmentationBrushRadius.mockImplementation((radius: number) => {
+      brushRadius = radius;
+    });
+    const eventManager = createEventManagerAdapter({
+      state,
+      uiManager: createNoopUiManager(elements, { setWorkflow }),
+      fileSystem: createNoopFileSystem(),
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    });
+
+    eventManager.bindEventListeners();
+    const addPreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "+", code: "NumpadAdd", location: 3,
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      target: new FakeHtmlElement(), preventDefault: addPreventDefault
+    });
+    activeTool = "erase";
+    const subtractPreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "-", code: "NumpadSubtract", location: 3,
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      target: new FakeHtmlElement(), preventDefault: subtractPreventDefault
+    });
+    const mainKeyboardPreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "+", code: "Equal", location: 0,
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      target: new FakeHtmlElement(), preventDefault: mainKeyboardPreventDefault
+    });
+
+    expect(addPreventDefault).toHaveBeenCalledOnce();
+    expect(subtractPreventDefault).toHaveBeenCalledOnce();
+    expect(mainKeyboardPreventDefault).not.toHaveBeenCalled();
+    expect(rawController.setSegmentationBrushRadius.mock.calls).toEqual([[7], [6]]);
+    expect(rawController.setSegmentationTool).not.toHaveBeenCalled();
+    expect(setWorkflow).toHaveBeenCalledTimes(2);
+
+    rawController.setSegmentationBrushRadius.mockClear();
+    brushRadius = 48;
+    activeTool = "brush";
+    const maximumPreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "+", code: "NumpadAdd", location: 3,
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      target: new FakeHtmlElement(), preventDefault: maximumPreventDefault
+    });
+    const editablePreventDefault = vi.fn();
+    windowRef.keydownListener?.({
+      key: "-", code: "NumpadSubtract", location: 3,
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      target: new FakeInputElement(), preventDefault: editablePreventDefault
+    });
+    expect(maximumPreventDefault).toHaveBeenCalledOnce();
+    expect(editablePreventDefault).not.toHaveBeenCalled();
+    expect(rawController.setSegmentationBrushRadius).not.toHaveBeenCalled();
+  });
+
   it("updates and recalculates superpixels without changing the active task", () => {
     const state = createInitialAppState();
     state.session.workflow = "segmentation";

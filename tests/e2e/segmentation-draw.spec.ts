@@ -115,7 +115,138 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   })).toEqual({ activeClassId: '1', requiresClassSelection: false, baseImages: 1, canUndo: false });
   await expect(page.locator("#segmentationActiveClassSummary")).toContainText("Painting: 1");
   await expect(page.locator("#segmentationBrushModeBtn")).toBeEnabled();
-  await page.waitForTimeout(1000);
+  await page.locator("#segmentationBrushModeBtn").click();
+  await expect(page.locator("#segmentationToolSizeValue")).toHaveText("6px");
+  await page.keyboard.press("NumpadAdd");
+  await expect(page.locator("#segmentationToolSizeValue")).toHaveText("7px");
+  await expect(page.locator("#segmentationBrushModeBtn")).toHaveClass(/active/);
+  await page.locator("#segmentationEraseModeBtn").click();
+  await page.keyboard.press("NumpadSubtract");
+  await expect(page.locator("#segmentationToolSizeValue")).toHaveText("6px");
+  await expect(page.locator("#segmentationEraseModeBtn")).toHaveClass(/active/);
+  await page.locator("#segmentationBrushModeBtn").click();
+  await page.locator("#taskPreprocessingBtn").click();
+  await expect(page.locator("#segmentationPreprocessingSection")).toBeVisible();
+  await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText(["Off", "CFSR x2", "CFSR x4"]);
+  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Original Processed", "SR ROI", "SR ROI Processed"]);
+  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Original Processed", "SR ROI", "SR ROI Processed"]);
+  const viewButtonTopOffsets = await page.locator(".segmentation-preprocessing-toggle .btn").evaluateAll((buttons) =>
+    buttons.map((button) => button.getBoundingClientRect().top)
+  );
+  expect(new Set(viewButtonTopOffsets).size).toBe(1);
+  await expect(page.locator("#segmentationResetSrRoiBtn")).toBeDisabled();
+  await expect(page.locator("#segmentationResetSrViewBtn")).toHaveCount(0);
+  await expect(page.locator(".segmentation-sr-preview-actions .btn")).toHaveCount(2);
+  const previewActionTopOffsets = await page.locator(".segmentation-sr-preview-actions .btn").evaluateAll((buttons) =>
+    buttons.map((button) => button.getBoundingClientRect().top)
+  );
+  expect(new Set(previewActionTopOffsets).size).toBe(1);
+  await page.setViewportSize({ width: 900, height: 720 });
+  const compactSrLayout = await page.evaluate(() => {
+    const blocks = [
+      document.querySelector<HTMLElement>(".segmentation-sr-roi-controls"),
+      document.querySelector<HTMLElement>(".segmentation-sr-roi-summary"),
+      document.querySelector<HTMLElement>(".segmentation-sr-preview-actions")
+    ].filter((element): element is HTMLElement => element !== null);
+    return blocks.map((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+  });
+  expect(compactSrLayout).toHaveLength(3);
+  compactSrLayout.forEach(({ clientWidth, scrollWidth }) => expect(scrollWidth).toBeLessThanOrEqual(clientWidth));
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSrRoi?.() ?? null)).toBeNull();
+  await page.locator("#segmentationViewSrBtn").click();
+  await expect.poll(() => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi");
+    return {
+      roi: api?.getSegmentationSrRoi?.() ?? null,
+      selecting: api?.isSegmentationSrRoiSelecting?.() ?? false,
+      pickerOpen: document.getElementById("segmentationSrModePicker")?.classList.contains("is-open") ?? false
+    };
+  })).toEqual({ roi: null, selecting: true, pickerOpen: false });
+  await expect(page.locator("#segmentationSrModePicker")).toBeHidden();
+  const canvas = page.locator('.upper-canvas');
+  let box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+  await page.mouse.move(box.x + (box.width / 2) - 32, box.y + (box.height / 2) - 24);
+  await page.mouse.down();
+  await page.mouse.move(box.x + (box.width / 2) + 32, box.y + (box.height / 2) + 24, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.locator("#segmentationSrRoiStatus")).not.toHaveText("No ROI selected");
+  await expect(page.locator("#segmentationResetSrRoiBtn")).toBeEnabled();
+  const roiRows = await page.evaluate(() => {
+    const controls = document.querySelector<HTMLElement>(".segmentation-sr-roi-controls")?.getBoundingClientRect();
+    const summary = document.querySelector<HTMLElement>(".segmentation-sr-roi-summary")?.getBoundingClientRect();
+    const buttons = [...document.querySelectorAll<HTMLElement>(".segmentation-sr-roi-controls .btn")].map((button) => button.getBoundingClientRect());
+    return {
+      buttonTops: buttons.map((button) => button.top),
+      controlsBottom: controls?.bottom ?? 0,
+      summaryTop: summary?.top ?? 0,
+      controlsOverflow: controls ? Math.max(0, ...buttons.map((button) => button.right - controls.right)) : 1
+    };
+  });
+  expect(new Set(roiRows.buttonTops).size).toBe(1);
+  expect(roiRows.summaryTop).toBeGreaterThanOrEqual(roiRows.controlsBottom);
+  expect(roiRows.controlsOverflow).toBe(0);
+  await expect(page.locator("#segmentationSrModePicker")).toBeVisible();
+  await expect(page.locator("#segmentationSrModePicker [data-segmentation-sr-mode]")).toHaveText(["CFSR x2", "CFSR x4"]);
+  await page.locator('[data-segmentation-sr-mode="cfsr-x2"]').click();
+  await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("cfsr-x2", { timeout: 60_000 });
+  await expect(page.locator("#segmentationViewSrBtn")).toHaveClass(/active/);
+  await expect.poll(() => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi") as {
+      getCanvasBaseImageInfo?: () => { width: number; height: number; sourceWidth: number; sourceHeight: number } | null;
+      getSegmentationViewSource?: () => string | null;
+      getSegmentationSrPreviewInfo?: () => { mode: string; workingWidth: number; workingHeight: number; visible: boolean } | null;
+      getCanvasViewportTransform?: () => [number, number, number, number, number, number];
+    } | undefined;
+    return {
+      image: api?.getCanvasBaseImageInfo?.() ?? null,
+      viewSource: api?.getSegmentationViewSource?.() ?? null,
+      preview: api?.getSegmentationSrPreviewInfo?.() ?? null,
+      zoom: api?.getCanvasViewportTransform?.()[0] ?? null
+    };
+  })).toMatchObject({
+    image: { width: 800, height: 400, sourceWidth: 800, sourceHeight: 400 },
+    viewSource: "sr-roi",
+    preview: { mode: "cfsr-x2", visible: true },
+    zoom: 2
+  });
+  await expect(page.locator("#segmentationSrResultStatus")).toContainText(/Original .* → CFSR x2 .* · coordinates: Original/);
+  const compareButton = page.locator("#segmentationCompareOriginalBtn");
+  await expect(compareButton).toBeEnabled();
+  const compareBox = await compareButton.boundingBox();
+  expect(compareBox).not.toBeNull();
+  if (!compareBox) return;
+  await page.mouse.move(compareBox.x + (compareBox.width / 2), compareBox.y + (compareBox.height / 2));
+  await page.mouse.down();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSrPreviewInfo?.()?.visible ?? true)).toBe(false);
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSrPreviewInfo?.()?.visible ?? false)).toBe(true);
+  await page.locator("#segmentationFocusSrRoiBtn").click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCanvasViewportTransform?.()[0] ?? null)).toBe(2);
+  await page.locator("#segmentationResetSrRoiBtn").click();
+  await expect(page.locator("#segmentationResetSrRoiBtn")).toBeDisabled();
+  await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("off");
+  await expect(page.locator("#segmentationPreprocessSourceSelect")).toHaveValue("original");
+  await expect(page.locator("#segmentationEdgeSamInputSelect")).toHaveValue("original");
+  await expect(page.locator("#segmentationSuperpixelInputSelect")).toHaveValue("original");
+  await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
+  await expect(page.locator("#segmentationSrRoiStatus")).toHaveText("No ROI selected");
+  await expect(page.locator("#segmentationSrResultStatus")).toHaveText("Select an ROI to enable Super Resolution.");
+  await expect.poll(() => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi");
+    return {
+      roi: api?.getSegmentationSrRoi?.() ?? null,
+      preview: api?.getSegmentationSrPreviewInfo?.() ?? null,
+      viewSource: api?.getSegmentationViewSource?.() ?? null
+    };
+  })).toEqual({ roi: null, preview: null, viewSource: "original" });
+  await page.locator("#resetZoomBtn").click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCanvasViewportTransform?.()[0] ?? 2)).toBeLessThan(2);
+  box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
   await page.locator("#segmentationBrushModeBtn").click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
@@ -123,13 +254,6 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
     } | undefined;
     return api?.getSegmentationSummary?.()?.activeTool ?? null;
   })).toBe("brush");
-
-  const canvas = page.locator('.upper-canvas');
-  const box = await canvas.boundingBox();
-  expect(box).not.toBeNull();
-  if (!box) {
-    return;
-  }
 
   const imagePlacement = {
     scale: Math.min(box.width / 800, box.height / 400) * 0.95,
@@ -210,7 +334,11 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await page.waitForTimeout(100);
 
   await page.locator("#segmentationEraseModeBtn").click();
-  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSummary?.()?.activeTool ?? null)).toBe("erase");
+  await page.mouse.move(imageCenter.x, imageCenter.y - 10);
+  await page.mouse.down();
+  await page.mouse.move(imageCenter.x, imageCenter.y + 10, { steps: 4 });
+  await page.mouse.up();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
       getSegmentationClassAtPoint?: (x: number, y: number) => string | null;
@@ -243,7 +371,10 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   })).toBe("3");
 
   await page.locator("#segmentationEraseModeBtn").click();
-  await page.mouse.click(imageCenter.x, imageCenter.y);
+  await page.mouse.move(imageCenter.x, imageCenter.y - 10);
+  await page.mouse.down();
+  await page.mouse.move(imageCenter.x, imageCenter.y + 10, { steps: 4 });
+  await page.mouse.up();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
       getSegmentationClassAtPoint?: (x: number, y: number) => string | null;

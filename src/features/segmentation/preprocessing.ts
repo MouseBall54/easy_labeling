@@ -1,4 +1,5 @@
-export type SegmentationImageSourceMode = "original" | "processed";
+export type SegmentationImageSourceMode = "original" | "original-processed" | "sr-roi" | "sr-roi-processed";
+export type SegmentationViewSourceMode = "original" | "sr-roi" | "processed";
 
 export type SegmentationPreprocessMode = "original" | "edge" | "edge-blend";
 
