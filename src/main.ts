@@ -57,6 +57,7 @@ interface TestApi {
     encoderRuns: number;
     message: string | null;
   } | null;
+  getSuperResolutionStatus(): import("./features/super-resolution/types.js").SuperResolutionStatus;
   getSegmentationSrRoi(): { x: number; y: number; width: number; height: number } | null;
   getSegmentationSrPreviewInfo(): {
     mode: string;
@@ -210,6 +211,7 @@ function bootstrapBrowserRuntime(): void {
       );
     },
     getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
+    getSuperResolutionStatus: () => runtimeCanvasController.getSuperResolutionStatus(),
     getReviewSummary: () => {
       const imageName = appResult.app.state.session.currentImageFile?.name;
       return {

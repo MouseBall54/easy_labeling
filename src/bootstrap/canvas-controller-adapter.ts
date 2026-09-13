@@ -92,6 +92,8 @@ class LiveCanvasControllerState implements CanvasControllerState {
 
 export interface RuntimeCanvasController extends AppCanvasController {
   raw: FeatureCanvasController;
+  getSuperResolutionStatus(): import("../features/super-resolution/types.js").SuperResolutionStatus;
+  subscribeSuperResolutionStatus(listener: import("../features/super-resolution/types.js").SuperResolutionStatusListener): () => void;
   loadImageSession(input: {
     image: HTMLImageElement;
     detectionYolo: string;
@@ -178,6 +180,14 @@ export function createCanvasControllerAdapter(input: {
   return {
     get raw() {
       return getActiveController();
+    },
+
+    getSuperResolutionStatus() {
+      return superResolutionService.getStatus();
+    },
+
+    subscribeSuperResolutionStatus(listener) {
+      return superResolutionService.subscribeStatus(listener);
     },
 
     connect(deps: CanvasControllerDeps): void {

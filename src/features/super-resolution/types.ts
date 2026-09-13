@@ -1,4 +1,12 @@
 export type SuperResolutionBackend = "webgpu" | "wasm";
+export type SuperResolutionPhase =
+  | "idle"
+  | "loading-model"
+  | "preparing"
+  | "upscaling"
+  | "merging"
+  | "ready"
+  | "error";
 export type SuperResolutionMode =
   | "cfsr-x2"
   | "cfsr-x4"
@@ -26,16 +34,29 @@ export interface SuperResolutionImageResult {
 }
 
 export interface SuperResolutionStatus {
-  phase: "idle" | "loading" | "upscaling" | "ready" | "error";
+  phase: SuperResolutionPhase;
   backend: SuperResolutionBackend | null;
+  mode: SuperResolutionMode | null;
+  modelLabel: string | null;
   imageCacheKey: string | null;
   runs: number;
+  startedAt: number | null;
+  elapsedMs: number;
+  completedUnits: number;
+  totalUnits: number | null;
+  progressPercent: number | null;
+  fallbackOccurred: boolean;
+  fallbackReason: string | null;
+  cacheHit: boolean;
   message: string | null;
 }
+
+export type SuperResolutionStatusListener = (status: SuperResolutionStatus) => void;
 
 export interface SuperResolutionService {
   upscale(input: SuperResolutionImageInput): Promise<SuperResolutionImageResult>;
   clear(): void;
   dispose(): void;
   getStatus(): SuperResolutionStatus;
+  subscribeStatus(listener: SuperResolutionStatusListener): () => void;
 }

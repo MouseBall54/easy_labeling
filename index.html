@@ -128,6 +128,17 @@
                                     <label class="form-label small mb-1" for="segmentationSuperResolutionSelect">AI Enhancement</label>
                                     <select id="segmentationSuperResolutionSelect" class="form-select form-select-sm"><option value="off" selected>Off</option><option value="cfsr-x2">CFSR x2</option><option value="cfsr-x4">CFSR x4</option><option value="tk-r-em-hrsem">tk_r_em hrsem</option><option value="tk-r-em-hrtem">tk_r_em hrtem</option><option value="tk-r-em-lrsem">tk_r_em lrsem</option><option value="tk-r-em-lrtem">tk_r_em lrtem</option></select>
                                 </div>
+                                <div id="segmentationAiProgress" class="segmentation-ai-progress" role="status" aria-live="polite" data-state="idle" hidden>
+                                    <div class="segmentation-ai-progress-heading">
+                                        <span class="segmentation-ai-spinner" aria-hidden="true"></span>
+                                        <span id="segmentationAiProgressStage">Preparing AI enhancement</span>
+                                        <span id="segmentationAiBackendBadge" class="segmentation-ai-backend" hidden></span>
+                                    </div>
+                                    <small id="segmentationAiProgressModel" class="segmentation-ai-progress-model"></small>
+                                    <div class="segmentation-ai-progress-track" role="progressbar" aria-label="AI enhancement progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="segmentationAiProgressBar"></span></div>
+                                    <div class="segmentation-ai-progress-details"><small id="segmentationAiProgressUnits">Starting…</small><small id="segmentationAiElapsed">Elapsed 00:00.0</small></div>
+                                    <small id="segmentationAiFallback" class="segmentation-ai-fallback" hidden></small>
+                                </div>
                             </div>
                             <div id="segmentationPreprocessSettingsGroup" class="segmentation-preprocessing-block segmentation-view-settings" data-view-settings="processed" hidden>
                                 <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Processing mode</label>

@@ -240,7 +240,28 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await expect(page.locator("#segmentationSrModePicker")).toBeVisible();
   await expect(page.locator("#segmentationSrModePicker [data-segmentation-sr-mode]")).toHaveText(["CFSR x2", "CFSR x4", "tk_r_em hrsem", "tk_r_em hrtem", "tk_r_em lrsem", "tk_r_em lrtem"]);
   await page.locator('[data-segmentation-sr-mode="cfsr-x2"]').click();
+  await expect(page.locator("#segmentationAiProgress")).toBeVisible();
+  await expect(page.locator("#segmentationAiProgressModel")).toHaveText("CFSR x2");
+  await expect(page.locator("#segmentationAiProgressStage")).toHaveText(/Loading model|Preparing ROI|Enhancing tiles|Merging tiles|AI enhancement complete/);
+  await expect(page.locator("#segmentationAiElapsed")).toHaveText(/Elapsed \d{2}:\d{2}\.\d/);
+  await expect(page.locator("#segmentationSuperResolutionSelect")).toBeDisabled();
+  await expect(page.locator("#segmentationViewSrBtn")).toBeDisabled();
+  await expect(page.locator("#segmentationResetSrRoiBtn")).toBeDisabled();
+  await expect(page.locator("#segmentationFocusSrRoiBtn")).toBeDisabled();
+  await expect(page.locator("#segmentationCompareOriginalBtn")).toBeDisabled();
   await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("cfsr-x2", { timeout: 60_000 });
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSuperResolutionStatus?.()?.phase ?? null)).toBe("ready");
+  await expect(page.locator("#segmentationAiProgress")).toHaveAttribute("data-state", "ready");
+  await expect(page.locator("#segmentationAiProgressUnits")).toContainText("Completed");
+  await expect(page.locator("#segmentationAiBackendBadge")).toHaveText(/GPU · WebGPU|CPU · WASM/);
+  await expect(page.locator("#segmentationSuperResolutionSelect")).toBeEnabled();
+  await expect(page.locator("#segmentationResetSrRoiBtn")).toBeEnabled();
+  const progressOverflow = await page.locator("#segmentationAiProgress").evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(progressOverflow).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 390, height: 720 });
+  await expect(page.locator("#segmentationAiProgress")).toBeVisible();
+  expect(await page.locator("#segmentationAiProgress").evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.locator("#segmentationViewSrBtn")).toHaveClass(/active/);
   await expect.poll(() => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {

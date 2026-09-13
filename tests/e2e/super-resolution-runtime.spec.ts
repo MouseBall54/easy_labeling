@@ -3,22 +3,38 @@ import { expect, test } from "@playwright/test";
 test("all enhancement models run with the quality-safe backend policy", async ({ page }) => {
   await page.goto("/index.html");
 
+  const webGpuAvailable = await page.evaluate(async () => {
+    const gpu = (navigator as Navigator & {
+      gpu?: { requestAdapter: () => Promise<unknown> };
+    }).gpu;
+    if (!gpu) return false;
+    return (await gpu.requestAdapter()) !== null;
+  });
+
   const results = await page.evaluate(async () => {
-    const run = async (mode: "cfsr-x2" | "cfsr-x4" | "tk-r-em-hrsem" | "tk-r-em-hrtem" | "tk-r-em-lrsem" | "tk-r-em-lrtem", forceWasm = false) => {
+    const run = async (mode: "cfsr-x2" | "cfsr-x4" | "tk-r-em-hrsem" | "tk-r-em-hrtem" | "tk-r-em-lrsem" | "tk-r-em-lrtem", requestedBackend?: "wasm" | "webgpu") => {
       const width = 65;
       const height = 49;
       const rgba = new Uint8ClampedArray(width * height * 4);
       rgba.fill(127);
-      const worker = new Worker(`/workers/super-resolution-worker.js${forceWasm ? "?backend=wasm" : ""}`, { type: "module" });
+      const worker = new Worker(`/workers/super-resolution-worker.js${requestedBackend ? `?backend=${requestedBackend}` : ""}`, { type: "module" });
 
-      return await new Promise<{ ok: boolean; backend: string | null; width?: number; height?: number; error?: string }>((resolve) => {
+      return await new Promise<{ ok: boolean; backend: string | null; width?: number; height?: number; error?: string; phases: string[]; progress: number[]; fallbackOccurred: boolean; fallbackReason: string | null }>((resolve) => {
+        const phases: string[] = [];
+        const progress: number[] = [];
+        let fallbackOccurred = false;
+        let fallbackReason: string | null = null;
         worker.onmessage = (event) => {
           const response = event.data as {
             ok: boolean;
             error?: string;
-            status?: { backend?: string | null };
+            status?: { backend?: string | null; phase?: string; progressPercent?: number | null; fallbackOccurred?: boolean; fallbackReason?: string | null };
             result?: { width: number; height: number };
           };
+          if (response.status?.phase) phases.push(response.status.phase);
+          if (typeof response.status?.progressPercent === "number") progress.push(response.status.progressPercent);
+          fallbackOccurred ||= response.status?.fallbackOccurred === true;
+          fallbackReason = response.status?.fallbackReason ?? fallbackReason;
           if (response.ok && !response.result) return;
           worker.terminate();
           resolve({
@@ -26,12 +42,16 @@ test("all enhancement models run with the quality-safe backend policy", async ({
             backend: response.status?.backend ?? null,
             width: response.result?.width,
             height: response.result?.height,
-            error: response.error
+            error: response.error,
+            phases,
+            progress,
+            fallbackOccurred,
+            fallbackReason
           });
         };
         worker.onerror = (event) => {
           worker.terminate();
-          resolve({ ok: false, backend: null, error: event.message });
+          resolve({ ok: false, backend: null, error: event.message, phases, progress, fallbackOccurred, fallbackReason });
         };
         worker.postMessage({
           id: 1,
@@ -48,7 +68,8 @@ test("all enhancement models run with the quality-safe backend policy", async ({
       await run("tk-r-em-hrtem"),
       await run("tk-r-em-lrsem"),
       await run("tk-r-em-lrtem"),
-      await run("tk-r-em-hrsem", true)
+      await run("tk-r-em-hrsem", "webgpu"),
+      await run("tk-r-em-hrsem", "wasm")
     ];
   });
 
@@ -57,9 +78,29 @@ test("all enhancement models run with the quality-safe backend policy", async ({
     expect(result).toMatchObject({ ok: true, width: expectedSizes[index]?.[0], height: expectedSizes[index]?.[1] });
     expect(["webgpu", "wasm"]).toContain(result.backend);
     expect(result.error).toBeUndefined();
+    expect(result.phases).toEqual(expect.arrayContaining(["loading-model", "preparing", "upscaling", "merging", "ready"]));
+    expect(result.progress).toContain(100);
   });
-  results.slice(2, 6).forEach((result) => expect(result.backend).toBe("wasm"));
-  expect(results[6]).toEqual({ ok: true, backend: "wasm", width: 65, height: 49, error: undefined });
+  results.slice(0, 2).forEach((result) => {
+    if (result.backend === "webgpu") expect(result.fallbackOccurred).toBe(false);
+    if (result.backend === "wasm") {
+      expect(result.fallbackOccurred).toBe(true);
+      expect(result.fallbackReason).toMatch(/WebGPU (initialization|inference) failed/);
+    }
+  });
+  if (webGpuAvailable) {
+    results.slice(0, 2).forEach((result) => {
+      expect(result).toMatchObject({ backend: "webgpu", fallbackOccurred: false, fallbackReason: null });
+    });
+  }
+  results.slice(2, 6).forEach((result) => {
+    expect(result).toMatchObject({ backend: "wasm", fallbackOccurred: false, fallbackReason: null });
+  });
+  const forcedWebGpu = results[6];
+  expect(forcedWebGpu).toMatchObject({ ok: true, width: 65, height: 49, error: undefined });
+  if (forcedWebGpu?.backend === "webgpu") expect(forcedWebGpu.fallbackOccurred).toBe(false);
+  if (forcedWebGpu?.backend === "wasm") expect(forcedWebGpu.fallbackOccurred).toBe(true);
+  expect(results[7]).toMatchObject({ ok: true, backend: "wasm", width: 65, height: 49, error: undefined, fallbackOccurred: false, fallbackReason: null });
 });
 
 test("tk_r_em blended tiling stays close to whole-image WASM output without boundary stripes", async ({ page }) => {

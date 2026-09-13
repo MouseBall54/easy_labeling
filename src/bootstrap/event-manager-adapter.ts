@@ -12,7 +12,7 @@ import { createAutomationController, type AutomationWindow } from "./automation-
 import { saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { getSuperResolutionModelLabel, isSuperResolutionMode } from "../features/super-resolution/model-registry.js";
-import type { SuperResolutionMode } from "../features/super-resolution/types.js";
+import type { SuperResolutionMode, SuperResolutionStatus } from "../features/super-resolution/types.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -1295,6 +1295,77 @@ export function createEventManagerAdapter(input: {
         if (label) label.textContent = mode ? `Creating ${getSuperResolutionModelLabel(mode)}…` : "Choose AI enhancement";
         if (select instanceof HTMLSelectElement) select.disabled = mode !== null;
       };
+      const aiProgress = segmentationDocument?.getElementById("segmentationAiProgress");
+      const aiProgressStage = segmentationDocument?.getElementById("segmentationAiProgressStage");
+      const aiProgressModel = segmentationDocument?.getElementById("segmentationAiProgressModel");
+      const aiBackendBadge = segmentationDocument?.getElementById("segmentationAiBackendBadge");
+      const aiProgressTrack = aiProgress?.querySelector<HTMLElement>("[role='progressbar']");
+      const aiProgressBar = segmentationDocument?.getElementById("segmentationAiProgressBar");
+      const aiProgressUnits = segmentationDocument?.getElementById("segmentationAiProgressUnits");
+      const aiElapsed = segmentationDocument?.getElementById("segmentationAiElapsed");
+      const aiFallback = segmentationDocument?.getElementById("segmentationAiFallback");
+      let latestSuperResolutionStatus = input.canvasController.getSuperResolutionStatus?.() ?? null;
+      const isSuperResolutionBusy = (status: SuperResolutionStatus): boolean => ["loading-model", "preparing", "upscaling", "merging"].includes(status.phase);
+      const formatElapsed = (elapsedMs: number): string => {
+        const totalTenths = Math.floor(Math.max(0, elapsedMs) / 100);
+        const minutes = Math.floor(totalTenths / 600);
+        const seconds = Math.floor((totalTenths % 600) / 10);
+        return `Elapsed ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${totalTenths % 10}`;
+      };
+      const renderSuperResolutionStatus = (status: SuperResolutionStatus): void => {
+        latestSuperResolutionStatus = status;
+        if (!(aiProgress instanceof HTMLElement)) return;
+        const busy = isSuperResolutionBusy(status);
+        aiProgress.hidden = status.phase === "idle";
+        aiProgress.dataset.state = status.phase;
+        aiProgress.toggleAttribute("data-indeterminate", busy && status.progressPercent == null);
+        const stage = status.phase === "loading-model" ? "Loading model"
+          : status.phase === "preparing" ? "Preparing ROI"
+            : status.phase === "upscaling" ? "Enhancing tiles"
+              : status.phase === "merging" ? "Merging tiles"
+                : status.phase === "ready" ? "AI enhancement complete"
+                  : status.phase === "error" ? "AI enhancement failed"
+                    : "AI enhancement";
+        if (aiProgressStage) aiProgressStage.textContent = stage;
+        if (aiProgressModel) aiProgressModel.textContent = status.modelLabel ?? "";
+        if (aiBackendBadge) {
+          aiBackendBadge.textContent = status.backend === "webgpu" ? "GPU · WebGPU" : status.backend === "wasm" ? "CPU · WASM" : "";
+          aiBackendBadge.toggleAttribute("hidden", status.backend == null);
+        }
+        if (aiProgressTrack) {
+          if (status.progressPercent == null) aiProgressTrack.removeAttribute("aria-valuenow");
+          else aiProgressTrack.setAttribute("aria-valuenow", String(status.progressPercent));
+        }
+        if (aiProgressBar) aiProgressBar.style.width = status.progressPercent == null ? "0" : `${status.progressPercent}%`;
+        const unitLabel = status.mode?.startsWith("tk-r-em") ? "patches" : "tiles";
+        if (aiProgressUnits) aiProgressUnits.textContent = status.phase === "ready"
+          ? status.cacheHit ? "Completed · Cached result" : "Completed"
+          : status.totalUnits
+            ? `${status.completedUnits} / ${status.totalUnits} ${unitLabel} · ${status.progressPercent ?? 0}%`
+            : status.message ?? stage;
+        if (aiElapsed) aiElapsed.textContent = formatElapsed(status.elapsedMs);
+        if (aiFallback) {
+          aiFallback.textContent = status.fallbackOccurred
+            ? status.phase === "ready" ? "WebGPU unavailable — completed with CPU / WASM" : "WebGPU unavailable — continuing on CPU / WASM"
+            : "";
+          aiFallback.toggleAttribute("hidden", !status.fallbackOccurred);
+          if (status.fallbackReason) aiFallback.setAttribute("title", status.fallbackReason);
+          else aiFallback.removeAttribute("title");
+        }
+        setSuperResolutionBusy(busy ? status.mode : null);
+        if (viewSrButton instanceof HTMLButtonElement) viewSrButton.disabled = busy;
+        if (selectSrRoiButton instanceof HTMLButtonElement) selectSrRoiButton.disabled = busy;
+        if (resetSrRoiButton instanceof HTMLButtonElement) resetSrRoiButton.disabled = busy || !input.canvasController.raw.getSegmentationSrRoi?.();
+        if (busy && focusSrRoiButton instanceof HTMLButtonElement) focusSrRoiButton.disabled = true;
+        if (busy && compareOriginalButton instanceof HTMLButtonElement) compareOriginalButton.disabled = true;
+      };
+      const unsubscribeSuperResolutionStatus = input.canvasController.subscribeSuperResolutionStatus?.(renderSuperResolutionStatus) ?? (() => undefined);
+      const elapsedWindow = segmentationDocument?.defaultView;
+      const elapsedTimer = elapsedWindow?.setInterval(() => {
+        const status = latestSuperResolutionStatus;
+        if (!status || !status.startedAt || !isSuperResolutionBusy(status) || !aiElapsed) return;
+        aiElapsed.textContent = formatElapsed(Date.now() - status.startedAt);
+      }, 100);
       const applySuperResolutionMode = (select: HTMLSelectElement): void => {
         runAsync(async () => {
           const requestedMode = select.value;
@@ -2613,6 +2684,8 @@ export function createEventManagerAdapter(input: {
         (event as BeforeUnloadEvent).returnValue = "";
       });
       input.windowRef.addEventListener("unload", () => {
+        unsubscribeSuperResolutionStatus();
+        if (elapsedTimer !== undefined) elapsedWindow?.clearInterval(elapsedTimer);
         automationController?.dispose();
       });
 

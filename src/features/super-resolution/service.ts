@@ -2,7 +2,8 @@ import type {
   SuperResolutionImageInput,
   SuperResolutionImageResult,
   SuperResolutionService,
-  SuperResolutionStatus
+  SuperResolutionStatus,
+  SuperResolutionStatusListener
 } from "./types.js";
 import { getSuperResolutionModel } from "./model-registry.js";
 
@@ -31,8 +32,18 @@ interface PendingRequest<T> {
 const initialStatus = (): SuperResolutionStatus => ({
   phase: "idle",
   backend: null,
+  mode: null,
+  modelLabel: null,
   imageCacheKey: null,
   runs: 0,
+  startedAt: null,
+  elapsedMs: 0,
+  completedUnits: 0,
+  totalUnits: null,
+  progressPercent: null,
+  fallbackOccurred: false,
+  fallbackReason: null,
+  cacheHit: false,
   message: null
 });
 
@@ -43,10 +54,27 @@ export function createSuperResolutionService(workerFactory?: () => WorkerLike): 
   ) as unknown as WorkerLike);
   const worker = createWorker();
   const pending = new Map<number, PendingRequest<unknown>>();
-  const cache = new Map<string, SuperResolutionImageResult>();
+  const cache = new Map<string, {
+    result: SuperResolutionImageResult;
+    backend: SuperResolutionStatus["backend"];
+    fallbackOccurred: boolean;
+    fallbackReason: string | null;
+  }>();
+  const listeners = new Set<SuperResolutionStatusListener>();
   let nextId = 0;
   let terminated = false;
   let status = initialStatus();
+
+  const publishStatus = (next: Partial<SuperResolutionStatus>): void => {
+    status = { ...status, ...next };
+    listeners.forEach((listener) => {
+      try {
+        listener({ ...status });
+      } catch {
+        // A presentation listener must not interrupt inference or other subscribers.
+      }
+    });
+  };
 
   const rejectPending = (reason: unknown): void => {
     pending.forEach(({ reject }) => reject(reason));
@@ -55,14 +83,18 @@ export function createSuperResolutionService(workerFactory?: () => WorkerLike): 
 
   worker.onmessage = (event) => {
     const response = event.data;
-    if (response.status) status = { ...status, ...response.status };
+    if (response.status) publishStatus(response.status);
     const request = pending.get(response.id);
     if (!request) return;
     if (response.ok && !response.result) return;
     pending.delete(response.id);
     if (!response.ok || !response.result) {
       const error = new Error(response.error ?? "Super Resolution worker failed");
-      status = { ...status, phase: "error", message: error.message };
+      publishStatus({
+        phase: "error",
+        elapsedMs: status.startedAt ? Date.now() - status.startedAt : status.elapsedMs,
+        message: error.message
+      });
       request.reject(error);
       return;
     }
@@ -73,7 +105,11 @@ export function createSuperResolutionService(workerFactory?: () => WorkerLike): 
   };
   worker.onerror = (event) => {
     const error = new Error(event.message || "Super Resolution worker crashed");
-    status = { ...status, phase: "error", message: error.message };
+    publishStatus({
+      phase: "error",
+      elapsedMs: status.startedAt ? Date.now() - status.startedAt : status.elapsedMs,
+      message: error.message
+    });
     rejectPending(error);
   };
 
@@ -92,27 +128,89 @@ export function createSuperResolutionService(workerFactory?: () => WorkerLike): 
         throw new Error("Super Resolution image dimensions are invalid");
       }
       const cached = cache.get(input.cacheKey);
-      if (cached) return { ...cached, rgba: new Uint8ClampedArray(cached.rgba) };
-      status = { ...status, phase: "upscaling", imageCacheKey: input.cacheKey, message: null };
-      const rgba = new Uint8ClampedArray(input.rgba);
-      const result = await request<SuperResolutionImageResult>("UPSCALE", {
-        image: { ...input, rgba: rgba.buffer }
-      }, [rgba.buffer]);
       const model = getSuperResolutionModel(input.mode);
+      if (cached) {
+        publishStatus({
+          phase: "ready",
+          backend: cached.backend,
+          mode: input.mode,
+          modelLabel: model.label,
+          imageCacheKey: input.cacheKey,
+          startedAt: null,
+          elapsedMs: 0,
+          completedUnits: 1,
+          totalUnits: 1,
+          progressPercent: 100,
+          fallbackOccurred: cached.fallbackOccurred,
+          fallbackReason: cached.fallbackReason,
+          cacheHit: true,
+          message: "Loaded cached AI result"
+        });
+        return { ...cached.result, rgba: new Uint8ClampedArray(cached.result.rgba) };
+      }
+      publishStatus({
+        phase: "preparing",
+        backend: null,
+        mode: input.mode,
+        modelLabel: model.label,
+        imageCacheKey: input.cacheKey,
+        startedAt: Date.now(),
+        elapsedMs: 0,
+        completedUnits: 0,
+        totalUnits: null,
+        progressPercent: null,
+        fallbackOccurred: false,
+        fallbackReason: null,
+        cacheHit: false,
+        message: "Preparing image"
+      });
+      const rgba = new Uint8ClampedArray(input.rgba);
+      let result: SuperResolutionImageResult;
+      try {
+        result = await request<SuperResolutionImageResult>("UPSCALE", {
+          image: { ...input, rgba: rgba.buffer }
+        }, [rgba.buffer]);
+      } catch (error) {
+        publishStatus({
+          phase: "error",
+          elapsedMs: status.startedAt ? Date.now() - status.startedAt : status.elapsedMs,
+          message: error instanceof Error ? error.message : "AI enhancement failed"
+        });
+        throw error;
+      }
       const expectedWidth = input.width * model.outputScale;
       const expectedHeight = input.height * model.outputScale;
       if (result.mode !== input.mode || result.width !== expectedWidth || result.height !== expectedHeight || result.rgba.length !== result.width * result.height * 4) {
-        throw new Error(`Enhancement model ${model.label} produced an unexpected RGBA output`);
+        const error = new Error(`Enhancement model ${model.label} produced an unexpected RGBA output`);
+        publishStatus({
+          phase: "error",
+          elapsedMs: status.startedAt ? Date.now() - status.startedAt : status.elapsedMs,
+          message: error.message
+        });
+        throw error;
       }
       const cachedResult = { ...result, rgba: new Uint8ClampedArray(result.rgba) };
-      cache.set(input.cacheKey, cachedResult);
-      status = { ...status, phase: "ready", imageCacheKey: input.cacheKey, message: null };
+      cache.set(input.cacheKey, {
+        result: cachedResult,
+        backend: status.backend,
+        fallbackOccurred: status.fallbackOccurred,
+        fallbackReason: status.fallbackReason
+      });
+      publishStatus({
+        phase: "ready",
+        imageCacheKey: input.cacheKey,
+        elapsedMs: status.startedAt ? Date.now() - status.startedAt : status.elapsedMs,
+        completedUnits: status.totalUnits ?? status.completedUnits,
+        progressPercent: 100,
+        cacheHit: false,
+        message: "AI enhancement complete"
+      });
       return { ...cachedResult, rgba: new Uint8ClampedArray(cachedResult.rgba) };
     },
 
     clear(): void {
       cache.clear();
-      status = { ...status, imageCacheKey: null, phase: status.phase === "error" ? "error" : "idle" };
+      publishStatus({ ...initialStatus(), runs: status.runs });
     },
 
     dispose(): void {
@@ -121,10 +219,22 @@ export function createSuperResolutionService(workerFactory?: () => WorkerLike): 
       rejectPending(new Error("Super Resolution service disposed"));
       worker.postMessage({ id: 0, operation: "DISPOSE" });
       worker.terminate();
+      publishStatus({ ...initialStatus(), runs: status.runs });
+      listeners.clear();
     },
 
     getStatus(): SuperResolutionStatus {
       return { ...status };
+    },
+
+    subscribeStatus(listener: SuperResolutionStatusListener): () => void {
+      listeners.add(listener);
+      try {
+        listener({ ...status });
+      } catch {
+        // Keep the subscription active so a later status can still be rendered.
+      }
+      return () => listeners.delete(listener);
     }
   };
 }

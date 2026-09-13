@@ -687,7 +687,12 @@ describe("features/segmentation/workflow", () => {
         return { mode: input.mode, width: input.width * scale, height: input.height * scale, rgba: new Uint8ClampedArray(input.width * input.height * scale * scale * 4).fill(144), cacheKey: input.cacheKey };
       }),
       clear: vi.fn(), dispose: vi.fn(),
-      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, runs: 0, message: null })
+      getStatus: () => ({
+        phase: "ready" as const, backend: "wasm" as const, mode: "cfsr-x2" as const, modelLabel: "CFSR x2",
+        imageCacheKey: null, runs: 0, startedAt: null, elapsedMs: 0, completedUnits: 1, totalUnits: 1,
+        progressPercent: 100, fallbackOccurred: false, fallbackReason: null, cacheHit: false, message: null
+      }),
+      subscribeStatus: vi.fn(() => () => undefined)
     };
     const edgeSamService = {
       prepareImage: vi.fn(async () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 0, message: null })),
