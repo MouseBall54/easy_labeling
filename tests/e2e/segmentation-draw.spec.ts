@@ -87,6 +87,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
 
     const imageFolder = new MockDirectoryHandle("images");
     imageFolder.setEntry("scene-a.png", new MockFileHandle("scene-a.png", imageMarkup, "image/svg+xml"));
+    imageFolder.setEntry("scene-b.png", new MockFileHandle("scene-b.png", imageMarkup, "image/svg+xml"));
     const labelFolder = new MockDirectoryHandle("label");
     labelFolder.setEntry("classes.yaml", new MockFileHandle("classes.yaml", "0: Background\n1: Foreground\n3: Detail\n"));
     imageFolder.setEntry("label", labelFolder);
@@ -163,6 +164,8 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
       pickerOpen: document.getElementById("segmentationSrModePicker")?.classList.contains("is-open") ?? false
     };
   })).toEqual({ roi: null, selecting: true, pickerOpen: false });
+  await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveClass(/is-selecting/);
+  await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#segmentationSrModePicker")).toBeHidden();
   const canvas = page.locator('.upper-canvas');
   let box = await canvas.boundingBox();
@@ -173,6 +176,8 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await page.mouse.move(box.x + (box.width / 2) + 32, box.y + (box.height / 2) + 24, { steps: 4 });
   await page.mouse.up();
   await expect(page.locator("#segmentationSrRoiStatus")).not.toHaveText("No ROI selected");
+  await expect(page.locator("#segmentationSelectSrRoiBtn")).not.toHaveClass(/is-selecting/);
+  await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator("#segmentationResetSrRoiBtn")).toBeEnabled();
   const roiRows = await page.evaluate(() => {
     const controls = document.querySelector<HTMLElement>(".segmentation-sr-roi-controls")?.getBoundingClientRect();
@@ -242,6 +247,13 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
       viewSource: api?.getSegmentationViewSource?.() ?? null
     };
   })).toEqual({ roi: null, preview: null, viewSource: "original" });
+  await page.locator("#nextImageBtn").click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("scene-b.png");
+  await expect(page.locator("#segmentationSelectSrRoiBtn")).not.toHaveClass(/is-selecting/);
+  await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#segmentationResetSrRoiBtn")).toBeDisabled();
+  await expect(page.locator("#segmentationSrRoiStatus")).toHaveText("No ROI selected");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSrPreviewInfo?.() ?? null)).toBeNull();
   await page.locator("#resetZoomBtn").click();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCanvasViewportTransform?.()[0] ?? 2)).toBeLessThan(2);
   box = await canvas.boundingBox();

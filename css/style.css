@@ -2318,6 +2318,13 @@ main.canvas-container > .canvas-container {
     margin-top: 7px;
 }
 
+#segmentationSelectSrRoiBtn.is-selecting {
+    color: #fff;
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-primary) 22%, transparent);
+}
+
 .segmentation-sr-roi-summary {
     display: grid;
     gap: 2px;

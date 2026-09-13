@@ -697,6 +697,7 @@ describe("features/segmentation/workflow", () => {
       controller.startSegmentationSrRoiSelection?.({ x: 1, y: 1 });
       controller.continueSegmentationSrRoiSelection?.({ x: 3, y: 3 });
       expect(controller.finishSegmentationSrRoiSelection?.({ x: 3, y: 3 })).toBe(true);
+      expect(controller.isSegmentationSrRoiSelecting?.()).toBe(false);
       expect(controller.getSegmentationSrRoi?.()).toEqual({ x: 1, y: 1, width: 2, height: 2 });
 
       await expect(controller.setSegmentationSuperResolutionMode?.("cfsr-x2")).resolves.toBe(true);
@@ -773,6 +774,17 @@ describe("features/segmentation/workflow", () => {
       expect(controller.canUndo()).toBe(true);
       expect(superResolutionService.clear).toHaveBeenCalledTimes(1);
       expect(controller.resetSegmentationSrRoi?.()).toBe(false);
+
+      expect(controller.beginSegmentationSrRoiSelection?.()).toBe(true);
+      controller.startSegmentationSrRoiSelection?.({ x: 0, y: 0 });
+      controller.continueSegmentationSrRoiSelection?.({ x: 2, y: 2 });
+      expect(controller.finishSegmentationSrRoiSelection?.({ x: 2, y: 2 })).toBe(true);
+      expect(controller.getSegmentationSrRoi?.()).not.toBeNull();
+      controller.setBackgroundImage({ width: 4, height: 4, rgba: sourcePixels } as unknown as CanvasImageSource);
+      expect(controller.getSegmentationSrRoi?.()).toBeNull();
+      expect(controller.isSegmentationSrRoiSelecting?.()).toBe(false);
+      expect(controller.getSegmentationSrPreviewInfo?.()).toBeNull();
+      expect(controller.getSegmentationSuperResolutionMode?.()).toBe("off");
     } finally {
       if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
       else Reflect.deleteProperty(globalThis, "document");

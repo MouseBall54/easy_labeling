@@ -1170,11 +1170,18 @@ export function createEventManagerAdapter(input: {
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
       const focusSrRoiButton = segmentationDocument?.getElementById("segmentationFocusSrRoiBtn");
       const compareOriginalButton = segmentationDocument?.getElementById("segmentationCompareOriginalBtn");
+      const selectSrRoiButton = segmentationDocument?.getElementById("segmentationSelectSrRoiBtn");
       const resetSrRoiButton = segmentationDocument?.getElementById("segmentationResetSrRoiBtn");
       const aiRegionConstraintToggle = segmentationDocument?.getElementById("segmentationAiRegionConstraintToggle");
       const aiRegionConstraintStatus = segmentationDocument?.getElementById("segmentationAiRegionConstraintStatus");
       const aiRegionConstraintSetButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintSetBtn");
       const aiRegionConstraintClearButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintClearBtn");
+      const syncSrRoiSelectionButton = (selecting = input.canvasController.raw.isSegmentationSrRoiSelecting?.() ?? false): void => {
+        const button = segmentationDocument?.getElementById("segmentationSelectSrRoiBtn");
+        if (!button) return;
+        button.classList.toggle("is-selecting", selecting);
+        button.setAttribute("aria-pressed", String(selecting));
+      };
       const syncAiRegionConstraint = (): void => {
         const constraint = input.canvasController.raw.getSegmentationAiRegionConstraint?.();
         if (!constraint) return;
@@ -1245,6 +1252,8 @@ export function createEventManagerAdapter(input: {
             ? "Coordinates: Original · Choose CFSR x2 or x4."
             : "Select an ROI to enable Super Resolution.";
         const hasPreview = preview !== null;
+        const selecting = input.canvasController.raw.isSegmentationSrRoiSelecting?.() ?? false;
+        syncSrRoiSelectionButton(selecting);
         if (focusSrRoiButton instanceof HTMLButtonElement) focusSrRoiButton.disabled = !hasPreview;
         if (resetSrRoiButton instanceof HTMLButtonElement) resetSrRoiButton.disabled = roi === null;
         if (compareOriginalButton instanceof HTMLButtonElement) {
@@ -1317,8 +1326,10 @@ export function createEventManagerAdapter(input: {
         const roi = input.canvasController.raw.getSegmentationSrRoi?.();
         if (!roi) {
           setSuperResolutionPickerVisible(false);
-          input.canvasController.raw.beginSegmentationSrRoiSelection?.();
+          const selecting = input.canvasController.raw.beginSegmentationSrRoiSelection?.() ?? false;
           syncSuperResolutionControls();
+          syncSrRoiSelectionButton(selecting);
+          segmentationDocument?.defaultView?.setTimeout(() => syncSrRoiSelectionButton(), 0);
           return;
         }
         if (mode === "off") {
@@ -1339,7 +1350,10 @@ export function createEventManagerAdapter(input: {
         if (!target) return;
         if (target.id === "segmentationSelectSrRoiBtn") {
           setSuperResolutionPickerVisible(false);
-          input.canvasController.raw.beginSegmentationSrRoiSelection?.();
+          const selecting = input.canvasController.raw.beginSegmentationSrRoiSelection?.() ?? false;
+          syncSuperResolutionControls();
+          syncSrRoiSelectionButton(selecting);
+          segmentationDocument?.defaultView?.setTimeout(() => syncSrRoiSelectionButton(), 0);
           return;
         }
         if (target.id === "segmentationViewSrBtn") {
@@ -1355,6 +1369,11 @@ export function createEventManagerAdapter(input: {
       resetSrRoiButton?.addEventListener("click", () => {
         setSuperResolutionPickerVisible(false);
         input.canvasController.raw.resetSegmentationSrRoi?.();
+        syncSuperResolutionControls();
+        syncSegmentationViewSource();
+      });
+      input.windowRef.addEventListener("easy-labeling:image-change", () => {
+        setSuperResolutionPickerVisible(false);
         syncSuperResolutionControls();
         syncSegmentationViewSource();
       });
