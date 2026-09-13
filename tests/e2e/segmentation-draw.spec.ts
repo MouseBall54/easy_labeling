@@ -133,6 +133,15 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeHidden();
   await expect(page.locator("#segmentationSrRoiGroup")).toBeVisible();
   await expect(page.locator("#segmentationPreprocessingInputs")).toBeVisible();
+  await page.locator("#segmentationViewProcessedBtn").click();
+  await expect(page.locator("#segmentationViewProcessedBtn")).toHaveClass(/active/);
+  await expect(page.locator("#segmentationViewProcessedBtn")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#segmentationSrSettingsGroup")).toBeHidden();
+  await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeVisible();
+  await page.locator("#segmentationViewOriginalBtn").click();
+  await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
+  await expect(page.locator("#segmentationSrSettingsGroup")).toBeHidden();
+  await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeHidden();
   await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText(["Off", "CFSR x2", "CFSR x4", "tk_r_em hrsem", "tk_r_em hrtem", "tk_r_em lrsem", "tk_r_em lrtem"]);
   await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
   await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
