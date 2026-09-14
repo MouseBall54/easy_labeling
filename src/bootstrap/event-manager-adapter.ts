@@ -1345,8 +1345,11 @@ export function createEventManagerAdapter(input: {
             : status.message ?? stage;
         if (aiElapsed) aiElapsed.textContent = formatElapsed(status.elapsedMs);
         if (aiFallback) {
+          const limitUnsupported = status.fallbackReason?.includes("storage buffers per compute stage") ?? false;
           aiFallback.textContent = status.fallbackOccurred
-            ? status.phase === "ready" ? "WebGPU unavailable — completed with CPU / WASM" : "WebGPU unavailable — continuing on CPU / WASM"
+            ? limitUnsupported
+              ? status.phase === "ready" ? "GPU limit unsupported — completed with CPU / WASM" : "GPU limit unsupported — continuing on CPU / WASM"
+              : status.phase === "ready" ? "WebGPU unavailable — completed with CPU / WASM" : "WebGPU unavailable — continuing on CPU / WASM"
             : "";
           aiFallback.toggleAttribute("hidden", !status.fallbackOccurred);
           if (status.fallbackReason) aiFallback.setAttribute("title", status.fallbackReason);

@@ -151,7 +151,7 @@ tk_r_em 모델은 descriptor scale이 1이 되어 변환 없이 저장되고, �
 | 7 | Algorithm Input Source 연결 | 완료 | Canvas View 연동과 도구별 직접 선택 독립성 unit/E2E 검증 |
 | 8 | Original 좌표/Mask 복원 통합 | 완료 | x2/x4 및 scale 1 ROI point/mask unit 검증 |
 | 9 | cache / invalidation 정리 | 완료 | image+ROI+model key와 processed/algorithm 파생 key 사용 |
-| 10 | Backend 품질/WASM/Packaging/Offline | 완료 | 6종 browser runtime, tk_r_em 품질 안전 정책, 타일 경계 회귀, offline URL, Windows ASAR 자산 확인 |
+| 10 | Backend 품질/WASM/Packaging/Offline | 완료 | 6종 browser runtime, tk_r_em WebGPU device-limit 검증, 타일 경계 회귀, offline URL, Windows ASAR 자산 확인 |
 
 ## 10. 필수 검증 체크리스트
 
@@ -181,7 +181,7 @@ tk_r_em 모델은 descriptor scale이 1이 되어 변환 없이 저장되고, �
 
 ## 11. 최종 검증 결과
 
-2026-09-13 기준:
+2026-09-14 기준:
 
 - `npm run test:unit`: 59 files, 365 tests 통과.
 - `npm run typecheck`: 통과.
@@ -189,8 +189,10 @@ tk_r_em 모델은 descriptor scale이 1이 되어 변환 없이 저장되고, �
 - `npm run test:e2e`: Chromium 23개 중 22개 통과. 기존 Review Queue 저장 대기 1건은
   일시적으로 `Saving...`에서 timeout 후 동일 spec 단독 재실행에서 통과.
 - `super-resolution-runtime.spec.ts`: CFSR 2종과 tk_r_em 4종 실제 worker inference 통과.
-  - 현재 검증 장치에서 CFSR은 WebGPU session 생성 후 WASM fallback으로 통과.
-  - tk_r_em 4종은 품질 안전 정책에 따라 WASM으로 실행한다.
+  - Electron 실제 GPU 환경에서 CFSR 2종과 tk_r_em 4종 모두 WebGPU로 실행했다.
+  - tk_r_em은 WebGPU device가 compute stage당 storage buffer 10개를 요청하도록 초기화한다. 지원 한도가 낮은 GPU에서는 원인을 표시하고 WASM으로 fallback한다.
+  - upstream 공개 실험 HR/LR SEM·TEM 패널을 모델별 192×128 입력으로 사용한 tiled WebGPU/WASM 비교 MAE는 `hrsem=0.000041`, `hrtem=0.000041`, `lrsem=0`, `lrtem=0`이고, 최대 차이는 모두 `1` 이하이며 경계 MAE는 `0`이다. 128·256·512px tileSize에서도 네 모델 모두 같은 결과 기준을 통과했다.
+  - 홀수 65×49 GPU 입력은 upstream even padding/crop 후 네 모델 모두 원래 65×49 크기로 복원했고, 동일 Worker session의 반복 실행 결과 차이는 `0`이다. tk_r_em의 50% overlap은 upstream 계약으로 고정되며 separable Butterworth blending을 유지한다.
   - 진단용 `?backend=webgpu`와 강제 `?backend=wasm` 경로를 모두 유지한다.
   - tk_r_em tiled 결과와 whole-image WASM 결과의 MAE는 실제 이미지에서 `0.326`, 합성 회귀 입력에서 `0.5` 미만이다.
   - 실제 이미지의 tile boundary 불연속은 주변 baseline 이하로 확인했다.
@@ -206,13 +208,9 @@ tk_r_em 모델은 descriptor scale이 1이 되어 변환 없이 저장되고, �
 - CFSR metadata의 output symbolic shape는 배율을 표현하지 않으므로 실제 inference tensor 크기로 x2/x4를 검증했다.
 - tk_r_em은 CFSR과 tensor layout이 달라 공통 변환을 강제하지 않고 NHWC grayscale adapter를 추가했다.
 - tk_r_em의 홀수 H/W는 upstream 계약대로 평균값 even padding 후 inference하고 원래 크기로 crop한다.
-- tk_r_em을 WebGPU에서 반복 타일 추론하면 모델 자체와 무관한 수치 불안정으로 가로·세로 줄무늬와
-  격자 잡음이 발생했다. 같은 입력의 whole-image 및 WASM 추론에서는 재현되지 않아 backend와 단순
-  crop-stitch 조합이 원인임을 확인했다. production 기본 backend를 WASM으로 고정하고, upstream 방식의
-  50% overlap 및 separable Butterworth window blending을 적용해 경계 누적 오차를 제거했다.
-- 실제 `640×336` 입력에서 강제 WebGPU tiled 결과의 whole-image WASM 대비 MAE는 `4.616`이었으나,
-  수정된 WASM blended tiled 결과는 `0.326`으로 감소했다. 재현 및 수정 비교 이미지는 각각
-  `output/model-stripe-reproduction.png`, `output/model-stripe-fixed.png`에 기록했다.
+- tk_r_em WebGPU의 줄무늬·격자 잡음은 모델의 NHWC 입출력 또는 stitch 자체 문제가 아니었다. Electron GPU device가 기본 `maxStorageBuffersPerShaderStage=8`로 생성됐지만 tk_r_em `Concat` 커널은 9~10개 buffer를 요구해 WebGPU validation 오류가 발생했다. adapter가 지원하는 10개 limit을 device 요청에 명시하자 tiled WebGPU 결과가 WASM tiled 결과와 최대 1/255 이내로 일치했다.
+- tk_r_em은 이제 WebGPU 우선 정책을 사용한다. adapter가 compute stage당 storage buffer 10개를 지원하지 않으면 해당 사유를 status/UI tooltip에 남기고 WASM fallback한다. 기존 50% overlap 및 separable Butterworth window blending은 유지한다.
+- 검증에는 합성 gradient/checkerboard, 번들 이미지, upstream 공개 실험 HR/LR SEM·TEM 패널을 사용했다. 사용자 데이터가 추가되면 같은 GPU/WASM 비교 기준으로 재검증한다.
 - macOS에서 기본 Windows `afterPack`은 `rcedit` 실행을 위한 Wine이 없으면 실패한다. production 동작은
   유지하면서 자산 패키징 검증 시에만 `EASY_LABELING_SKIP_RCEDIT=1`로 metadata 후처리를 생략할 수 있게 했다.
 - 기존 Automation E2E의 `Control+A`는 macOS Chrome에서 전체 선택으로 동작하지 않았다. OS별로

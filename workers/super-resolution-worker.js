@@ -3,19 +3,22 @@ import * as ort from "../vendor/onnxruntime/ort.all.min.mjs";
 const MODELS = {
   "cfsr-x2": { family: "cfsr", scale: 2, backendPolicy: "webgpu-preferred", url: new URL("../resources/models/sr/cfsr_x2.onnx", self.location.href).toString() },
   "cfsr-x4": { family: "cfsr", scale: 4, backendPolicy: "webgpu-preferred", url: new URL("../resources/models/sr/cfsr_x4.onnx", self.location.href).toString() },
-  "tk-r-em-hrsem": { family: "tk-r-em", scale: 1, backendPolicy: "wasm-quality-safe", url: new URL("../resources/models/sr/sfr_hrsem.onnx", self.location.href).toString() },
-  "tk-r-em-hrtem": { family: "tk-r-em", scale: 1, backendPolicy: "wasm-quality-safe", url: new URL("../resources/models/sr/sfr_hrtem.onnx", self.location.href).toString() },
-  "tk-r-em-lrsem": { family: "tk-r-em", scale: 1, backendPolicy: "wasm-quality-safe", url: new URL("../resources/models/sr/sfr_lrsem.onnx", self.location.href).toString() },
-  "tk-r-em-lrtem": { family: "tk-r-em", scale: 1, backendPolicy: "wasm-quality-safe", url: new URL("../resources/models/sr/sfr_lrtem.onnx", self.location.href).toString() }
+  "tk-r-em-hrsem": { family: "tk-r-em", scale: 1, backendPolicy: "webgpu-preferred", url: new URL("../resources/models/sr/sfr_hrsem.onnx", self.location.href).toString() },
+  "tk-r-em-hrtem": { family: "tk-r-em", scale: 1, backendPolicy: "webgpu-preferred", url: new URL("../resources/models/sr/sfr_hrtem.onnx", self.location.href).toString() },
+  "tk-r-em-lrsem": { family: "tk-r-em", scale: 1, backendPolicy: "webgpu-preferred", url: new URL("../resources/models/sr/sfr_lrsem.onnx", self.location.href).toString() },
+  "tk-r-em-lrtem": { family: "tk-r-em", scale: 1, backendPolicy: "webgpu-preferred", url: new URL("../resources/models/sr/sfr_lrtem.onnx", self.location.href).toString() }
 };
 const DEFAULT_TILE_SIZE = 256;
 const DEFAULT_OVERLAP = 16;
+const TK_WEBGPU_STORAGE_BUFFER_LIMIT = 10;
 const REQUESTED_BACKEND = new URL(self.location.href).searchParams.get("backend");
 
 const sessions = new Map();
 let backend = null;
 let runs = 0;
 let workerQueue = Promise.resolve();
+let webGpuAdapterConfigured = false;
+let webGpuMaxStorageBuffers = null;
 
 function post(id, payload, transfer = []) {
   self.postMessage({ id, ...payload }, transfer);
@@ -46,6 +49,38 @@ function loadArrayBuffer(url, mode) {
     request.onerror = () => reject(new Error(`Unable to load local ${mode} model`));
     request.send();
   });
+}
+
+async function configureWebGpuAdapter(modelSpec) {
+  if (webGpuAdapterConfigured) {
+    if (modelSpec.family === "tk-r-em" && (webGpuMaxStorageBuffers == null || webGpuMaxStorageBuffers < TK_WEBGPU_STORAGE_BUFFER_LIMIT)) {
+      throw new Error(`tk_r_em WebGPU requires ${TK_WEBGPU_STORAGE_BUFFER_LIMIT} storage buffers per compute stage; this GPU supports ${webGpuMaxStorageBuffers ?? "unknown"}`);
+    }
+    return;
+  }
+  if (!self.navigator?.gpu) return;
+  const adapter = await self.navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+  if (!adapter) return;
+  const maxStorageBuffers = adapter.limits?.maxStorageBuffersPerShaderStage;
+  webGpuMaxStorageBuffers = Number.isFinite(maxStorageBuffers) ? maxStorageBuffers : null;
+  if (modelSpec.family === "tk-r-em" && (!Number.isFinite(maxStorageBuffers) || maxStorageBuffers < TK_WEBGPU_STORAGE_BUFFER_LIMIT)) {
+    throw new Error(`tk_r_em WebGPU requires ${TK_WEBGPU_STORAGE_BUFFER_LIMIT} storage buffers per compute stage; this GPU supports ${maxStorageBuffers ?? "unknown"}`);
+  }
+  if (Number.isFinite(maxStorageBuffers) && maxStorageBuffers >= TK_WEBGPU_STORAGE_BUFFER_LIMIT) {
+    const requestDevice = adapter.requestDevice.bind(adapter);
+    ort.env.webgpu.adapter = {
+      limits: adapter.limits,
+      features: adapter.features,
+      requestDevice: (descriptor = {}) => requestDevice({
+        ...descriptor,
+        requiredLimits: {
+          ...descriptor.requiredLimits,
+          maxStorageBuffersPerShaderStage: TK_WEBGPU_STORAGE_BUFFER_LIMIT
+        }
+      })
+    };
+  }
+  webGpuAdapterConfigured = true;
 }
 
 async function ensureSession(mode, id, imageCacheKey, startedAt) {
@@ -104,6 +139,7 @@ async function ensureSession(mode, id, imageCacheKey, startedAt) {
         elapsedMs: Date.now() - startedAt,
         message: "Starting GPU / WebGPU session"
       }) });
+      await configureWebGpuAdapter(modelSpec);
       session = await ort.InferenceSession.create(model, {
         executionProviders: [{ name: "webgpu", preferredLayout: "NCHW" }]
       });

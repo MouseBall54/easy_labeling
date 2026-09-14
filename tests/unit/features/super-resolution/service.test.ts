@@ -104,6 +104,43 @@ describe("super resolution service", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
+  it("preserves a WebGPU fallback reason from the worker", async () => {
+    const worker = createWorker();
+    worker.postMessage.mockImplementation((message: { id: number; operation: string; image?: { cacheKey: string; mode: SuperResolutionMode; width: number; height: number } }) => {
+      if (message.operation !== "UPSCALE" || !message.image) return;
+      const { image } = message;
+      queueMicrotask(() => worker.onmessage?.({
+        data: {
+          id: message.id,
+          ok: true,
+          status: {
+            phase: "ready",
+            backend: "wasm",
+            imageCacheKey: image.cacheKey,
+            fallbackOccurred: true,
+            fallbackReason: "WebGPU initialization failed: GPU limit unsupported"
+          },
+          result: { mode: image.mode, width: image.width, height: image.height, cacheKey: image.cacheKey, rgba: new Uint8ClampedArray(image.width * image.height * 4).buffer }
+        }
+      }));
+    });
+    const service = createSuperResolutionService(() => worker);
+
+    await service.upscale({
+      cacheKey: "image-fallback:sr:tk-r-em-hrsem",
+      mode: "tk-r-em-hrsem",
+      width: 4,
+      height: 3,
+      rgba: new Uint8ClampedArray(4 * 3 * 4)
+    });
+
+    expect(service.getStatus()).toMatchObject({
+      backend: "wasm",
+      fallbackOccurred: true,
+      fallbackReason: "WebGPU initialization failed: GPU limit unsupported"
+    });
+  });
+
   it.each(["tk-r-em-hrsem", "tk-r-em-hrtem", "tk-r-em-lrsem", "tk-r-em-lrtem"] as const)(
     "validates same-size %s restoration results",
     async (mode) => {
