@@ -75,7 +75,6 @@
       "workers/**/*",
       "electron/**/*",
       "resources/**/*",
-      "!resources/models/sr/sfr_hrstem.onnx",
       "package.json"
     ],
     "asarUnpack": [

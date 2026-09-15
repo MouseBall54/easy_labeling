@@ -11,4 +11,3 @@ test-results/
 vendor/
 release/
 .DS_Store
-resources/models/sr/sfr_hrstem.onnx
