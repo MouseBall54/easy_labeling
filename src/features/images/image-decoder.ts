@@ -2,7 +2,7 @@ import { readFileArrayBuffer } from "../../platform/file-system-access.js";
 import type { FileHandleLike } from "../../types/files.js";
 
 interface TiffDecodedCanvas {
-  toDataURL(type?: string): string;
+  toBlob(callback: (blob: Blob | null) => void, type?: string): void;
 }
 
 interface TiffInstanceLike {
@@ -11,7 +11,17 @@ interface TiffInstanceLike {
 
 interface TiffConstructorLike {
   new (input: { buffer: ArrayBuffer }): TiffInstanceLike;
+  initialize?(options: { TOTAL_MEMORY: number }): void;
 }
+
+// tiff.js (Emscripten) defaults to a 16MB heap, which the decoded RGBA raster
+// alone exceeds for anything around 2000x2000+ (width*height*4 bytes),
+// crashing with "offset is out of bounds" regardless of file compression.
+// Raise it once, before the first decode, to a size that comfortably covers
+// large scan/microscopy images.
+// ponytail: fixed 256MB ceiling, not dynamic per-file-size; revisit if TIFFs
+// bigger than roughly 8000x8000 need support.
+const TIFF_DECODER_HEAP_BYTES = 256 * 1024 * 1024;
 
 export interface ImageDecoderUrlRuntime {
   createObjectURL(object: Blob | MediaSource): string;
@@ -36,18 +46,40 @@ async function loadImageElementFromUrl(url: string): Promise<HTMLImageElement> {
   return image;
 }
 
+async function loadImageElementFromBlobSource(
+  toBlob: (callback: (blob: Blob | null) => void, type?: string) => void,
+  urlRuntime: ImageDecoderUrlRuntime
+): Promise<HTMLImageElement> {
+  const blob = await new Promise<Blob | null>((resolve) => toBlob(resolve, "image/png"));
+  if (!blob) {
+    throw new Error("Failed to encode decoded TIFF as a blob");
+  }
+  const objectUrl = urlRuntime.createObjectURL(blob);
+  try {
+    return await loadImageElementFromUrl(objectUrl);
+  } finally {
+    urlRuntime.revokeObjectURL(objectUrl);
+  }
+}
+
 export function createImageDecoder(input: {
   tiffRef: unknown;
   urlRuntime: ImageDecoderUrlRuntime;
 }): (fileHandle: FileHandleLike) => Promise<HTMLImageElement> {
+  let tiffHeapInitialized = false;
+
   return async (fileHandle) => {
     if (/\.(tif|tiff)$/i.test(fileHandle.name)) {
       if (!isTiffConstructor(input.tiffRef)) {
         throw new Error("TIFF decoder is unavailable");
       }
+      if (!tiffHeapInitialized) {
+        input.tiffRef.initialize?.({ TOTAL_MEMORY: TIFF_DECODER_HEAP_BYTES });
+        tiffHeapInitialized = true;
+      }
       const buffer = await readFileArrayBuffer(fileHandle);
       const decoded = new input.tiffRef({ buffer }).toCanvas();
-      return loadImageElementFromUrl(decoded.toDataURL("image/png"));
+      return loadImageElementFromBlobSource((callback, type) => decoded.toBlob(callback, type), input.urlRuntime);
     }
 
     const file = await fileHandle.getFile();
