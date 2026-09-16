@@ -269,6 +269,7 @@
                         <label class="visually-hidden" for="classSearchInput">Search classes</label>
                         <input id="classSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search classes...">
                         <div id="label-filters" class="class-filter-list" data-ui="label-filter-list"></div>
+                        <p id="segmentationClassPanelHint" class="text-muted small mb-2" data-ui="segmentation-class-panel-hint" hidden>Class painting and visibility controls are in the <strong>Mask Inspector</strong> panel on the right.</p>
                         <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-ui="load-class-info-folder"><i class="bi bi-folder-symlink" aria-hidden="true"></i> Load Class Info Folder</button>
                         <div class="input-group input-group-sm mt-2 class-file-select-group" data-ui="class-file-select-group">
                             <select class="form-select" id="class-file-select" aria-label="Class file"><option selected>Choose class file...</option></select>
@@ -304,7 +305,7 @@
                         <input class="form-check-input" type="checkbox" id="autoSaveToggle" data-ui="auto-save-toggle">
                         <span class="form-check-label">Auto save</span>
                     </label>
-                    <button id="saveLabelsBtn" type="button" class="btn btn-success" data-ui="save-labels" title="Save labels (Ctrl+S)"><i class="bi bi-floppy" aria-hidden="true"></i> Save</button>
+                    <button id="saveLabelsBtn" type="button" class="btn btn-primary" data-ui="save-labels" title="Save labels (Ctrl+S)"><i class="bi bi-floppy" aria-hidden="true"></i> Save</button>
                 </div>
             </aside>
 

@@ -27,6 +27,7 @@ import {
   hideLoadingOverlay
 } from "../ui/renderers.js";
 import { applyDarkMode, readStoredDarkMode } from "../ui/theme.js";
+import { createImageThumbnailLoader } from "../ui/image-thumbnails.js";
 import {
   deriveVisibilitySummary,
   normalizeFilterClassKey,
@@ -183,6 +184,9 @@ export function createUiManagerAdapter(input: {
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
   let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
+  const imageThumbnailLoader = createImageThumbnailLoader({
+    resolveFileHandle: (fileName) => input.state.session.imageFiles.find((file) => file.name === fileName)
+  });
 
   const setStatusText = (element: HTMLElement, text: string): void => {
     const textElement = element.querySelector<HTMLElement>("span");
@@ -489,6 +493,14 @@ export function createUiManagerAdapter(input: {
   const syncWorkflowPanels = (): void => {
     const showSegmentationControls = input.state.session.workflow === "segmentation";
     elements.inspectorSubtitle.hidden = showSegmentationControls;
+    // The left "Classes" section's per-class filter list only has meaning
+    // for detection (it's built from Fabric rect objects, see
+    // renderLabelFilters); segmentation's equivalent (paint class picker +
+    // per-class visibility) lives in the Mask Inspector on the right. Point
+    // there instead of showing an empty list with no explanation.
+    elements.classSearchInput.hidden = showSegmentationControls;
+    elements.labelFilters.hidden = showSegmentationControls;
+    elements.segmentationClassPanelHint.hidden = !showSegmentationControls;
     renderWorkflowPanels({
       activeWorkflow: input.state.session.workflow,
       detectionPanelElement: elements.detectionWorkflowPanel,
@@ -837,24 +849,29 @@ export function createUiManagerAdapter(input: {
       }
       elements.imageCountBadge.textContent = String(imageCount);
       const leftPanelTitle = input.documentRef.getElementById("leftPanelTitle");
-      if (activeTask === "preprocessing") {
-        if (leftPanelTitle) leftPanelTitle.textContent = "Image Preprocessing";
-        elements.datasetConnectionStatus.textContent = "";
-        elements.datasetConnectionStatus.hidden = true;
-      } else if (activeTask === "segmentation-display") {
-        if (leftPanelTitle) leftPanelTitle.textContent = "Mask Display";
-        elements.datasetConnectionStatus.textContent = "";
-        elements.datasetConnectionStatus.hidden = true;
-      } else if (activeTask === "superpixel") {
-        if (leftPanelTitle) leftPanelTitle.textContent = "Superpixel Settings";
-        elements.datasetConnectionStatus.textContent = "";
-        elements.datasetConnectionStatus.hidden = true;
-      } else if (activeTask === "detection-display") {
-        if (leftPanelTitle) leftPanelTitle.textContent = "Display Settings";
+      // Preprocess/Display/Superpixel are settings-only panels that get their own
+      // title and hide the dataset subtitle. Files/Annotate/Mask all render the
+      // same dataset-browsing panel, so the title is what tells the user their
+      // click on the rail actually registered. Review reuses that panel's shape
+      // but not its content, so it needs its own title too (see UI/UX audit).
+      const settingsOnlyTaskTitles: Partial<Record<typeof activeTask, string>> = {
+        preprocessing: "Image Preprocessing",
+        "segmentation-display": "Mask Display",
+        superpixel: "Superpixel Settings",
+        "detection-display": "Display Settings",
+        review: "Review"
+      };
+      const browsingTaskTitles: Partial<Record<typeof activeTask, string>> = {
+        annotate: "Annotate",
+        segmentation: "Mask"
+      };
+      const settingsOnlyTitle = settingsOnlyTaskTitles[activeTask];
+      if (settingsOnlyTitle) {
+        if (leftPanelTitle) leftPanelTitle.textContent = settingsOnlyTitle;
         elements.datasetConnectionStatus.textContent = "";
         elements.datasetConnectionStatus.hidden = true;
       } else {
-        if (leftPanelTitle) leftPanelTitle.textContent = "Files & Classes";
+        if (leftPanelTitle) leftPanelTitle.textContent = browsingTaskTitles[activeTask] ?? "Files & Classes";
         elements.datasetConnectionStatus.hidden = false;
         elements.datasetConnectionStatus.textContent = folderName
           ? `${folderName} · ${imageCount} image${imageCount === 1 ? "" : "s"}`
@@ -1183,6 +1200,7 @@ export function createUiManagerAdapter(input: {
           });
         }
       });
+      imageThumbnailLoader.observe(elements.imageList);
       manager.renderReviewPanel();
       manager.syncWorkspaceState();
     },

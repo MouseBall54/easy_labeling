@@ -42,6 +42,7 @@ const REQUIRED_IDS = [
   "editMode",
   "label-list",
   "label-filters",
+  "segmentationClassPanelHint",
   "select-by-class-dropdown",
   "select-by-class-btn",
   "zoomInBtn",

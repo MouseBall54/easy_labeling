@@ -4,6 +4,7 @@ import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
+import { isThumbnailableFileName, THUMBNAIL_SIZE_PX } from "./image-thumbnails.js";
 
 export const CREATE_NEW_CLASS_FILE_VALUE = "__CREATE_NEW__";
 
@@ -140,7 +141,6 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
 
   for (const file of filteredFiles) {
     const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
-    const icon = `<i class="${badge.iconClassName} me-2" data-ui="image-status-badge" data-status="${badge.statusKey}" aria-label="${badge.label}"></i>`;
     const item = document.createElement("a");
     item.href = "#";
     item.className = "list-group-item list-group-item-action d-flex align-items-center image-list-item";
@@ -152,7 +152,28 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     const reviewStatus = input.activeWorkflow === "detection" ? reviewImages[file.name]?.status ?? "needs-review" : "none";
     item.dataset.reviewStatus = reviewStatus;
     item.dataset.reviewSeverity = finding?.highestSeverity ?? "none";
-    item.innerHTML = icon;
+
+    if (isThumbnailableFileName(file.name)) {
+      const thumb = document.createElement("canvas");
+      thumb.className = "image-list-item-thumb";
+      thumb.width = THUMBNAIL_SIZE_PX;
+      thumb.height = THUMBNAIL_SIZE_PX;
+      thumb.dataset.thumbFile = file.name;
+      thumb.dataset.thumbState = "pending";
+      item.appendChild(thumb);
+    } else {
+      const placeholder = document.createElement("i");
+      placeholder.className = "bi bi-file-earmark-image image-list-item-thumb image-list-item-thumb-placeholder";
+      placeholder.setAttribute("aria-hidden", "true");
+      item.appendChild(placeholder);
+    }
+
+    const statusIcon = document.createElement("i");
+    statusIcon.className = `${badge.iconClassName} me-2`;
+    statusIcon.dataset.ui = "image-status-badge";
+    statusIcon.dataset.status = badge.statusKey;
+    statusIcon.setAttribute("aria-label", badge.label);
+    item.appendChild(statusIcon);
 
     const name = document.createElement("span");
     name.className = "image-list-item-name";

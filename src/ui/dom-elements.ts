@@ -44,6 +44,7 @@ export interface UiDomElements {
   editModeBtn: HTMLInputElement;
   labelList: HTMLElement;
   labelFilters: HTMLElement;
+  segmentationClassPanelHint: HTMLElement;
   selectByClassDropdown: HTMLSelectElement;
   selectByClassBtn: HTMLElement;
   zoomInBtn: HTMLElement;
@@ -379,6 +380,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     editModeBtn: requireById<HTMLInputElement>(documentRef, "editMode"),
     labelList: requireById<HTMLElement>(documentRef, "label-list"),
     labelFilters: requireById<HTMLElement>(documentRef, "label-filters"),
+    segmentationClassPanelHint: requireById<HTMLElement>(documentRef, "segmentationClassPanelHint"),
     selectByClassDropdown: requireById<HTMLSelectElement>(documentRef, "select-by-class-dropdown"),
     selectByClassBtn: requireById<HTMLElement>(documentRef, "select-by-class-btn"),
     zoomInBtn: requireById<HTMLElement>(documentRef, "zoomInBtn"),

@@ -83,12 +83,14 @@ describe("ui/renderers", () => {
     expect(imageListElement.children[0]?.dataset.fileName).toBe("img10.jpg");
     expect(imageListElement.children[0]?.dataset.testid).toBe("image-list-item-img10.jpg");
     expect(imageListElement.children[0]?.classList.contains("active")).toBe(true);
-    expect(imageListElement.children[0]?.innerHTML.includes("bi-check-circle-fill")).toBe(true);
     expect(imageListElement.children[0]?.dataset.status).toBe("detection-present");
-    expect(imageListElement.children[0]?.children[0]?.textContent).toBe("img10.jpg");
-    expect(imageListElement.children[0]?.children[1]?.dataset.ui).toBe("image-box-count");
-    expect(imageListElement.children[0]?.children[1]?.textContent).toBe("12");
-    expect(imageListElement.children[0]?.children[1]?.getAttribute("aria-label")).toBe("12 detection boxes");
+    expect(imageListElement.children[0]?.children[0]?.dataset.thumbFile).toBe("img10.jpg");
+    expect(imageListElement.children[0]?.children[1]?.classList.contains("bi-check-circle-fill")).toBe(true);
+    expect(imageListElement.children[0]?.children[1]?.dataset.status).toBe("detection-present");
+    expect(imageListElement.children[0]?.children[2]?.textContent).toBe("img10.jpg");
+    expect(imageListElement.children[0]?.children[3]?.dataset.ui).toBe("image-box-count");
+    expect(imageListElement.children[0]?.children[3]?.textContent).toBe("12");
+    expect(imageListElement.children[0]?.children[3]?.getAttribute("aria-label")).toBe("12 detection boxes");
   });
 
   it("derives segmentation badges from the active workflow", () => {
@@ -115,7 +117,9 @@ describe("ui/renderers", () => {
     });
     expect(segmentationRendered.map((file) => file.name)).toEqual(["img1.jpg"]);
     expect(segmentationListElement.children[0]?.dataset.status).toBe("segmentation-present");
-    expect(segmentationListElement.children[0]?.children).toHaveLength(1);
+    // thumbnail canvas + status icon + name only -- segmentation workflow renders
+    // no detection box-count or review badges.
+    expect(segmentationListElement.children[0]?.children).toHaveLength(3);
     expect(segmentationListElement.children[0]?.dataset.reviewSeverity).toBe("none");
   });
   it("toggles loading overlay show class", () => {

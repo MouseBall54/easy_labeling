@@ -274,6 +274,7 @@ function createElements() {
   return {
     labelList: new FakeElement("div"),
     labelFilters: new FakeElement("div"),
+    segmentationClassPanelHint: new FakeElement("p"),
     selectByClassDropdown: new FakeElement("select"),
     detectionWorkflowPanel: new FakeElement("div"),
     segmentationWorkflowPanel: new FakeElement("div"),
