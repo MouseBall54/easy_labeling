@@ -118,7 +118,7 @@ function encodeLegacyRgbaMaskPng(width: number, height: number, mask: Uint16Arra
 }
 
 describe("domain/annotations/segmentation-codec", () => {
-  it("encodes semantic masks as a single png and defaults UI state without sidecar metadata", () => {
+  it("encodes semantic masks as a single png and defaults UI state without sidecar metadata", async () => {
     const codec = createSegmentationAnnotationCodec();
     const snapshot = {
       width: 2,
@@ -132,11 +132,11 @@ describe("domain/annotations/segmentation-codec", () => {
       brushRadius: 3
     };
 
-    const assets = codec.encode({ imageBaseName: "scene-a", snapshot });
+    const assets = await codec.encode({ imageBaseName: "scene-a", snapshot });
     expect(assets[0]).toMatchObject({ path: "mask/scene-a.png" });
     expect(assets).toHaveLength(1);
 
-    const decoded = codec.decode({
+    const decoded = await codec.decode({
       imageBaseName: "scene-a",
       pngBytes: assets[0]?.content as ArrayBuffer
     });
@@ -151,17 +151,17 @@ describe("domain/annotations/segmentation-codec", () => {
     expect(decoded.data.model.annotationType).toBe("semantic");
     expect(decoded.data.model.annotations.map((annotation) => annotation.classId)).toEqual(["12", "34"]);
 
-    const encodedMask = decodeSegmentationMaskPng(assets[0]?.content as ArrayBuffer);
+    const encodedMask = await decodeSegmentationMaskPng(assets[0]?.content as ArrayBuffer);
     expect(encodedMask.isLegacyRgba).toBe(false);
     expect(encodedMask.mask).toEqual(snapshot.mask);
   });
 
-  it("loads legacy RGBA masks and applies optional legacy sidecar metadata", () => {
+  it("loads legacy RGBA masks (written as an uncompressed 'stored' zlib block, the pre-optimization format) and applies optional legacy sidecar metadata", async () => {
     const codec = createSegmentationAnnotationCodec();
     const mask = new Uint16Array([0, 7, 512, 0]);
     const legacyPng = encodeLegacyRgbaMaskPng(2, 2, mask);
 
-    const decoded = codec.decode({
+    const decoded = await codec.decode({
       imageBaseName: "scene-legacy",
       pngBytes: legacyPng,
       metadataText: JSON.stringify({

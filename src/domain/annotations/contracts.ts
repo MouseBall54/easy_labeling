@@ -30,8 +30,8 @@ export interface AnnotationCodec<
 > {
   readonly workflow: AnnotationWorkflow;
   resolvePaths(imageBaseName: string): AnnotationAssetPathSet;
-  decode(input: TReadInput): TDocument;
-  encode(input: TWriteInput): SerializedAnnotationAsset[];
+  decode(input: TReadInput): TDocument | Promise<TDocument>;
+  encode(input: TWriteInput): SerializedAnnotationAsset[] | Promise<SerializedAnnotationAsset[]>;
 }
 
 export interface WorkflowAnnotationStatus {

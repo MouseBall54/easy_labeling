@@ -6,7 +6,7 @@ import { decodeYoloSegmentation, encodeYoloSegmentation } from "./yolo-segmentat
 
 export type ImportableSegmentationFormat = Exclude<SegmentationExternalFormat, "auto">;
 
-export function importSegmentationAnnotations(input: {
+export async function importSegmentationAnnotations(input: {
   format: ImportableSegmentationFormat;
   imageId: string | number;
   imagePath: string;
@@ -16,10 +16,10 @@ export function importSegmentationAnnotations(input: {
   pngBytes?: ArrayBuffer | Uint8Array;
   metadataText?: string | null;
   classIdByName?: ReadonlyMap<string, string>;
-}): InternalSegmentationAnnotationModel {
+}): Promise<InternalSegmentationAnnotationModel> {
   if (input.format === "png-semantic-mask") {
     if (!input.pngBytes) throw new Error("PNG mask import needs image bytes");
-    const document = createSegmentationAnnotationCodec().decode({
+    const document = await createSegmentationAnnotationCodec().decode({
       imageBaseName: String(input.imageId),
       pngBytes: input.pngBytes,
       metadataText: input.metadataText ?? null
@@ -49,14 +49,14 @@ export function importSegmentationAnnotations(input: {
   });
 }
 
-export function exportSegmentationAnnotations(input: {
+export async function exportSegmentationAnnotations(input: {
   format: ImportableSegmentationFormat;
   model: InternalSegmentationAnnotationModel;
   fileName: string;
-}): { text?: string; pngAssets?: ReturnType<ReturnType<typeof createSegmentationAnnotationCodec>["encode"]> } {
+}): Promise<{ text?: string; pngAssets?: Awaited<ReturnType<ReturnType<typeof createSegmentationAnnotationCodec>["encode"]>> }> {
   if (input.format === "png-semantic-mask") {
     const snapshot = createSemanticSnapshotFromAnnotationModel(input.model);
-    return { pngAssets: createSegmentationAnnotationCodec().encode({ imageBaseName: input.model.imageId, snapshot }) };
+    return { pngAssets: await createSegmentationAnnotationCodec().encode({ imageBaseName: input.model.imageId, snapshot }) };
   }
   if (input.model.annotationType !== "instance") {
     throw new Error(`${input.format} export needs an instance annotation model`);

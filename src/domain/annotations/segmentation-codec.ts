@@ -58,16 +58,6 @@ function computeCrc32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function computeAdler32(data: Uint8Array): number {
-  let a = 1;
-  let b = 0;
-  for (const byte of data) {
-    a = (a + byte) % 65521;
-    b = (b + a) % 65521;
-  }
-  return ((b << 16) | a) >>> 0;
-}
-
 function writeUint32(value: number): Uint8Array {
   return new Uint8Array([
     (value >>> 24) & 0xff,
@@ -83,7 +73,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
+function concatBytes(chunks: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const result = new Uint8Array(totalLength);
   let offset = 0;
@@ -100,28 +90,6 @@ function createChunk(type: string, data: Uint8Array): Uint8Array {
   return concatBytes([writeUint32(data.length), typeBytes, data, writeUint32(crc)]);
 }
 
-function createStoredZlib(data: Uint8Array): Uint8Array {
-  const chunks: Uint8Array[] = [new Uint8Array([0x78, 0x01])];
-  let offset = 0;
-  while (offset < data.length) {
-    const remaining = data.length - offset;
-    const blockLength = Math.min(65535, remaining);
-    const isFinal = offset + blockLength >= data.length;
-    const header = new Uint8Array(5 + blockLength);
-    header[0] = isFinal ? 0x01 : 0x00;
-    header[1] = blockLength & 0xff;
-    header[2] = (blockLength >>> 8) & 0xff;
-    const nlen = (~blockLength) & 0xffff;
-    header[3] = nlen & 0xff;
-    header[4] = (nlen >>> 8) & 0xff;
-    header.set(data.subarray(offset, offset + blockLength), 5);
-    chunks.push(header);
-    offset += blockLength;
-  }
-  chunks.push(writeUint32(computeAdler32(data)));
-  return concatBytes(chunks);
-}
-
 function readUint32(data: Uint8Array, offset: number): number {
   return ((data[offset] ?? 0) << 24) |
     ((data[offset + 1] ?? 0) << 16) |
@@ -129,32 +97,28 @@ function readUint32(data: Uint8Array, offset: number): number {
     (data[offset + 3] ?? 0);
 }
 
-function inflateStoredZlib(data: Uint8Array): Uint8Array {
-  if (data.length < 6) {
-    throw new Error("invalid zlib payload");
-  }
-  let offset = 2;
-  const chunks: Uint8Array[] = [];
-  while (offset < data.length - 4) {
-    const header = data[offset] ?? 0;
-    const finalBlock = (header & 0x01) === 0x01;
-    const blockType = (header >>> 1) & 0x03;
-    if (blockType !== 0) {
-      throw new Error("unsupported png compression block");
-    }
-    const len = (data[offset + 1] ?? 0) | ((data[offset + 2] ?? 0) << 8);
-    const start = offset + 5;
-    const end = start + len;
-    chunks.push(data.subarray(start, end));
-    offset = end;
-    if (finalBlock) {
-      break;
-    }
-  }
-  return concatBytes(chunks);
+// PNG's IDAT payload is a zlib stream (RFC 1950): a 2-byte header, DEFLATE
+// blocks, then an Adler-32 trailer. The "deflate" compression-stream format
+// is exactly that, so we can hand it our raw pixel bytes and get a
+// spec-correct, natively-compressed IDAT body back with no hand-rolled
+// DEFLATE/Adler-32 code. It replaces the old hand-rolled "stored" (i.e.
+// uncompressed) zlib writer, which spent ~400ms per 3072x2048 mask almost
+// entirely in per-byte Adler-32/CRC-32 loops over ~12MB of uncompressed data.
+async function deflateCompress(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-function encodeSemanticMaskPixels16(snapshot: SegmentationDocumentSnapshot): Uint8Array {
+// Real DEFLATE decompression is a strict superset of the old hand-rolled
+// "stored block only" reader, so this transparently reads both mask.png
+// files written by the previous (uncompressed) encoder and ones written by
+// deflateCompress above.
+async function deflateDecompress(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function encodeSemanticMaskPixels16(snapshot: SegmentationDocumentSnapshot): Uint8Array<ArrayBuffer> {
   const rowStride = (snapshot.width * 2) + 1;
   const bytes = new Uint8Array(rowStride * snapshot.height);
   let offset = 0;
@@ -266,7 +230,7 @@ function normalizeMetadata(input: string | null | undefined): SegmentationAnnota
   }
 }
 
-export function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot): Uint8Array {
+export async function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot): Promise<Uint8Array> {
   const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   const ihdr = new Uint8Array(13);
   ihdr.set(writeUint32(snapshot.width), 0);
@@ -277,7 +241,7 @@ export function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot
   ihdr[11] = 0;
   ihdr[12] = 0;
   const pixelBytes = encodeSemanticMaskPixels16(snapshot);
-  const idat = createStoredZlib(pixelBytes);
+  const idat = await deflateCompress(pixelBytes);
   return concatBytes([
     signature,
     createChunk("IHDR", ihdr),
@@ -286,7 +250,7 @@ export function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot
   ]);
 }
 
-export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { width: number; height: number; mask: Uint16Array; isLegacyRgba: boolean } {
+export async function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): Promise<{ width: number; height: number; mask: Uint16Array; isLegacyRgba: boolean }> {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const signature = [137, 80, 78, 71, 13, 10, 26, 10];
   signature.forEach((value, index) => {
@@ -329,7 +293,7 @@ export function decodeSegmentationMaskPng(input: Uint8Array | ArrayBuffer): { wi
   if (compressionMethod !== 0 || filterMethod !== 0 || interlaceMethod !== 0) {
     throw new Error("unsupported segmentation png encoding");
   }
-  const inflated = inflateStoredZlib(concatBytes(idatChunks));
+  const inflated = await deflateDecompress(concatBytes(idatChunks));
   if (colorType === 0 && bitDepth === 16) {
     return {
       width,
@@ -383,9 +347,9 @@ export function createSegmentationAnnotationCodec(): AnnotationCodec<
       return resolveAnnotationAssetPaths("segmentation", imageBaseName);
     },
 
-    decode(input: SegmentationAnnotationReadInput): SegmentationAnnotationDocument {
+    async decode(input: SegmentationAnnotationReadInput): Promise<SegmentationAnnotationDocument> {
       const paths = resolveAnnotationAssetPaths("segmentation", input.imageBaseName);
-      const decoded = decodeSegmentationMaskPng(input.pngBytes);
+      const decoded = await decodeSegmentationMaskPng(input.pngBytes);
       const metadata = decoded.isLegacyRgba
         ? normalizeMetadata(input.metadataText)
         : null;
@@ -418,12 +382,12 @@ export function createSegmentationAnnotationCodec(): AnnotationCodec<
       };
     },
 
-    encode(input: SegmentationAnnotationWriteInput) {
+    async encode(input: SegmentationAnnotationWriteInput) {
       const paths = resolveAnnotationAssetPaths("segmentation", input.imageBaseName);
       return [
         {
           path: paths.primaryFilePath,
-          content: toArrayBuffer(encodeSegmentationMaskPng(input.snapshot))
+          content: toArrayBuffer(await encodeSegmentationMaskPng(input.snapshot))
         }
       ];
     }

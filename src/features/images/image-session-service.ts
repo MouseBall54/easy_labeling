@@ -368,7 +368,7 @@ export function createImageSessionService(
           return;
         }
         try {
-          const model = importSegmentationAnnotations({
+          const model = await importSegmentationAnnotations({
             format: selectedSourceFormat,
             imageId: imageBaseName,
             imagePath: imageName,
@@ -417,7 +417,7 @@ export function createImageSessionService(
           return;
         }
 
-        const document = codec.decode({
+        const document = await codec.decode({
           imageBaseName,
           pngBytes,
           metadataText
@@ -497,7 +497,7 @@ export function createImageSessionService(
 
       const codec = createSegmentationAnnotationCodec();
       const imageBaseName = imageFileNameToBaseName(state.currentImageFile.name);
-      const assets = codec.encode({ imageBaseName, snapshot });
+      const assets = await codec.encode({ imageBaseName, snapshot });
       const maskDirectory = await getSubdirectoryHandle(state.imageFolderHandle, "mask", { create: true });
       for (const asset of assets) {
         const fileName = asset.path.split("/").pop() ?? asset.path;
@@ -518,7 +518,7 @@ export function createImageSessionService(
         const model = state.segmentationAnnotationType === "instance"
           ? createInstanceAnnotationModelFromSnapshot({ imageId: imageBaseName, imagePath: state.currentImageFile.name, snapshot })
           : createSemanticAnnotationModel({ imageId: imageBaseName, imagePath: state.currentImageFile.name, snapshot });
-        const exported = exportSegmentationAnnotations({ format: selectedFormat, model, fileName: state.currentImageFile.name });
+        const exported = await exportSegmentationAnnotations({ format: selectedFormat, model, fileName: state.currentImageFile.name });
         if (!exported.text) throw new Error(`${selectedFormat} did not produce a text annotation file.`);
         const exportPath = resolveSegmentationExportPath(selectedFormat, imageBaseName);
         const pathSegments = exportPath.split("/");

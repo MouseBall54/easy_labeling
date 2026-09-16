@@ -26,11 +26,7 @@ export interface DetectionAnnotationWriteInput {
   imageHeight: number;
 }
 
-export function createDetectionAnnotationCodec(): AnnotationCodec<
-  DetectionAnnotationReadInput,
-  DetectionAnnotationWriteInput,
-  DetectionAnnotationDocument
-> {
+export function createDetectionAnnotationCodec() {
   return {
     workflow: "detection",
 
@@ -56,5 +52,5 @@ export function createDetectionAnnotationCodec(): AnnotationCodec<
         content: serializeRectsToYolo(input.rects, input.imageWidth, input.imageHeight)
       }];
     }
-  };
+  } satisfies AnnotationCodec<DetectionAnnotationReadInput, DetectionAnnotationWriteInput, DetectionAnnotationDocument>;
 }
