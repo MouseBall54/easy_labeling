@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Easy Labeling is a local-first, browser-based image annotation tool (Detection = YOLO bounding boxes, Segmentation = brush-based masks). No backend: it reads/writes an image folder directly via the File System Access API. It also ships as a Windows desktop app via Electron. Default docs/UI language is Korean.
 
+## Versioning
+
+The project uses semantic versioning (`MAJOR.MINOR.PATCH`, e.g. `1.1.1`) tracked in `package.json`'s `version` field (current baseline: `2.0.0`). Bump it with every change that ships to users — patch for fixes, minor for backward-compatible features, major for breaking changes — using `npm version <new-version> --no-git-tag-version` so `package-lock.json` stays in sync. Don't leave the version unchanged across a real code change.
+
 ## Commands
 
 ```bash

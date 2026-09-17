@@ -7,11 +7,14 @@ interface TiffDecodedCanvas {
 
 interface TiffInstanceLike {
   toCanvas(): TiffDecodedCanvas;
+  close?(): void;
+  _filename?: string;
 }
 
 interface TiffConstructorLike {
   new (input: { buffer: ArrayBuffer }): TiffInstanceLike;
   initialize?(options: { TOTAL_MEMORY: number }): void;
+  Module?: { FS?: { unlink(path: string): void } };
 }
 
 // tiff.js (Emscripten) defaults to a 16MB heap, which the decoded RGBA raster
@@ -78,8 +81,20 @@ export function createImageDecoder(input: {
         tiffHeapInitialized = true;
       }
       const buffer = await readFileArrayBuffer(fileHandle);
-      const decoded = new input.tiffRef({ buffer }).toCanvas();
-      return loadImageElementFromBlobSource((callback, type) => decoded.toBlob(callback, type), input.urlRuntime);
+      const tiffInstance = new input.tiffRef({ buffer });
+      try {
+        const decoded = tiffInstance.toCanvas();
+        return await loadImageElementFromBlobSource((callback, type) => decoded.toBlob(callback, type), input.urlRuntime);
+      } finally {
+        // tiff.js keeps one Emscripten Module (fixed-size heap) for the whole
+        // session and never frees the per-file virtual FS entry it creates in
+        // the constructor, so repeated TIFF opens fill the heap until decode
+        // starts failing. Close the handle and unlink the file to reclaim it.
+        tiffInstance.close?.();
+        if (tiffInstance._filename) {
+          try { input.tiffRef.Module?.FS?.unlink(tiffInstance._filename); } catch { /* already gone */ }
+        }
+      }
     }
 
     const file = await fileHandle.getFile();
