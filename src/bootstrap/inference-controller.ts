@@ -39,7 +39,7 @@ export function bindInferenceControls(input: {
     allButton.disabled = !enabled;
     modelInput.disabled = busy;
     modelButton.disabled = busy;
-    for (const id of ["inferenceOnnxModeBtn", "inferenceYoloeModeBtn"]) {
+    for (const id of ["taskInferenceBtn", "taskYoloeBtn"]) {
       const button = documentRef.getElementById(id) as HTMLButtonElement | null;
       if (button) button.disabled = busy || documentRef.getElementById("yoloeInferenceControls")?.dataset.busy === "true";
     }

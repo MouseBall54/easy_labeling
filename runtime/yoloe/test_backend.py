@@ -4,8 +4,9 @@ import unittest
 from unittest.mock import patch
 
 from PIL import Image
+import numpy as np
 
-from backend import Runtime, decode_image, validate_examples
+from backend import Runtime, decode_image, validate_examples, semantic_mask
 
 
 class BackendTest(unittest.TestCase):
@@ -37,6 +38,15 @@ class BackendTest(unittest.TestCase):
                 runtime.prepare({})
         with self.assertRaisesRegex(ValueError, "expired"):
             runtime.infer({"profileId": "stale"})
+
+    def test_masks_preserve_ids_and_high_confidence_wins_overlap(self):
+        masks = np.array([[[1, 1, 0], [0, 0, 0]], [[0, 1, 1], [0, 0, 0]]])
+        rows = [[0, 0, 1, 1, 0.9, 0], [0, 0, 1, 1, 0.4, 1]]
+        result = semantic_mask(masks, rows, [5, 1200], 3, 2)
+        self.assertEqual(result, {"width": 3, "height": 2, "runs": [5, 2, 1200, 1, 0, 3]})
+        self.assertEqual(semantic_mask(None, [], [5], 3, 2)["runs"], [0, 6])
+        with self.assertRaisesRegex(ValueError, "dimensions"):
+            semantic_mask(masks, rows, [5, 1200], 2, 2)
 
 
 if __name__ == "__main__":

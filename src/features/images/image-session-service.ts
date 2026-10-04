@@ -37,6 +37,7 @@ const DEFAULT_CLASS_INFO_YAML = [0, 1, 2, 3, 4]
 export interface ImageSessionServiceState {
   imageFolderHandle: DirectoryHandleLike | null;
   labelFolderHandle: DirectoryHandleLike | null;
+  segmentationLabelFolderHandle?: DirectoryHandleLike | null;
   imageFiles: FileHandleLike[];
   imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
   currentImageFile: FileHandleLike | null;
@@ -232,6 +233,7 @@ export function createImageSessionService(
       state.currentImageFile = null;
       state.currentImage = null;
       state.labelFolderHandle = null;
+      state.segmentationLabelFolderHandle = null;
       state.classFiles = [];
       state.classNames.clear();
 
@@ -274,7 +276,7 @@ export function createImageSessionService(
         const yoloText = await readTextFileByName(state.labelFolderHandle, fileName);
         detectionBoxCounts.set(fileName, parseYoloRows(yoloText, 1, 1).length);
       }));
-      const segmentationAnnotationPaths = await listRelativeFilePaths(state.imageFolderHandle, ["mask"], (fileName) => {
+      const segmentationAnnotationPaths = await listRelativeFilePaths(state.segmentationLabelFolderHandle ?? state.imageFolderHandle, ["mask"], (fileName) => {
         return fileName.endsWith(".png");
       });
 
@@ -338,8 +340,9 @@ export function createImageSessionService(
         return;
       }
 
+      const segmentationRoot = state.segmentationLabelFolderHandle ?? state.imageFolderHandle;
       const codec = createSegmentationAnnotationCodec();
-      const detectedSource = state.segmentationSourceFormat === "auto" ? await inspectSegmentationSource(state.imageFolderHandle) : null;
+      const detectedSource = state.segmentationSourceFormat === "auto" ? await inspectSegmentationSource(segmentationRoot) : null;
       if (state.segmentationSourceFormat === "auto" && detectedSource?.confidence !== "certain") {
         await deps.applyLoadedSegmentationSnapshot(null);
         return;
@@ -355,12 +358,12 @@ export function createImageSessionService(
             : `segmentation/labelme/${imageBaseName}.json`;
         const sourceSegments = sourcePath.split("/");
         const sourceFileName = sourceSegments.pop()!;
-        const sourceDirectory = await getNestedDirectoryHandle(state.imageFolderHandle, sourceSegments);
+        const sourceDirectory = await getNestedDirectoryHandle(segmentationRoot, sourceSegments);
         const fallbackYoloDirectory = selectedSourceFormat === "yolo-segmentation"
-          ? await getNestedDirectoryHandle(state.imageFolderHandle, ["labels"])
+          ? await getNestedDirectoryHandle(segmentationRoot, ["labels"])
           : null;
         const fallbackSourceDirectory = selectedSourceFormat === "coco-segmentation" || selectedSourceFormat === "labelme"
-          ? state.imageFolderHandle
+          ? segmentationRoot
           : null;
         const resolvedSourceDirectory = sourceDirectory ?? fallbackYoloDirectory ?? fallbackSourceDirectory;
         if (!resolvedSourceDirectory) {
@@ -393,7 +396,7 @@ export function createImageSessionService(
         }
       }
       const paths = codec.resolvePaths(imageBaseName);
-      const maskDirectory = await getNestedDirectoryHandle(state.imageFolderHandle, ["mask"]);
+      const maskDirectory = await getNestedDirectoryHandle(segmentationRoot, ["mask"]);
       if (!maskDirectory) {
         await deps.applyLoadedSegmentationSnapshot(null);
         return;
@@ -498,7 +501,8 @@ export function createImageSessionService(
       const codec = createSegmentationAnnotationCodec();
       const imageBaseName = imageFileNameToBaseName(state.currentImageFile.name);
       const assets = await codec.encode({ imageBaseName, snapshot });
-      const maskDirectory = await getSubdirectoryHandle(state.imageFolderHandle, "mask", { create: true });
+      const segmentationRoot = state.segmentationLabelFolderHandle ?? state.imageFolderHandle;
+      const maskDirectory = await getSubdirectoryHandle(segmentationRoot, "mask", { create: true });
       for (const asset of assets) {
         const fileName = asset.path.split("/").pop() ?? asset.path;
         if (typeof asset.content === "string") {
@@ -523,7 +527,7 @@ export function createImageSessionService(
         const exportPath = resolveSegmentationExportPath(selectedFormat, imageBaseName);
         const pathSegments = exportPath.split("/");
         const exportFileName = pathSegments.pop()!;
-        const exportDirectory = await getOrCreateNestedDirectoryHandle(state.imageFolderHandle, pathSegments);
+        const exportDirectory = await getOrCreateNestedDirectoryHandle(segmentationRoot, pathSegments);
         await writeTextFileByName(exportDirectory, exportFileName, exported.text);
         primaryFilePath = exportPath;
       }

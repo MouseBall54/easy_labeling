@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { encodeSegmentationMaskPng, decodeSegmentationMaskPng } from "../dist/domain/annotations/segmentation-codec.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.join(root, "output/yoloe-validation");
@@ -29,18 +30,33 @@ const classes = 'names:\n  5: "person"\n  12: "bus"\n';
 await writeFile(path.join(dataset, "label/classes.yaml"), classes);
 await mkdir(path.join(dataset, "profiles/class-info"), { recursive: true });
 await writeFile(path.join(dataset, "profiles/class-info/classes.yaml"), classes);
+await mkdir(path.join(dataset, "mask"), { recursive: true });
+const originalMasks = new Map();
+for (const name of Object.keys(originals)) {
+  const image = await readFile(path.join(dataset, name.replace(".txt", ".png")));
+  const width = image.readUInt32BE(16), height = image.readUInt32BE(20), mask = new Uint16Array(width * height);
+  for (let y = 30; y < 40; y++) mask.fill(5, y * width + 30, y * width + 40);
+  const bytes = await encodeSegmentationMaskPng({ width, height, mask });
+  originalMasks.set(name.replace(".txt", ".png"), bytes);
+  await writeFile(path.join(dataset, "mask", name.replace(".txt", ".png")), bytes);
+}
 const app = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
   env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset } });
 const evidence = { runtime: status, model: "yoloe-26s-seg", checks: {}, images: [], errors: [] };
 try {
   const page = await app.firstWindow();
+  page.setDefaultTimeout(30_000);
+  const theme = async (dark) => {
+    if (await page.locator("#darkModeToggle").isChecked() !== dark) await page.locator('label[for="darkModeToggle"]').click();
+    await expect.poll(() => page.evaluate(() => document.body.classList.contains("dark-mode"))).toBe(dark);
+    await page.locator("#yoloeOutputBadge").scrollIntoViewIfNeeded();
+  };
   page.on("pageerror", (error) => evidence.errors.push(error.message));
   await page.locator("#selectImageFolderBtn").click();
   await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
   const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.());
   await expect.poll(count).toBe(2);
-  await page.locator("#taskInferenceBtn").click();
-  await page.locator("#inferenceYoloeModeBtn").click();
+  await page.locator("#taskYoloeBtn").click();
   await page.locator("#connectYoloeBtn").click();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await expect(page.locator("#yoloeModelSelect")).toBeEnabled();
@@ -60,8 +76,9 @@ try {
   evidence.preview = preview;
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
   await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
+  await theme(false);
   await page.screenshot({ path: path.join(output, "preview-light.png") });
-  await page.locator('label[for="darkModeToggle"]').click();
+  await theme(true);
   await page.screenshot({ path: path.join(output, "preview-dark.png") });
   await page.locator("#autoSaveToggle").check();
   await page.locator("#runYoloeAllBtn").click();
@@ -89,7 +106,103 @@ try {
   await page.locator("#taskReviewBtn").click();
   await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();
   evidence.checks.review = true;
+  // Repeat through the standalone tab in Segmentation, using temporary example boxes.
+  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator("#prevImageBtn").click();
+  await page.locator("#prevImageBtn").click();
+  await expect.poll(count).toBe(2);
+  await page.locator('label[for="segmentationWorkflowTab"]').click();
+  await page.locator("#taskYoloeBtn").click();
+  await expect(page.locator("#yoloeOutputBadge")).toHaveText("Segmentation · Masks");
+  await expect(page.locator("#taskYoloeBtn")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#previewYoloeBtn")).toBeDisabled();
+  await page.locator("#yoloeProfileName").fill("acceptance_v1");
+  const maskBounds = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationMaskBounds?.());
+  const sourceBounds = await maskBounds();
+  const drawExample = async (id, box) => {
+    await page.locator("#yoloeExampleClass").selectOption(id);
+    await page.locator("#drawYoloeExampleBtn").click();
+    const points = await page.evaluate((box) => {
+      const overlay = document.querySelector("#yoloePreviewCanvas"), bounds = overlay.getBoundingClientRect();
+      const [a, b, c, d, tx, ty] = Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform();
+      return [[box[0], box[1]], [box[2], box[3]]].map(([x, y]) => ({ x: bounds.left + (a * x + c * y + tx) * bounds.width / overlay.width, y: bounds.top + (b * x + d * y + ty) * bounds.height / overlay.height }));
+    }, box);
+    await page.mouse.move(points[0].x, points[0].y); await page.mouse.down();
+    await page.mouse.move(points[1].x, points[1].y, { steps: 6 }); await page.mouse.up();
+  };
+  await drawExample("5", [50, 400, 245, 900]);
+  await drawExample("12", [20, 240, 785, 740]);
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  expect(await maskBounds()).toEqual(sourceBounds);
+  await page.locator("#registerYoloeExamplesBtn").click();
+  await expect(page.locator("#previewYoloeBtn")).toBeEnabled({ timeout: 120_000 });
+  await page.locator("#nextImageBtn").click();
+  const targetSourceBounds = await maskBounds();
+  const maskResponse = page.waitForResponse((response) => response.url().endsWith(":8766/infer"));
+  await page.locator("#previewYoloeBtn").click();
+  const maskPreview = await (await maskResponse).json();
+  expect(maskPreview.mask.width).toBe(810); expect(maskPreview.mask.height).toBe(1080);
+  await expect(page.locator("#yoloePreviewCanvas")).toBeVisible();
+  expect(await maskBounds()).toEqual(targetSourceBounds);
+  await expect(page.locator("#activeOperationPanel")).toBeHidden();
+  await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
+  await theme(true);
+  await page.screenshot({ path: path.join(output, "mask-preview-dark.png") });
+  await theme(false);
+  await page.screenshot({ path: path.join(output, "mask-preview-light.png") });
+  await page.locator("#runYoloeAllBtn").click();
+  await expect(page.locator("#yoloeRunStatus")).toContainText("3 image(s)", { timeout: 120_000 });
+  const maskResults = path.join(dataset, "inference-yoloe-26s-seg-acceptance_v1-masks");
+  const maskMetadata = JSON.parse(await readFile(path.join(maskResults, "inference.json"), "utf8"));
+  expect(maskMetadata).toMatchObject({ workflow: "segmentation", maskFormat: "png-semantic-mask", overlapPolicy: "highest-confidence" });
+  const masks = [];
+  for (const [name, original] of originalMasks) {
+    expect(Buffer.compare(await readFile(path.join(dataset, "mask", name)), Buffer.from(original))).toBe(0);
+    const decoded = await decodeSegmentationMaskPng(await readFile(path.join(maskResults, "mask", name)));
+    const counts = {};
+    for (const id of decoded.mask) counts[id] = (counts[id] ?? 0) + 1;
+    expect(Object.keys(counts).every((id) => [0, 5, 12].includes(Number(id)))).toBe(true);
+    expect(decoded.mask.some((id) => id > 0)).toBe(true);
+    masks.push({ name, width: decoded.width, height: decoded.height, pixelsByClass: counts });
+  }
+  expect(await maskBounds()).not.toEqual(targetSourceBounds);
+  await page.locator("#labelSourceSelect").selectOption("0");
+  await expect.poll(maskBounds).toEqual(targetSourceBounds);
+  await page.locator("#labelSourceSelect").selectOption("1");
+  await expect.poll(maskBounds).not.toEqual(targetSourceBounds);
+  await page.locator("#saveYoloeCurrentBtn").click();
+  await expect(page.locator("#yoloeRunStatus")).toContainText("1 image(s)", { timeout: 60_000 });
+  await expect(page.locator("#labelSourceSelect option")).toHaveCount(2);
+  await page.locator("#refreshDatasetBtn").click();
+  await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+  await expect(page.locator("#imageCountBadge")).toHaveText("3");
+  await expect(page.locator("#labelSourceSelect")).toHaveValue("1");
+  await expect.poll(maskBounds).not.toEqual(targetSourceBounds);
+  const classAt = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationClassAtPoint(10, 200));
+  const previousClass = await classAt();
+  await page.locator("#autoSaveToggle").uncheck();
+  await page.locator('.segmentation-paint-class-button[data-class-id="5"]').click();
+  await page.locator("#segmentationBrushModeBtn").click();
+  const point = await page.evaluate(() => {
+    const bounds = [...document.querySelectorAll(".upper-canvas")].map((canvas) => canvas.getBoundingClientRect()).find((bounds) => bounds.width > 0 && bounds.height > 0);
+    const [a, b, c, d, tx, ty] = Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform();
+    return { x: bounds.left + a * 10 + c * 200 + tx, y: bounds.top + b * 10 + d * 200 + ty };
+  });
+  await page.mouse.move(point.x, point.y); await page.mouse.down();
+  await page.mouse.move(point.x + 4, point.y + 4, { steps: 3 }); await page.mouse.up();
+  await expect.poll(classAt).toBe("5");
+  await page.locator("#undoBtn").click();
+  await expect.poll(classAt).toBe(previousClass);
+  await page.locator("#redoBtn").click();
+  await expect.poll(classAt).toBe("5");
+  await page.locator("#saveLabelsBtn").click();
+  await expect.poll(async () => {
+    const edited = await decodeSegmentationMaskPng(await readFile(path.join(maskResults, "mask/1-target-gray.png")));
+    return edited.mask[200 * edited.width + 10];
+  }).toBe(5);
+  for (const [name, original] of originalMasks) expect(Buffer.compare(await readFile(path.join(dataset, "mask", name)), Buffer.from(original))).toBe(0);
+  evidence.segmentation = { checks: { standaloneTab: true, drawnExamplesPreservedSource: true, previewPreservedSource: true, fullResolutionMasks: true, originalFilesPreserved: true, sourceSwitchAndRefresh: true, stableFolder: true, brushUndoRedoAndSave: true }, masks, metadata: maskMetadata, previewInstances: maskPreview.detections.length };
   expect(evidence.errors).toEqual([]);
   await writeFile(path.join(output, "results.json"), JSON.stringify(evidence, null, 2) + "\n");
-  console.log(JSON.stringify({ checks: evidence.checks, images: evidence.images, gpu: status.gpu }, null, 2));
+  console.log(JSON.stringify({ checks: evidence.checks, images: evidence.images, segmentation: evidence.segmentation, gpu: status.gpu }, null, 2));
 } finally { await app.close(); }

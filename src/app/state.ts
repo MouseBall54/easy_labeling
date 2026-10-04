@@ -25,6 +25,8 @@ export interface ImageDocumentStatus {
 export interface AppSessionState {
   imageFolderHandle: DirectoryHandle | null;
   labelFolderHandle: DirectoryHandle | null;
+  segmentationLabelFolderHandle?: DirectoryHandle | null;
+  segmentationLabelFolders?: DirectoryHandle[];
   labelFolders: DirectoryHandle[];
   classInfoFolderHandle: DirectoryHandle | null;
   imageFiles: FileHandle[];

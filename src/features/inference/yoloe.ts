@@ -1,12 +1,35 @@
 import type { FabricRectLike } from "../canvas/fabric-types.js";
 import type { Detection } from "./yolo.js";
 import { normalizeClassName } from "../../domain/class-files.js";
+import type { WorkflowType } from "../../types/labels.js";
+import type { SegmentationRegionSelection } from "../segmentation/types.js";
 
 export interface VisualExample { classId: number; name: string; box: [number, number, number, number]; }
 export interface YoloeStatus { version: number; cuda: boolean; gpu: string | null; models: string[]; busy: boolean; }
 export interface YoloeProfile {
   id: string; model: string; classes: Record<string, string>; exampleCount: number; referenceSha256: string;
-  gpu: string;
+  gpu: string; workflow: WorkflowType;
+}
+export interface YoloeResult { detections: Detection[]; mask: { width: number; height: number; mask: Uint16Array } | null; }
+
+export function maskRegionExample(region: SegmentationRegionSelection | null, names: ReadonlyMap<string, string>): VisualExample[] {
+  if (!region) throw new Error("Select a mask region in Edit mode, or draw an example box here.");
+  const { left, top, right, bottom } = region.bounds;
+  return [{ classId: Number(region.classId), name: normalizeClassName(names.get(region.classId) ?? `class ${region.classId}`), box: [left, top, right + 1, bottom + 1] }];
+}
+
+export function decodeYoloeMask(value: { width: number; height: number; runs: number[] }): NonNullable<YoloeResult["mask"]> {
+  const { width, height, runs } = value;
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height > 32_000_000 || !Array.isArray(runs) || runs.length % 2) throw new Error("Invalid YOLOE mask dimensions or runs.");
+  const mask = new Uint16Array(width * height);
+  let offset = 0;
+  for (let i = 0; i < runs.length; i += 2) {
+    const id = runs[i]!, count = runs[i + 1]!;
+    if (!Number.isInteger(id) || id < 0 || id > 65535 || !Number.isInteger(count) || count <= 0 || offset + count > mask.length) throw new Error("Invalid YOLOE mask run.");
+    mask.fill(id, offset, offset + count); offset += count;
+  }
+  if (offset !== mask.length) throw new Error("Incomplete YOLOE mask.");
+  return { width, height, mask };
 }
 
 export function selectedVisualExamples(rects: FabricRectLike[], width: number, height: number, names: ReadonlyMap<string, string>): VisualExample[] {
@@ -48,7 +71,8 @@ export async function requestYoloe<T>(path: string, payload?: Record<string, unk
   return value as T;
 }
 
-export async function inferYoloe(image: HTMLImageElement, documentRef: Document, profile: YoloeProfile, confidence: number, iou: number, signal?: AbortSignal): Promise<Detection[]> {
-  const result = await requestYoloe<{ detections: Detection[] }>("infer", { profileId: profile.id, image: imagePng(image, documentRef), confidence, iou }, signal);
-  return result.detections;
+export async function inferYoloe(image: HTMLImageElement, documentRef: Document, profile: YoloeProfile, confidence: number, iou: number, signal?: AbortSignal): Promise<YoloeResult> {
+  const result = await requestYoloe<{ detections: Detection[]; mask?: { width: number; height: number; runs: number[] } }>("infer", { profileId: profile.id, image: imagePng(image, documentRef), confidence, iou }, signal);
+  if (profile.workflow === "segmentation" && !result.mask) throw new Error("YOLOE did not return a segmentation mask. Restart the GPU service.");
+  return { detections: result.detections, mask: result.mask ? decodeYoloeMask(result.mask) : null };
 }

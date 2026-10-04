@@ -2,7 +2,7 @@
   "reference": "cell_0016.png",
   "exampleCount": 3,
   "gpu": "NVIDIA GeForce RTX 2080 SUPER",
-  "workflow": "detection",
+  "workflow": "segmentation",
   "confidence": 0.25,
   "matchIou": 0.5,
   "images": [
@@ -13,7 +13,13 @@
       "tp": 14,
       "fp": 0,
       "fn": 43,
-      "elapsedMs": 27.708600042387843
+      "elapsedMs": 40.2784000034444,
+      "pixels": {
+        "tp": 29282,
+        "fp": 2885,
+        "fn": 48945,
+        "iou": 0.3610070026629845
+      }
     },
     {
       "name": "cell_0035.png",
@@ -22,7 +28,13 @@
       "tp": 5,
       "fp": 0,
       "fn": 75,
-      "elapsedMs": 26.174400001764297
+      "elapsedMs": 33.56319997692481,
+      "pixels": {
+        "tp": 9869,
+        "fp": 957,
+        "fn": 87742,
+        "iou": 0.10012377242106972
+      }
     },
     {
       "name": "cell_0038.png",
@@ -31,7 +43,13 @@
       "tp": 5,
       "fp": 0,
       "fn": 53,
-      "elapsedMs": 23.464800033252686
+      "elapsedMs": 36.73279995564371,
+      "pixels": {
+        "tp": 9730,
+        "fp": 1172,
+        "fn": 59631,
+        "iou": 0.1379496122382431
+      }
     }
   ]
 }

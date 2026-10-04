@@ -21,7 +21,7 @@ import numpy as np
 import torch
 from PIL import Image
 from ultralytics import YOLOE, settings
-from ultralytics.models.yolo.yoloe import YOLOEVPDetectPredictor
+from ultralytics.models.yolo.yoloe import YOLOEVPDetectPredictor, YOLOEVPSegPredictor
 
 settings.update({"sync": False})
 
@@ -77,6 +77,20 @@ def validate_examples(examples, width, height):
     return np.array(boxes, dtype=np.float32), np.array([class_ids.index(i) for i in ids]), class_ids, names
 
 
+def semantic_mask(masks, rows, class_ids, width, height):
+    # The editor stores one class per pixel; higher-confidence instances win overlaps.
+    mask = np.zeros((height, width), dtype=np.uint16)
+    if masks is not None:
+        if masks.shape != (len(rows), height, width):
+            raise ValueError("Model masks do not match the original image dimensions.")
+        for index in sorted(range(len(rows)), key=lambda i: rows[i][4]):
+            mask[masks[index] > 0] = class_ids[int(rows[index][5])]
+    flat = mask.ravel()
+    starts = np.r_[0, np.flatnonzero(flat[1:] != flat[:-1]) + 1]
+    runs = np.column_stack((flat[starts], np.diff(np.r_[starts, flat.size]))).ravel().tolist()
+    return {"width": width, "height": height, "runs": runs}
+
+
 class Runtime:
     def __init__(self):
         self.lock = threading.Lock()
@@ -86,7 +100,7 @@ class Runtime:
 
     def status(self):
         return {**device_status(), "models": [name for name in MODELS if (ROOT / "models" / f"{name}.pt").is_file()],
-                "busy": self.busy, "version": 1}
+                "busy": self.busy, "version": 2}
 
     def prepare(self, payload):
         if not device_status()["cuda"]:
@@ -96,11 +110,17 @@ class Runtime:
             raise ValueError("Model is not prepared. Run npm run yoloe:prepare -- --model " + str(name))
         image = decode_image(payload.get("image"))
         boxes, classes, class_ids, names = validate_examples(payload.get("examples"), image.width, image.height)
-        # Use the detection architecture so masks consume neither compute nor label storage.
-        model = YOLOE(name.replace("-seg", "") + ".yaml").load(str(ROOT / "models" / f"{name}.pt"))
+        workflow = payload.get("workflow", "detection")
+        if workflow not in ("detection", "segmentation"):
+            raise ValueError("Choose Detection or Segmentation.")
+        if workflow == "segmentation" and not all(1 <= i <= 65535 for i in class_ids):
+            raise ValueError("Segmentation class IDs must be 1–65535; 0 is reserved for background.")
+        model_path = str(ROOT / "models" / f"{name}.pt")
+        model = YOLOE(model_path) if workflow == "segmentation" else YOLOE(name.replace("-seg", "") + ".yaml").load(model_path)
         model.predict(image, refer_image=image, visual_prompts={"bboxes": boxes, "cls": classes},
-                      predictor=YOLOEVPDetectPredictor, device=0, imgsz=640, verbose=False, max_det=300)
-        profile = {"id": str(uuid.uuid4()), "model": name, "classIds": class_ids,
+                      predictor=YOLOEVPSegPredictor if workflow == "segmentation" else YOLOEVPDetectPredictor,
+                      device=0, imgsz=640, verbose=False, max_det=300, retina_masks=workflow == "segmentation")
+        profile = {"id": str(uuid.uuid4()), "model": name, "workflow": workflow, "classIds": class_ids,
                    "classes": {str(i): names[i] for i in class_ids}, "exampleCount": len(boxes),
                    "referenceSha256": hashlib.sha256(image.tobytes()).hexdigest()}
         self.model, self.profile = model, profile
@@ -115,11 +135,13 @@ class Runtime:
         image = decode_image(payload.get("image"))
         started = time.perf_counter()
         result = self.model.predict(image, device=0, imgsz=640, conf=confidence, iou=iou,
-                                    max_det=300, verbose=False)[0]
+                                    max_det=300, verbose=False, retina_masks=self.profile["workflow"] == "segmentation")[0]
         rows = result.boxes.data.detach().cpu().tolist()
         detections = [{"classId": self.profile["classIds"][int(row[5])], "confidence": row[4],
                        "left": row[0], "top": row[1], "right": row[2], "bottom": row[3]} for row in rows]
-        return {"detections": detections, "elapsedMs": (time.perf_counter() - started) * 1000,
+        mask = semantic_mask(result.masks.data.cpu().numpy() if result.masks is not None else None,
+                             rows, self.profile["classIds"], image.width, image.height) if self.profile["workflow"] == "segmentation" else None
+        return {"detections": detections, "mask": mask, "elapsedMs": (time.perf_counter() - started) * 1000,
                 "backend": "cuda", "gpu": torch.cuda.get_device_name(0)}
 
 

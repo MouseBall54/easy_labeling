@@ -97,6 +97,9 @@
                 <button id="taskInferenceBtn" type="button" class="task-rail-button" data-task="inference" title="YOLO model inference" aria-label="Inference workspace" aria-pressed="false">
                     <i class="bi bi-cpu" aria-hidden="true"></i><span>Inference</span>
                 </button>
+                <button id="taskYoloeBtn" type="button" class="task-rail-button" data-task="yoloe" title="YOLOE-26 visual prompt inference" aria-label="YOLOE-26 workspace" aria-pressed="false">
+                    <i class="bi bi-bounding-box" aria-hidden="true"></i><span>YOLOE-26</span>
+                </button>
             </div>
             <div class="task-rail-footer">
                 <input class="btn-check" type="checkbox" id="darkModeToggle" data-ui="dark-mode-toggle" autocomplete="off">
@@ -226,10 +229,6 @@
 
                     <section id="detectionInferenceWorkspace" class="panel-section" hidden>
                         <div class="section-heading-row"><h3>YOLO Inference</h3><span id="inferenceBackendBadge" class="status-badge" role="status" title="Load an ONNX model to determine the inference device.">No model</span></div>
-                        <div class="segmented-control mt-2" role="group" aria-label="Inference engine">
-                            <button id="inferenceOnnxModeBtn" type="button" class="btn active" aria-pressed="true">ONNX</button>
-                            <button id="inferenceYoloeModeBtn" type="button" class="btn" aria-pressed="false">YOLOE-26</button>
-                        </div>
                         <div id="onnxInferenceControls">
                         <label class="form-label small mt-2" for="inferenceModelInput">Detection model (.onnx)</label>
                         <input id="inferenceModelInput" type="file" accept=".onnx" hidden>
@@ -248,14 +247,23 @@
                         <div class="d-grid gap-2 mt-2"><button id="runInferenceCurrentBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Infer current image</button><button id="runInferenceAllBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Infer all images</button></div>
                         <p id="inferenceRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
                         </div>
-                        <div id="yoloeInferenceControls" hidden>
+                    </section>
+                    <section id="yoloeInferenceControls" class="panel-section" hidden>
+                            <div class="section-heading-row"><h3>YOLOE-26</h3><span id="yoloeOutputBadge" class="status-badge">Detection · Boxes</span></div>
                             <div class="section-heading-row mt-2"><span id="yoloeBackendBadge" class="status-badge" role="status">Disconnected</span><button id="connectYoloeBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plug" aria-hidden="true"></i> Connect GPU</button></div>
                             <p id="yoloeConnectionStatus" class="small text-muted mt-2" role="status" hidden></p>
                             <label class="form-label small mt-2" for="yoloeModelSelect">YOLOE-26 model</label>
                             <select id="yoloeModelSelect" class="form-select form-select-sm" disabled><option value="">Connect GPU first</option></select>
                             <label class="form-label small mt-2" for="yoloeProfileName">Target set</label>
                             <input id="yoloeProfileName" class="form-control form-control-sm" value="targets" maxlength="64" title="Results use the model name and this target set name. Use a new name for a different target set.">
-                            <button id="registerYoloeExamplesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled title="In Edit mode, select example boxes on one image. Their classes are used as targets."><i class="bi bi-bounding-box" aria-hidden="true"></i> Register selected boxes</button>
+                            <label class="form-label small mt-2" for="yoloeExampleClass">Example class</label>
+                            <select id="yoloeExampleClass" class="form-select form-select-sm" aria-label="Example class"></select>
+                            <div class="d-grid gap-2 mt-2">
+                                <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-bounding-box" aria-hidden="true"></i> Draw example box</button>
+                                <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Use selected labels</button>
+                                <button id="registerYoloeExamplesBtn" type="button" class="btn btn-primary btn-sm" disabled>Register examples</button>
+                                <button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear examples</button>
+                            </div>
                             <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
                             <div class="row g-2 mt-1">
                                 <div class="col-6"><label class="form-label small" for="yoloeConfidenceInput">Confidence</label><input id="yoloeConfidenceInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.25"></div>
@@ -273,7 +281,6 @@
                                 <div class="yoloe-setup-commands small mt-2"><code>npm run yoloe:setup</code><code>npm run yoloe:prepare</code><code>npm run yoloe:start</code></div>
                                 <a class="small" href="docs/YOLOE26_GPU_KO.md" target="_blank" rel="noopener">Setup &amp; usage guide</a>
                             </details>
-                        </div>
                     </section>
 
                     <section class="dataset-actions" data-ui="folder-actions">

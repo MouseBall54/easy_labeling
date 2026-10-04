@@ -1,27 +1,82 @@
 import { expect, test } from "@playwright/test";
 
+test("standalone YOLOE tab draws independent prompts, previews and saves semantic masks in Segmentation", async ({ page }) => {
+  test.setTimeout(90_000);
+  let prepared: Record<string, unknown> | null = null;
+  await page.route("http://127.0.0.1:8766/**", (route) => {
+    if (route.request().url().endsWith("/status")) return route.fulfill({ json: { version: 2, cuda: true, gpu: "Test GPU", models: ["yoloe-26s-seg"] } });
+    const data = route.request().postDataJSON();
+    if (route.request().url().endsWith("/prepare")) {
+      prepared = data;
+      return route.fulfill({ json: { id: "mask-profile", model: "yoloe-26s-seg", workflow: "segmentation", classes: { "1": "Dark / Black" }, exampleCount: 1, referenceSha256: "reference", gpu: "Test GPU" } });
+    }
+    const image = Buffer.from(data.image.split(",")[1], "base64"), width = image.readUInt32BE(16), height = image.readUInt32BE(20);
+    return route.fulfill({ json: { detections: [{ classId: 1, confidence: 0.9, left: 1, top: 1, right: 11, bottom: 2 }], mask: { width, height, runs: [0, width + 1, 1, 10, 0, width * height - width - 11] } } });
+  });
+  await page.goto("/index.html");
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+  await page.locator("#taskYoloeBtn").click();
+  await page.locator('label[for="segmentationWorkflowTab"]').click();
+  await expect(page.locator("#taskYoloeBtn")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#leftPanelTitle")).toHaveText("YOLOE-26");
+  await expect(page.locator("#yoloeOutputBadge")).toHaveText("Segmentation · Masks");
+  await expect(page.locator("#taskInferenceBtn")).toBeHidden();
+  await expect(page.locator('#yoloeExampleClass option[value="0"]')).toHaveCount(0);
+  await page.locator("#connectYoloeBtn").click();
+  const bounds = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationMaskBounds?.());
+  const before = await bounds();
+  await page.locator("#yoloeExampleClass").selectOption("1");
+  await page.locator("#drawYoloeExampleBtn").click();
+  const points = await page.evaluate(() => {
+    const overlay = document.querySelector<HTMLCanvasElement>("#yoloePreviewCanvas")!, rect = overlay.getBoundingClientRect();
+    const [a, b, c, d, tx, ty] = Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform();
+    return [[20, 20], [60, 60]].map(([x, y]) => ({ x: rect.left + (a * x! + c * y! + tx) * rect.width / overlay.width, y: rect.top + (b * x! + d * y! + ty) * rect.height / overlay.height }));
+  });
+  await page.mouse.move(points[0]!.x, points[0]!.y); await page.mouse.down();
+  await page.mouse.move(points[1]!.x, points[1]!.y, { steps: 4 }); await page.mouse.up();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  expect(await bounds()).toEqual(before);
+  await page.locator("#registerYoloeExamplesBtn").click();
+  await expect(page.locator("#previewYoloeBtn")).toBeEnabled();
+  expect(prepared).toMatchObject({ workflow: "segmentation", examples: [{ classId: 1 }] });
+  await page.locator("#previewYoloeBtn").click();
+  await expect(page.locator("#yoloeRunStatus")).toContainText("1 mask instance(s)");
+  expect(await bounds()).toEqual(before);
+  await page.locator("#saveYoloeCurrentBtn").click();
+  await expect(page.locator("#yoloeRunStatus")).toContainText("-targets-masks");
+  await expect.poll(bounds).toMatchObject({ left: 1, top: 1, right: 10, bottom: 1 });
+  await page.locator("#labelSourceSelect").selectOption("0");
+  await expect.poll(bounds).toEqual(before);
+  await page.locator('label[for="detectionWorkflowTab"]').click();
+  await expect(page.locator("#taskYoloeBtn")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#yoloeOutputBadge")).toHaveText("Detection · Boxes");
+  await expect(page.locator("#previewYoloeBtn")).toBeDisabled();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(0);
+  await expect(page.locator("#labelSourceSelect option")).toHaveCount(1);
+});
+
 test("YOLOE UI reports missing service, missing GPU and unprepared models", async ({ page }) => {
   await page.route("http://127.0.0.1:8766/**", (route) => route.abort());
   await page.goto("/index.html");
-  await page.locator("#taskInferenceBtn").click();
-  await page.locator("#inferenceYoloeModeBtn").click();
+  await page.locator("#taskYoloeBtn").click();
   await expect(page.locator("#onnxInferenceControls")).toBeHidden();
   await page.locator("#connectYoloeBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("npm run yoloe:start");
   await expect(page.locator("#previewYoloeBtn")).toBeDisabled();
   await page.unroute("http://127.0.0.1:8766/**");
-  await page.route("http://127.0.0.1:8766/**", (route) => route.fulfill({ json: { version: 1, cuda: false, gpu: null, models: [], busy: false } }));
+  await page.route("http://127.0.0.1:8766/**", (route) => route.fulfill({ json: { version: 2, cuda: false, gpu: null, models: [], busy: false } }));
   await page.locator("#connectYoloeBtn").click();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU unavailable");
   await expect(page.locator("#registerYoloeExamplesBtn")).toBeDisabled();
   await page.unroute("http://127.0.0.1:8766/**");
-  await page.route("http://127.0.0.1:8766/**", (route) => route.fulfill({ json: { version: 1, cuda: true, gpu: "Test GPU", models: [], busy: false } }));
+  await page.route("http://127.0.0.1:8766/**", (route) => route.fulfill({ json: { version: 2, cuda: true, gpu: "Test GPU", models: [], busy: false } }));
   await page.locator("#connectYoloeBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("npm run yoloe:prepare");
   await expect(page.locator("#registerYoloeExamplesBtn")).toBeDisabled();
-  await page.locator("#inferenceOnnxModeBtn").click();
+  await page.locator("#taskInferenceBtn").click();
   await expect(page.locator("#selectInferenceModelBtn")).toBeVisible();
-  await page.locator("#inferenceYoloeModeBtn").click();
+  await page.locator("#taskYoloeBtn").click();
   await page.unroute("http://127.0.0.1:8766/**");
   await page.route("http://127.0.0.1:8766/status", async (route) => { await new Promise((resolve) => setTimeout(resolve, 1500)); await route.abort(); });
   await page.locator("#connectYoloeBtn").click();
@@ -38,8 +93,8 @@ test("YOLOE visual targets preview without mutation, save mapped classes, cancel
     const url = route.request().url();
     const request = route.request().method() === "POST" ? route.request().postDataJSON() : {};
     requests.push(request);
-    if (url.endsWith("/status")) return route.fulfill({ json: { version: 1, cuda: true, gpu: "Test GPU", models: ["yoloe-26s-seg"], busy: false } });
-    if (url.endsWith("/prepare")) return route.fulfill({ json: { id: "profile-1", model: "yoloe-26s-seg", classes: { "0": "Light / White" }, exampleCount: 1, referenceSha256: "reference", gpu: "Test GPU" } });
+    if (url.endsWith("/status")) return route.fulfill({ json: { version: 2, cuda: true, gpu: "Test GPU", models: ["yoloe-26s-seg"], busy: false } });
+    if (url.endsWith("/prepare")) return route.fulfill({ json: { id: "profile-1", model: "yoloe-26s-seg", classes: { "0": "Light / White" }, exampleCount: 1, referenceSha256: "reference", gpu: "Test GPU", workflow: "detection" } });
     return route.fulfill({ json: { detections: [{ classId: 0, confidence: 0.9, left: 20, top: 20, right: 80, bottom: 80 }] } });
   });
   await page.goto("/index.html");
@@ -47,8 +102,7 @@ test("YOLOE visual targets preview without mutation, save mapped classes, cancel
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? -1);
   await expect.poll(count).toBe(52);
-  await page.locator("#taskInferenceBtn").click();
-  await page.locator("#inferenceYoloeModeBtn").click();
+  await page.locator("#taskYoloeBtn").click();
   await page.locator("#connectYoloeBtn").click();
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0]));
   await page.locator("#registerYoloeExamplesBtn").click();

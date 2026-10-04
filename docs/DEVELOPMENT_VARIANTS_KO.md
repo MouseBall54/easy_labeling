@@ -5,7 +5,7 @@
 | 버전 | 브랜치 | 추론 및 셋업 |
 |---|---|---|
 | 일반 버전 | `main` | 기존 ONNX 추론. WebGPU 우선, CPU/WASM 자동 전환. Python·PyTorch·CUDA 셋업 불필요. |
-| YOLOE-26 GPU 버전 | `codex/yoloe26-gpu` | 시각 프롬프트 추론을 제공하는 개발 브랜치. 로컬 Python·PyTorch·CUDA·YOLOE 모델 셋업을 별도로 준비. [셋업·사용법](YOLOE26_GPU_KO.md) |
+| YOLOE-26 GPU 버전 | `codex/yoloe26-gpu` | 독립 YOLOE-26 탭의 시각 프롬프트 Detection 박스·Segmentation 마스크 추론. 로컬 Python·PyTorch·CUDA·YOLOE 모델 셋업을 별도로 준비. [셋업·사용법](YOLOE26_GPU_KO.md) |
 
 GPU 브랜치는 일반 버전 기준 커밋 `0028c4e`에서 시작합니다. 이 기준 커밋에는 YOLOE 추론이나 추가 셋업이 없으며, GPU 브랜치에서 전용 UI와 추론 서비스를 추가합니다.
 

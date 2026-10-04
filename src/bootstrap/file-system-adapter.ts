@@ -39,6 +39,9 @@ import {
   markImageDocumentsClean
 } from "../app/document-status.js";
 import { loadSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
+import { writeBinaryFileByName } from "../platform/file-system-access.js";
+import type { YoloeResult } from "../features/inference/yoloe.js";
 
 class LiveImageSessionState implements ImageSessionServiceState {
   constructor(private readonly appState: AppState) {}
@@ -53,6 +56,14 @@ class LiveImageSessionState implements ImageSessionServiceState {
 
   get labelFolderHandle() {
     return this.appState.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
+  }
+
+  get segmentationLabelFolderHandle() {
+    return this.appState.session.segmentationLabelFolderHandle as unknown as DirectoryHandleLike | null;
+  }
+
+  set segmentationLabelFolderHandle(value) {
+    this.appState.session.segmentationLabelFolderHandle = value as unknown as FileSystemDirectoryHandle | null;
   }
 
   set labelFolderHandle(value) {
@@ -170,6 +181,10 @@ export interface RuntimeFileSystem extends FileSystem {
   loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   selectLabelFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   switchLabelFolder(index: number): Promise<void>;
+  runSegmentationInference(options: {
+    allImages: boolean; modelName: string; classNames: ReadonlyMap<string, string>; metadata: Record<string, unknown>;
+    infer(image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult>;
+  }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   runDetectionInference(options: {
     allImages: boolean;
     modelName: string;
@@ -227,6 +242,9 @@ export function createFileSystemAdapter(input: {
     imageFolderHandle: input.state.session.imageFolderHandle,
     labelFolderHandle: input.state.session.labelFolderHandle,
     labelFolders: [...input.state.session.labelFolders],
+    segmentationLabelFolderHandle: input.state.session.segmentationLabelFolderHandle,
+    segmentationLabelFolders: [...(input.state.session.segmentationLabelFolders ?? [])],
+    segmentationSourceFormat: input.state.session.segmentationSourceFormat,
     classInfoFolderHandle: input.state.session.classInfoFolderHandle,
     imageFiles: [...input.state.session.imageFiles],
     classFiles: [...input.state.session.classFiles],
@@ -250,6 +268,9 @@ export function createFileSystemAdapter(input: {
     input.state.session.imageFolderHandle = snapshot.imageFolderHandle;
     input.state.session.labelFolderHandle = snapshot.labelFolderHandle;
     input.state.session.labelFolders = snapshot.labelFolders;
+    input.state.session.segmentationLabelFolderHandle = snapshot.segmentationLabelFolderHandle;
+    input.state.session.segmentationLabelFolders = snapshot.segmentationLabelFolders;
+    input.state.session.segmentationSourceFormat = snapshot.segmentationSourceFormat;
     input.state.session.classInfoFolderHandle = snapshot.classInfoFolderHandle;
     input.state.session.imageFiles = snapshot.imageFiles;
     input.state.session.classFiles = snapshot.classFiles;
@@ -371,7 +392,10 @@ export function createFileSystemAdapter(input: {
   const refreshClassFileStateFromAvailableFolder = async (
     operation: RuntimeOperationHandle | null = null
   ): Promise<void> => {
-    const classFolder = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
+    const session = input.state.session;
+    const annotationFolder = session.workflow === "segmentation" && session.segmentationLabelFolderHandle !== session.imageFolderHandle
+      ? session.segmentationLabelFolderHandle ?? session.labelFolderHandle : session.labelFolderHandle;
+    const classFolder = (session.classInfoFolderHandle ?? annotationFolder) as DirectoryHandleLike | null;
     const previousSelectionName = input.state.session.selectedClassFile?.name ?? null;
 
     if (!classFolder) {
@@ -483,7 +507,10 @@ export function createFileSystemAdapter(input: {
   const activateLabelFolder = async (folder: FileSystemDirectoryHandle, operation: RuntimeOperationHandle | null): Promise<void> => {
     const snapshot = captureSessionSnapshot();
     try {
-      input.state.session.labelFolderHandle = folder;
+      if (input.state.session.workflow === "segmentation") {
+        input.state.session.segmentationLabelFolderHandle = folder;
+        input.state.session.segmentationSourceFormat = "auto";
+      } else input.state.session.labelFolderHandle = folder;
       operation?.update({ detail: `Loading ${folder.name}` });
       await imageSessionService.refreshImageWorkflowStatus();
       await loadReviewState();
@@ -570,6 +597,7 @@ export function createFileSystemAdapter(input: {
     reportProgress?.("images", "loading", "Scanning images and annotations");
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
     input.state.session.labelFolders = input.state.session.labelFolderHandle ? [input.state.session.labelFolderHandle] : [];
+    input.state.session.segmentationLabelFolders = [imageFolderHandle as unknown as FileSystemDirectoryHandle];
     input.state.session.segmentationToolPresets = await loadSegmentationToolPresets(imageFolderHandle);
     throwIfOperationCancelled(operation?.signal);
     await loadReviewState();
@@ -669,8 +697,10 @@ export function createFileSystemAdapter(input: {
             reportProgress?.("labels", "loading", "Checking the label workspace");
             reportProgress?.("images", "loading", "Scanning images and annotations");
             const refreshLabelFolder = input.state.session.labelFolderHandle;
+            const refreshSegmentationFolder = input.state.session.segmentationLabelFolderHandle;
             await saveBeforeLabelSwitch();
             const labelSelection = await imageSessionService.selectImageFolder(folder);
+            input.state.session.segmentationLabelFolderHandle = refreshSegmentationFolder;
             // Dataset refresh preserves the selected label source, including inference results.
             if (input.state.session.labelFolders.length && refreshLabelFolder) {
               input.state.session.labelFolderHandle = refreshLabelFolder;
@@ -766,7 +796,8 @@ export function createFileSystemAdapter(input: {
             const folder = await (selectedFolder ?? picker({ mode: "readwrite" }));
             throwIfOperationCancelled(operation?.signal);
             await saveBeforeLabelSwitch();
-            if (!input.state.session.labelFolders.includes(folder)) input.state.session.labelFolders.push(folder);
+            const sources = input.state.session.workflow === "segmentation" ? (input.state.session.segmentationLabelFolders ??= []) : input.state.session.labelFolders;
+            if (!sources.includes(folder)) sources.push(folder);
             await activateLabelFolder(folder, operation);
           });
         });
@@ -774,9 +805,10 @@ export function createFileSystemAdapter(input: {
 
       async switchLabelFolder(index): Promise<void> {
         await enqueueOperation(async () => {
-          const folder = input.state.session.labelFolders[index];
+          const session = input.state.session;
+          const folder = (session.workflow === "segmentation" ? session.segmentationLabelFolders : session.labelFolders)?.[index];
           if (!folder) throw new Error("Label folder is no longer available.");
-          if (folder === input.state.session.labelFolderHandle) return;
+          if (folder === (session.workflow === "segmentation" ? session.segmentationLabelFolderHandle ?? session.imageFolderHandle : session.labelFolderHandle)) return;
           await runTrackedOperation({ title: "Switching labels", detail: folder.name, stoppedMessage: "Label switch stopped." }, async (operation) => {
             await saveBeforeLabelSwitch();
             throwIfOperationCancelled(operation?.signal);
@@ -821,6 +853,49 @@ export function createFileSystemAdapter(input: {
             const folderIndex = session.labelFolders.findIndex((source) => source.name === folder.name);
             if (folderIndex < 0) session.labelFolders.push(folder);
             else session.labelFolders[folderIndex] = folder;
+            await activateLabelFolder(folder, operation);
+            result = { folderName, imageCount: completed.length, detectionCount };
+          });
+        });
+        return result;
+      },
+
+      async runSegmentationInference(options) {
+        let result: { folderName: string; imageCount: number; detectionCount: number } | null = null;
+        await enqueueOperation(async () => {
+          const session = input.state.session;
+          if (session.workflow !== "segmentation" || !session.imageFolderHandle || !session.currentImageFile) throw new Error("Open a Segmentation dataset first.");
+          const files = options.allImages ? [...session.imageFiles] : [session.currentImageFile];
+          const bases = files.map((file) => imageFileNameToBaseName(file.name).toLowerCase());
+          if (new Set(bases).size !== bases.length) throw new Error("Images with the same base name would share a mask file. Rename them before inference.");
+          const folderName = `inference-${options.modelName}-masks`;
+          await runTrackedOperation({ title: "YOLOE mask inference", detail: `Results: ${folderName}`, stoppedMessage: `Inference stopped. Partial masks remain in ${folderName}.` }, async (operation) => {
+            await saveBeforeLabelSwitch();
+            throwIfOperationCancelled(operation?.signal);
+            const folder = await session.imageFolderHandle!.getDirectoryHandle(folderName, { create: true });
+            const maskFolder = await folder.getDirectoryHandle("mask", { create: true });
+            let detectionCount = 0;
+            const completed: string[] = [];
+            for (const file of files) {
+              throwIfOperationCancelled(operation?.signal);
+              operation?.update({ detail: `${file.name} → ${folderName}`, current: completed.length, total: files.length });
+              const image = await decodeImage(file);
+              const prediction = await options.infer(image, operation?.signal);
+              throwIfOperationCancelled(operation?.signal);
+              if (!prediction.mask || prediction.mask.width !== (image.naturalWidth || image.width) || prediction.mask.height !== (image.naturalHeight || image.height)) throw new Error("YOLOE did not return a mask matching the image.");
+              const bytes = await encodeSegmentationMaskPng({ ...prediction.mask, activeClassId: [...options.classNames.keys()][0] ?? "1", activeTool: "brush", overlayVisible: true, overlayOpacity: 0.6, hiddenClassIds: new Set(), brushRadius: 6 });
+              throwIfOperationCancelled(operation?.signal);
+              await writeBinaryFileByName(maskFolder as unknown as DirectoryHandleLike, `${imageFileNameToBaseName(file.name)}.png`, bytes.buffer as ArrayBuffer);
+              detectionCount += prediction.detections.length;
+              completed.push(file.name);
+              operation?.update({ current: completed.length, total: files.length });
+            }
+            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...options.classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(normalizeClassName(name))}`).join("\n")}\n`);
+            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, workflow: "segmentation", maskFormat: "png-semantic-mask", overlapPolicy: "highest-confidence", images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
+            throwIfOperationCancelled(operation?.signal);
+            const sources = session.segmentationLabelFolders ??= [session.imageFolderHandle!];
+            const index = sources.findIndex((source) => source.name === folder.name);
+            if (index < 0) sources.push(folder); else sources[index] = folder;
             await activateLabelFolder(folder, operation);
             result = { folderName, imageCount: completed.length, detectionCount };
           });

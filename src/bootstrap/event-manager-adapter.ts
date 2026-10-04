@@ -416,6 +416,7 @@ export function createEventManagerAdapter(input: {
           hideSegmentationBrushCursorPreview();
         }
         syncViewControls();
+        input.windowRef.dispatchEvent?.(new Event("easy-labeling:workflow-change"));
       };
 
       const getActiveVisibleRectSelectionCount = (): number => {
@@ -816,6 +817,13 @@ export function createEventManagerAdapter(input: {
         input.state.view.reviewFilter = "all";
         elements.reviewFilterSelect.value = "all";
         input.uiManager.setActiveTask("inference");
+        input.uiManager.renderImageList();
+      });
+      input.documentRef?.getElementById("taskYoloeBtn")?.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
+        input.state.view.reviewFilter = "all";
+        elements.reviewFilterSelect.value = "all";
+        input.uiManager.setActiveTask("yoloe");
         input.uiManager.renderImageList();
       });
       elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));
