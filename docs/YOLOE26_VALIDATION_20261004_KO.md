@@ -13,8 +13,8 @@
 ## 자동 검사
 
 - TypeScript 타입 검사·빌드 PASS, 단위 테스트 64개 파일 / 394개 검사 PASS. 마스크 RLE의 잘못된 길이·16-bit ID, 마스크 결과 소스의 저장·로드·원본 보존을 검사했습니다.
-- Python 백엔드 단위 테스트 4개 PASS: 예시 클래스 매핑·잘못된 좌표, 회색조 변환, CUDA 요구·만료된 예시 차단, 마스크 겹침의 신뢰도 우선·빈 검출.
-- 관련 E2E 15개 PASS: 독립 YOLOE 탭·Detection/Segmentation 모드 유지·예시 그리기·마스크 미리보기·소스 복귀·Stop, 기존 ONNX 1ch/3ch·NCHW/NHWC·CPU 전환·파일 선택, Electron 저장, Classes, 라벨 폴더, Review, 기존 Segmentation 그리기·워크플로 전환.
+- Python 백엔드 단위 테스트 6개 PASS: 예시 클래스 매핑·잘못된 좌표, 회색조 변환, CUDA 요구·만료된 예시 차단, 마스크 겹침의 신뢰도 우선·빈 검출, 예시 마스크 형상·픽셀 보존, 비정사각 마스크 letterbox.
+- 관련 E2E 15개 PASS: 독립 YOLOE 탭·Detection/Segmentation 모드 유지·예시 그리기·마스크 미리보기·소스 복귀·Stop, 기존 ONNX 1ch/3ch·NCHW/NHWC·CPU 전환·파일 선택, Electron 저장, Classes, 라벨 폴더, 기존 Segmentation 그리기·워크플로 전환.
 - YOLOE E2E의 준비 오류·UI 흐름은 응답 fixture로 검사했습니다. 실제 GPU·모델 결과는 아래 별도 Electron 검사로 검증했습니다.
 - Ultralytics 설정·캐시는 프로젝트의 `runtime/yoloe/.state`에 보관하며 모델·가상환경과 함께 Git에서 제외합니다.
 
@@ -39,12 +39,12 @@ Ultralytics 패키지의 bus/zidane 예제 이미지를 검증 workspace로 복�
 - Review 전환 성공, 페이지 오류 없음.
 - 밝은·어두운 테마의 썸네일, GPU 표시, 미리보기 캔버스 확인.
 
-Segmentation은 별도의 원본 PNG 마스크를 준비한 후 UI에서 사람·버스 예시 박스를 직접 그려 등록했습니다. 원본 마스크의 작은 영역은 파일 보존 검사용이며, 예제 이미지의 완전한 정답 마스크가 아닙니다.
+Segmentation은 별도의 원본 PNG 마스크를 준비한 후 UI에서 사람·버스의 다각형 예시 마스크를 직접 지정했습니다. 이번 UI 단순화 이후 실행 결과입니다. 원본 마스크의 작은 영역은 파일 보존 검사용이며, 예제 이미지의 완전한 정답 마스크가 아닙니다.
 
-Segmentation 전체 실행은 3장에 총 11개 인스턴스 마스크를 생성했습니다. 회색조 bus 이미지 미리보기에서는 5개 인스턴스를 확인했습니다.
+Segmentation 전체 실행은 3장에 총 10개 인스턴스 마스크를 생성했습니다. 회색조 bus 이미지 미리보기에서는 5개 인스턴스를 확인했습니다.
 
 - 독립 YOLOE-26 탭이 두 모드에서 표시되고, 모드 변경 시 예시·프로필을 초기화.
-- 예시 박스 그리기와 반투명 마스크 미리보기 모두 원본 마스크를 변경하지 않음.
+- 다각형 예시 마스크 지정과 반투명 결과 미리보기 모두 원본 마스크를 변경하지 않음.
 - 모델 마스크를 원본 해상도로 복원하여 16-bit 단일 채널 PNG로 저장. 클래스는 배경 0, 사람 5, 버스 12.
 - `inference-yoloe-26s-seg-acceptance_v1-masks/mask`에서 재실행 시 같은 소스를 재사용.
 - 원본과 결과 마스크 소스 전환, 데이터셋 Refresh 후 결과 소스 유지.
@@ -53,9 +53,9 @@ Segmentation 전체 실행은 3장에 총 11개 인스턴스 마스크를 생성
 
 | 마스크 파일 | 해상도 | 사람 픽셀(ID 5) | 버스 픽셀(ID 12) |
 |---|---|---:|---:|
-| 0-reference.png | 810×1080 | 99,569 | 264,527 |
-| 1-target-gray.png | 810×1080 | 108,133 | 265,964 |
-| 2-target-rgb.png | 1280×720 | 385,676 | 0 |
+| 0-reference.png | 810×1080 | 99,155 | 263,600 |
+| 1-target-gray.png | 810×1080 | 109,938 | 265,864 |
+| 2-target-rgb.png | 1280×720 | 171,090 | 0 |
 
 이 픽셀 수는 실제 마스크 출력 확인용이며 Segmentation 정확도 지표가 아닙니다. 모델의 인스턴스 마스크를 앱의 semantic 클래스 마스크로 합치며, 겹침은 신뢰도가 높은 검출을 우선합니다.
 
@@ -98,3 +98,31 @@ Precision 100%, Recall 12.31%입니다. 별도 두 이미지의 Recall은 10/138
 재현: `uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --workflow segmentation`.
 
 증거: [cells-masks.json](../output/yoloe-validation/cells-masks.json). 원본 데이터셋·정답·모델 파일은 변경하지 않았습니다.
+
+## 마스크 샘플 입력과 UI 단순화 추가 검증
+
+이전 측정은 경계 박스 예시 입력이었습니다. 이번 변경은 `sampleA/B/C` 같은 이름으로 지정한 다각형 또는 기존 선택 영역의 실제 픽셀을 입력합니다. 기본 UI는 Outline sample, Find in current image, Save results의 세 버튼이며 GPU 연결과 예시 인코딩은 자동입니다. 같은 이름의 예시는 같은 출력 클래스 ID를 사용하고, 서로 다른 이름은 구분합니다. 기존 모델·박스·라벨 가져오기·추론 설정은 접힌 Settings 안에서 유지합니다.
+
+Ultralytics 8.4.168은 마스크를 처리하는 내부 predictor가 있으나 상위 predict 함수는 박스를 요구하고, 마스크 letterbox도 2-D 픽셀을 image 코드로 전달하면 실패합니다. 프로젝트의 `MaskPromptPredictor`에서 바이너리 마스크를 가장 가까운 픽셀 보간으로 resize/pad하여 visual prompt embedding을 추출한 후 기존 Detection/Segmentation 모델 추론에 적용했습니다. 설치 패키지를 수정하거나 별도 라이브러리를 추가하지 않았습니다.
+
+동일한 합성 세포 3장에서 첫 기준 이미지의 정답 마스크 연결 영역 3개를 추출하여 시각 예시로 사용했습니다. 이름은 모두 cell이며 class ID는 Detection 0 / Segmentation 1입니다. Confidence 0.25, NMS IoU 0.45와 정답 박스 대응 IoU 0.5는 기존 측정과 같습니다. 참조 이미지 포함 결과이며 실제 산업 데이터의 일반 성능으로 해석할 수 없습니다.
+
+| 입력 예시 | Detection TP / 정답 | Recall | Segmentation 합계 전경 픽셀 IoU |
+|---|---:|---:|---:|
+| 기존 박스 예시 3개 | 24 / 195 | 12.31% | 19.54% |
+| 실제 마스크 예시 3개 | 2 / 195 | 1.03% | 1.73% |
+
+마스크 예시 실행의 검출은 참조 이미지에서만 2개였고 별도 두 이미지에서는 0개였습니다. Segmentation 전경 TP 4,243, FP 399, FN 240,956이며 합계 IoU는 4,243 / 245,598입니다. 실제 픽셀을 전달한다는 사실이 해당 도메인의 정확도 개선을 보장하지 않습니다. 이번 사전학습 모델·샘플 구성으로는 세포를 전문적으로 자동 라벨링할 품질에 도달하지 않았습니다. 도메인 데이터로 예시 구성·임계값을 평가하고 필요시 전용 학습을 해야 합니다.
+
+증거: [마스크 예시 Detection](../output/yoloe-validation/cells-mask-prompts-detection.json), [마스크 예시 Segmentation](../output/yoloe-validation/cells-mask-prompts-segmentation.json).
+
+재현:
+
+```powershell
+uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --prompt mask
+uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --workflow segmentation --prompt mask
+```
+
+자동 UI 테스트는 모의 GPU 응답으로 sampleA/B/C 이름과 ID 구분, 같은 이름 재사용, 윤곽 마스크 전달, 샘플 삭제·취소, 두 모드 저장과 원본 복귀, 접힌 기본 설정, 연결 오류와 구형 API 감지를 검증합니다. 실제 모델 품질은 위 별도의 GPU 실행 JSON으로 확인합니다.
+
+최종 검사: TypeScript 타입 검사·빌드, 단위 테스트 394개, Python 백엔드 테스트 6개, 관련 E2E 15개 PASS. 실제 Electron/CUDA 검증은 별도로 PASS했으며 다각형 예시 마스크·RGB/회색조·원본 보존·결과 소스 전환·Refresh·Brush/Undo/Redo/Save를 확인했습니다. UI 샘플 이름 입력에는 네이티브 datalist 팝업을 사용하지 않아 Electron에서도 동일한 테마의 단순 입력을 유지합니다.

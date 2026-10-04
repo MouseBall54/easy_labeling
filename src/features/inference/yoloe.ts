@@ -4,7 +4,11 @@ import { normalizeClassName } from "../../domain/class-files.js";
 import type { WorkflowType } from "../../types/labels.js";
 import type { SegmentationRegionSelection } from "../segmentation/types.js";
 
-export interface VisualExample { classId: number; name: string; box: [number, number, number, number]; }
+export interface VisualExample {
+  classId: number; name: string; box: [number, number, number, number];
+  polygon?: [number, number][];
+  mask?: { width: number; height: number; runs: number[] };
+}
 export interface YoloeStatus { version: number; cuda: boolean; gpu: string | null; models: string[]; busy: boolean; }
 export interface YoloeProfile {
   id: string; model: string; classes: Record<string, string>; exampleCount: number; referenceSha256: string;
@@ -12,10 +16,18 @@ export interface YoloeProfile {
 }
 export interface YoloeResult { detections: Detection[]; mask: { width: number; height: number; mask: Uint16Array } | null; }
 
-export function maskRegionExample(region: SegmentationRegionSelection | null, names: ReadonlyMap<string, string>): VisualExample[] {
-  if (!region) throw new Error("Select a mask region in Edit mode, or draw an example box here.");
+export function maskRegionExample(region: SegmentationRegionSelection | null, names: ReadonlyMap<string, string>, imageWidth: number): VisualExample[] {
+  if (!region) throw new Error("Select a mask region in Edit mode, or outline a sample here.");
   const { left, top, right, bottom } = region.bounds;
-  return [{ classId: Number(region.classId), name: normalizeClassName(names.get(region.classId) ?? `class ${region.classId}`), box: [left, top, right + 1, bottom + 1] }];
+  const width = right - left + 1, height = bottom - top + 1;
+  const pixels = new Uint8Array(width * height);
+  for (const index of region.pixelIndices) pixels[(Math.floor(index / imageWidth) - top) * width + index % imageWidth - left] = 1;
+  const runs: number[] = [];
+  for (const pixel of pixels) {
+    if (runs.length && runs[runs.length - 2] === pixel) runs[runs.length - 1]!++;
+    else runs.push(pixel, 1);
+  }
+  return [{ classId: Number(region.classId), name: normalizeClassName(names.get(region.classId) ?? `class ${region.classId}`), box: [left, top, right + 1, bottom + 1], mask: { width, height, runs } }];
 }
 
 export function decodeYoloeMask(value: { width: number; height: number; runs: number[] }): NonNullable<YoloeResult["mask"]> {
@@ -64,7 +76,7 @@ export async function requestYoloe<T>(path: string, payload?: Record<string, unk
     });
   } catch (error) {
     if (signal?.aborted) throw signal.reason;
-    throw new Error("GPU service is unavailable. Run npm run yoloe:start, then Connect GPU.");
+    throw new Error("GPU service is unavailable. Run npm run yoloe:start, then reconnect GPU in Settings.");
   }
   const value = await response.json() as { error?: string };
   if (!response.ok) throw new Error(value.error ?? `GPU service error (${response.status}).`);

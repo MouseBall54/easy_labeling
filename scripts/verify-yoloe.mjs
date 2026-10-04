@@ -54,15 +54,17 @@ try {
   page.on("pageerror", (error) => evidence.errors.push(error.message));
   await page.locator("#selectImageFolderBtn").click();
   await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+  await expect(page.locator("#imageCountBadge")).toHaveText("3");
   const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.());
   await expect.poll(count).toBe(2);
   await page.locator("#taskYoloeBtn").click();
-  await page.locator("#connectYoloeBtn").click();
+  await page.locator("#yoloeAdvancedSettings summary").click();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await expect(page.locator("#yoloeModelSelect")).toBeEnabled();
   await page.locator("#yoloeProfileName").fill("acceptance_v1");
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
-  await page.locator("#registerYoloeExamplesBtn").click();
+  await page.locator("#addYoloeSelectedBtn").click();
+  await page.locator("#yoloeAdvancedSettings summary").click();
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2, { timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
   await expect.poll(count).toBe(1);
@@ -81,7 +83,9 @@ try {
   await theme(true);
   await page.screenshot({ path: path.join(output, "preview-dark.png") });
   await page.locator("#autoSaveToggle").check();
-  await page.locator("#runYoloeAllBtn").click();
+  await page.locator("#yoloeSaveScope").selectOption("all");
+  await page.locator("#saveYoloeCurrentBtn").click();
+  await page.locator("#yoloeSaveScope").selectOption("current");
   await expect(page.locator("#yoloeRunStatus")).toContainText("3 image(s)", { timeout: 120_000 });
   const results = path.join(dataset, "inference-yoloe-26s-seg-acceptance_v1");
   const metadata = JSON.parse(await readFile(path.join(results, "inference.json"), "utf8"));
@@ -116,25 +120,29 @@ try {
   await expect(page.locator("#yoloeOutputBadge")).toHaveText("Segmentation · Masks");
   await expect(page.locator("#taskYoloeBtn")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#previewYoloeBtn")).toBeDisabled();
+  await page.locator("#yoloeAdvancedSettings summary").click();
   await page.locator("#yoloeProfileName").fill("acceptance_v1");
+  await page.locator("#yoloeAdvancedSettings summary").click();
   const maskBounds = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationMaskBounds?.());
   const sourceBounds = await maskBounds();
-  const drawExample = async (id, box) => {
-    await page.locator("#yoloeExampleClass").selectOption(id);
+  const drawExample = async (name, polygon) => {
+    await page.locator("#yoloeSampleName").scrollIntoViewIfNeeded();
+    await page.locator("#yoloeSampleName").fill(name);
+    await page.locator("#drawYoloeExampleBtn").scrollIntoViewIfNeeded();
+    await expect(page.locator("#drawYoloeExampleBtn")).toBeEnabled();
     await page.locator("#drawYoloeExampleBtn").click();
-    const points = await page.evaluate((box) => {
+    const points = await page.evaluate((polygon) => {
       const overlay = document.querySelector("#yoloePreviewCanvas"), bounds = overlay.getBoundingClientRect();
       const [a, b, c, d, tx, ty] = Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform();
-      return [[box[0], box[1]], [box[2], box[3]]].map(([x, y]) => ({ x: bounds.left + (a * x + c * y + tx) * bounds.width / overlay.width, y: bounds.top + (b * x + d * y + ty) * bounds.height / overlay.height }));
-    }, box);
-    await page.mouse.move(points[0].x, points[0].y); await page.mouse.down();
-    await page.mouse.move(points[1].x, points[1].y, { steps: 6 }); await page.mouse.up();
+      return polygon.map(([x, y]) => ({ x: bounds.left + (a * x + c * y + tx) * bounds.width / overlay.width, y: bounds.top + (b * x + d * y + ty) * bounds.height / overlay.height }));
+    }, polygon);
+    for (const point of points) await page.mouse.click(point.x, point.y);
+    await page.keyboard.press("Enter");
   };
-  await drawExample("5", [50, 400, 245, 900]);
-  await drawExample("12", [20, 240, 785, 740]);
+  await drawExample("person", [[90, 400], [185, 400], [245, 900], [50, 900]]);
+  await drawExample("bus", [[30, 250], [775, 240], [785, 700], [30, 740]]);
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
   expect(await maskBounds()).toEqual(sourceBounds);
-  await page.locator("#registerYoloeExamplesBtn").click();
   await expect(page.locator("#previewYoloeBtn")).toBeEnabled({ timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
   const targetSourceBounds = await maskBounds();
@@ -150,7 +158,9 @@ try {
   await page.screenshot({ path: path.join(output, "mask-preview-dark.png") });
   await theme(false);
   await page.screenshot({ path: path.join(output, "mask-preview-light.png") });
-  await page.locator("#runYoloeAllBtn").click();
+  await page.locator("#yoloeSaveScope").selectOption("all");
+  await page.locator("#saveYoloeCurrentBtn").click();
+  await page.locator("#yoloeSaveScope").selectOption("current");
   await expect(page.locator("#yoloeRunStatus")).toContainText("3 image(s)", { timeout: 120_000 });
   const maskResults = path.join(dataset, "inference-yoloe-26s-seg-acceptance_v1-masks");
   const maskMetadata = JSON.parse(await readFile(path.join(maskResults, "inference.json"), "utf8"));
@@ -201,7 +211,7 @@ try {
     return edited.mask[200 * edited.width + 10];
   }).toBe(5);
   for (const [name, original] of originalMasks) expect(Buffer.compare(await readFile(path.join(dataset, "mask", name)), Buffer.from(original))).toBe(0);
-  evidence.segmentation = { checks: { standaloneTab: true, drawnExamplesPreservedSource: true, previewPreservedSource: true, fullResolutionMasks: true, originalFilesPreserved: true, sourceSwitchAndRefresh: true, stableFolder: true, brushUndoRedoAndSave: true }, masks, metadata: maskMetadata, previewInstances: maskPreview.detections.length };
+  evidence.segmentation = { checks: { standaloneTab: true, polygonMaskPrompts: true, drawnExamplesPreservedSource: true, previewPreservedSource: true, fullResolutionMasks: true, originalFilesPreserved: true, sourceSwitchAndRefresh: true, stableFolder: true, brushUndoRedoAndSave: true }, masks, metadata: maskMetadata, previewInstances: maskPreview.detections.length };
   expect(evidence.errors).toEqual([]);
   await writeFile(path.join(output, "results.json"), JSON.stringify(evidence, null, 2) + "\n");
   console.log(JSON.stringify({ checks: evidence.checks, images: evidence.images, segmentation: evidence.segmentation, gpu: status.gpu }, null, 2));

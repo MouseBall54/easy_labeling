@@ -7,7 +7,7 @@
       "yoloe-26s-seg"
     ],
     "busy": false,
-    "version": 2
+    "version": 3
   },
   "model": "yoloe-26s-seg",
   "checks": {
@@ -74,7 +74,7 @@
       }
     ],
     "mask": null,
-    "elapsedMs": 22.466700000222772,
+    "elapsedMs": 27.631600038148463,
     "backend": "cuda",
     "gpu": "NVIDIA GeForce RTX 2080 SUPER"
   },
@@ -88,6 +88,28 @@
     "referenceImage": "0-reference.png",
     "referenceSha256": "8739ae2c34b8713bcc185201414014011b601159d5ec717275e4a2625f9fbded",
     "exampleCount": 2,
+    "samples": [
+      {
+        "classId": 5,
+        "name": "person",
+        "box": [
+          50.00000399999999,
+          399.9999996,
+          247.00000339999997,
+          901.9999964
+        ]
+      },
+      {
+        "classId": 12,
+        "name": "bus",
+        "box": [
+          20.00000160000002,
+          239.99999760000003,
+          786.0000044,
+          741.9999944
+        ]
+      }
+    ],
     "confidence": 0.25,
     "iou": 0.45,
     "model": "yoloe-26s-seg-acceptance_v1",
@@ -97,11 +119,12 @@
       "2-target-rgb.png"
     ],
     "detections": 11,
-    "createdAt": "2026-10-04T07:13:47.748Z"
+    "createdAt": "2026-10-04T07:49:20.908Z"
   },
   "segmentation": {
     "checks": {
       "standaloneTab": true,
+      "polygonMaskPrompts": true,
       "drawnExamplesPreservedSource": true,
       "previewPreservedSource": true,
       "fullResolutionMasks": true,
@@ -116,9 +139,9 @@
         "width": 810,
         "height": 1080,
         "pixelsByClass": {
-          "0": 510704,
-          "5": 99569,
-          "12": 264527
+          "0": 512045,
+          "5": 99155,
+          "12": 263600
         }
       },
       {
@@ -126,9 +149,9 @@
         "width": 810,
         "height": 1080,
         "pixelsByClass": {
-          "0": 500703,
-          "5": 108133,
-          "12": 265964
+          "0": 498998,
+          "5": 109938,
+          "12": 265864
         }
       },
       {
@@ -136,8 +159,8 @@
         "width": 1280,
         "height": 720,
         "pixelsByClass": {
-          "0": 535924,
-          "5": 385676
+          "0": 750510,
+          "5": 171090
         }
       }
     ],
@@ -151,6 +174,64 @@
       "referenceImage": "0-reference.png",
       "referenceSha256": "8739ae2c34b8713bcc185201414014011b601159d5ec717275e4a2625f9fbded",
       "exampleCount": 2,
+      "samples": [
+        {
+          "classId": 5,
+          "name": "person",
+          "box": [
+            49.99996255772918,
+            400.00002212497816,
+            244.9999727692576,
+            899.9999693654148
+          ],
+          "polygon": [
+            [
+              89.99996936541478,
+              400.00002212497816
+            ],
+            [
+              184.9999625577292,
+              400.00002212497816
+            ],
+            [
+              244.9999727692576,
+              899.9999693654148
+            ],
+            [
+              49.99996255772918,
+              899.9999693654148
+            ]
+          ]
+        },
+        {
+          "classId": 12,
+          "name": "bus",
+          "box": [
+            29.999959153886376,
+            239.99999489423573,
+            784.9999727692576,
+            740.000034038428
+          ],
+          "polygon": [
+            [
+              29.999959153886376,
+              249.99999659615713
+            ],
+            [
+              775.000017019214,
+              239.99999489423573
+            ],
+            [
+              784.9999727692576,
+              700.0000272307424
+            ],
+            [
+              29.999959153886376,
+              740.000034038428
+            ]
+          ]
+        }
+      ],
       "confidence": 0.25,
       "iou": 0.45,
       "model": "yoloe-26s-seg-acceptance_v1",
@@ -161,8 +242,8 @@
         "1-target-gray.png",
         "2-target-rgb.png"
       ],
-      "detections": 11,
-      "createdAt": "2026-10-04T07:14:31.112Z"
+      "detections": 10,
+      "createdAt": "2026-10-04T07:50:01.306Z"
     },
     "previewInstances": 5
   }

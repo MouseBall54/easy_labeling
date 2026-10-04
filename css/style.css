@@ -3059,7 +3059,8 @@ body.workspace-standby-active .workbench-status-bar {
 }
 
 .yoloe-example-list canvas { width: 44px; height: 44px; object-fit: contain; }
-.yoloe-example-list span { overflow-wrap: anywhere; }
+.yoloe-example-list span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.yoloe-example-list canvas { flex-shrink: 0; }
 .yoloe-setup-commands { display: grid; gap: 4px; }
 .yoloe-setup-commands code { color: var(--workbench-text); user-select: all; }
 

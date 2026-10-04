@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 from PIL import Image
@@ -18,9 +19,12 @@ def image_data(path):
 
 
 def request(route, payload):
-    return json.load(urllib.request.urlopen(urllib.request.Request(
-        "http://127.0.0.1:8766/" + route, data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"}), timeout=120))
+    try:
+        return json.load(urllib.request.urlopen(urllib.request.Request(
+            "http://127.0.0.1:8766/" + route, data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}), timeout=120))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(error.read().decode()) from error
 
 
 def truth_boxes(path, width, height):
@@ -44,6 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=Path(r"C:\Git\ym_yolo\datasets\synthetic_cells"))
     parser.add_argument("--workflow", choices=["detection", "segmentation"], default="detection")
+    parser.add_argument("--prompt", choices=["box", "mask"], default="box")
     args = parser.parse_args()
     files = sorted((args.dataset / "images/test").glob("*.png"))[:3]
     if len(files) < 3:
@@ -51,9 +56,21 @@ def main():
     reference, size = image_data(files[0])
     truth = truth_boxes(args.dataset / "labels/test" / (files[0].stem + ".txt"), *size)
     examples = [{"classId": 1 if args.workflow == "segmentation" else 0, "name": "cell", "box": box} for box in truth[:3]]
+    if args.prompt == "mask":
+        import cv2
+        with Image.open(args.dataset / "masks/test" / files[0].name) as source:
+            binary = (np.array(source) > 0).astype(np.uint8)
+        _, components, stats, _ = cv2.connectedComponentsWithStats(binary)
+        for example in examples:
+            index = max(range(1, len(stats)), key=lambda i: iou(example["box"], [int(stats[i, 0]), int(stats[i, 1]), int(stats[i, 0] + stats[i, 2]), int(stats[i, 1] + stats[i, 3])]))
+            x, y, w, h = map(int, stats[index, :4])
+            pixels = (components[y:y + h, x:x + w] == index).ravel().astype(np.uint8)
+            starts = np.r_[0, np.flatnonzero(pixels[1:] != pixels[:-1]) + 1]
+            runs = np.column_stack((pixels[starts], np.diff(np.r_[starts, pixels.size]))).ravel().tolist()
+            example.update(box=[x, y, x + w, y + h], mask={"width": w, "height": h, "runs": runs})
     profile = request("prepare", {"model": "yoloe-26s-seg", "workflow": args.workflow, "image": reference, "examples": examples})
     evidence = {"reference": files[0].name, "exampleCount": len(examples), "gpu": profile["gpu"],
-                "workflow": args.workflow, "confidence": 0.25, "matchIou": 0.5, "images": []}
+                "workflow": args.workflow, "promptType": args.prompt, "confidence": 0.25, "matchIou": 0.5, "images": []}
     for file in files:
         image, size = image_data(file)
         labels = truth_boxes(args.dataset / "labels/test" / (file.stem + ".txt"), *size)
@@ -85,7 +102,8 @@ def main():
             evidence["images"][-1]["pixels"] = {"tp": tp, "fp": fp, "fn": fn, "iou": tp / (tp + fp + fn) if tp + fp + fn else 1}
     output = Path(__file__).resolve().parent.parent / "output/yoloe-validation"
     output.mkdir(parents=True, exist_ok=True)
-    (output / ("cells-masks.json" if args.workflow == "segmentation" else "cells.json")).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    filename = ("cells-masks.json" if args.workflow == "segmentation" else "cells.json") if args.prompt == "box" else f"cells-mask-prompts-{args.workflow}.json"
+    (output / filename).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(evidence, indent=2))
 
 

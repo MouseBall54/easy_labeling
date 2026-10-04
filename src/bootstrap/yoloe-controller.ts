@@ -3,7 +3,7 @@ import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { isRectObject } from "../features/canvas/fabric-types.js";
-import { imagePng, selectedVisualExamples, maskRegionExample, requestYoloe, inferYoloe, type VisualExample, type YoloeProfile, type YoloeStatus, type YoloeResult } from "../features/inference/yoloe.js";
+import { imagePng, selectedVisualExamples, maskRegionExample, decodeYoloeMask, requestYoloe, inferYoloe, type VisualExample, type YoloeProfile, type YoloeStatus, type YoloeResult } from "../features/inference/yoloe.js";
 import type { Detection } from "../features/inference/yolo.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 
@@ -13,10 +13,13 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const el = <T extends HTMLElement>(id: string): T => documentRef.getElementById(id) as T;
   const modelSelect = el<HTMLSelectElement>("yoloeModelSelect");
   const nameInput = el<HTMLInputElement>("yoloeProfileName");
+  const sampleName = el<HTMLInputElement>("yoloeSampleName");
+  const shape = el<HTMLSelectElement>("yoloePromptShape");
   const badge = el<HTMLElement>("yoloeBackendBadge");
   const status = el<HTMLElement>("yoloeRunStatus");
   const overlay = el<HTMLCanvasElement>("yoloePreviewCanvas");
   let connected = false, busy = false;
+  let connectionAttempted = false;
   let profile: YoloeProfile | null = null;
   let sourceFolder: FileSystemDirectoryHandle | null = null;
   let referenceName = "";
@@ -27,6 +30,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   let drawing = false;
   let start: { x: number; y: number } | null = null;
   let end: { x: number; y: number } | null = null;
+  let outline: [number, number][] = [];
   let operationController: AbortController | null = null;
   const sync = (): void => {
     const hasImage = Boolean(state.session.currentImage && state.session.imageFolderHandle);
@@ -34,7 +38,10 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     if (workflow !== state.session.workflow || sourceFolder && sourceFolder !== state.session.imageFolderHandle) {
       workflow = state.session.workflow;
       profile = null; sourceFolder = null;
-      examples = []; referenceImage = null; drawing = false;
+      examples = []; referenceImage = null; drawing = false; outline = []; start = end = null;
+      overlay.style.pointerEvents = "none"; overlay.style.cursor = "";
+      el("drawYoloeExampleBtn").textContent = shape.value === "box" ? "Draw sample box" : "Outline sample";
+      el("drawYoloeExampleBtn").setAttribute("aria-pressed", "false");
       el("yoloeExampleList").replaceChildren();
       clearPreview();
     }
@@ -49,22 +56,27 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       classes.dataset.choices = signature;
     }
     classes.disabled = busy || drawing;
-    el<HTMLButtonElement>("drawYoloeExampleBtn").disabled = busy || !hasImage || !classes.value;
+    sampleName.disabled = busy || drawing;
+    shape.disabled = busy || drawing;
+    el<HTMLButtonElement>("drawYoloeExampleBtn").disabled = busy || !hasImage;
+    el<HTMLButtonElement>("finishYoloeSampleBtn").disabled = !drawing || outline.length < 3;
+    el("finishYoloeSampleBtn").hidden = !drawing || shape.value === "box";
+    el("yoloeDrawingHint").hidden = !drawing || shape.value === "box";
     el<HTMLButtonElement>("addYoloeSelectedBtn").disabled = busy || drawing || !hasImage;
     el<HTMLButtonElement>("clearYoloeExamplesBtn").disabled = busy;
     el("clearYoloeExamplesBtn").hidden = !examples.length;
     el<HTMLButtonElement>("connectYoloeBtn").disabled = busy;
     modelSelect.disabled = busy || drawing || !connected;
     nameInput.disabled = busy;
-    el<HTMLButtonElement>("registerYoloeExamplesBtn").disabled = busy || drawing || !connected || !modelSelect.value || !hasImage;
-    for (const id of ["previewYoloeBtn", "saveYoloeCurrentBtn", "runYoloeAllBtn"]) el<HTMLButtonElement>(id).disabled = busy || drawing || !profile || !hasImage;
+    el<HTMLSelectElement>("yoloeSaveScope").disabled = busy || drawing;
+    for (const id of ["previewYoloeBtn", "saveYoloeCurrentBtn"]) el<HTMLButtonElement>(id).disabled = busy || drawing || !examples.length || !hasImage;
+    for (const button of el("yoloeExampleList").querySelectorAll<HTMLButtonElement>("button")) button.disabled = busy || drawing;
     for (const id of ["taskInferenceBtn", "taskYoloeBtn"]) el<HTMLButtonElement>(id).disabled = busy || el<HTMLInputElement>("inferenceModelInput").disabled;
     for (const id of ["detectionWorkflowTab", "segmentationWorkflowTab"]) el<HTMLInputElement>(id).disabled = busy;
   };
   const clearPreview = (): void => {
     preview = null;
     overlay.hidden = !drawing;
-    el("clearYoloePreviewBtn").hidden = true;
   };
   const drawPreview = (): void => {
     if (preview && preview.image !== state.session.currentImage) clearPreview();
@@ -94,7 +106,13 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       context.strokeRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
       context.fillText(`${profile?.classes[String(box.classId)] ?? box.classId} ${(box.confidence * 100).toFixed(0)}%`, box.left, Math.max(14 / zoom, box.top - 3 / zoom));
     }
-    if (drawing && start && end) context.strokeRect(Math.min(start.x, end.x), Math.min(start.y, end.y), Math.abs(end.x - start.x), Math.abs(end.y - start.y));
+    if (drawing && shape.value === "mask" && outline.length) {
+      context.beginPath(); context.moveTo(...outline[0]!);
+      for (const point of outline.slice(1)) context.lineTo(...point);
+      if (end) context.lineTo(end.x, end.y);
+      context.closePath(); context.globalAlpha = 0.3; context.fill(); context.globalAlpha = 1; context.stroke();
+      for (const point of outline) { context.beginPath(); context.arc(...point, 3 / zoom, 0, Math.PI * 2); context.fill(); }
+    } else if (drawing && start && end) context.strokeRect(Math.min(start.x, end.x), Math.min(start.y, end.y), Math.abs(end.x - start.x), Math.abs(end.y - start.y));
   };
   const message = (target: HTMLElement, text: string): void => { target.hidden = false; target.textContent = text; };
   const work = async (title: string, action: (signal: AbortSignal) => Promise<void>): Promise<void> => {
@@ -118,13 +136,32 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     const list = el("yoloeExampleList"); list.replaceChildren();
     for (const example of examples) {
       const row = documentRef.createElement("div");
+      row.style.borderLeft = `3px solid ${getColorForClass(String(example.classId))}`;
       const thumb = documentRef.createElement("canvas"); thumb.width = thumb.height = 44;
       const [x1, y1, x2, y2] = example.box;
       const scale = Math.min(44 / (x2 - x1), 44 / (y2 - y1));
       const w = (x2 - x1) * scale, h = (y2 - y1) * scale;
-      thumb.getContext("2d")!.drawImage(referenceImage!, x1, y1, x2 - x1, y2 - y1, (44 - w) / 2, (44 - h) / 2, w, h);
-      const label = documentRef.createElement("span"); label.textContent = `${example.classId}: ${example.name}`;
-      row.append(thumb, label); list.append(row);
+      const context = thumb.getContext("2d")!;
+      context.save();
+      if (example.polygon) {
+        context.beginPath();
+        example.polygon.forEach(([x, y], index) => context[index ? "lineTo" : "moveTo"]((44 - w) / 2 + (x - x1) * scale, (44 - h) / 2 + (y - y1) * scale));
+        context.closePath(); context.clip();
+      }
+      context.drawImage(referenceImage!, x1, y1, x2 - x1, y2 - y1, (44 - w) / 2, (44 - h) / 2, w, h); context.restore();
+      if (example.mask) {
+        const cutout = documentRef.createElement("canvas"); cutout.width = example.mask.width; cutout.height = example.mask.height;
+        const ctx = cutout.getContext("2d")!, pixels = ctx.createImageData(cutout.width, cutout.height);
+        const mask = decodeYoloeMask(example.mask).mask;
+        for (let i = 0; i < mask.length; i++) pixels.data.set([0, 0, 0, mask[i] ? 255 : 0], i * 4);
+        ctx.putImageData(pixels, 0, 0); context.globalCompositeOperation = "destination-in";
+        context.drawImage(cutout, (44 - w) / 2, (44 - h) / 2, w, h); context.globalCompositeOperation = "source-over";
+      }
+      const label = documentRef.createElement("span"); label.textContent = example.name; label.title = `Class ${example.classId}`;
+      const remove = documentRef.createElement("button"); remove.type = "button"; remove.className = "btn btn-sm btn-outline-secondary";
+      remove.innerHTML = '<i class="bi bi-x" aria-hidden="true"></i>'; remove.setAttribute("aria-label", `Remove sample ${example.name}`);
+      remove.addEventListener("click", () => { examples.splice(examples.indexOf(example), 1); profile = null; clearPreview(); if (!examples.length) referenceImage = null; renderExamples(); });
+      row.append(thumb, label, remove); list.append(row);
     }
     sync();
   };
@@ -135,28 +172,29 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     sourceFolder = state.session.imageFolderHandle;
   };
   const addExamples = (added: VisualExample[]): void => {
-    if (examples.length + added.length > 32) throw new Error("Use at most 32 example boxes.");
+    if (examples.length + added.length > 32) throw new Error("Use at most 32 samples.");
     if (workflow === "segmentation" && added.some((e) => !Number.isInteger(e.classId) || e.classId < 1 || e.classId > 65535)) throw new Error("Segmentation class IDs must be 1–65535; 0 is background.");
     useReference(); examples.push(...added); profile = null; clearPreview(); renderExamples();
-    message(status, `${referenceName} · ${examples.length} example(s) · Register examples to continue`);
+    message(status, `${referenceName} · ${examples.length} sample(s) · Ready to find`);
   };
   const selectedExamples = (): VisualExample[] => workflow === "segmentation"
-    ? maskRegionExample(canvasController.raw.getSelectedSegmentationRegion?.() ?? null, state.session.classNames)
+    ? maskRegionExample(canvasController.raw.getSelectedSegmentationRegion?.() ?? null, state.session.classNames, state.session.currentImage!.naturalWidth)
     : selectedVisualExamples([...new Set(canvasController.raw.canvas.getActiveObjects().filter(isRectObject))], state.session.currentImage!.naturalWidth, state.session.currentImage!.naturalHeight, state.session.classNames);
   const stopDrawing = (): void => {
-    drawing = false; start = end = null; overlay.style.pointerEvents = "none"; overlay.style.cursor = "";
-    el("drawYoloeExampleBtn").textContent = "Draw example box";
+    drawing = false; start = end = null; outline = []; overlay.style.pointerEvents = "none"; overlay.style.cursor = "";
+    el("drawYoloeExampleBtn").textContent = shape.value === "box" ? "Draw sample box" : "Outline sample";
     el("drawYoloeExampleBtn").setAttribute("aria-pressed", "false");
     sync();
   };
   el("drawYoloeExampleBtn").addEventListener("click", () => {
     if (drawing) { stopDrawing(); drawPreview(); return; }
     try {
-      useReference(); clearPreview(); drawing = true; start = end = null;
+      if (!sampleName.value.trim()) throw new Error("Name the sample first.");
+      useReference(); clearPreview(); drawing = true; start = end = null; outline = [];
       overlay.style.pointerEvents = "auto"; overlay.style.cursor = "crosshair";
-      el("drawYoloeExampleBtn").textContent = "Cancel example box";
+      el("drawYoloeExampleBtn").textContent = "Cancel sample";
       el("drawYoloeExampleBtn").setAttribute("aria-pressed", "true");
-      message(status, "Drag a box around the example. Source labels stay unchanged.");
+      message(status, shape.value === "box" ? "Drag around the sample." : "Click the target outline, then Enter to finish.");
       sync(); drawPreview();
     } catch (error) { message(status, String(error instanceof Error ? error.message : error)); }
   });
@@ -170,44 +208,90 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   };
   overlay.addEventListener("pointerdown", (event) => {
     if (!drawing || event.button !== 0) return;
+    if (shape.value === "mask") {
+      if (outline.length >= 512) { message(status, "Use at most 512 outline points."); return; }
+      const point = pointer(event), last = outline.at(-1);
+      if (!last || Math.hypot(point.x - last[0], point.y - last[1]) > 0.5) outline.push([point.x, point.y]);
+      end = point; event.preventDefault(); sync(); drawPreview(); return;
+    }
     start = end = pointer(event); overlay.setPointerCapture(event.pointerId); event.preventDefault(); drawPreview();
   });
-  overlay.addEventListener("pointermove", (event) => { if (drawing && start) { end = pointer(event); drawPreview(); } });
+  overlay.addEventListener("pointermove", (event) => { if (drawing && (start || outline.length)) { end = pointer(event); drawPreview(); } });
+  const finishSample = (box: VisualExample["box"], polygon?: VisualExample["polygon"]): void => {
+    try {
+      const name = sampleName.value.trim();
+      const existing = examples.find((e) => e.name === name)?.classId ?? [...state.session.classNames].find(([id, label]) => label === name && (workflow === "detection" || Number(id) > 0))?.[0];
+      const used = new Set([...state.session.classNames.keys(), ...examples.map((e) => String(e.classId))]);
+      let next = 1; while (used.has(String(next))) next++;
+      if (next > 65535) throw new Error("No sample class ID is available.");
+      const classId = existing === undefined ? next : Number(existing);
+      addExamples([{ classId, name, box, ...(polygon ? { polygon } : {}) }]);
+      let index = 0;
+      while (examples.some((e) => e.name === `sample${index < 26 ? String.fromCharCode(65 + index) : index + 1}`)) index++;
+      sampleName.value = `sample${index < 26 ? String.fromCharCode(65 + index) : index + 1}`;
+    } catch (error) { message(status, error instanceof Error ? error.message : String(error)); }
+    stopDrawing(); drawPreview();
+  };
+  const finishOutline = (): void => {
+    if (!drawing || shape.value !== "mask" || outline.length < 3) return;
+    const area = outline.reduce((sum, a, i) => { const b = outline[(i + 1) % outline.length]!; return sum + a[0] * b[1] - b[0] * a[1]; }, 0);
+    if (Math.abs(area) < 2) { message(status, "Outline an area of the target before finishing."); return; }
+    const xs = outline.map(([x]) => x), ys = outline.map(([, y]) => y);
+    finishSample([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], [...outline]);
+  };
+  overlay.addEventListener("dblclick", finishOutline);
+  el("finishYoloeSampleBtn").addEventListener("click", finishOutline);
+  const keys = (event: KeyboardEvent): void => {
+    if (!drawing || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return;
+    if (!["Enter", "Escape", "Backspace"].includes(event.key)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (event.key === "Enter") finishOutline();
+    else if (event.key === "Escape") { stopDrawing(); drawPreview(); }
+    else { outline.pop(); sync(); drawPreview(); }
+  };
+  documentRef.addEventListener("keydown", keys, true);
   overlay.addEventListener("pointerup", (event) => {
-    if (!drawing || !start) return;
+    if (!drawing || shape.value === "mask" || !start) return;
     end = pointer(event);
     const box: VisualExample["box"] = [Math.min(start.x, end.x), Math.min(start.y, end.y), Math.max(start.x, end.x), Math.max(start.y, end.y)];
-    const id = el<HTMLSelectElement>("yoloeExampleClass").value;
-    overlay.releasePointerCapture(event.pointerId); stopDrawing();
-    try { if (box[2] - box[0] >= 1 && box[3] - box[1] >= 1) addExamples([{ classId: Number(id), name: state.session.classNames.get(id) ?? `class ${id}`, box }]); }
-    catch (error) { message(status, error instanceof Error ? error.message : String(error)); }
+    overlay.releasePointerCapture(event.pointerId);
+    if (box[2] - box[0] >= 1 && box[3] - box[1] >= 1) finishSample(box); else stopDrawing();
     drawPreview();
   });
   overlay.addEventListener("pointercancel", () => { stopDrawing(); drawPreview(); });
   el("addYoloeSelectedBtn").addEventListener("click", () => { try { addExamples(selectedExamples()); } catch (error) { message(status, error instanceof Error ? error.message : String(error)); } });
   el("clearYoloeExamplesBtn").addEventListener("click", () => { stopDrawing(); examples = []; profile = null; referenceImage = null; clearPreview(); renderExamples(); status.hidden = true; });
-  el("connectYoloeBtn").addEventListener("click", () => { void work("Connecting GPU", async (signal) => {
+  const connect = async (signal: AbortSignal): Promise<void> => {
     connected = false; profile = null; clearPreview();
     badge.textContent = "Disconnected";
     el("yoloeConnectionStatus").hidden = true;
     modelSelect.replaceChildren(new Option("Connect GPU first", ""));
     const result = await requestYoloe<YoloeStatus>("status", undefined, AbortSignal.any([signal, AbortSignal.timeout(5000)]));
     signal.throwIfAborted();
-    if (result.version !== 2) throw new Error("Restart npm run yoloe:start to match this application.");
+    if (result.version !== 3) throw new Error("Restart npm run yoloe:start to enable sample masks.");
     badge.textContent = result.cuda ? "GPU · CUDA" : "GPU unavailable";
     badge.title = result.gpu ?? "NVIDIA CUDA is required for YOLOE-26.";
     const info = el("yoloeConnectionStatus");
     message(info, result.cuda ? result.gpu! : "Run npm run yoloe:check and verify the NVIDIA driver.");
     modelSelect.replaceChildren(...result.models.map((name) => new Option(name, name)));
     connected = result.cuda;
-    if (!result.models.length) { modelSelect.append(new Option("Prepare a model first", "")); message(status, "Run npm run yoloe:prepare, then Connect GPU."); }
+    if (!result.models.length) { modelSelect.append(new Option("Prepare a model first", "")); message(status, "Run npm run yoloe:prepare, then reconnect GPU."); }
     else status.hidden = true;
-  }); });
+  };
+  el("connectYoloeBtn").addEventListener("click", () => { connectionAttempted = true; void work("Connecting GPU", connect); });
+  shape.addEventListener("change", stopDrawing);
+  el<HTMLSelectElement>("yoloeExampleClass").addEventListener("change", () => {
+    sampleName.value = state.session.classNames.get(el<HTMLSelectElement>("yoloeExampleClass").value) ?? "sampleA";
+  });
   modelSelect.addEventListener("change", () => { profile = null; clearPreview(); sync(); });
   nameInput.addEventListener("input", clearPreview);
   for (const id of ["yoloeConfidenceInput", "yoloeIouInput"]) el(id).addEventListener("input", clearPreview);
-  el("registerYoloeExamplesBtn").addEventListener("click", () => { void work("Registering visual examples", async (signal) => {
-    if (!examples.length) addExamples(selectedExamples());
+  const prepare = async (signal: AbortSignal): Promise<YoloeProfile> => {
+    if (!connected) await connect(signal);
+    if (!connected) throw new Error("NVIDIA CUDA GPU is unavailable.");
+    if (!modelSelect.value) throw new Error("Run npm run yoloe:prepare, then reconnect GPU.");
+    if (profile) return profile;
+    if (!examples.length) throw new Error("Outline a sample first.");
     const image = referenceImage!;
     const source = state.session.imageFolderHandle;
     profile = null; clearPreview();
@@ -216,13 +300,14 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     if (source !== state.session.imageFolderHandle) throw new Error("Dataset changed. Register the examples again.");
     profile = result; sourceFolder = source;
     renderExamples();
-    message(status, `${referenceName} · ${examples.length} example(s) · ${Object.keys(result.classes).length} class(es)`);
-  }); });
+    return result;
+  };
   el("previewYoloeBtn").addEventListener("click", () => { void work("YOLOE preview", async (signal) => {
+    const currentProfile = await prepare(signal);
     const image = state.session.currentImage!;
     clearPreview();
     const [confidence, iou] = parameters();
-    const prediction = await inferYoloe(image, documentRef, profile!, confidence, iou, signal);
+    const prediction = await inferYoloe(image, documentRef, currentProfile, confidence, iou, signal);
     signal.throwIfAborted();
     if (image !== state.session.currentImage) throw new Error("Image changed. Preview the current image again.");
     let maskCanvas: HTMLCanvasElement | null = null;
@@ -238,24 +323,28 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       }
       context.putImageData(pixels, 0, 0);
     }
-    preview = { image, boxes: prediction.detections, maskCanvas }; drawPreview(); el("clearYoloePreviewBtn").hidden = false;
+    preview = { image, boxes: prediction.detections, maskCanvas }; drawPreview();
     message(status, `Preview · ${prediction.detections.length} ${prediction.mask ? "mask instance(s)" : "detection(s)"} · labels unchanged`);
   }); });
   const save = async (allImages: boolean): Promise<void> => {
-    if (busy || !profile) return;
-    const currentProfile = profile;
+    if (busy) return;
+    let currentProfile: YoloeProfile | null = null;
+    await work("Preparing samples", async (signal) => { currentProfile = await prepare(signal); });
+    if (!currentProfile) return;
+    const preparedProfile = currentProfile as YoloeProfile;
     try {
       const target = nameInput.value.trim();
       if (!/^[\p{L}\p{N}_-]{1,64}$/u.test(target)) throw new Error("Target set name: use 1–64 letters, numbers, underscores or hyphens.");
       const [confidence, iou] = parameters();
       busy = true; clearPreview(); sync();
       message(status, "Running YOLOE inference…");
-      const options = { allImages, modelName: `${currentProfile.model}-${target}`,
-        classNames: new Map(Object.entries(currentProfile.classes)),
-        metadata: { engine: "yoloe26", workflow, checkpoint: `${currentProfile.model}.pt`, backend: "cuda", gpu: currentProfile.gpu, targetSet: target,
-          referenceImage: referenceName, referenceSha256: currentProfile.referenceSha256, exampleCount: currentProfile.exampleCount, confidence, iou },
+      const options = { allImages, modelName: `${preparedProfile.model}-${target}`,
+        classNames: new Map(Object.entries(preparedProfile.classes)),
+        metadata: { engine: "yoloe26", workflow, checkpoint: `${preparedProfile.model}.pt`, backend: "cuda", gpu: preparedProfile.gpu, targetSet: target,
+          referenceImage: referenceName, referenceSha256: preparedProfile.referenceSha256, exampleCount: preparedProfile.exampleCount,
+          samples: examples, confidence, iou },
       };
-      const infer = (image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult> => inferYoloe(image, documentRef, currentProfile, confidence, iou, signal);
+      const infer = (image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult> => inferYoloe(image, documentRef, preparedProfile, confidence, iou, signal);
       const result = workflow === "segmentation"
         ? await fileSystem.runSegmentationInference({ ...options, infer })
         : await fileSystem.runDetectionInference({ ...options, infer: async (image, signal) => (await infer(image, signal)).detections });
@@ -263,16 +352,19 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     } catch (error) { message(status, error instanceof Error ? error.message : String(error)); }
     finally { busy = false; sync(); }
   };
-  el("saveYoloeCurrentBtn").addEventListener("click", () => { void save(false); });
-  el("runYoloeAllBtn").addEventListener("click", () => { void save(true); });
-  el("clearYoloePreviewBtn").addEventListener("click", clearPreview);
+  el("saveYoloeCurrentBtn").addEventListener("click", () => { void save(el<HTMLSelectElement>("yoloeSaveScope").value === "all"); });
   canvasController.raw.canvas.on?.("after:render", drawPreview);
-  const refresh = (): void => { sync(); drawPreview(); };
+  const refresh = (): void => {
+    sync(); drawPreview();
+    if (!busy && !connectionAttempted && documentRef.querySelector(".app-workspace")?.getAttribute("data-active-task") === "yoloe") {
+      connectionAttempted = true; void work("Connecting GPU", connect);
+    }
+  };
   const events = ["easy-labeling:document-status-change", "easy-labeling:image-change", "easy-labeling:label-source-change", "easy-labeling:workflow-change"];
   for (const event of events) documentRef.defaultView?.addEventListener(event, refresh);
   const observer = new MutationObserver(refresh);
   const workspace = documentRef.querySelector(".app-workspace");
   if (workspace) observer.observe(workspace, { attributes: true, attributeFilter: ["data-active-task"] });
   sync();
-  return () => { operationController?.abort(); observer.disconnect(); for (const event of events) documentRef.defaultView?.removeEventListener(event, refresh); clearPreview(); };
+  return () => { operationController?.abort(); observer.disconnect(); documentRef.removeEventListener("keydown", keys, true); for (const event of events) documentRef.defaultView?.removeEventListener(event, refresh); clearPreview(); };
 }

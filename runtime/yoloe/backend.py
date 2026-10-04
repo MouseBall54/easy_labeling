@@ -19,15 +19,28 @@ os.environ["YOLO_CONFIG_DIR"] = str(ROOT / ".state")
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageDraw
 from ultralytics import YOLOE, settings
 from ultralytics.models.yolo.yoloe import YOLOEVPDetectPredictor, YOLOEVPSegPredictor
+from ultralytics.data.augment import LoadVisualPrompt
 
 settings.update({"sync": False})
 
 MODELS = [f"yoloe-26{size}-seg" for size in "nsmlx"]
 ORIGINS = {"http://localhost:4173", "http://127.0.0.1:4173", "null"}
 MAX_BODY = 48 * 1024 * 1024
+
+
+class MaskPromptPredictor(YOLOEVPDetectPredictor):
+    def _process_single_image(self, dst_shape, src_shape, category, bboxes=None, masks=None):
+        # 8.4.168's mask branch sends 2-D masks through a 3-D image letterbox; resize masks explicitly.
+        gain = min(dst_shape[0] / src_shape[0], dst_shape[1] / src_shape[1])
+        w, h = round(src_shape[1] * gain), round(src_shape[0] * gain)
+        left, top = round((dst_shape[1] - w) / 2 - 0.1), round((dst_shape[0] - h) / 2 - 0.1)
+        resized = np.zeros((len(masks), *dst_shape), dtype=np.uint8)
+        for i, mask in enumerate(masks):
+            resized[i, top:top + h, left:left + w] = np.array(Image.fromarray(mask).resize((w, h), Image.Resampling.NEAREST))
+        return LoadVisualPrompt().get_visuals(category, dst_shape, masks=resized)
 
 
 def device_status():
@@ -91,6 +104,54 @@ def semantic_mask(masks, rows, class_ids, width, height):
     return {"width": width, "height": height, "runs": runs}
 
 
+def visual_prompts(examples, width, height):
+    boxes, classes, class_ids, names = validate_examples(examples, width, height)
+    prompts = {"bboxes": boxes, "cls": classes}
+    if any("polygon" in example or "mask" in example for example in examples):
+        masks = []
+        for example in examples:
+            canvas = Image.new("L", (width, height))
+            polygon, mask = example.get("polygon"), example.get("mask")
+            if "polygon" in example and polygon is None or "mask" in example and mask is None:
+                raise ValueError("Invalid sample mask.")
+            if polygon is not None and mask is not None:
+                raise ValueError("Use one mask type per sample.")
+            if polygon is not None:
+                if not isinstance(polygon, list) or not 3 <= len(polygon) <= 512:
+                    raise ValueError("A sample outline needs 3–512 points.")
+                x1, y1, x2, y2 = example["box"]
+                for point in polygon:
+                    if not isinstance(point, list) or len(point) != 2 or not all(type(x) in (int, float) and math.isfinite(x) for x in point) or not (x1 <= point[0] <= x2 and y1 <= point[1] <= y2):
+                        raise ValueError("Sample outline points must be inside its bounds.")
+                area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(polygon, polygon[1:] + polygon[:1]))
+                if abs(area) < 2:
+                    raise ValueError("Sample outline must enclose an area.")
+                ImageDraw.Draw(canvas).polygon([tuple(point) for point in polygon], fill=1)
+            elif mask is not None:
+                if not isinstance(mask, dict):
+                    raise ValueError("Invalid sample mask.")
+                w, h, runs = mask.get("width"), mask.get("height"), mask.get("runs")
+                box = example["box"]
+                if not all(type(x) is int for x in (w, h, *box)) or w <= 0 or h <= 0 or (w, h) != (box[2] - box[0], box[3] - box[1]) or not isinstance(runs, list) or not runs or len(runs) % 2:
+                    raise ValueError("Sample mask must match its integer bounds.")
+                pixels = np.zeros(w * h, dtype=np.uint8)
+                offset = 0
+                for value, count in zip(runs[::2], runs[1::2]):
+                    if type(value) is not int or value not in (0, 1) or type(count) is not int or count <= 0 or offset + count > pixels.size:
+                        raise ValueError("Invalid binary sample mask run.")
+                    pixels[offset:offset + count] = value
+                    offset += count
+                if offset != pixels.size or not pixels.any():
+                    raise ValueError("Sample mask is empty or incomplete.")
+                canvas.paste(Image.fromarray(pixels.reshape(h, w)), (box[0], box[1]))
+            else:
+                x1, y1, x2, y2 = example["box"]
+                ImageDraw.Draw(canvas).rectangle((x1, y1, math.ceil(x2) - 1, math.ceil(y2) - 1), fill=1)
+            masks.append(np.array(canvas))
+        prompts = {"masks": np.stack(masks), "cls": classes}
+    return prompts, class_ids, names
+
+
 class Runtime:
     def __init__(self):
         self.lock = threading.Lock()
@@ -100,7 +161,7 @@ class Runtime:
 
     def status(self):
         return {**device_status(), "models": [name for name in MODELS if (ROOT / "models" / f"{name}.pt").is_file()],
-                "busy": self.busy, "version": 2}
+                "busy": self.busy, "version": 3}
 
     def prepare(self, payload):
         if not device_status()["cuda"]:
@@ -109,7 +170,7 @@ class Runtime:
         if name not in MODELS or not (ROOT / "models" / f"{name}.pt").is_file():
             raise ValueError("Model is not prepared. Run npm run yoloe:prepare -- --model " + str(name))
         image = decode_image(payload.get("image"))
-        boxes, classes, class_ids, names = validate_examples(payload.get("examples"), image.width, image.height)
+        prompts, class_ids, names = visual_prompts(payload.get("examples"), image.width, image.height)
         workflow = payload.get("workflow", "detection")
         if workflow not in ("detection", "segmentation"):
             raise ValueError("Choose Detection or Segmentation.")
@@ -117,18 +178,26 @@ class Runtime:
             raise ValueError("Segmentation class IDs must be 1–65535; 0 is reserved for background.")
         model_path = str(ROOT / "models" / f"{name}.pt")
         model = YOLOE(model_path) if workflow == "segmentation" else YOLOE(name.replace("-seg", "") + ".yaml").load(model_path)
-        model.predict(image, refer_image=image, visual_prompts={"bboxes": boxes, "cls": classes},
-                      predictor=YOLOEVPSegPredictor if workflow == "segmentation" else YOLOEVPDetectPredictor,
-                      device=0, imgsz=640, verbose=False, max_det=300, retina_masks=workflow == "segmentation")
+        predictor_type = YOLOEVPSegPredictor if workflow == "segmentation" else YOLOEVPDetectPredictor
+        if "masks" in prompts:
+            # The public YOLOE.predict wrapper requires boxes; the VP predictor accepts actual masks.
+            predictor = MaskPromptPredictor(overrides={"task": model.task, "mode": "predict", "device": 0, "imgsz": 640, "verbose": False, "save": False})
+            predictor.set_prompts(prompts)
+            predictor.setup_model(model=model.model, verbose=False)
+            model.set_classes([names[i] for i in class_ids], predictor.get_vpe(image))
+        else:
+            model.predict(image, refer_image=image, visual_prompts=prompts, predictor=predictor_type,
+                          device=0, imgsz=640, verbose=False, max_det=300, retina_masks=workflow == "segmentation")
         profile = {"id": str(uuid.uuid4()), "model": name, "workflow": workflow, "classIds": class_ids,
-                   "classes": {str(i): names[i] for i in class_ids}, "exampleCount": len(boxes),
+                   "classes": {str(i): names[i] for i in class_ids}, "exampleCount": len(payload["examples"]),
+                   "promptType": "mask" if "masks" in prompts else "box",
                    "referenceSha256": hashlib.sha256(image.tobytes()).hexdigest()}
         self.model, self.profile = model, profile
         return {**profile, **device_status()}
 
     def infer(self, payload):
         if self.model is None or not self.profile or payload.get("profileId") != self.profile["id"]:
-            raise ValueError("Examples expired or changed in another window. Register them again.")
+            raise ValueError("Examples expired or changed in another window. Reconnect GPU, then Find again.")
         confidence, iou = payload.get("confidence"), payload.get("iou")
         if not all(type(x) in (int, float) and math.isfinite(x) and 0 <= x <= 1 for x in (confidence, iou)):
             raise ValueError("Confidence and IoU must be between 0 and 1.")
