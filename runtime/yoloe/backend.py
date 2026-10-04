@@ -1,4 +1,4 @@
-"""Local CUDA visual prompting for Easy Labeling. No uploads leave this machine."""
+"""Local GPU/CPU visual prompting for Easy Labeling. No uploads leave this machine."""
 import argparse
 import base64
 import binascii
@@ -20,8 +20,9 @@ os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
+from torchvision.ops import batched_nms
 from ultralytics import YOLOE, settings
-from ultralytics.models.yolo.yoloe import YOLOEVPDetectPredictor, YOLOEVPSegPredictor
+from ultralytics.models.yolo.yoloe import YOLOEVPDetectPredictor
 from ultralytics.data.augment import LoadVisualPrompt
 
 settings.update({"sync": False})
@@ -41,6 +42,37 @@ class MaskPromptPredictor(YOLOEVPDetectPredictor):
         for i, mask in enumerate(masks):
             resized[i, top:top + h, left:left + w] = np.array(Image.fromarray(mask).resize((w, h), Image.Resampling.NEAREST))
         return LoadVisualPrompt().get_visuals(category, dst_shape, masks=resized)
+
+
+def reference_prompts(payload):
+    references = payload.get("references", [{"image": payload.get("image"), "examples": payload.get("examples")}])
+    if not isinstance(references, list) or not 1 <= len(references) <= 32:
+        raise ValueError("Use 1–32 reference images.")
+    prepared, class_ids, names, example_count = [], [], {}, 0
+    for reference in references:
+        if not isinstance(reference, dict):
+            raise ValueError("Invalid reference image.")
+        image = decode_image(reference.get("image"))
+        examples = reference.get("examples")
+        prompts, local_ids, local_names = visual_prompts(examples, image.width, image.height)
+        for class_id, name in local_names.items():
+            if class_id in names and names[class_id] != name:
+                raise ValueError("Examples of the same class must have the same name across images.")
+            if name in names.values() and names.get(class_id) != name:
+                raise ValueError("Examples of the same name must use the same class ID.")
+            names[class_id] = name
+        # Preserve within-image prompting; keep each reference's classes as separate prototypes.
+        class_ids.extend(local_ids)
+        example_count += len(examples)
+        if example_count > 32:
+            raise ValueError("Use at most 32 samples across all images.")
+        prepared.append((image, prompts))
+    return prepared, class_ids, names, example_count
+
+
+def select_detections(rows, class_ids, iou):
+    mapped = torch.tensor(class_ids, device=rows.device, dtype=torch.int64)[rows[:, 5].long()]
+    return batched_nms(rows[:, :4], rows[:, 4], mapped, iou)
 
 
 def device_status():
@@ -161,16 +193,18 @@ class Runtime:
 
     def status(self):
         return {**device_status(), "models": [name for name in MODELS if (ROOT / "models" / f"{name}.pt").is_file()],
-                "busy": self.busy, "version": 3}
+                "busy": self.busy, "version": 5}
 
     def prepare(self, payload):
-        if not device_status()["cuda"]:
-            raise ValueError("YOLOE requires an NVIDIA CUDA GPU. Run npm run yoloe:check.")
-        name = payload.get("model")
+        hardware = device_status()
+        device = 0 if hardware["cuda"] else "cpu"
+        name = payload.get("model", "yoloe-26s-seg" if hardware["cuda"] else "yoloe-26n-seg")
         if name not in MODELS or not (ROOT / "models" / f"{name}.pt").is_file():
-            raise ValueError("Model is not prepared. Run npm run yoloe:prepare -- --model " + str(name))
-        image = decode_image(payload.get("image"))
-        prompts, class_ids, names = visual_prompts(payload.get("examples"), image.width, image.height)
+            raise ValueError("Model is not prepared. Run npm.cmd run yoloe:prepare -- --model " + str(name))
+        references, class_ids, names, example_count = reference_prompts(payload)
+        imgsz = payload.get("imgsz", 640)
+        if type(imgsz) is not int or imgsz not in (640, 1024):
+            raise ValueError("Choose inference resolution 640 or 1024.")
         workflow = payload.get("workflow", "detection")
         if workflow not in ("detection", "segmentation"):
             raise ValueError("Choose Detection or Segmentation.")
@@ -178,40 +212,40 @@ class Runtime:
             raise ValueError("Segmentation class IDs must be 1–65535; 0 is reserved for background.")
         model_path = str(ROOT / "models" / f"{name}.pt")
         model = YOLOE(model_path) if workflow == "segmentation" else YOLOE(name.replace("-seg", "") + ".yaml").load(model_path)
-        predictor_type = YOLOEVPSegPredictor if workflow == "segmentation" else YOLOEVPDetectPredictor
-        if "masks" in prompts:
-            # The public YOLOE.predict wrapper requires boxes; the VP predictor accepts actual masks.
-            predictor = MaskPromptPredictor(overrides={"task": model.task, "mode": "predict", "device": 0, "imgsz": 640, "verbose": False, "save": False})
+        embeddings = []
+        for image, prompts in references:
+            predictor_type = MaskPromptPredictor if "masks" in prompts else YOLOEVPDetectPredictor
+            predictor = predictor_type(overrides={"task": model.task, "mode": "predict", "device": device, "imgsz": imgsz, "verbose": False, "save": False})
             predictor.set_prompts(prompts)
             predictor.setup_model(model=model.model, verbose=False)
-            model.set_classes([names[i] for i in class_ids], predictor.get_vpe(image))
-        else:
-            model.predict(image, refer_image=image, visual_prompts=prompts, predictor=predictor_type,
-                          device=0, imgsz=640, verbose=False, max_det=300, retina_masks=workflow == "segmentation")
+            embeddings.append(predictor.get_vpe(image))
+        model.set_classes([f"{names[class_id]} / example {index + 1}" for index, class_id in enumerate(class_ids)], torch.cat(embeddings, dim=1))
         profile = {"id": str(uuid.uuid4()), "model": name, "workflow": workflow, "classIds": class_ids,
-                   "classes": {str(i): names[i] for i in class_ids}, "exampleCount": len(payload["examples"]),
-                   "promptType": "mask" if "masks" in prompts else "box",
-                   "referenceSha256": hashlib.sha256(image.tobytes()).hexdigest()}
+                   "classes": {str(i): name for i, name in names.items()}, "exampleCount": example_count,
+                   "referenceCount": len(references), "imgsz": imgsz, "embeddingStrategy": "per-reference-class",
+                   "backend": "cuda" if hardware["cuda"] else "cpu", "gpu": hardware["gpu"],
+                   "referenceSha256": hashlib.sha256(b"".join(image.tobytes() for image, _ in references)).hexdigest()}
         self.model, self.profile = model, profile
-        return {**profile, **device_status()}
+        return {**profile, **hardware}
 
     def infer(self, payload):
         if self.model is None or not self.profile or payload.get("profileId") != self.profile["id"]:
-            raise ValueError("Examples expired or changed in another window. Reconnect GPU, then Find again.")
+            raise ValueError("Examples expired or changed in another window. Reconnect, then Find again.")
         confidence, iou = payload.get("confidence"), payload.get("iou")
         if not all(type(x) in (int, float) and math.isfinite(x) and 0 <= x <= 1 for x in (confidence, iou)):
             raise ValueError("Confidence and IoU must be between 0 and 1.")
         image = decode_image(payload.get("image"))
         started = time.perf_counter()
-        result = self.model.predict(image, device=0, imgsz=640, conf=confidence, iou=iou,
+        result = self.model.predict(image, device=0 if self.profile["backend"] == "cuda" else "cpu", imgsz=self.profile["imgsz"], conf=confidence, iou=iou,
                                     max_det=300, verbose=False, retina_masks=self.profile["workflow"] == "segmentation")[0]
-        rows = result.boxes.data.detach().cpu().tolist()
+        keep = select_detections(result.boxes.data, self.profile["classIds"], iou)
+        rows = result.boxes.data[keep].detach().cpu().tolist()
         detections = [{"classId": self.profile["classIds"][int(row[5])], "confidence": row[4],
                        "left": row[0], "top": row[1], "right": row[2], "bottom": row[3]} for row in rows]
-        mask = semantic_mask(result.masks.data.cpu().numpy() if result.masks is not None else None,
+        mask = semantic_mask(result.masks.data[keep].cpu().numpy() if result.masks is not None else None,
                              rows, self.profile["classIds"], image.width, image.height) if self.profile["workflow"] == "segmentation" else None
         return {"detections": detections, "mask": mask, "elapsedMs": (time.perf_counter() - started) * 1000,
-                "backend": "cuda", "gpu": torch.cuda.get_device_name(0)}
+                "backend": self.profile["backend"], "gpu": self.profile["gpu"]}
 
 
 def serve(port):
@@ -262,7 +296,7 @@ def serve(port):
                 if not isinstance(payload, dict):
                     raise ValueError("Invalid request.")
                 if not runtime.lock.acquire(blocking=False):
-                    return self.respond(409, {"error": "GPU is busy. Wait for the current operation to finish."})
+                    return self.respond(409, {"error": "YOLOE is busy. Wait for the current operation to finish."})
                 try:
                     runtime.busy = True
                     value = runtime.prepare(payload) if self.path == "/prepare" else runtime.infer(payload)
@@ -280,23 +314,26 @@ def serve(port):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["prepare", "check", "serve"])
-    parser.add_argument("--model", choices=MODELS, default="yoloe-26s-seg")
+    parser.add_argument("--model", choices=[*MODELS, "all"])
     parser.add_argument("--port", type=int, default=8766)
     args = parser.parse_args()
     if args.command == "prepare":
         from ultralytics.utils.downloads import attempt_download_asset
         (ROOT / "models").mkdir(exist_ok=True)
-        target = Path(attempt_download_asset(ROOT / "models" / f"{args.model}.pt"))
-        if not target.is_file():
-            raise RuntimeError("Model download failed.")
-        print(json.dumps({"model": str(target), "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}))
+        names = MODELS[:4] if args.model == "all" else [args.model or ("yoloe-26s-seg" if device_status()["cuda"] else "yoloe-26n-seg")]
+        for name in names:
+            target = Path(attempt_download_asset(ROOT / "models" / f"{name}.pt"))
+            if not target.is_file():
+                raise RuntimeError("Model download failed.")
+            print(json.dumps({"model": str(target), "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}))
     elif args.command == "check":
         print(json.dumps(Runtime().status()))
-        if not device_status()["cuda"]:
-            raise SystemExit("CUDA is unavailable. Install the NVIDIA driver and the pinned CUDA PyTorch runtime.")
-        value = torch.ones((16, 16), device="cuda") @ torch.ones((16, 16), device="cuda")
-        torch.cuda.synchronize()
+        device = "cuda" if device_status()["cuda"] else "cpu"
+        value = torch.ones((16, 16), device=device) @ torch.ones((16, 16), device=device)
+        if device == "cuda":
+            torch.cuda.synchronize()
         assert value[0, 0].item() == 16
+        print(json.dumps({"backend": device, "matrixCheck": "PASS"}))
     else:
         serve(args.port)
 

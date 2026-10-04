@@ -1,15 +1,40 @@
 import base64
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 from PIL import Image
 import numpy as np
+import torch
 
-from backend import Runtime, decode_image, validate_examples, semantic_mask, visual_prompts, MaskPromptPredictor
+from backend import Runtime, decode_image, validate_examples, semantic_mask, visual_prompts, MaskPromptPredictor, reference_prompts, select_detections
 
 
 class BackendTest(unittest.TestCase):
+    def test_references_keep_same_name_prototypes_and_reject_inconsistent_classes(self):
+        data = io.BytesIO(); Image.new("RGB", (40, 40)).save(data, format="PNG")
+        encoded = "data:image/png;base64," + base64.b64encode(data.getvalue()).decode()
+        example = {"classId": 7, "name": "sampleA", "box": [0, 0, 10, 10]}
+        references = [{"image": encoded, "examples": [example, {**example, "box": [20, 20, 30, 30]}]}, {"image": encoded, "examples": [example]}]
+        prepared, ids, names, count = reference_prompts({"references": references})
+        self.assertEqual((ids, names, count), ([7, 7], {7: "sampleA"}, 3))
+        self.assertEqual(prepared[0][1]["cls"].tolist(), [0, 0])
+        for change in ({"name": "sampleB"}, {"classId": 8}):
+            with self.assertRaises(ValueError):
+                reference_prompts({"references": [references[0], {"image": encoded, "examples": [{**example, **change}]}]})
+        with self.assertRaisesRegex(ValueError, "32 samples"):
+            reference_prompts({"references": [references[0]] * 17})
+        for size in (True, 960, "1024"):
+            with patch("backend.device_status", return_value={"cuda": True}), patch("pathlib.Path.is_file", return_value=True):
+                with self.assertRaisesRegex(ValueError, "resolution"):
+                    Runtime().prepare({"model": "yoloe-26s-seg", "references": references, "imgsz": size})
+
+    def test_same_output_class_deduplicates_prototypes_without_removing_other_classes(self):
+        rows = torch.tensor([[0, 0, 10, 10, 0.9, 0], [0, 0, 10, 10, 0.8, 1], [0, 0, 10, 10, 0.7, 2]])
+        self.assertEqual(select_detections(rows, [7, 7, 12], 0.45).tolist(), [0, 2])
+        self.assertEqual(select_detections(torch.empty((0, 6)), [7], 0.45).tolist(), [])
+
     def test_examples_group_non_contiguous_classes_and_reject_invalid_coordinates(self):
         examples = [{"classId": 7, "name": "cell", "box": [0, 0, 10, 10]},
                     {"classId": 2, "name": "part", "box": [10, 0, 20, 10]},
@@ -51,11 +76,32 @@ class BackendTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 visual_prompts([{**examples[1], "mask": {"width": 2, "height": 2, "runs": runs}}], 16, 16)
 
-    def test_gpu_required_and_stale_profile_is_rejected(self):
+    def test_gpu_and_cpu_defaults_drive_prompt_encoding_inference_and_reported_backend(self):
+        data = io.BytesIO(); Image.new("RGB", (40, 40)).save(data, format="PNG")
+        encoded = "data:image/png;base64," + base64.b64encode(data.getvalue()).decode()
+        for cuda in (False, True):
+            for workflow in ("detection", "segmentation"):
+                with self.subTest(cuda=cuda, workflow=workflow):
+                    model = MagicMock(task="segment" if workflow == "segmentation" else "detect")
+                    model.load.return_value = model
+                    model.predict.return_value = [SimpleNamespace(boxes=SimpleNamespace(data=torch.tensor([[0, 0, 10, 10, 0.9, 0]])),
+                        masks=SimpleNamespace(data=torch.ones((1, 40, 40))) if workflow == "segmentation" else None)]
+                    predictor = MagicMock()
+                    predictor.get_vpe.return_value = torch.ones((1, 1, 512))
+                    with patch("backend.device_status", return_value={"cuda": cuda, "gpu": "Test GPU" if cuda else None}), patch("pathlib.Path.is_file", return_value=True), patch("backend.YOLOE", return_value=model), patch("backend.YOLOEVPDetectPredictor", return_value=predictor) as factory:
+                        runtime = Runtime()
+                        profile = runtime.prepare({"image": encoded, "workflow": workflow, "examples": [{"classId": 7, "name": "part", "box": [0, 0, 10, 10]}]})
+                        expected = "cuda" if cuda else "cpu"
+                        self.assertEqual(profile["model"], "yoloe-26s-seg" if cuda else "yoloe-26n-seg")
+                        self.assertEqual(profile["backend"], expected)
+                        self.assertEqual(factory.call_args.kwargs["overrides"]["device"], 0 if cuda else "cpu")
+                        result = runtime.infer({"profileId": profile["id"], "image": encoded, "confidence": 0.25, "iou": 0.45})
+                        self.assertEqual(model.predict.call_args.kwargs["device"], 0 if cuda else "cpu")
+                        self.assertEqual(result["backend"], expected)
+                        self.assertEqual(result["gpu"], "Test GPU" if cuda else None)
+                        self.assertEqual(result["detections"][0]["classId"], 7)
+                        self.assertEqual(result["mask"] is not None, workflow == "segmentation")
         runtime = Runtime()
-        with patch("backend.device_status", return_value={"cuda": False}):
-            with self.assertRaisesRegex(ValueError, "CUDA"):
-                runtime.prepare({})
         with self.assertRaisesRegex(ValueError, "expired"):
             runtime.infer({"profileId": "stale"})
 

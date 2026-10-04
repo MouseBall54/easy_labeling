@@ -56,15 +56,47 @@ try {
   await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
   await expect(page.locator("#imageCountBadge")).toHaveText("3");
   const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.());
+  const verifyPopup = async (workflow) => {
+    await page.locator("#yoloeReferenceSelect").selectOption("1-target-gray.png");
+    await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
+    const canvas = page.locator("#yoloePreviewCanvas");
+    const rect = await canvas.boundingBox();
+    const beforeZoom = await page.locator("#yoloeSampleZoom").textContent();
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await page.keyboard.down("Control"); await page.mouse.wheel(0, -300); await page.keyboard.up("Control");
+    await expect(page.locator("#yoloeSampleZoom")).not.toHaveText(beforeZoom);
+    await page.mouse.down({ button: "middle" }); await page.mouse.move(rect.x + rect.width / 2 + 30, rect.y + rect.height / 2 + 20); await page.mouse.up({ button: "middle" });
+    const response = page.waitForResponse((response) => response.url().endsWith(":8766/infer"));
+    await page.locator("#previewYoloeSampleBtn").click();
+    const prediction = await (await response).json();
+    expect(prediction.detections.length).toBeGreaterThan(0);
+    if (workflow === "segmentation") { expect(prediction.mask.width).toBe(810); expect(prediction.mask.height).toBe(1080); }
+    await expect(page.locator("#yoloeSetupStatus")).toContainText("1-target-gray.png · labels unchanged");
+    await expect(page.locator("#current-image-name")).toHaveText("0-reference.png");
+    const resultPixels = await canvas.evaluate((canvas) => canvas.toDataURL());
+    await page.locator("#yoloeShowSampleResults").uncheck();
+    expect(await canvas.evaluate((canvas) => canvas.toDataURL())).not.toBe(resultPixels);
+    await page.locator("#yoloeShowSampleResults").check();
+    expect(await canvas.evaluate((canvas) => canvas.toDataURL())).toBe(resultPixels);
+    await page.screenshot({ path: path.join(output, `popup-${workflow}-preview.png`) });
+    evidence.checks[`popup${workflow}ZoomPanPreview`] = true;
+    await page.locator("#yoloeReferenceSelect").selectOption("0-reference.png");
+    await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
+  };
   await expect.poll(count).toBe(2);
   await page.locator("#taskYoloeBtn").click();
-  await page.locator("#yoloeAdvancedSettings summary").click();
+  await page.locator("#openYoloeSetupBtn").click();
+  await expect(page.locator("#yoloeSampleStage > #yoloePreviewCanvas")).toBeVisible();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await expect(page.locator("#yoloeModelSelect")).toBeEnabled();
   await page.locator("#yoloeProfileName").fill("acceptance_v1");
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
+  await page.locator("#yoloeSetupModal summary").click();
   await page.locator("#addYoloeSelectedBtn").click();
-  await page.locator("#yoloeAdvancedSettings summary").click();
+  await verifyPopup("detection");
+  expect(await count()).toBe(2);
+  await page.locator("#yoloeSetupModal").getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.locator("#yoloeSetupModal")).toBeHidden();
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2, { timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
   await expect.poll(count).toBe(1);
@@ -120,9 +152,10 @@ try {
   await expect(page.locator("#yoloeOutputBadge")).toHaveText("Segmentation · Masks");
   await expect(page.locator("#taskYoloeBtn")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#previewYoloeBtn")).toBeDisabled();
-  await page.locator("#yoloeAdvancedSettings summary").click();
+  await page.locator("#openYoloeSetupBtn").click();
+  await expect(page.locator("#yoloeSampleStage > #yoloePreviewCanvas")).toBeVisible();
   await page.locator("#yoloeProfileName").fill("acceptance_v1");
-  await page.locator("#yoloeAdvancedSettings summary").click();
+
   const maskBounds = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationMaskBounds?.());
   const sourceBounds = await maskBounds();
   const drawExample = async (name, polygon) => {
@@ -133,7 +166,9 @@ try {
     await page.locator("#drawYoloeExampleBtn").click();
     const points = await page.evaluate((polygon) => {
       const overlay = document.querySelector("#yoloePreviewCanvas"), bounds = overlay.getBoundingClientRect();
-      const [a, b, c, d, tx, ty] = Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform();
+      const width = Number(overlay.dataset.referenceWidth), height = Number(overlay.dataset.referenceHeight);
+      const a = Math.min(overlay.width / width, overlay.height / height), d = a, b = 0, c = 0;
+      const tx = (overlay.width - width * a) / 2, ty = (overlay.height - height * a) / 2;
       return polygon.map(([x, y]) => ({ x: bounds.left + (a * x + c * y + tx) * bounds.width / overlay.width, y: bounds.top + (b * x + d * y + ty) * bounds.height / overlay.height }));
     }, polygon);
     for (const point of points) await page.mouse.click(point.x, point.y);
@@ -143,6 +178,10 @@ try {
   await drawExample("bus", [[30, 250], [775, 240], [785, 700], [30, 740]]);
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
   expect(await maskBounds()).toEqual(sourceBounds);
+  await verifyPopup("segmentation");
+  expect(await maskBounds()).toEqual(sourceBounds);
+  await page.locator("#yoloeSetupModal").getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.locator("#yoloeSetupModal")).toBeHidden();
   await expect(page.locator("#previewYoloeBtn")).toBeEnabled({ timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
   const targetSourceBounds = await maskBounds();

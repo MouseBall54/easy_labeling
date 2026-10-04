@@ -49,32 +49,39 @@ def main():
     parser.add_argument("--dataset", type=Path, default=Path(r"C:\Git\ym_yolo\datasets\synthetic_cells"))
     parser.add_argument("--workflow", choices=["detection", "segmentation"], default="detection")
     parser.add_argument("--prompt", choices=["box", "mask"], default="box")
+    parser.add_argument("--imgsz", type=int, choices=[640, 1024], default=640)
+    parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--reference-count", type=int, choices=[1, 2], default=1)
     args = parser.parse_args()
     files = sorted((args.dataset / "images/test").glob("*.png"))[:3]
     if len(files) < 3:
         raise RuntimeError("Three test images are required.")
-    reference, size = image_data(files[0])
-    truth = truth_boxes(args.dataset / "labels/test" / (files[0].stem + ".txt"), *size)
-    examples = [{"classId": 1 if args.workflow == "segmentation" else 0, "name": "cell", "box": box} for box in truth[:3]]
-    if args.prompt == "mask":
-        import cv2
-        with Image.open(args.dataset / "masks/test" / files[0].name) as source:
-            binary = (np.array(source) > 0).astype(np.uint8)
-        _, components, stats, _ = cv2.connectedComponentsWithStats(binary)
-        for example in examples:
-            index = max(range(1, len(stats)), key=lambda i: iou(example["box"], [int(stats[i, 0]), int(stats[i, 1]), int(stats[i, 0] + stats[i, 2]), int(stats[i, 1] + stats[i, 3])]))
-            x, y, w, h = map(int, stats[index, :4])
-            pixels = (components[y:y + h, x:x + w] == index).ravel().astype(np.uint8)
-            starts = np.r_[0, np.flatnonzero(pixels[1:] != pixels[:-1]) + 1]
-            runs = np.column_stack((pixels[starts], np.diff(np.r_[starts, pixels.size]))).ravel().tolist()
-            example.update(box=[x, y, x + w, y + h], mask={"width": w, "height": h, "runs": runs})
-    profile = request("prepare", {"model": "yoloe-26s-seg", "workflow": args.workflow, "image": reference, "examples": examples})
-    evidence = {"reference": files[0].name, "exampleCount": len(examples), "gpu": profile["gpu"],
-                "workflow": args.workflow, "promptType": args.prompt, "confidence": 0.25, "matchIou": 0.5, "images": []}
+    references = []
+    for file in files[:args.reference_count]:
+        reference, size = image_data(file)
+        truth = truth_boxes(args.dataset / "labels/test" / (file.stem + ".txt"), *size)
+        examples = [{"classId": 1 if args.workflow == "segmentation" else 0, "name": "cell", "box": box} for box in truth[:3]]
+        if args.prompt == "mask":
+            import cv2
+            with Image.open(args.dataset / "masks/test" / file.name) as source:
+                binary = (np.array(source) > 0).astype(np.uint8)
+            _, components, stats, _ = cv2.connectedComponentsWithStats(binary)
+            for example in examples:
+                index = max(range(1, len(stats)), key=lambda i: iou(example["box"], [int(stats[i, 0]), int(stats[i, 1]), int(stats[i, 0] + stats[i, 2]), int(stats[i, 1] + stats[i, 3])]))
+                x, y, w, h = map(int, stats[index, :4])
+                pixels = (components[y:y + h, x:x + w] == index).ravel().astype(np.uint8)
+                starts = np.r_[0, np.flatnonzero(pixels[1:] != pixels[:-1]) + 1]
+                runs = np.column_stack((pixels[starts], np.diff(np.r_[starts, pixels.size]))).ravel().tolist()
+                example.update(box=[x, y, x + w, y + h], mask={"width": w, "height": h, "runs": runs})
+        references.append({"image": reference, "examples": examples})
+    profile = request("prepare", {"model": "yoloe-26s-seg", "workflow": args.workflow, "references": references, "imgsz": args.imgsz})
+    evidence = {"references": [f.name for f in files[:args.reference_count]], "exampleCount": profile["exampleCount"], "gpu": profile["gpu"],
+                "workflow": args.workflow, "promptType": args.prompt, "imgsz": args.imgsz, "confidence": args.confidence, "matchIou": 0.5, "images": []}
     for file in files:
         image, size = image_data(file)
         labels = truth_boxes(args.dataset / "labels/test" / (file.stem + ".txt"), *size)
-        result = request("infer", {"profileId": profile["id"], "image": image, "confidence": 0.25, "iou": 0.45})
+        result = request("infer", {"profileId": profile["id"], "image": image, "confidence": args.confidence, "iou": 0.45})
+        assert all(detection["classId"] == (1 if args.workflow == "segmentation" else 0) for detection in result["detections"])
         used = set()
         for detection in sorted(result["detections"], key=lambda box: box["confidence"], reverse=True):
             box = [detection[key] for key in ("left", "top", "right", "bottom")]
@@ -103,6 +110,8 @@ def main():
     output = Path(__file__).resolve().parent.parent / "output/yoloe-validation"
     output.mkdir(parents=True, exist_ok=True)
     filename = ("cells-masks.json" if args.workflow == "segmentation" else "cells.json") if args.prompt == "box" else f"cells-mask-prompts-{args.workflow}.json"
+    if (args.imgsz, args.confidence, args.reference_count) != (640, 0.25, 1):
+        filename = f"cells-{args.workflow}-{args.prompt}-{args.imgsz}-conf{args.confidence}-refs{args.reference_count}.json"
     (output / filename).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(evidence, indent=2))
 

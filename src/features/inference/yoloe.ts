@@ -12,7 +12,8 @@ export interface VisualExample {
 export interface YoloeStatus { version: number; cuda: boolean; gpu: string | null; models: string[]; busy: boolean; }
 export interface YoloeProfile {
   id: string; model: string; classes: Record<string, string>; exampleCount: number; referenceSha256: string;
-  gpu: string; workflow: WorkflowType;
+  backend: "cuda" | "cpu"; gpu: string | null; workflow: WorkflowType;
+  imgsz: number;
 }
 export interface YoloeResult { detections: Detection[]; mask: { width: number; height: number; mask: Uint16Array } | null; }
 
@@ -76,15 +77,15 @@ export async function requestYoloe<T>(path: string, payload?: Record<string, unk
     });
   } catch (error) {
     if (signal?.aborted) throw signal.reason;
-    throw new Error("GPU service is unavailable. Run npm run yoloe:start, then reconnect GPU in Settings.");
+    throw new Error("YOLOE service is unavailable. Run npm run yoloe:start, then reconnect in Settings.");
   }
   const value = await response.json() as { error?: string };
-  if (!response.ok) throw new Error(value.error ?? `GPU service error (${response.status}).`);
+  if (!response.ok) throw new Error(value.error ?? `YOLOE service error (${response.status}).`);
   return value as T;
 }
 
 export async function inferYoloe(image: HTMLImageElement, documentRef: Document, profile: YoloeProfile, confidence: number, iou: number, signal?: AbortSignal): Promise<YoloeResult> {
   const result = await requestYoloe<{ detections: Detection[]; mask?: { width: number; height: number; runs: number[] } }>("infer", { profileId: profile.id, image: imagePng(image, documentRef), confidence, iou }, signal);
-  if (profile.workflow === "segmentation" && !result.mask) throw new Error("YOLOE did not return a segmentation mask. Restart the GPU service.");
+  if (profile.workflow === "segmentation" && !result.mask) throw new Error("YOLOE did not return a segmentation mask. Restart the YOLOE service.");
   return { detections: result.detections, mask: result.mask ? decodeYoloeMask(result.mask) : null };
 }

@@ -2319,6 +2319,8 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
+        if (input.documentRef?.getElementById("yoloeSetupModal")?.classList.contains("show")) return;
+
         const templateModalElement = input.documentRef?.getElementById("templateMatchingModal");
         const templateModalVisible = elements.templateMatchingModal?._isShown
           || templateModalElement?.classList.contains("show");

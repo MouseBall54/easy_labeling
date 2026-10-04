@@ -2667,6 +2667,15 @@ main.canvas-container > .canvas-container {
     pointer-events: none;
 }
 
+.yoloe-drawing-toolbar {
+    min-height: 52px;
+    color: var(--workbench-text);
+    border-bottom: 2px solid var(--bs-primary);
+    text-align: center;
+}
+
+.yoloe-drawing-toolbar > span { display: block; }
+
 .canvas-empty-state {
     position: absolute;
     top: 50%;
@@ -3063,6 +3072,28 @@ body.workspace-standby-active .workbench-status-bar {
 .yoloe-example-list canvas { flex-shrink: 0; }
 .yoloe-setup-commands { display: grid; gap: 4px; }
 .yoloe-setup-commands code { color: var(--workbench-text); user-select: all; }
+
+.yoloe-setup-dialog { max-width: min(1280px, 96vw); }
+#yoloeSetupModal .text-muted { color: var(--workbench-text-muted) !important; }
+body.dark-mode #yoloeSetupModal .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+.yoloe-setup-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; }
+.yoloe-sample-workspace { min-width: 0; }
+.yoloe-sample-view-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.yoloe-sample-view-controls .btn { flex-shrink: 0; }
+.yoloe-settings-column { padding-left: 20px; border-left: 1px solid var(--workbench-border); }
+.yoloe-sample-stage { position: relative; height: clamp(260px, 40vh, 480px); display: grid; place-items: center; overflow: hidden; background: var(--workbench-canvas); border: 1px solid var(--workbench-border); border-radius: var(--radius-sm); }
+.yoloe-sample-builder { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.yoloe-sample-actions { display: flex; align-items: start; gap: 8px; }
+.yoloe-sample-actions .btn { width: auto !important; flex-shrink: 0; }
+.yoloe-sample-actions p { align-self: center; }
+.yoloe-sample-workspace .yoloe-example-list { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); max-height: 180px; }
+.yoloe-sample-workspace .yoloe-drawing-toolbar { padding: 8px; background: var(--workbench-surface-muted); }
+.yoloe-sample-stage canvas { touch-action: none; }
+@media (max-width: 800px) {
+    .yoloe-setup-body { grid-template-columns: 1fr; gap: 20px; }
+    .yoloe-settings-column { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--workbench-border); }
+    .yoloe-sample-actions { flex-wrap: wrap; }
+}
 
 #detectionInferenceWorkspace .text-muted,
 #detectionLabelSources .text-muted {

@@ -4,16 +4,21 @@
     "gpu": "NVIDIA GeForce RTX 2080 SUPER",
     "torch": "2.11.0+cu130",
     "models": [
-      "yoloe-26s-seg"
+      "yoloe-26n-seg",
+      "yoloe-26s-seg",
+      "yoloe-26m-seg",
+      "yoloe-26l-seg"
     ],
     "busy": false,
-    "version": 3
+    "version": 5
   },
   "model": "yoloe-26s-seg",
   "checks": {
+    "popupdetectionZoomPanPreview": true,
     "previewPreservedSource": true,
     "stableFolderAndSourceRestoration": true,
-    "review": true
+    "review": true,
+    "popupsegmentationZoomPanPreview": true
   },
   "images": [
     {
@@ -74,7 +79,7 @@
       }
     ],
     "mask": null,
-    "elapsedMs": 27.631600038148463,
+    "elapsedMs": 35.86070000892505,
     "backend": "cuda",
     "gpu": "NVIDIA GeForce RTX 2080 SUPER"
   },
@@ -88,6 +93,9 @@
     "referenceImage": "0-reference.png",
     "referenceSha256": "8739ae2c34b8713bcc185201414014011b601159d5ec717275e4a2625f9fbded",
     "exampleCount": 2,
+    "referenceImages": [
+      "0-reference.png"
+    ],
     "samples": [
       {
         "classId": 5,
@@ -97,7 +105,8 @@
           399.9999996,
           247.00000339999997,
           901.9999964
-        ]
+        ],
+        "referenceImage": "0-reference.png"
       },
       {
         "classId": 12,
@@ -107,9 +116,11 @@
           239.99999760000003,
           786.0000044,
           741.9999944
-        ]
+        ],
+        "referenceImage": "0-reference.png"
       }
     ],
+    "imgsz": 640,
     "confidence": 0.25,
     "iou": 0.45,
     "model": "yoloe-26s-seg-acceptance_v1",
@@ -119,7 +130,7 @@
       "2-target-rgb.png"
     ],
     "detections": 11,
-    "createdAt": "2026-10-04T07:49:20.908Z"
+    "createdAt": "2026-10-04T12:44:16.776Z"
   },
   "segmentation": {
     "checks": {
@@ -139,8 +150,8 @@
         "width": 810,
         "height": 1080,
         "pixelsByClass": {
-          "0": 512045,
-          "5": 99155,
+          "0": 500479,
+          "5": 110721,
           "12": 263600
         }
       },
@@ -149,8 +160,8 @@
         "width": 810,
         "height": 1080,
         "pixelsByClass": {
-          "0": 498998,
-          "5": 109938,
+          "0": 498934,
+          "5": 110002,
           "12": 265864
         }
       },
@@ -159,8 +170,8 @@
         "width": 1280,
         "height": 720,
         "pixelsByClass": {
-          "0": 750510,
-          "5": 171090
+          "0": 535567,
+          "5": 386033
         }
       }
     ],
@@ -174,64 +185,70 @@
       "referenceImage": "0-reference.png",
       "referenceSha256": "8739ae2c34b8713bcc185201414014011b601159d5ec717275e4a2625f9fbded",
       "exampleCount": 2,
+      "referenceImages": [
+        "0-reference.png"
+      ],
       "samples": [
         {
           "classId": 5,
           "name": "person",
           "box": [
-            49.99996255772918,
-            400.00002212497816,
-            244.9999727692576,
-            899.9999693654148
+            50.00000348772321,
+            400.0000279017857,
+            244.999951171875,
+            900.0000627790179
           ],
           "polygon": [
             [
-              89.99996936541478,
-              400.00002212497816
+              89.99996861049108,
+              400.0000279017857
             ],
             [
-              184.9999625577292,
-              400.00002212497816
+              185.00000348772323,
+              400.0000279017857
             ],
             [
-              244.9999727692576,
-              899.9999693654148
+              244.999951171875,
+              900.0000627790179
             ],
             [
-              49.99996255772918,
-              899.9999693654148
+              50.00000348772321,
+              900.0000627790179
             ]
-          ]
+          ],
+          "referenceImage": "0-reference.png"
         },
         {
           "classId": 12,
           "name": "bus",
           "box": [
-            29.999959153886376,
-            239.99999489423573,
-            784.9999727692576,
-            740.000034038428
+            30.000020926339285,
+            239.99997907366074,
+            784.999951171875,
+            740.0000139508929
           ],
           "polygon": [
             [
-              29.999959153886376,
-              249.99999659615713
+              30.000020926339285,
+              250.00001743861608
             ],
             [
-              775.000017019214,
-              239.99999489423573
+              775.0000069754466,
+              239.99997907366074
             ],
             [
-              784.9999727692576,
-              700.0000272307424
+              784.999951171875,
+              699.9999546595982
             ],
             [
-              29.999959153886376,
-              740.000034038428
+              30.000020926339285,
+              740.0000139508929
             ]
-          ]
+          ],
+          "referenceImage": "0-reference.png"
         }
       ],
+      "imgsz": 640,
       "confidence": 0.25,
       "iou": 0.45,
       "model": "yoloe-26s-seg-acceptance_v1",
@@ -242,8 +259,8 @@
         "1-target-gray.png",
         "2-target-rgb.png"
       ],
-      "detections": 10,
-      "createdAt": "2026-10-04T07:50:01.306Z"
+      "detections": 12,
+      "createdAt": "2026-10-04T12:45:07.292Z"
     },
     "previewInstances": 5
   }

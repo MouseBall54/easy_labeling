@@ -126,3 +126,94 @@ uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --w
 자동 UI 테스트는 모의 GPU 응답으로 sampleA/B/C 이름과 ID 구분, 같은 이름 재사용, 윤곽 마스크 전달, 샘플 삭제·취소, 두 모드 저장과 원본 복귀, 접힌 기본 설정, 연결 오류와 구형 API 감지를 검증합니다. 실제 모델 품질은 위 별도의 GPU 실행 JSON으로 확인합니다.
 
 최종 검사: TypeScript 타입 검사·빌드, 단위 테스트 394개, Python 백엔드 테스트 6개, 관련 E2E 15개 PASS. 실제 Electron/CUDA 검증은 별도로 PASS했으며 다각형 예시 마스크·RGB/회색조·원본 보존·결과 소스 전환·Refresh·Brush/Undo/Redo/Save를 확인했습니다. UI 샘플 이름 입력에는 네이티브 datalist 팝업을 사용하지 않아 Electron에서도 동일한 테마의 단순 입력을 유지합니다.
+
+## 여러 기준 이미지의 동일 이름 예시와 정확도 조정
+
+API v4에서는 한 기준 이미지 제한을 제거했습니다. UI에서 **Add another example to → sampleA**를 선택하고 다른 이미지의 영역을 추가하면, 같은 이름·클래스 ID로 예시가 누적됩니다. 썸네일은 각 원본 이미지를 사용하며 결과 메타데이터에 예시별 이미지 이름과 입력 해상도를 기록합니다. 총 32개 제한과 데이터셋·워크플로 변경 시 초기화는 유지합니다.
+
+같은 이미지 안의 같은 클래스는 기존처럼 영역을 합쳐 인코딩합니다. 서로 다른 이미지의 클래스 특징은 평균하지 않고 각각 보관합니다. 모델 내부 특징 인덱스를 원래 클래스 ID로 되돌린 뒤 같은 출력 클래스의 중복 검출을 NMS로 제거하며, 동일한 인덱스로 마스크도 선택합니다. 클래스 ID 0은 Detection에서만 허용하고 Segmentation 배경 규칙은 유지합니다.
+
+실제 합성 세포 데이터에서 예시별 특징 평균화·독립 유지, 해상도, 임계값을 비교했습니다. 아래는 `yoloe-26s-seg` 마스크 예시 3개의 결과입니다. 기준 이미지 `cell_0016.png`가 포함된 3장 / 195개 대상의 설정 비교입니다. mAP나 독립적인 산업 데이터 성능이 아닙니다.
+
+| 인코딩 | 해상도 | Confidence | 박스 Recall | 마스크 전경 IoU |
+|---|---:|---:|---:|---:|
+| 같은 이미지의 클래스 영역 합치기 | 640 | 0.25 | 1.03% | 1.73% |
+| 같은 이미지의 클래스 영역 합치기 | 640 | 0.05 | 71.79% | 69.07% |
+| 같은 이미지의 클래스 영역 합치기 | 1024 | 0.25 | 44.62% | 51.61% |
+| 같은 이미지의 클래스 영역 합치기 | 1024 | 0.05 | 96.92% | 91.04% |
+| 각 예시 특징 평균 | 640 | 0.05 | 50.77% | 53.11% |
+| 각 예시 특징 독립 유지 | 640 | 0.05 | 46.15% | 48.05% |
+
+이 결과 때문에 같은 이미지의 기존 처리 방식은 유지했습니다. 효과가 컸던 변경은 해상도와 Confidence입니다. 1024를 UI 설정으로 제공하고 기본값 640 / 0.25는 유지합니다. 0.05는 이 데이터에서 효과가 있었지만 실제 산업 이미지에서는 배경·유사 불량에 대한 오검출을 별도로 확인해야 합니다.
+
+두 기준 이미지 `cell_0016.png`, `cell_0035.png`에서 각각 동일 이름 `cell` 예시 3개씩, 총 6개를 등록하여 실제 localhost CUDA API도 검사했습니다. 1024 / 0.05에서 Detection과 Segmentation 모두 190/195개(TP 190, FP 0, FN 5)를 찾았습니다. 두 기준 이미지가 평가에 포함됩니다. 예시로 쓰지 않은 `cell_0038.png` 한 장은 58/58 검출, Segmentation 전경 IoU 91.75%였습니다. 이는 한 장의 제한된 확인이며, 예시 추가만으로 일반적인 정확도가 보장된다는 근거는 아닙니다.
+
+자동 검사는 다중 이미지의 동일 이름·ID와 다른 대상 구분, 해상도 전달, 삭제·취소·원본 보존·두 모드 저장을 E2E로 확인합니다. Python 검사 8개에는 이미지 간 이름·ID 불일치, 총 예시 제한, 해상도 검증, 원래 클래스 기준 중복 제거를 포함합니다.
+
+재현:
+
+```powershell
+uv run --project runtime/yoloe --locked python scripts/benchmark-yoloe-prompts.py
+uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --prompt mask --imgsz 1024 --confidence 0.05 --reference-count 2
+uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --workflow segmentation --prompt mask --imgsz 1024 --confidence 0.05 --reference-count 2
+```
+
+증거: [설정 비교](../output/yoloe-validation/prompt-calibration.json), [다중 이미지 Detection](../output/yoloe-validation/cells-detection-mask-1024-conf0.05-refs2.json), [다중 이미지 Segmentation](../output/yoloe-validation/cells-segmentation-mask-1024-conf0.05-refs2.json), [한 기준 이미지 Segmentation API](../output/yoloe-validation/cells-segmentation-mask-1024-conf0.05-refs1.json).
+
+다음 개선 순서는 실제 도메인 검수 이미지 분리 → 조명·방향·크기의 대표 예시 → 해상도·Confidence 비교 → 큰 원본의 타일 추론 평가 → 필요 시 도메인 학습입니다. 큰 모델·타일 추론·추가 학습은 이번 변경에 구현하거나 측정하지 않았습니다. [Ultralytics 추론 인자](https://docs.ultralytics.com/modes/predict/)와 [YOLOE 학습 안내](https://docs.ultralytics.com/models/yoloe/)를 기준으로, 검수 데이터에서 Precision·Recall·IoU와 GPU 자원 사용을 함께 비교해야 합니다.
+
+## n/s/m/l 선택과 GPU 없는 환경의 CPU 실행
+
+후속 변경(API v5)은 **Settings → Model**에 N/S/M/L을 제공합니다. GPU 초기 선택은 준비된 s를 우선하고 CPU 초기 선택은 n입니다. 다른 크기를 직접 선택하면 다음 찾기에서 해당 모델로 예시를 다시 인코딩합니다. 준비되지 않은 모델은 준비 명령을 안내하며 임의로 다른 모델을 사용하지 않습니다. CUDA가 없으면 실제 CPU에서 실행하며 배지와 저장 메타데이터에도 CPU를 기록합니다. 기존 CUDA 전용 제한을 제거했습니다.
+
+공식 n/s/m/l 체크포인트를 프로젝트의 `runtime/yoloe/models/`에 모두 준비했습니다. 기존 `synthetic_cells/images/test/cell_0016.png`의 한 영역을 마스크 예시로 사용해 입력 해상도 640, Confidence 0.05에서 실제 모델 실행을 검사했습니다.
+
+| 모델 | CUDA Detection | CUDA Segmentation | CPU Detection | CPU Segmentation |
+|---|---|---|---|---|
+| n | PASS | PASS | PASS | PASS |
+| s | PASS | PASS | 미측정 | 미측정 |
+| m | PASS | PASS | 미측정 | 미측정 |
+| l | PASS | PASS | 미측정 | 미측정 |
+
+모델 예측기의 실제 텐서 장치와 응답의 backend가 일치하는지 검사했습니다. Detection은 박스와 원래 클래스 ID를, Segmentation은 원본 크기의 실제 마스크와 완전한 픽셀 run을 확인했습니다. CPU 검사는 GPU가 있는 이 컴퓨터에서 CUDA 가용성 검사를 false로 설정하여 GPU 없는 경로를 실행했습니다. 실제 모델 연산과 텐서는 CPU였으며 GPU 없는 별도 컴퓨터의 설치 검증을 의미하지 않습니다. CPU 요청에서 모델을 생략했을 때 n을 사용하는 것도 확인했습니다.
+
+이 검사는 실행 호환성 확인입니다. 초기 실행 한 장과 한 예시의 검출 개수·시간으로 크기별 정확도나 성능 순위를 판단하지 않습니다. 큰 모델의 품질·VRAM·처리시간 비교는 별도 도메인 검증이 필요합니다.
+
+Python 테스트 8개, UI E2E 6개, 타입 검사와 빌드 PASS. E2E에는 두 모드에서 CPU 기본 n 선택, 네 크기 선택과 예시 재인코딩, 결과 저장, 누락 모델 명령과 구형 API 오류를 포함합니다. API v4 이하 서비스는 재시작해야 합니다.
+
+```powershell
+npm.cmd run yoloe:prepare -- --model all
+uv run --project runtime/yoloe --locked python scripts/verify-yoloe-models.py
+npm run yoloe:test
+npx playwright test tests/e2e/yoloe.spec.ts --project=chromium
+```
+
+실제 실행 증거: [크기별 GPU/CPU 검사](../output/yoloe-validation/model-sizes-cpu-gpu.json). 설치·실행과 개별 모델 준비 명령은 [셋업 안내](YOLOE26_GPU_KO.md)를 참고하세요.
+
+## Samples & settings 팝업 적용 검증
+
+왼쪽 YOLOE-26 패널에는 실행 장치·모델·예시 개수, **Samples & settings**, **Find in current image**, 저장 범위·**Save results**만 유지했습니다. 예시 이미지 선택·윤곽 지정·같은 이름의 예시 추가와 모델·해상도·Confidence·NMS·결과 이름은 기존 Layout/Template Matching 설정과 같은 Bootstrap 팝업으로 옮겼습니다. 새 런타임이나 의존성을 추가하지 않았습니다.
+
+팝업의 기준 이미지 선택은 메인 이미지와 원본 라벨을 변경하지 않습니다. **Done** 이후 같은 작업 세션에서 설정과 완료한 예시를 유지하며, 닫을 때 미완성 윤곽만 취소합니다. 연속 예시 입력 시 그릴 이미지가 자동으로 보이도록 스크롤합니다. 팝업이 열린 동안 메인 이미지 이동·편집 단축키를 차단하고, 닫으면 설정 버튼으로 키보드 포커스를 돌려줍니다. 데이터셋·워크플로 변경 시 예시 초기화 규칙은 유지합니다.
+
+검사 결과: 타입 검사·빌드 PASS, 단위 테스트 **394개 PASS**, YOLOE UI E2E **7개 PASS**. 두 모드의 다중 이미지 예시, 기존 선택 라벨 가져오기, 설정 유지, 닫기·취소·포커스 복귀, CPU 기본 n과 모델 전환, 팝업의 좁은 화면 배치·어두운 테마를 검사했습니다. 좁은 화면 검사는 열린 팝업의 배치 확인이며 프로그램 전체의 모바일 지원 검증은 아닙니다.
+
+`node scripts/verify-yoloe.mjs`로 실제 Electron·API v5·RTX 2080 SUPER CUDA 흐름도 PASS했습니다. RGB/회색조 3장에서 Detection은 4/5/2개 박스를 저장했고, Segmentation은 원본 해상도 마스크를 저장했습니다. 원본 파일 보존, 결과 폴더 전환·새로고침, Brush/Undo/Redo/Save도 확인했습니다. 이 결과는 팝업 변경 후 실행·저장 호환성 확인이며 산업 도메인 정확도 평가가 아닙니다.
+
+라이브 브라우저에서도 sampleA 윤곽 입력과 팝업 재열기 후 예시 유지, 밝은/어두운 테마를 직접 확인했습니다. 증거: [실제 Electron 실행 JSON](../output/yoloe-validation/results.json), [설정 팝업](../output/yoloe-validation/yoloe-setup-popup.png), [어두운 테마](../output/yoloe-validation/yoloe-setup-popup-dark.png).
+
+### 팝업 확대·이동과 모델 미리보기 보완
+
+Ctrl+휠은 포인터 위치를 기준으로 확대·축소하며 가운데 드래그와 Space+드래그로 이미지 이동을 지원합니다. 윤곽 입력을 하지 않을 때는 왼쪽 드래그도 이동합니다. 이미지·완료한 예시·진행 중 윤곽·모델 결과가 같은 좌표 변환을 사용합니다. Fit image로 전체 보기로 돌아갈 수 있고 기준 이미지 변경·팝업 재열기는 전체 보기에서 시작합니다.
+
+Run preview는 팝업에 선택된 기준 이미지의 원본 픽셀을 기존 YOLOE 서비스에 전달합니다. Detection은 박스·이름·신뢰도, Segmentation은 원본 크기의 모델 마스크를 표시합니다. Show results를 끄면 이미지와 예시를 볼 수 있으며 샘플·추론 설정 변경 시 이전 결과를 제거합니다. 메인 이미지·기존 라벨·마스크는 그대로 유지합니다.
+
+타입 검사·빌드 PASS, YOLOE E2E **9개 PASS**. 추가된 두 검사는 실제 Ctrl+휠·가운데 드래그·Space+드래그 입력, 이동 중 윤곽 점 미추가, 확대·이동 후 예시의 원본 좌표 오차 1픽셀 미만, Fit 복귀, 다른 이미지의 팝업 추론 요청 크기, 결과 픽셀 표시·숨김·설정 변경 시 제거, 두 모드의 메인 라벨 보존을 확인했습니다.
+
+실제 Electron·RTX 2080 SUPER CUDA 검사도 PASS했습니다. RGB 기준 예시를 유지한 채 팝업에서 회색조 대상 이미지로 변경하고 확대·이동 후 모델 미리보기와 결과 토글을 두 모드에서 검사했습니다. 기존 박스·마스크 저장·원본 보존·결과 전환 검사도 통과했습니다. [실행 JSON](../output/yoloe-validation/results.json)의 `popupdetectionZoomPanPreview`, `popupsegmentationZoomPanPreview`와 [Detection 팝업](../output/yoloe-validation/popup-detection-preview.png), [Segmentation 팝업](../output/yoloe-validation/popup-segmentation-preview.png)에 증거를 남겼습니다.
+
+### 미리보기 가독성 개선
+
+이미지에 묻히던 청록 점선과 배경 없는 글씨를 교체했습니다. Detection은 기존 라벨의 스타일에 맞춰 클래스 색 2px 실선과 20% 채움, 클래스 색 배경의 흰 글씨를 사용합니다. Segoe UI와 기존 라벨 글자 크기 설정을 따르며 크기는 화면 기준으로 유지합니다. 겹치는 이름은 신뢰도가 높은 결과부터 표시하며, 박스와 실제 결과 개수는 줄이지 않습니다. Segmentation은 클래스 색 채움과 흰 경계, 어두운 배경의 이름 배지를 사용합니다. 팝업·메인 미리보기에 함께 적용했으며 저장 데이터는 변경하지 않았습니다.
+
+타입 검사·빌드 PASS, 관련 E2E 두 모드 **2개 PASS**. 실제 렌더링 픽셀에서 Detection의 클래스 색 배경, Segmentation의 어두운 배경과 흰 글씨를 확인하고 결과 토글·설정 변경·좌표·원본 보존 검사를 유지했습니다. 실제 Electron/CUDA 검증도 두 모드 PASS했으며 밝은/어두운 테마 미리보기와 저장 결과를 갱신했습니다. 증거는 위 실행 JSON과 팝업 이미지입니다.
