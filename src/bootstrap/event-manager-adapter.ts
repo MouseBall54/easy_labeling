@@ -13,6 +13,7 @@ import { saveSegmentationToolPresets } from "../features/segmentation/preset-ser
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { getSuperResolutionModelLabel, isSuperResolutionMode } from "../features/super-resolution/model-registry.js";
 import type { SuperResolutionMode, SuperResolutionStatus } from "../features/super-resolution/types.js";
+import { bindInferenceControls } from "./inference-controller.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -119,6 +120,7 @@ export function createEventManagerAdapter(input: {
   return {
     bindEventListeners(): void {
       const { elements } = input.uiManager;
+      const disposeInference = input.documentRef ? bindInferenceControls({ ...input, documentRef: input.documentRef }) : () => {};
       const segmentationFormatStorageKey = "easy-labeling:segmentation-format-settings";
       const settingsStorage = input.documentRef?.defaultView?.localStorage;
       try {
@@ -806,6 +808,13 @@ export function createEventManagerAdapter(input: {
         hideAutomationLayoutGhost();
         input.uiManager.setActiveTask?.("review");
         ensureCurrentReviewQueueItem();
+      });
+      input.documentRef?.getElementById("taskInferenceBtn")?.addEventListener("click", () => {
+        hideAutomationLayoutGhost();
+        input.state.view.reviewFilter = "all";
+        elements.reviewFilterSelect.value = "all";
+        input.uiManager.setActiveTask("inference");
+        input.uiManager.renderImageList();
       });
       elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));
       elements.nextReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(1));
@@ -2687,6 +2696,7 @@ export function createEventManagerAdapter(input: {
         (event as BeforeUnloadEvent).returnValue = "";
       });
       input.windowRef.addEventListener("unload", () => {
+        disposeInference();
         unsubscribeSuperResolutionStatus();
         if (elapsedTimer !== undefined) elapsedWindow?.clearInterval(elapsedTimer);
         automationController?.dispose();

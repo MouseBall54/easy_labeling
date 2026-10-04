@@ -101,7 +101,7 @@ export interface RuntimeUiManager extends UIManager {
   finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void;
   hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
-  setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review"): void;
+  setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference"): void;
   setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
@@ -179,7 +179,7 @@ export function createUiManagerAdapter(input: {
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
-  let activeTask: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" = "annotate";
+  let activeTask: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
   let missingLabelFolderModal: BootstrapModalLike | null = null;
@@ -524,12 +524,13 @@ export function createUiManagerAdapter(input: {
       .forEach((button) => {
       button.hidden = !showSegmentationControls;
     });
-    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
+    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn")]
       .filter((button): button is HTMLButtonElement => Boolean(button))
       .forEach((button) => {
       button.hidden = showSegmentationControls;
     });
     if (preprocessingTaskButton) preprocessingTaskButton.hidden = false;
+    input.documentRef.getElementById("detectionInferenceWorkspace")?.toggleAttribute("hidden", showSegmentationControls || activeTask !== "inference");
     input.documentRef.getElementById("reviewFilterControl")?.toggleAttribute("hidden", showSegmentationControls);
     input.documentRef.getElementById("segmentationFormatShortcut")?.toggleAttribute("hidden", !showSegmentationControls);
     const genericModeControls = input.documentRef.getElementById("genericModeControls");
@@ -628,19 +629,19 @@ export function createUiManagerAdapter(input: {
       manager.syncWorkspaceState();
     },
 
-    setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review"): void {
+    setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference"): void {
       activeTask = task;
       const isPreprocessingTask = task === "preprocessing";
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display";
       const isLeftWorkspaceTask = isSegmentationTask || isPreprocessingTask;
-      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review";
+      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review" || task === "inference";
       const preprocessingTaskButton = input.documentRef.getElementById("taskPreprocessingBtn");
       const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
       if (task === "automate") {
         manager.setInspectorTab("automation");
         return;
       }
-      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn]
+      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn")]
         .filter((button): button is HTMLButtonElement => Boolean(button));
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
@@ -660,7 +661,7 @@ export function createUiManagerAdapter(input: {
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
       elements.leftPanel.classList.toggle("mobile-open", isCompactLeftPanelTask);
       elements.rightPanel.classList.toggle("mobile-open", false);
-      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask || task === "review");
+      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask || task === "review" || task === "inference");
       elements.rightPanel.classList.toggle("task-focus", false);
       elements.expandRightPanelBtn.toggleAttribute("hidden", isPreprocessingTask);
       if (elements.reviewQueueControls) {
@@ -809,6 +810,20 @@ export function createUiManagerAdapter(input: {
     },
 
     syncWorkspaceState(): void {
+      input.documentRef.getElementById("detectionInferenceWorkspace")?.toggleAttribute("hidden", input.state.session.workflow !== "detection" || activeTask !== "inference");
+      const labelSources = input.documentRef.getElementById("detectionLabelSources");
+      labelSources?.toggleAttribute("hidden", input.state.session.workflow !== "detection" || !input.state.session.labelFolders.length);
+      const labelSelect = input.documentRef.getElementById("labelSourceSelect") as HTMLSelectElement | null;
+      if (labelSelect) {
+        labelSelect.replaceChildren();
+        input.state.session.labelFolders.forEach((folder, index) => {
+          const option = input.documentRef.createElement("option");
+          option.value = String(index);
+          option.textContent = `${index + 1}. ${folder.name}`;
+          labelSelect.appendChild(option);
+        });
+        labelSelect.value = String(input.state.session.labelFolders.indexOf(input.state.session.labelFolderHandle!));
+      }
       input.documentRef.getElementById("detectionReviewWorkspace")?.toggleAttribute(
         "hidden",
         input.state.session.workflow !== "detection" || activeTask !== "review"
@@ -859,7 +874,8 @@ export function createUiManagerAdapter(input: {
         "segmentation-display": "Mask Display",
         superpixel: "Superpixel Settings",
         "detection-display": "Display Settings",
-        review: "Review"
+        review: "Review",
+        inference: "Inference"
       };
       const browsingTaskTitles: Partial<Record<typeof activeTask, string>> = {
         annotate: "Annotate",

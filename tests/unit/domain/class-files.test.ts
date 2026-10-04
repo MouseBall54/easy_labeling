@@ -11,6 +11,24 @@ import {
 } from "../../../src/domain/class-files.js";
 
 describe("domain/class-files", () => {
+  it("decodes quoted class names for matching and editing without removing literal inner quotes", () => {
+    const names = ["class 0", 'cell "A": target', "C:\\cells", "# target", "세포"];
+    const content = `names:\n${names.map((name, index) => `  ${index}: ${JSON.stringify(name)}`).join("\n")}\n5: 'cell''s name'\n6: \"\"`;
+    expect([...parseClassContent(content).values()]).toEqual([...names, "cell's name"]);
+    expect(parseClassContentForEditor(content).map((row) => row.name)).toEqual([...names, "cell's name"]);
+  });
+
+  it("repairs names serialized repeatedly by older inference runs for display, editing and saving", () => {
+    for (const depth of [2, 3, 5]) {
+      let encoded = 'class 0';
+      for (let layer = 0; layer < depth; layer += 1) encoded = JSON.stringify(encoded);
+      const content = `names:\n  0: ${encoded}\n`;
+      expect(parseClassContent(content).get("0")).toBe("class 0");
+      expect(parseClassContentForEditor(content)).toEqual([{ id: "0", name: "class 0" }]);
+      expect(validateAndSerializeClassRows([{ id: "0", name: encoded }]).newContent).toBe("0: class 0");
+    }
+  });
+
   it("parses load content by ignoring comments/blanks and preserving additional colons", () => {
     const parsed = parseClassContent([
       "# comment",

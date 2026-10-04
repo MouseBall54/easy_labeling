@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "operation": "LOAD",
+    "elapsedMs": 151.69999998807907,
+    "result": {
+      "layout": "nchw",
+      "channels": 1,
+      "width": 128,
+      "height": 128,
+      "dynamic": false
+    }
+  },
+  {
+    "id": 2,
+    "operation": "INFER",
+    "elapsedMs": 31.80000001192093,
+    "result": []
+  },
+  {
+    "id": 3,
+    "operation": "INFER",
+    "elapsedMs": 16.100000023841858,
+    "result": []
+  },
+  {
+    "id": 4,
+    "operation": "INFER",
+    "elapsedMs": 14.899999976158142,
+    "result": []
+  },
+  {
+    "id": 5,
+    "operation": "INFER",
+    "elapsedMs": 16.399999976158142,
+    "result": []
+  }
+]

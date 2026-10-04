@@ -3033,6 +3033,18 @@ body.workspace-standby-active .workbench-status-bar {
     display: none;
 }
 
+.inference-model-picker .form-control {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#detectionInferenceWorkspace .text-muted,
+#detectionLabelSources .text-muted {
+    color: var(--workbench-text-muted) !important;
+}
+
 .review-queue-controls {
     padding: 8px;
     background: var(--workbench-surface-muted);

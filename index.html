@@ -94,6 +94,9 @@
                 <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
                     <i class="bi bi-clipboard2-check" aria-hidden="true"></i><span>Review</span>
                 </button>
+                <button id="taskInferenceBtn" type="button" class="task-rail-button" data-task="inference" title="YOLO model inference" aria-label="Inference workspace" aria-pressed="false">
+                    <i class="bi bi-cpu" aria-hidden="true"></i><span>Inference</span>
+                </button>
             </div>
             <div class="task-rail-footer">
                 <input class="btn-check" type="checkbox" id="darkModeToggle" data-ui="dark-mode-toggle" autocomplete="off">
@@ -221,10 +224,35 @@
                     </section>
                     <div id="detectionLeftWorkspace">
 
+                    <section id="detectionInferenceWorkspace" class="panel-section" hidden>
+                        <div class="section-heading-row"><h3>YOLO Inference</h3><span id="inferenceBackendBadge" class="status-badge" role="status" title="Load an ONNX model to determine the inference device.">No model</span></div>
+                        <label class="form-label small mt-2" for="inferenceModelInput">Detection model (.onnx)</label>
+                        <input id="inferenceModelInput" type="file" accept=".onnx" hidden>
+                        <div class="input-group input-group-sm inference-model-picker">
+                            <button id="selectInferenceModelBtn" type="button" class="btn btn-outline-primary" aria-label="Load ONNX model"><i class="bi bi-folder2-open" aria-hidden="true"></i> Load</button>
+                            <span id="inferenceModelName" class="form-control" role="status" aria-live="polite">Choose .onnx model</span>
+                        </div>
+                        <p id="inferenceModelStatus" class="small text-muted mt-2" role="status" hidden></p>
+                        <div class="row g-2">
+                            <div class="col-6"><label class="form-label small" for="inferenceConfidenceInput">Confidence</label><input id="inferenceConfidenceInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.25"></div>
+                            <div class="col-6"><label class="form-label small" for="inferenceIouInput">NMS IoU</label><input id="inferenceIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.45"></div>
+                        </div>
+                        <label class="form-label small mt-2" for="inferenceOutputFormat">Output format</label>
+                        <select id="inferenceOutputFormat" class="form-select form-select-sm"><option value="auto">Auto (raw YOLO)</option><option value="v8">YOLOv8+ · [1, 4+C, N]</option><option value="v5">YOLOv5 · [1, N, 5+C]</option><option value="nms">NMS / end-to-end · [1, N, 6]</option></select>
+                        <details class="advanced-disclosure mt-2"><summary>Dynamic model input</summary><label class="form-label small mt-2" for="inferenceSizeInput">Input size</label><input id="inferenceSizeInput" type="number" class="form-control form-control-sm" min="32" max="4096" step="32" value="640" title="Reload the model after changing. Fixed model dimensions take priority."></details>
+                        <div class="d-grid gap-2 mt-2"><button id="runInferenceCurrentBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Infer current image</button><button id="runInferenceAllBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Infer all images</button></div>
+                        <p id="inferenceRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
+                    </section>
+
                     <section class="dataset-actions" data-ui="folder-actions">
                         <button id="selectImageFolderBtn" type="button" class="btn btn-primary" data-ui="load-image-folder"><i class="bi bi-folder2-open" aria-hidden="true"></i> Open Dataset</button>
                         <button id="refreshDatasetBtn" type="button" class="panel-icon-button" title="Refresh dataset" aria-label="Refresh dataset"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
                         <button id="selectLabelFolderBtn" type="button" class="panel-icon-button" data-ui="load-label-folder" title="Connect label folder" aria-label="Connect label folder" disabled><i class="bi bi-folder-symlink" aria-hidden="true"></i></button>
+                    </section>
+
+                    <section id="detectionLabelSources" class="panel-section" hidden>
+                        <label class="form-label small fw-semibold" for="labelSourceSelect">Active label folder</label>
+                        <select id="labelSourceSelect" class="form-select form-select-sm" aria-label="Active label folder" title="Connect more folders with the folder button. Changes save before switching."></select>
                     </section>
 
                     <section class="panel-section image-library-section" data-ui="image-library-section">

@@ -14,13 +14,15 @@ import {
   type ReadClassNamesResult
 } from "../features/classes/class-file-service.js";
 import { listFileHandles } from "../platform/file-system-access.js";
-import type { ClassFileRow } from "../domain/class-files.js";
+import { normalizeClassName, type ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
 import { CREATE_NEW_CLASS_FILE_VALUE } from "../ui/renderers.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 import { createImageDecoder } from "../features/images/image-decoder.js";
+import { detectionsToYolo, type Detection } from "../features/inference/yolo.js";
+import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import { isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
@@ -167,6 +169,12 @@ export interface RuntimeFileSystem extends FileSystem {
   refreshDataset(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   selectLabelFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
+  switchLabelFolder(index: number): Promise<void>;
+  runDetectionInference(options: {
+    allImages: boolean;
+    modelName: string;
+    infer(image: HTMLImageElement, signal?: AbortSignal): Promise<Detection[]>;
+  }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   loadDefaultClassInfo(): Promise<void>;
   refreshReviewFindings(): Promise<void>;
@@ -216,6 +224,7 @@ export function createFileSystemAdapter(input: {
   const captureSessionSnapshot = () => ({
     imageFolderHandle: input.state.session.imageFolderHandle,
     labelFolderHandle: input.state.session.labelFolderHandle,
+    labelFolders: [...input.state.session.labelFolders],
     classInfoFolderHandle: input.state.session.classInfoFolderHandle,
     imageFiles: [...input.state.session.imageFiles],
     classFiles: [...input.state.session.classFiles],
@@ -238,6 +247,7 @@ export function createFileSystemAdapter(input: {
     input.state.runtime.currentLoadToken += 1;
     input.state.session.imageFolderHandle = snapshot.imageFolderHandle;
     input.state.session.labelFolderHandle = snapshot.labelFolderHandle;
+    input.state.session.labelFolders = snapshot.labelFolders;
     input.state.session.classInfoFolderHandle = snapshot.classInfoFolderHandle;
     input.state.session.imageFiles = snapshot.imageFiles;
     input.state.session.classFiles = snapshot.classFiles;
@@ -451,8 +461,51 @@ export function createFileSystemAdapter(input: {
     }
   });
 
+  const getReviewFolder = (): DirectoryHandleLike | null => {
+    // Keep existing review records for the default source; other label sets have their own records.
+    const session = input.state.session;
+    return (session.labelFolderHandle === session.labelFolders[0]
+      ? session.imageFolderHandle : session.labelFolderHandle ?? session.imageFolderHandle) as unknown as DirectoryHandleLike | null;
+  };
+
+  const saveBeforeLabelSwitch = async (): Promise<void> => {
+    if (input.state.runtime.saveTimeout) input.windowRef.clearTimeout(input.state.runtime.saveTimeout);
+    input.state.runtime.saveTimeout = null;
+    const status = getCurrentDocumentStatus(input.state);
+    if (!input.state.session.currentImageFile || !status || !["dirty", "error"].includes(status.phase)) return;
+    const saved = await imageSessionService.saveLabels(false);
+    if (!saved.saved) throw new Error("Save the current labels to a label folder before switching sources.");
+    markDocumentSaved(input.state, input.state.session.currentImageFile.name, input.state.session.workflow, { wasAutoSaved: false });
+  };
+
+  const activateLabelFolder = async (folder: FileSystemDirectoryHandle, operation: RuntimeOperationHandle | null): Promise<void> => {
+    const snapshot = captureSessionSnapshot();
+    try {
+      input.state.session.labelFolderHandle = folder;
+      operation?.update({ detail: `Loading ${folder.name}` });
+      await imageSessionService.refreshImageWorkflowStatus();
+      await loadReviewState();
+      await refreshReviewFindings();
+      await refreshClassFileStateFromAvailableFolder(operation);
+      throwIfOperationCancelled(operation?.signal);
+      if (input.state.session.currentImageFile) {
+        pendingLoadedYolo = null;
+        pendingLoadedSegmentationSnapshot = null;
+        // Reload labels without image navigation's autosave, which would write the old canvas into the new source.
+        await imageSessionService.loadLabels(input.state.session.currentImageFile.name, input.state.runtime.currentLoadToken);
+        throwIfOperationCancelled(operation?.signal);
+        applyCurrentImageToCanvas();
+      }
+      (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.updateLabelFolderButton(true);
+      input.windowRef.dispatchEvent?.(new Event("easy-labeling:label-source-change"));
+    } catch (error) {
+      restoreSessionSnapshot(snapshot);
+      throw error;
+    }
+  };
+
   const loadReviewState = async (): Promise<void> => {
-    const imageFolder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+    const imageFolder = getReviewFolder();
     input.state.session.reviewState = createReviewStateDocument();
     input.state.session.reviewFindings = new Map();
     if (!imageFolder) {
@@ -469,7 +522,7 @@ export function createFileSystemAdapter(input: {
   };
 
   const persistReviewState = async (): Promise<void> => {
-    const imageFolder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+    const imageFolder = getReviewFolder();
     if (!imageFolder) {
       return;
     }
@@ -514,6 +567,7 @@ export function createFileSystemAdapter(input: {
     reportProgress?.("labels", "loading", "Checking the label workspace");
     reportProgress?.("images", "loading", "Scanning images and annotations");
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
+    input.state.session.labelFolders = input.state.session.labelFolderHandle ? [input.state.session.labelFolderHandle] : [];
     input.state.session.segmentationToolPresets = await loadSegmentationToolPresets(imageFolderHandle);
     throwIfOperationCancelled(operation?.signal);
     await loadReviewState();
@@ -612,7 +666,15 @@ export function createFileSystemAdapter(input: {
             reportProgress?.("dataset", "ready", folder.name || "Dataset connected");
             reportProgress?.("labels", "loading", "Checking the label workspace");
             reportProgress?.("images", "loading", "Scanning images and annotations");
+            const refreshLabelFolder = input.state.session.labelFolderHandle;
+            await saveBeforeLabelSwitch();
             const labelSelection = await imageSessionService.selectImageFolder(folder);
+            // Dataset refresh preserves the selected label source, including inference results.
+            if (input.state.session.labelFolders.length && refreshLabelFolder) {
+              input.state.session.labelFolderHandle = refreshLabelFolder;
+              await imageSessionService.refreshImageWorkflowStatus();
+              if (input.state.session.currentImageFile) await imageSessionService.loadLabels(input.state.session.currentImageFile.name, input.state.runtime.currentLoadToken);
+            }
             throwIfOperationCancelled(operation?.signal);
             await loadReviewState();
             await refreshReviewFindings();
@@ -699,22 +761,68 @@ export function createFileSystemAdapter(input: {
               throw new Error("Folder access is unavailable in this browser.");
             }
 
-            input.state.session.labelFolderHandle = await (selectedFolder ?? picker());
+            const folder = await (selectedFolder ?? picker({ mode: "readwrite" }));
             throwIfOperationCancelled(operation?.signal);
-            operation?.update({ detail: "Reading label and class files" });
-            await imageSessionService.refreshImageWorkflowStatus();
-            throwIfOperationCancelled(operation?.signal);
-            await refreshReviewFindings();
-            throwIfOperationCancelled(operation?.signal);
-            await refreshClassFileStateFromAvailableFolder(operation);
-            throwIfOperationCancelled(operation?.signal);
-            if (connectedDeps) {
-              const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-              uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
-              uiManager.renderImageList();
-            }
+            await saveBeforeLabelSwitch();
+            if (!input.state.session.labelFolders.includes(folder)) input.state.session.labelFolders.push(folder);
+            await activateLabelFolder(folder, operation);
           });
         });
+      },
+
+      async switchLabelFolder(index): Promise<void> {
+        await enqueueOperation(async () => {
+          const folder = input.state.session.labelFolders[index];
+          if (!folder) throw new Error("Label folder is no longer available.");
+          if (folder === input.state.session.labelFolderHandle) return;
+          await runTrackedOperation({ title: "Switching labels", detail: folder.name, stoppedMessage: "Label switch stopped." }, async (operation) => {
+            await saveBeforeLabelSwitch();
+            throwIfOperationCancelled(operation?.signal);
+            await activateLabelFolder(folder, operation);
+          });
+        });
+      },
+
+      async runDetectionInference(options) {
+        let result: { folderName: string; imageCount: number; detectionCount: number } | null = null;
+        await enqueueOperation(async () => {
+          const session = input.state.session;
+          if (session.workflow !== "detection" || !session.imageFolderHandle || !session.currentImageFile) throw new Error("Open a Detection dataset first.");
+          const files = options.allImages ? [...session.imageFiles] : [session.currentImageFile];
+          const bases = files.map((file) => imageFileNameToBaseName(file.name).toLowerCase());
+          if (new Set(bases).size !== bases.length) throw new Error("Images with the same base name would share a label file. Rename them before inference.");
+          const folderName = `inference-${options.modelName.replace(/\.onnx$/i, "")}`;
+          await runTrackedOperation({ title: "YOLO inference", detail: `Results: ${folderName}`, stoppedMessage: `Inference stopped. Partial results remain in ${folderName}; reload the model to retry.` }, async (operation) => {
+            await saveBeforeLabelSwitch();
+            throwIfOperationCancelled(operation?.signal);
+            const folder = await session.imageFolderHandle!.getDirectoryHandle(folderName, { create: true });
+            const classNames = new Map([...session.classNames].map(([id, name]) => [id, normalizeClassName(name)]));
+            let detectionCount = 0;
+            const completed: string[] = [];
+            for (const file of files) {
+              throwIfOperationCancelled(operation?.signal);
+              operation?.update({ detail: `${file.name} → ${folderName}`, current: completed.length, total: files.length });
+              const image = await decodeImage(file);
+              throwIfOperationCancelled(operation?.signal);
+              const boxes = await options.infer(image, operation?.signal);
+              throwIfOperationCancelled(operation?.signal);
+              await writeTextFileByName(folder as unknown as DirectoryHandleLike, `${imageFileNameToBaseName(file.name)}.txt`, detectionsToYolo(boxes, image.naturalWidth || image.width, image.naturalHeight || image.height));
+              for (const box of boxes) if (!classNames.has(String(box.classId))) classNames.set(String(box.classId), `class ${box.classId}`);
+              detectionCount += boxes.length;
+              completed.push(file.name);
+              operation?.update({ current: completed.length, total: files.length });
+            }
+            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(name)}`).join("\n")}\n`);
+            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
+            throwIfOperationCancelled(operation?.signal);
+            const folderIndex = session.labelFolders.findIndex((source) => source.name === folder.name);
+            if (folderIndex < 0) session.labelFolders.push(folder);
+            else session.labelFolders[folderIndex] = folder;
+            await activateLabelFolder(folder, operation);
+            result = { folderName, imageCount: completed.length, detectionCount };
+          });
+        });
+        return result;
       },
 
       async selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void> {

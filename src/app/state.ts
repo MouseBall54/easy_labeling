@@ -25,6 +25,7 @@ export interface ImageDocumentStatus {
 export interface AppSessionState {
   imageFolderHandle: DirectoryHandle | null;
   labelFolderHandle: DirectoryHandle | null;
+  labelFolders: DirectoryHandle[];
   classInfoFolderHandle: DirectoryHandle | null;
   imageFiles: FileHandle[];
   classFiles: FileHandle[];
@@ -80,6 +81,7 @@ export function createInitialAppState(): AppState {
     session: {
       imageFolderHandle: null,
       labelFolderHandle: null,
+      labelFolders: [],
       classInfoFolderHandle: null,
       imageFiles: [],
       classFiles: [],

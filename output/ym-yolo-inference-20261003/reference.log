@@ -1,0 +1,3 @@
+REFERENCE smoke_1ch: 4 images, 0 detections
+REFERENCE cells_1ch_w0844: 30 images, 2342 detections
+REFERENCE cells_3ch: 30 images, 2345 detections

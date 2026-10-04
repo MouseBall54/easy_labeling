@@ -14,6 +14,19 @@ export interface ClassFileSaveResult {
 
 export const NEW_CLASS_FILE_SEED_CONTENT = "# YAML Class file. Format: id: name\n0: class1\n1: class2";
 
+export function normalizeClassName(value: string): string {
+  let name = value.trim();
+  // Older inference exports re-encoded names that already contained string delimiters.
+  while (name.length > 1) {
+    if (name.startsWith('"') && name.endsWith('"')) {
+      try { name = JSON.parse(name); } catch { break; }
+    } else if (name.startsWith("'") && name.endsWith("'")) {
+      name = name.slice(1, -1).replace(/''/g, "'");
+    } else break;
+  }
+  return name;
+}
+
 function parseLoadableRows(content: string): ClassFileRow[] {
   const classData: ClassFileRow[] = [];
   const lines = content.split("\n");
@@ -25,7 +38,7 @@ function parseLoadableRows(content: string): ClassFileRow[] {
     const parts = trimmedLine.split(":");
     if (parts.length >= 2) {
       const id = parts[0].trim();
-      const name = parts.slice(1).join(":").trim();
+      const name = normalizeClassName(parts.slice(1).join(":"));
       if (!Number.isNaN(parseInt(id, 10)) && name) {
         classData.push({ id, name });
       }
@@ -62,7 +75,7 @@ export function validateAndSerializeClassRows(rows: ClassFileRow[]): ClassFileSa
 
   rows.forEach((row, index) => {
     const id = row.id.trim();
-    const name = row.name.trim();
+    const name = normalizeClassName(row.name);
 
     const numId = parseInt(id, 10);
     if (id === "" && name === "") {

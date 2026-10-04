@@ -18,6 +18,7 @@ function createFactorySpies() {
     session: {
       imageFolderHandle: null,
       labelFolderHandle: null,
+      labelFolders: [],
       classInfoFolderHandle: null,
       imageFiles: [],
       classFiles: [],

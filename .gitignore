@@ -11,3 +11,7 @@ test-results/
 vendor/
 release/
 .DS_Store
+# Local inference models and copied verification datasets
+output/ym-yolo-inference-20261003/models/
+output/ym-yolo-inference-20261003/workspaces/
+output/gpu-inference-20261004/workspaces/

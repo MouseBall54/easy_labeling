@@ -204,6 +204,51 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  it("cancels inference without activating partial results or changing the original label source", async () => {
+    class TestImage {
+      width = 32;
+      height = 32;
+      naturalWidth = 32;
+      naturalHeight = 32;
+      src = "";
+      async decode() {}
+    }
+    vi.stubGlobal("Image", TestImage);
+    vi.stubGlobal("HTMLImageElement", TestImage);
+    try {
+      const label = new MockDirectoryHandle("label");
+      const image = new MockFileHandle("image.png", new Uint8Array([1]));
+      const dataset = new MockDirectoryHandle("dataset").withFile(image).withDirectory(label);
+      const state = createInitialAppState();
+      state.session.imageFolderHandle = dataset as never;
+      state.session.labelFolderHandle = label as never;
+      state.session.labelFolders = [label as never];
+      state.session.imageFiles = [image as never];
+      state.session.currentImageFile = image as never;
+      state.session.currentImage = new TestImage() as never;
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(dataset) as never, tiffRef: null });
+      const deps = createConnectedDeps();
+      fileSystem.connect(deps as never);
+      let finish!: () => void;
+      const inference = vi.fn(async () => {
+        await new Promise<void>((resolve) => { finish = resolve; });
+        return [];
+      });
+      const running = fileSystem.runDetectionInference({ allImages: true, modelName: "test.onnx", infer: inference });
+      await vi.waitFor(() => expect(inference).toHaveBeenCalledTimes(1));
+      deps.operations[0].cancel();
+      finish();
+      expect(await running).toBeNull();
+      expect(state.session.labelFolderHandle).toBe(label);
+      expect(state.session.labelFolders).toEqual([label]);
+      expect(deps.operations[0].finish).toHaveBeenCalledTimes(1);
+      expect(deps.uiManager.notify).toHaveBeenCalledWith(expect.stringContaining("Partial results remain"));
+      const entries = [];
+      for await (const entry of dataset.values()) entries.push(entry.name);
+      expect(entries).toContain("inference-test");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("stops a pending sample load and restores the previous session", async () => {
     const oldFolder = new MockDirectoryHandle("old-dataset");
     const sampleFolder = new MockDirectoryHandle("sample-dataset");
