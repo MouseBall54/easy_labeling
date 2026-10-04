@@ -16,6 +16,8 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 
 ## 로컬 실행
 
+YOLOE-26 GPU 버전의 추가 설치·모델 준비·실행 명령과 사용법은 [YOLOE-26 GPU 안내](docs/YOLOE26_GPU_KO.md)를 참고하세요. GPU 서비스는 이 프로젝트 안의 전용 Python 환경을 사용합니다.
+
 - 의존성 설치: `npm install`
 - 일반 실행: `npm start`
 - 개발 모드(빌드 watch + 로컬 서버): `npm run dev`

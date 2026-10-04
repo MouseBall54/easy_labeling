@@ -1,0 +1,36 @@
+{
+  "reference": "cell_0016.png",
+  "exampleCount": 3,
+  "gpu": "NVIDIA GeForce RTX 2080 SUPER",
+  "confidence": 0.25,
+  "matchIou": 0.5,
+  "images": [
+    {
+      "name": "cell_0016.png",
+      "truth": 57,
+      "detections": 14,
+      "tp": 14,
+      "fp": 0,
+      "fn": 43,
+      "elapsedMs": 22.059199982322752
+    },
+    {
+      "name": "cell_0035.png",
+      "truth": 80,
+      "detections": 5,
+      "tp": 5,
+      "fp": 0,
+      "fn": 75,
+      "elapsedMs": 19.261500041466206
+    },
+    {
+      "name": "cell_0038.png",
+      "truth": 58,
+      "detections": 5,
+      "tp": 5,
+      "fp": 0,
+      "fn": 53,
+      "elapsedMs": 21.087199973408133
+    }
+  ]
+}

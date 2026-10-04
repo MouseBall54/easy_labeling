@@ -14,6 +14,7 @@ import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { getSuperResolutionModelLabel, isSuperResolutionMode } from "../features/super-resolution/model-registry.js";
 import type { SuperResolutionMode, SuperResolutionStatus } from "../features/super-resolution/types.js";
 import { bindInferenceControls } from "./inference-controller.js";
+import { bindYoloeControls } from "./yoloe-controller.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -121,6 +122,7 @@ export function createEventManagerAdapter(input: {
     bindEventListeners(): void {
       const { elements } = input.uiManager;
       const disposeInference = input.documentRef ? bindInferenceControls({ ...input, documentRef: input.documentRef }) : () => {};
+      const disposeYoloe = input.documentRef ? bindYoloeControls({ ...input, documentRef: input.documentRef }) : () => {};
       const segmentationFormatStorageKey = "easy-labeling:segmentation-format-settings";
       const settingsStorage = input.documentRef?.defaultView?.localStorage;
       try {
@@ -2697,6 +2699,7 @@ export function createEventManagerAdapter(input: {
       });
       input.windowRef.addEventListener("unload", () => {
         disposeInference();
+        disposeYoloe();
         unsubscribeSuperResolutionStatus();
         if (elapsedTimer !== undefined) elapsedWindow?.clearInterval(elapsedTimer);
         automationController?.dispose();

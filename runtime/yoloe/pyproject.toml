@@ -1,0 +1,14 @@
+[project]
+name = "easy-labeling-yoloe"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = ["ultralytics==8.4.168", "torch==2.11.0", "torchvision==0.26.0"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

@@ -48,7 +48,7 @@ test("selected ONNX filename survives loading and picker cancellation, with same
   await expect(page.locator("#inferenceModelInput")).toBeHidden();
   await expect(page.locator("#selectInferenceModelBtn")).toBeVisible();
   await expect(page.locator("#inferenceModelName")).toHaveText("Choose .onnx model");
-  await page.locator("#detectionInferenceWorkspace summary").click();
+  await page.locator("#onnxInferenceControls summary").click();
   await page.locator("#inferenceSizeInput").fill("32");
   const input = page.locator("#inferenceModelInput");
   const status = page.locator("#inferenceModelStatus");
@@ -101,7 +101,7 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
     for (const channels of [1, 3] as const) {
       const dynamic = channels === 3 && layout === "nhwc";
       if (dynamic) {
-        await page.locator("#detectionInferenceWorkspace summary").click();
+        await page.locator("#onnxInferenceControls summary").click();
         await page.locator("#inferenceSizeInput").fill("32");
       }
       await page.locator("#inferenceModelInput").setInputFiles({ name: `fixture-${channels}ch-${layout}.onnx`, mimeType: "application/octet-stream", buffer: inferenceModel(channels, layout, dynamic) });
@@ -159,7 +159,7 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden();
   await expect.poll(rectCount).toBe(1);
   await expect(source).toHaveValue("4");
-  await page.locator("#detectionInferenceWorkspace summary").click();
+  await page.locator("#onnxInferenceControls summary").click();
   await page.locator("#selectInferenceModelBtn").scrollIntoViewIfNeeded();
   await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
   await page.screenshot({ path: "output/playwright/inference-light.png" });

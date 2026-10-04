@@ -1,0 +1,100 @@
+{
+  "runtime": {
+    "cuda": true,
+    "gpu": "NVIDIA GeForce RTX 2080 SUPER",
+    "torch": "2.11.0+cu130",
+    "models": [
+      "yoloe-26s-seg"
+    ],
+    "busy": false,
+    "version": 1
+  },
+  "model": "yoloe-26s-seg",
+  "checks": {
+    "previewPreservedSource": true,
+    "stableFolderAndSourceRestoration": true,
+    "review": true
+  },
+  "images": [
+    {
+      "name": "0-reference.txt",
+      "detections": 4
+    },
+    {
+      "name": "1-target-gray.txt",
+      "detections": 5
+    },
+    {
+      "name": "2-target-rgb.txt",
+      "detections": 2
+    }
+  ],
+  "errors": [],
+  "preview": {
+    "detections": [
+      {
+        "classId": 12,
+        "confidence": 0.9686088562011719,
+        "left": 0,
+        "top": 230.15199279785156,
+        "right": 800.4730834960938,
+        "bottom": 734.5694580078125
+      },
+      {
+        "classId": 5,
+        "confidence": 0.8139160871505737,
+        "left": 55.32942581176758,
+        "top": 399.4033508300781,
+        "right": 233.8433837890625,
+        "bottom": 899.2360229492188
+      },
+      {
+        "classId": 5,
+        "confidence": 0.7785674333572388,
+        "left": 671.8772583007812,
+        "top": 388.38507080078125,
+        "right": 809.953125,
+        "bottom": 874.8184814453125
+      },
+      {
+        "classId": 5,
+        "confidence": 0.71584552526474,
+        "left": 226.2384796142578,
+        "top": 408.3614501953125,
+        "right": 341.3658142089844,
+        "bottom": 862.2777099609375
+      },
+      {
+        "classId": 5,
+        "confidence": 0.3101505637168884,
+        "left": 0,
+        "top": 492.4149475097656,
+        "right": 75.52661895751953,
+        "bottom": 931.0255737304688
+      }
+    ],
+    "elapsedMs": 24.903400044422597,
+    "backend": "cuda",
+    "gpu": "NVIDIA GeForce RTX 2080 SUPER"
+  },
+  "metadata": {
+    "engine": "yoloe26",
+    "checkpoint": "yoloe-26s-seg.pt",
+    "backend": "cuda",
+    "gpu": "NVIDIA GeForce RTX 2080 SUPER",
+    "targetSet": "acceptance_v1",
+    "referenceImage": "0-reference.png",
+    "referenceSha256": "8739ae2c34b8713bcc185201414014011b601159d5ec717275e4a2625f9fbded",
+    "exampleCount": 2,
+    "confidence": 0.25,
+    "iou": 0.45,
+    "model": "yoloe-26s-seg-acceptance_v1",
+    "images": [
+      "0-reference.png",
+      "1-target-gray.png",
+      "2-target-rgb.png"
+    ],
+    "detections": 11,
+    "createdAt": "2026-10-04T06:07:25.956Z"
+  }
+}

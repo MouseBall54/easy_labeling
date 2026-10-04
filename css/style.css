@@ -3040,6 +3040,29 @@ body.workspace-standby-active .workbench-status-bar {
     white-space: nowrap;
 }
 
+.yoloe-example-list {
+    display: grid;
+    gap: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.yoloe-example-list > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+    background: var(--workbench-surface);
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-caption);
+}
+
+.yoloe-example-list canvas { width: 44px; height: 44px; object-fit: contain; }
+.yoloe-example-list span { overflow-wrap: anywhere; }
+.yoloe-setup-commands { display: grid; gap: 4px; }
+.yoloe-setup-commands code { color: var(--workbench-text); user-select: all; }
+
 #detectionInferenceWorkspace .text-muted,
 #detectionLabelSources .text-muted {
     color: var(--workbench-text-muted) !important;

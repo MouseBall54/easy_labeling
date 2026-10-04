@@ -226,6 +226,11 @@
 
                     <section id="detectionInferenceWorkspace" class="panel-section" hidden>
                         <div class="section-heading-row"><h3>YOLO Inference</h3><span id="inferenceBackendBadge" class="status-badge" role="status" title="Load an ONNX model to determine the inference device.">No model</span></div>
+                        <div class="segmented-control mt-2" role="group" aria-label="Inference engine">
+                            <button id="inferenceOnnxModeBtn" type="button" class="btn active" aria-pressed="true">ONNX</button>
+                            <button id="inferenceYoloeModeBtn" type="button" class="btn" aria-pressed="false">YOLOE-26</button>
+                        </div>
+                        <div id="onnxInferenceControls">
                         <label class="form-label small mt-2" for="inferenceModelInput">Detection model (.onnx)</label>
                         <input id="inferenceModelInput" type="file" accept=".onnx" hidden>
                         <div class="input-group input-group-sm inference-model-picker">
@@ -242,6 +247,33 @@
                         <details class="advanced-disclosure mt-2"><summary>Dynamic model input</summary><label class="form-label small mt-2" for="inferenceSizeInput">Input size</label><input id="inferenceSizeInput" type="number" class="form-control form-control-sm" min="32" max="4096" step="32" value="640" title="Reload the model after changing. Fixed model dimensions take priority."></details>
                         <div class="d-grid gap-2 mt-2"><button id="runInferenceCurrentBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Infer current image</button><button id="runInferenceAllBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Infer all images</button></div>
                         <p id="inferenceRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
+                        </div>
+                        <div id="yoloeInferenceControls" hidden>
+                            <div class="section-heading-row mt-2"><span id="yoloeBackendBadge" class="status-badge" role="status">Disconnected</span><button id="connectYoloeBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plug" aria-hidden="true"></i> Connect GPU</button></div>
+                            <p id="yoloeConnectionStatus" class="small text-muted mt-2" role="status" hidden></p>
+                            <label class="form-label small mt-2" for="yoloeModelSelect">YOLOE-26 model</label>
+                            <select id="yoloeModelSelect" class="form-select form-select-sm" disabled><option value="">Connect GPU first</option></select>
+                            <label class="form-label small mt-2" for="yoloeProfileName">Target set</label>
+                            <input id="yoloeProfileName" class="form-control form-control-sm" value="targets" maxlength="64" title="Results use the model name and this target set name. Use a new name for a different target set.">
+                            <button id="registerYoloeExamplesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled title="In Edit mode, select example boxes on one image. Their classes are used as targets."><i class="bi bi-bounding-box" aria-hidden="true"></i> Register selected boxes</button>
+                            <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
+                            <div class="row g-2 mt-1">
+                                <div class="col-6"><label class="form-label small" for="yoloeConfidenceInput">Confidence</label><input id="yoloeConfidenceInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.25"></div>
+                                <div class="col-6"><label class="form-label small" for="yoloeIouInput">NMS IoU</label><input id="yoloeIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.45"></div>
+                            </div>
+                            <div class="d-grid gap-2 mt-2">
+                                <button id="previewYoloeBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-eye" aria-hidden="true"></i> Preview current image</button>
+                                <button id="saveYoloeCurrentBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Infer and save current</button>
+                                <button id="runYoloeAllBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Infer all images</button>
+                                <button id="clearYoloePreviewBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear preview</button>
+                            </div>
+                            <p id="yoloeRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
+                            <details class="advanced-disclosure mt-2">
+                                <summary>GPU setup</summary>
+                                <div class="yoloe-setup-commands small mt-2"><code>npm run yoloe:setup</code><code>npm run yoloe:prepare</code><code>npm run yoloe:start</code></div>
+                                <a class="small" href="docs/YOLOE26_GPU_KO.md" target="_blank" rel="noopener">Setup &amp; usage guide</a>
+                            </details>
+                        </div>
                     </section>
 
                     <section class="dataset-actions" data-ui="folder-actions">
@@ -404,6 +436,7 @@
             <div id="segmentationBrushCursorPreview" class="segmentation-brush-cursor-preview" aria-hidden="true" hidden></div>
             <canvas id="canvas"></canvas>
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
+            <canvas id="yoloePreviewCanvas" class="layout-ghost-canvas" aria-hidden="true" hidden></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             <button id="expand-right-panel-btn" type="button" class="panel-expand-btn" title="Expand inspector" aria-label="Expand inspector" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
         </main>

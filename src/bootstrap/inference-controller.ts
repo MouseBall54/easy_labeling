@@ -39,6 +39,10 @@ export function bindInferenceControls(input: {
     allButton.disabled = !enabled;
     modelInput.disabled = busy;
     modelButton.disabled = busy;
+    for (const id of ["inferenceOnnxModeBtn", "inferenceYoloeModeBtn"]) {
+      const button = documentRef.getElementById(id) as HTMLButtonElement | null;
+      if (button) button.disabled = busy || documentRef.getElementById("yoloeInferenceControls")?.dataset.busy === "true";
+    }
     renderBackend();
   };
   const stop = (): void => {

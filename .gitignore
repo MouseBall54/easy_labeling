@@ -15,3 +15,8 @@ release/
 output/ym-yolo-inference-20261003/models/
 output/ym-yolo-inference-20261003/workspaces/
 output/gpu-inference-20261004/workspaces/
+runtime/yoloe/.venv/
+runtime/yoloe/models/
+runtime/yoloe/__pycache__/
+runtime/yoloe/.state/
+output/yoloe-validation/workspace/

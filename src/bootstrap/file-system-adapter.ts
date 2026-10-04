@@ -173,6 +173,8 @@ export interface RuntimeFileSystem extends FileSystem {
   runDetectionInference(options: {
     allImages: boolean;
     modelName: string;
+    classNames?: ReadonlyMap<string, string>;
+    metadata?: Record<string, unknown>;
     infer(image: HTMLImageElement, signal?: AbortSignal): Promise<Detection[]>;
   }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
@@ -797,6 +799,7 @@ export function createFileSystemAdapter(input: {
             throwIfOperationCancelled(operation?.signal);
             const folder = await session.imageFolderHandle!.getDirectoryHandle(folderName, { create: true });
             const classNames = new Map([...session.classNames].map(([id, name]) => [id, normalizeClassName(name)]));
+            options.classNames?.forEach((name, id) => classNames.set(id, normalizeClassName(name)));
             let detectionCount = 0;
             const completed: string[] = [];
             for (const file of files) {
@@ -813,7 +816,7 @@ export function createFileSystemAdapter(input: {
               operation?.update({ current: completed.length, total: files.length });
             }
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(name)}`).join("\n")}\n`);
-            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
+            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
             throwIfOperationCancelled(operation?.signal);
             const folderIndex = session.labelFolders.findIndex((source) => source.name === folder.name);
             if (folderIndex < 0) session.labelFolders.push(folder);
