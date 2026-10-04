@@ -121,7 +121,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.goto("/index.html");
   await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
   await expect(page.locator("#right-panel #layoutNameInput")).toHaveCount(0);
-  await page.locator("#taskFilesBtn").click();
+  await page.locator("#taskAnnotateBtn").click();
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await page.locator("#taskAutomateBtn").click();

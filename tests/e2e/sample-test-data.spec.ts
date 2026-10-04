@@ -321,7 +321,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
     return api?.getRectCount?.() ?? -1;
   })).toBe(52);
   await expect(page.locator("#documentStatus")).toContainText("Unsaved changes");
-  await page.locator("#taskFilesBtn").click();
+  await page.locator("#taskAnnotateBtn").click();
   await page.locator("#saveLabelsBtn").click();
   await expect(page.locator("#documentStatus")).toContainText("Saved");
 

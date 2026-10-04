@@ -772,10 +772,6 @@ export function createEventManagerAdapter(input: {
       };
 
       const hideAutomationLayoutGhost = (): void => automationController?.hideSelectedLayoutPreview();
-      elements.taskFilesBtn.addEventListener("click", () => {
-        hideAutomationLayoutGhost();
-        input.uiManager.setActiveTask?.("files");
-      });
       elements.taskAnnotateBtn.addEventListener("click", () => {
         hideAutomationLayoutGhost();
         setWorkflow("detection");

@@ -8,7 +8,7 @@ describe("ui/theme", () => {
     const fakeDocument = new FakeDocument();
     const showLabeled = fakeDocument.addElement(new FakeElement("label"));
     showLabeled.htmlFor = "showLabeled";
-    showLabeled.className = "btn btn-outline-primary";
+    showLabeled.className = "image-status-filter";
     const editMode = fakeDocument.addElement(new FakeElement("label"));
     editMode.htmlFor = "editMode";
     editMode.className = "btn btn-outline-primary";
@@ -31,7 +31,7 @@ describe("ui/theme", () => {
     });
 
     expect(fakeDocument.body.classList.contains("dark-mode")).toBe(true);
-    expect(showLabeled.classList.contains("btn-outline-secondary")).toBe(true);
+    expect(showLabeled.className).toBe("image-status-filter");
     expect(editMode.classList.contains("btn-outline-secondary")).toBe(true);
     expect(writes).toEqual([[DARK_MODE_STORAGE_KEY, "enabled"]]);
     expect(readStoredDarkMode(storage)).toBe(true);

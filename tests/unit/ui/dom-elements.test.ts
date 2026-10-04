@@ -266,7 +266,6 @@ const REQUIRED_IDS = [
   "activeOperationProgress",
   "activeOperationProgressBar",
   "cancelActiveOperationBtn",
-  "taskFilesBtn",
   "taskAnnotateBtn",
   "taskSegmentationBtn",
   "taskSuperpixelBtn",

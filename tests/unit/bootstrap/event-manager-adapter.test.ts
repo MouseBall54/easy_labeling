@@ -205,7 +205,6 @@ function createElements() {
     loadingOverlay: new FakeHtmlElement(),
     retryWorkspaceStandbyBtn: new FakeHtmlElement(),
     dismissWorkspaceStandbyBtn: new FakeHtmlElement(),
-    taskFilesBtn: new FakeHtmlElement(),
     taskAnnotateBtn: new FakeHtmlElement(),
     taskSegmentationBtn: new FakeHtmlElement(),
     taskSuperpixelBtn: new FakeHtmlElement(),

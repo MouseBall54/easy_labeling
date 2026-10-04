@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-for (const task of ["Files", "Inference"]) {
+for (const task of ["Annotate", "Inference"]) {
   test(`${task}: Class Info profile creates, edits and shares a class file across tabs`, async ({ page }) => {
     await page.addInitScript(() => {
       class MockFileHandle {
@@ -80,7 +80,7 @@ for (const task of ["Files", "Inference"]) {
     await expect(page.locator(".toast-message")).toContainText("Class file saved.");
     await page.locator("#classFileViewerModal .modal-header .btn-close").click();
     await expect(page.locator("#classFileViewerModal")).toBeHidden();
-    await page.locator(`#task${task === "Files" ? "Inference" : "Files"}Btn`).click();
+    await page.locator(`#task${task === "Annotate" ? "Inference" : "Annotate"}Btn`).click();
     await expect(page.locator("#class-file-select")).toHaveValue("custom-labels.yaml");
     await page.locator("#viewClassFileBtn").click();
     await expect(page.locator("#classFileEditorBody .class-name-input").first()).toHaveValue("cell");

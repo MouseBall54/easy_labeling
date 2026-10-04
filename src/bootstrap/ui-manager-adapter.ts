@@ -101,7 +101,7 @@ export interface RuntimeUiManager extends UIManager {
   finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void;
   hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
-  setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void;
+  setActiveTask(task: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void;
   setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
@@ -179,7 +179,7 @@ export function createUiManagerAdapter(input: {
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
-  let activeTask: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe" = "annotate";
+  let activeTask: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
   let missingLabelFolderModal: BootstrapModalLike | null = null;
@@ -630,19 +630,19 @@ export function createUiManagerAdapter(input: {
       manager.syncWorkspaceState();
     },
 
-    setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void {
+    setActiveTask(task: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void {
       activeTask = task;
       const isPreprocessingTask = task === "preprocessing";
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display";
       const isLeftWorkspaceTask = isSegmentationTask || isPreprocessingTask;
-      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review" || task === "inference" || task === "yoloe";
+      const isCompactLeftPanelTask = task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review" || task === "inference" || task === "yoloe";
       const preprocessingTaskButton = input.documentRef.getElementById("taskPreprocessingBtn");
       const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
       if (task === "automate") {
         manager.setInspectorTab("automation");
         return;
       }
-      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn"), input.documentRef.getElementById("taskYoloeBtn")]
+      const buttons = [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn"), input.documentRef.getElementById("taskYoloeBtn")]
         .filter((button): button is HTMLButtonElement => Boolean(button));
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
@@ -662,18 +662,11 @@ export function createUiManagerAdapter(input: {
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
       elements.leftPanel.classList.toggle("mobile-open", isCompactLeftPanelTask);
       elements.rightPanel.classList.toggle("mobile-open", false);
-      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask || task === "review" || task === "inference" || task === "yoloe");
+      elements.leftPanel.classList.toggle("task-focus", task === "detection-display" || isLeftWorkspaceTask || task === "review" || task === "inference" || task === "yoloe");
       elements.rightPanel.classList.toggle("task-focus", false);
       elements.expandRightPanelBtn.toggleAttribute("hidden", isPreprocessingTask);
       if (elements.reviewQueueControls) {
         elements.reviewQueueControls.hidden = task !== "review";
-      }
-
-      if (task === "files") {
-        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        elements.imageSearchInput.focus({ preventScroll: true });
-        manager.syncWorkspaceState();
-        return;
       }
 
       if (isPreprocessingTask) {
@@ -870,10 +863,8 @@ export function createUiManagerAdapter(input: {
       elements.imageCountBadge.textContent = String(imageCount);
       const leftPanelTitle = input.documentRef.getElementById("leftPanelTitle");
       // Preprocess/Display/Superpixel are settings-only panels that get their own
-      // title and hide the dataset subtitle. Files/Annotate/Mask all render the
-      // same dataset-browsing panel, so the title is what tells the user their
-      // click on the rail actually registered. Review reuses that panel's shape
-      // but not its content, so it needs its own title too (see UI/UX audit).
+      // title and hide the dataset subtitle. Annotate/Mask combine dataset
+      // browsing and editing. Review reuses the browsing panel with its own title.
       const settingsOnlyTaskTitles: Partial<Record<typeof activeTask, string>> = {
         preprocessing: "Image Preprocessing",
         "segmentation-display": "Mask Display",

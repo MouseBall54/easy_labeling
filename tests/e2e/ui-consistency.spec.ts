@@ -1,5 +1,47 @@
 import { expect, test } from "@playwright/test";
 
+test("merged editing workspaces retain dataset controls and compact status filters", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto("/index.html");
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#taskFilesBtn")).toHaveCount(0);
+  await expect(page.locator(".task-rail-primary > button:last-child")).toHaveAttribute("id", "taskReviewBtn");
+  for (const workflow of ["detection", "segmentation"]) {
+    await page.locator(`label[for="${workflow}WorkflowTab"]`).click();
+    const editTab = workflow === "detection" ? "#taskAnnotateBtn" : "#taskSegmentationBtn";
+    await page.locator(editTab).click();
+    await expect(page.locator("#selectImageFolderBtn")).toBeVisible();
+    await expect(page.locator("#selectLabelFolderBtn")).toBeVisible();
+    await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
+    const before = await page.locator("#image-list [data-file-name]").count();
+    expect(before).toBeGreaterThan(0);
+    await page.locator('label[for="showLabeled"]').click();
+    await page.locator('label[for="showUnlabeled"]').click();
+    await expect(page.locator("#image-list [data-file-name]")).toHaveCount(0);
+    await expect(page.locator("#image-list")).toBeHidden();
+    await page.locator('label[for="showLabeled"]').click();
+    await page.locator('label[for="showUnlabeled"]').click();
+    await expect(page.locator("#image-list [data-file-name]")).toHaveCount(before);
+    for (const tab of [editTab, ...(workflow === "detection" ? ["#taskInferenceBtn"] : []), "#taskYoloeBtn"]) {
+      await page.locator(tab).click();
+      const sizes = await page.locator("#image-filter-container .image-status-filter").evaluateAll((buttons) => buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { height: rect.height, width: rect.width };
+      }));
+      expect(sizes).toHaveLength(2);
+      for (const size of sizes) {
+        expect(size.height).toBeGreaterThanOrEqual(24);
+        expect(size.height).toBeLessThanOrEqual(28);
+        expect(size.width).toBeLessThan(110);
+      }
+      await expect(page.locator("#showLabeled")).toBeChecked();
+      await expect(page.locator("#showUnlabeled")).toBeChecked();
+    }
+    await page.locator('label[for="darkModeToggle"]').click();
+  }
+});
+
 test("workbench controls keep a consistent rhythm across themes and compact viewports", async ({ page }) => {
   await page.goto("/index.html");
   await expect(page.locator('[data-standby-step="interface"]')).toHaveAttribute("data-state", "ready");

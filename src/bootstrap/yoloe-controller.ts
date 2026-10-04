@@ -7,6 +7,8 @@ import { imagePng, selectedVisualExamples, maskRegionExample, decodeYoloeMask, r
 import type { Detection } from "../features/inference/yolo.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { installModalFocusManagement } from "../ui/modal-focus.js";
+import { parseYoloRows } from "../domain/yolo/yolo.js";
+import { normalizeClassName } from "../domain/class-files.js";
 
 export function bindYoloeControls(input: { state: AppState; documentRef: Document; canvasController: RuntimeCanvasController; fileSystem: RuntimeFileSystem; uiManager: RuntimeUiManager }): () => void {
   const { state, documentRef, canvasController, fileSystem, uiManager } = input;
@@ -24,6 +26,8 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const setupModal = new documentRef.defaultView!.bootstrap.Modal(setupElement);
   installModalFocusManagement(documentRef, ["yoloeSetupModal"]);
   const referenceSelect = el<HTMLSelectElement>("yoloeReferenceSelect");
+  const existingBoxSelect = el<HTMLSelectElement>("yoloeExistingBoxSelect");
+  let existingBoxes: VisualExample[] = [];
   let setupOpen = false;
   let sampleImage: HTMLImageElement | null = null;
   let sampleImageName = "";
@@ -117,7 +121,19 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el<HTMLButtonElement>("finishYoloeSampleBtn").disabled = !drawing || outline.length < 3;
     el("finishYoloeSampleBtn").hidden = !drawing || shape.value === "box";
     el("yoloeDrawingHint").hidden = !drawing || shape.value === "box";
-    el<HTMLButtonElement>("addYoloeSelectedBtn").disabled = busy || drawing || !hasImage || sampleImageName !== state.session.currentImageFile?.name;
+    const selectedCount = workflow === "segmentation"
+      ? canvasController.raw.getSelectedSegmentationRegion?.() ? 1 : 0
+      : canvasController.raw.canvas.getActiveObjects().filter(isRectObject).length;
+    const selectedButton = el<HTMLButtonElement>("addYoloeSelectedBtn");
+    const sameImage = sampleImageName === state.session.currentImageFile?.name;
+    selectedButton.textContent = `Use selected ${workflow === "segmentation" ? "mask" : "boxes"} (${selectedCount})`;
+    selectedButton.disabled = busy || drawing || !hasImage || !sameImage || !selectedCount;
+    selectedButton.title = !sameImage ? "Choose the current main image to use its selected labels."
+      : !selectedCount ? "Select existing labels in Edit mode on the main canvas, then open Samples & settings."
+      : "Add the selected labels as samples with their existing class names and IDs. Original labels stay unchanged.";
+    el("yoloeExistingBoxes").hidden = workflow !== "detection";
+    existingBoxSelect.disabled = busy || drawing || !existingBoxes.length;
+    el<HTMLButtonElement>("addYoloeExistingBtn").disabled = busy || drawing || !existingBoxes[Number(existingBoxSelect.value)] || existingBoxSelect.value === "";
     el<HTMLButtonElement>("clearYoloeExamplesBtn").disabled = busy;
     el("clearYoloeExamplesBtn").hidden = !examples.length;
     el<HTMLButtonElement>("connectYoloeBtn").disabled = busy;
@@ -161,6 +177,14 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       el("yoloeSampleZoom").textContent = `${Math.round(zoom * 100)}%`;
       context.setTransform(...sampleTransform);
       context.drawImage(sampleImage, 0, 0);
+      const chosen = existingBoxSelect.value === "" ? null : existingBoxes[Number(existingBoxSelect.value)];
+      if (workflow === "detection" && chosen) {
+        const [x1, y1, x2, y2] = chosen.box;
+        const color = getColorForClass(String(chosen.classId));
+        context.fillStyle = `${color}33`; context.strokeStyle = "#ffffff"; context.lineWidth = 4 / zoom;
+        context.fillRect(x1, y1, x2 - x1, y2 - y1); context.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        context.strokeStyle = color; context.lineWidth = 2 / zoom; context.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      }
       context.lineWidth = 2 / zoom;
       for (const example of examples.filter((e) => e.sourceName === sampleImageName)) {
         context.strokeStyle = getColorForClass(String(example.classId));
@@ -243,6 +267,25 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const fitSample = (): void => { sampleZoom = 1; samplePanX = samplePanY = 0; drawPreview(); };
   el("fitYoloeSampleBtn").addEventListener("click", fitSample);
   el("yoloeShowSampleResults").addEventListener("change", drawPreview);
+  const loadExistingBoxes = async (): Promise<void> => {
+    existingBoxes = [];
+    existingBoxSelect.replaceChildren(new Option("Loading labels…", "")); sync();
+    if (workflow !== "detection" || !sampleImage) return;
+    const width = sampleImage.naturalWidth, height = sampleImage.naturalHeight;
+    if (sampleImageName === state.session.currentImageFile?.name) {
+      // Include unsaved edits on the current main image.
+      existingBoxes = canvasController.raw.canvas.getObjects().filter(isRectObject).flatMap((rect) => selectedVisualExamples([rect], width, height, state.session.classNames));
+    } else {
+      const text = await fileSystem.readDetectionLabels(sampleImageName);
+      existingBoxes = parseYoloRows(text.split("\n").map((line) => line.trim().split(/\s+/).join(" ")).join("\n"), width, height).map((row) => {
+        const box: VisualExample["box"] = [Math.max(0, row.rectLeft), Math.max(0, row.rectTop), Math.min(width, row.rectLeft + row.rectWidth), Math.min(height, row.rectTop + row.rectHeight)];
+        if (!/^\d+$/.test(row.labelClass) || !Number.isSafeInteger(Number(row.labelClass)) || !box.every(Number.isFinite) || box[2] <= box[0] || box[3] <= box[1]) throw new Error(`Invalid Detection label in ${sampleImageName}.`);
+        return { classId: Number(row.labelClass), name: normalizeClassName(state.session.classNames.get(row.labelClass) ?? `class ${row.labelClass}`), box };
+      });
+    }
+    existingBoxSelect.replaceChildren(new Option(existingBoxes.length ? `Choose a box (${existingBoxes.length})` : "No boxes in the active label folder", ""), ...existingBoxes.map((box, index) => new Option(`#${index + 1} · ${box.classId}: ${box.name} · ${Math.round(box.box[2] - box.box[0])}×${Math.round(box.box[3] - box.box[1])}`, String(index))));
+    sync(); drawPreview();
+  };
   setupElement.addEventListener("shown.bs.modal", () => {
     setupOpen = true;
     sampleImageName = state.session.currentImageFile?.name ?? "";
@@ -250,6 +293,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el("yoloeSampleStage").append(overlay);
     el("yoloeSetupStatus").textContent = status.hidden ? "Changes apply immediately." : status.textContent;
     sync(); fitSample();
+    void work("Loading existing labels", loadExistingBoxes);
   });
   setupElement.addEventListener("hidden.bs.modal", () => {
     setupOpen = false; spaceHeld = false; pan = null; stopDrawing();
@@ -267,6 +311,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       signal.throwIfAborted();
       if (!setupOpen || folder !== state.session.imageFolderHandle) return;
       sampleImage = image; sampleImageName = file.name; clearPreview();
+      await loadExistingBoxes();
       sync(); fitSample();
     });
   });
@@ -438,6 +483,12 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   });
   overlay.addEventListener("pointercancel", () => { if (pan) { pan = null; sync(); } else stopDrawing(); drawPreview(); });
   el("addYoloeSelectedBtn").addEventListener("click", () => { try { addExamples(selectedExamples()); } catch (error) { message(status, error instanceof Error ? error.message : String(error)); } });
+  existingBoxSelect.addEventListener("change", () => { sync(); drawPreview(); });
+  el("addYoloeExistingBtn").addEventListener("click", () => {
+    const box = existingBoxSelect.value === "" ? null : existingBoxes[Number(existingBoxSelect.value)];
+    if (!box) return;
+    try { addExamples([box]); } catch (error) { message(status, error instanceof Error ? error.message : String(error)); }
+  });
   el("clearYoloeExamplesBtn").addEventListener("click", () => { stopDrawing(); examples = []; profile = null; referenceImage = null; clearPreview(); renderExamples(); status.hidden = true; });
   const connect = async (signal: AbortSignal): Promise<void> => {
     const previous = modelSelect.value;

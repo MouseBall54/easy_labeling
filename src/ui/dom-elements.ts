@@ -272,7 +272,6 @@ export interface UiDomElements {
   activeOperationProgress: HTMLElement;
   activeOperationProgressBar: HTMLElement;
   cancelActiveOperationBtn: HTMLButtonElement;
-  taskFilesBtn: HTMLButtonElement;
   taskAnnotateBtn: HTMLButtonElement;
   taskSegmentationBtn: HTMLButtonElement;
   taskSuperpixelBtn: HTMLButtonElement;
@@ -608,7 +607,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     activeOperationProgress: requireById<HTMLElement>(documentRef, "activeOperationProgress"),
     activeOperationProgressBar: requireById<HTMLElement>(documentRef, "activeOperationProgressBar"),
     cancelActiveOperationBtn: requireById<HTMLButtonElement>(documentRef, "cancelActiveOperationBtn"),
-    taskFilesBtn: requireById<HTMLButtonElement>(documentRef, "taskFilesBtn"),
     taskAnnotateBtn: requireById<HTMLButtonElement>(documentRef, "taskAnnotateBtn"),
     taskSegmentationBtn: requireById<HTMLButtonElement>(documentRef, "taskSegmentationBtn"),
     taskSuperpixelBtn: requireById<HTMLButtonElement>(documentRef, "taskSuperpixelBtn"),

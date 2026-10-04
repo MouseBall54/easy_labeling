@@ -70,9 +70,6 @@
     <div class="app-workspace" data-active-task="annotate">
         <nav class="task-rail" aria-label="Workspace tasks">
             <div class="task-rail-primary">
-                <button id="taskFilesBtn" type="button" class="task-rail-button" data-task="files" title="Files workspace" aria-label="Files workspace" aria-pressed="false">
-                    <i class="bi bi-folder2-open" aria-hidden="true"></i><span>Files</span>
-                </button>
                 <button id="taskAnnotateBtn" type="button" class="task-rail-button active" data-task="annotate" title="Annotation workspace" aria-label="Annotation workspace" aria-current="page" aria-pressed="true">
                     <i class="bi bi-tag" aria-hidden="true"></i><span>Annotate</span>
                 </button>
@@ -91,14 +88,14 @@
                 <button id="taskPreprocessingBtn" type="button" class="task-rail-button" data-task="preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false">
                     <i class="bi bi-sliders2" aria-hidden="true"></i><span>Preprocess</span>
                 </button>
-                <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
-                    <i class="bi bi-clipboard2-check" aria-hidden="true"></i><span>Review</span>
-                </button>
                 <button id="taskInferenceBtn" type="button" class="task-rail-button" data-task="inference" title="YOLO model inference" aria-label="Inference workspace" aria-pressed="false">
                     <i class="bi bi-cpu" aria-hidden="true"></i><span>Inference</span>
                 </button>
                 <button id="taskYoloeBtn" type="button" class="task-rail-button" data-task="yoloe" title="YOLOE-26 visual prompt inference" aria-label="YOLOE-26 workspace" aria-pressed="false">
                     <i class="bi bi-bounding-box" aria-hidden="true"></i><span>YOLOE-26</span>
+                </button>
+                <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
+                    <i class="bi bi-clipboard2-check" aria-hidden="true"></i><span>Review</span>
                 </button>
             </div>
             <div class="task-rail-footer">
@@ -282,11 +279,9 @@
                             <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                             <input type="search" id="imageSearchInput" class="form-control" data-ui="image-search-input" placeholder="Search files..." aria-label="Search image files">
                         </div>
-                        <div id="image-filter-container" class="segmented-filter image-status-filters" data-ui="image-status-filters" role="group" aria-label="Image status filters">
-                            <input type="checkbox" class="btn-check" id="showLabeled" checked>
-                            <label class="btn" for="showLabeled" data-ui="filter-labeled-images"><i class="bi bi-check-circle" aria-hidden="true"></i> Labeled</label>
-                            <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
-                            <label class="btn" for="showUnlabeled" data-ui="filter-unlabeled-images"><i class="bi bi-circle" aria-hidden="true"></i> Unlabeled</label>
+                        <div id="image-filter-container" class="image-status-filters" data-ui="image-status-filters" role="group" aria-label="Image status filters">
+                            <label class="image-status-filter" for="showLabeled" data-ui="filter-labeled-images"><input type="checkbox" class="form-check-input" id="showLabeled" checked><span>Labeled</span></label>
+                            <label class="image-status-filter" for="showUnlabeled" data-ui="filter-unlabeled-images"><input type="checkbox" class="form-check-input" id="showUnlabeled" checked><span>Unlabeled</span></label>
                         </div>
                         <div id="reviewFilterControl">
                             <label class="visually-hidden" for="reviewFilterSelect">Review filter</label>
@@ -664,16 +659,23 @@
                         </div>
                         <div class="yoloe-sample-actions">
                         <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" aria-pressed="false" disabled><i class="bi bi-vector-pen" aria-hidden="true"></i> Outline sample</button>
+                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2" disabled>Use selected labels</button>
                         <button id="finishYoloeSampleBtn" type="button" class="btn btn-primary btn-sm w-100 mt-2" hidden disabled>Finish outline</button>
                         <p id="yoloeDrawingHint" class="small text-muted mt-1 mb-0" hidden>Click around the target. Enter / double-click to finish; Backspace to undo; Esc to cancel.</p>
+                        </div>
+                        <div id="yoloeExistingBoxes" class="mt-2" hidden>
+                            <label class="form-label small" for="yoloeExistingBoxSelect">Existing boxes · Reference image</label>
+                            <div class="input-group input-group-sm">
+                                <select id="yoloeExistingBoxSelect" class="form-select"><option value="">Loading labels…</option></select>
+                                <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-secondary" disabled>Add sample</button>
+                            </div>
                         </div>
                         <div class="section-heading-row mt-3"><h6 class="settings-subtitle m-0">Samples</h6><button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear samples</button></div>
                         <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
                         <p id="yoloeSamplesEmpty" class="small text-muted mt-2 mb-0">Name a target, then outline it on the reference image.</p>
-                        <details class="advanced-disclosure mt-3"><summary>Use existing selected labels</summary>
+                        <details class="advanced-disclosure mt-3"><summary>Use an existing class name</summary>
                             <label class="form-label small mt-2" for="yoloeExampleClass">Existing label class</label>
                             <select id="yoloeExampleClass" class="form-select form-select-sm" aria-label="Example class"></select>
-                            <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2" disabled>Use selected labels</button>
                         </details>
                     </section>
                     <section class="yoloe-settings-column" aria-label="Inference settings">

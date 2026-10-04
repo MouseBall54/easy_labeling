@@ -294,6 +294,66 @@ for (const workflow of ["detection", "segmentation"] as const) test(`CPU default
   await expect(page.locator("#yoloeRunStatus")).toContainText("inference-yoloe-26l-seg-targets");
 });
 
+test("existing mask labels become pixel-accurate samples without modifying the source", async ({ page }) => {
+  test.setTimeout(60_000);
+  type Prepared = { references: { examples: { classId: number; box: number[]; polygon?: number[][]; mask: { width: number; height: number; runs: number[] } }[] }[] };
+  let prepared: Prepared | null = null;
+  await page.route("http://127.0.0.1:8766/**", (route) => {
+    if (route.request().url().endsWith("/status")) return route.fulfill({ json: { version: 5, cuda: true, gpu: "Test GPU", models: ["yoloe-26s-seg"] } });
+    const data = route.request().postDataJSON();
+    if (route.request().url().endsWith("/prepare")) {
+      prepared = data;
+      return route.fulfill({ json: { id: "existing-mask", workflow: "segmentation", model: data.model, classes: {}, backend: "cuda", gpu: "Test GPU", imgsz: data.imgsz, exampleCount: 1 } });
+    }
+    const png = Buffer.from(data.image.split(",")[1], "base64"), width = png.readUInt32BE(16), height = png.readUInt32BE(20);
+    return route.fulfill({ json: { detections: [], mask: { width, height, runs: [0, width * height] } } });
+  });
+  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+  await page.locator('label[for="segmentationWorkflowTab"]').click();
+  await page.locator("#segmentationBrushModeBtn").click();
+  const paintPoint = await page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi");
+    const rect = [...document.querySelectorAll(".upper-canvas")].map((c) => c.getBoundingClientRect()).find((r) => r.width > 0 && r.height > 0)!;
+    const [a, b, c, d, tx, ty] = api.getCanvasViewportTransform();
+    return { x: rect.left + a * 400 + c * 200 + tx, y: rect.top + b * 400 + d * 200 + ty };
+  });
+  await page.mouse.click(paintPoint.x, paintPoint.y);
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds())).not.toBeNull();
+  await page.locator("#saveLabelsBtn").click();
+  await page.locator("#taskYoloeBtn").click(); await openSetup(page);
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
+  await closeSetup(page);
+  const source = await page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi"), bounds = api.getSegmentationMaskBounds();
+    for (let y = bounds.top; y <= bounds.bottom; y++) for (let x = bounds.left; x <= bounds.right; x++) {
+      const classId = api.getSegmentationClassAtPoint(x, y);
+      if (!classId || [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => api.getSegmentationClassAtPoint(x + dx!, y + dy!) !== classId)) continue;
+      const rect = [...document.querySelectorAll(".upper-canvas")].map((c) => c.getBoundingClientRect()).find((r) => r.width > 0 && r.height > 0)!;
+      const [a, b, c, d, tx, ty] = api.getCanvasViewportTransform();
+      return { bounds, classId, x, y, screenX: rect.left + a * (x + 0.5) + c * (y + 0.5) + tx, screenY: rect.top + b * (x + 0.5) + d * (y + 0.5) + ty };
+    }
+    throw new Error("Sample mask is missing");
+  });
+  await page.locator("#segmentationEditModeBtn").click();
+  await page.mouse.click(source.screenX, source.screenY);
+  await openSetup(page);
+  await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Use selected mask (1)");
+  await page.locator("#addYoloeSelectedBtn").click();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  await page.locator("#previewYoloeSampleBtn").click();
+  await expect(page.locator("#yoloeSetupStatus")).toContainText("Preview");
+  const example = (prepared as unknown as Prepared).references[0]!.examples[0]!;
+  expect(example.classId).toBe(Number(source.classId));
+  expect(example.mask).toBeDefined();
+  expect(example.polygon).toBeUndefined();
+  expect(example.box[2] - example.box[0]).toBe(example.mask.width);
+  expect(example.mask.runs.reduce((sum: number, value: number, index: number) => sum + (index % 2 ? value : 0), 0)).toBe(example.mask.width * example.mask.height);
+  await closeSetup(page);
+  expect(await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds())).toEqual(source.bounds);
+  expect(await page.evaluate(({ x, y }) => Reflect.get(window, "__easyLabelingTestApi").getSegmentationClassAtPoint(x, y), source)).toBe(source.classId);
+});
+
 test("existing box prompts and settings remain available, with cancellation preserving labels", async ({ page }) => {
   test.setTimeout(60_000);
   let prepared: Record<string, unknown> | null = null;
@@ -308,9 +368,9 @@ test("existing box prompts and settings remain available, with cancellation pres
   const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount());
   await page.locator("#taskYoloeBtn").click();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
-  await openSetup(page);
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").selectRectsByIndex([0]));
-  await page.locator("#yoloeSetupModal summary").click();
+  await openSetup(page);
+  await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Use selected boxes (1)");
   await page.locator("#addYoloeSelectedBtn").click();
   await closeSetup(page);
   await page.locator("#previewYoloeBtn").click();
@@ -334,4 +394,53 @@ test("existing box prompts and settings remain available, with cancellation pres
   await page.locator("#previewYoloeBtn").click(); await page.locator("#cancelActiveOperationBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("stopped");
   await expect.poll(count).toBe(52);
+});
+
+test("existing Detection boxes can be imported inside the popup from different images without main selection", async ({ page }) => {
+  test.setTimeout(60_000);
+  type Prepared = { references: { examples: { classId: number; name: string; box: number[] }[] }[] };
+  let prepared: Prepared | null = null;
+  await page.route("http://127.0.0.1:8766/**", (route) => {
+    if (route.request().url().endsWith("/status")) return route.fulfill({ json: { version: 5, cuda: true, gpu: "Test GPU", models: ["yoloe-26s-seg"] } });
+    if (route.request().url().endsWith("/prepare")) {
+      prepared = route.request().postDataJSON();
+      return route.fulfill({ json: { id: "existing", model: "yoloe-26s-seg", classes: { "0": "Light / White" }, exampleCount: 2, backend: "cuda", workflow: "detection", imgsz: 640 } });
+    }
+    return route.fulfill({ json: { detections: [] } });
+  });
+  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+  await page.locator("#taskYoloeBtn").click();
+  await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
+  await openSetup(page);
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
+  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(53);
+  await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
+  const pixels = () => page.locator("#yoloePreviewCanvas").evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+  const before = await pixels();
+  await page.locator("#yoloeExistingBoxSelect").selectOption("0");
+  expect(await pixels()).not.toBe(before);
+  await page.locator("#addYoloeExistingBtn").click();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
+  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(93);
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
+  await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
+  await page.locator("#yoloeExistingBoxSelect").selectOption("0");
+  await page.locator("#addYoloeExistingBtn").click();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await page.locator("#previewYoloeSampleBtn").click();
+  await expect(page.locator("#yoloeSetupStatus")).toContainText("sample_2.jpg");
+  const references = (prepared as unknown as Prepared).references;
+  expect(references).toHaveLength(2);
+  for (const reference of references) expect(reference.examples[0]).toMatchObject({ classId: 0, name: "Light / White" });
+  const dimensions = await page.locator("#yoloePreviewCanvas").evaluate((element) => ({ width: Number((element as HTMLElement).dataset.referenceWidth), height: Number((element as HTMLElement).dataset.referenceHeight) }));
+  const expected = [(0.056179775280899 - 0.032843560933449 / 2) * dimensions.width, (0.206153846153846 - 0.147692307692308 / 2) * dimensions.height, (0.056179775280899 + 0.032843560933449 / 2) * dimensions.width, (0.206153846153846 + 0.147692307692308 / 2) * dimensions.height];
+  references[1]!.examples[0]!.box.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 5));
+  await closeSetup(page);
+  await expect(page.locator("#current-image-name")).toHaveText("sample_1.jpg");
+  expect(await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount())).toBe(52);
+  await page.locator('#image-list [data-file-name="sample_2.jpg"]').click();
+  await expect(page.locator("#current-image-name")).toHaveText("sample_2.jpg");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount())).toBe(92);
 });

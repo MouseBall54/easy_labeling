@@ -85,13 +85,12 @@ try {
   };
   await expect.poll(count).toBe(2);
   await page.locator("#taskYoloeBtn").click();
+  await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
   await page.locator("#openYoloeSetupBtn").click();
   await expect(page.locator("#yoloeSampleStage > #yoloePreviewCanvas")).toBeVisible();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await expect(page.locator("#yoloeModelSelect")).toBeEnabled();
   await page.locator("#yoloeProfileName").fill("acceptance_v1");
-  await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
-  await page.locator("#yoloeSetupModal summary").click();
   await page.locator("#addYoloeSelectedBtn").click();
   await verifyPopup("detection");
   expect(await count()).toBe(2);

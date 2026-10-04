@@ -1194,14 +1194,27 @@ canvas {
 #image-filter-container {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: stretch;
+    gap: 12px;
+    align-items: center;
     position: relative;
     z-index: 1;
 }
 
-#image-filter-container .btn {
-    flex: 1 1 0;
+#image-filter-container .image-status-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 24px;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+    cursor: pointer;
+}
+
+#image-filter-container .form-check-input {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+    cursor: pointer;
 }
 
 #image-list {
@@ -2283,18 +2296,6 @@ body {
 .segmented-filter .btn:last-child,
 .segmented-control .btn:last-child { border-right: 0; }
 
-.image-status-filters .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.28rem;
-    line-height: 1;
-}
-
-.image-status-filters .btn i {
-    line-height: 1;
-}
-
 .segmented-filter .btn-check:checked + .btn,
 .segmented-control .btn-check:checked + .btn,
 .segmented-control .btn.active {
@@ -2307,16 +2308,18 @@ body {
 }
 
 #image-list {
-    min-height: 88px;
+    min-height: 0;
     max-height: 255px;
     margin-top: 8px;
     border-color: var(--workbench-border);
     border-radius: var(--radius-sm);
 }
 
+#image-list:empty { display: none; }
+
 #image-list .list-group-item {
-    min-height: 42px;
-    padding: 0.6rem 0.65rem;
+    min-height: 36px;
+    padding: 4px 8px;
     overflow: hidden;
     font-size: var(--fs-caption);
     text-overflow: ellipsis;
@@ -2332,8 +2335,8 @@ body {
 
 .image-list-item-thumb {
     flex: 0 0 auto;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     margin-right: 0.5rem;
     border-radius: var(--radius-sm);
     background: var(--workbench-surface-muted, #e9ecef);

@@ -213,9 +213,9 @@ export class FakeDocument {
   querySelectorAll(selector: string): FakeElement[] {
     if (
       selector ===
-      'label[for="showLabeled"], label[for="showUnlabeled"], label[for="drawMode"], label[for="editMode"]'
+      'label[for="drawMode"], label[for="editMode"]'
     ) {
-      const accepted = new Set(["showLabeled", "showUnlabeled", "drawMode", "editMode"]);
+      const accepted = new Set(["drawMode", "editMode"]);
       return this.allElements.filter((element) => element.tagName === "label" && accepted.has(element.htmlFor));
     }
     return [];

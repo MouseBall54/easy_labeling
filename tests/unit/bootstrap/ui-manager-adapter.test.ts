@@ -247,8 +247,6 @@ function createElements() {
   segmentationEdgeGlowSlider.value = "70";
   const segmentationToolSizeSlider = new FakeElement("input");
   segmentationToolSizeSlider.value = "6";
-  const taskFilesBtn = new FakeElement("button");
-  taskFilesBtn.dataset.task = "files";
   const taskAnnotateBtn = new FakeElement("button");
   taskAnnotateBtn.dataset.task = "annotate";
   const taskSegmentationBtn = new FakeElement("button");
@@ -343,7 +341,6 @@ function createElements() {
     duplicateSelectionBtn: new FakeElement("button"),
     hideSelectionBtn: new FakeElement("button"),
     deleteSelectionBtn: new FakeElement("button"),
-    taskFilesBtn,
     taskAnnotateBtn,
     taskSegmentationBtn,
     taskSuperpixelBtn,
@@ -833,16 +830,16 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
   it("keeps the left workspace selected while tools change the detection inspector", () => {
     const { manager, elements } = createManagerWithRects({ rects: [] });
 
-    manager.setActiveTask("files");
+    manager.setActiveTask("annotate");
     expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
-    expect(elements.leftPanel.classList.contains("task-focus")).toBe(true);
-    expect(elements.taskFilesBtn.classList.contains("active")).toBe(true);
+    expect(elements.leftPanel.classList.contains("task-focus")).toBe(false);
+    expect(elements.taskAnnotateBtn.classList.contains("active")).toBe(true);
 
     manager.setActiveTask("automate");
     expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("task-focus")).toBe(true);
-    expect(elements.taskFilesBtn.classList.contains("active")).toBe(true);
+    expect(elements.taskAnnotateBtn.classList.contains("active")).toBe(true);
     expect(elements.inspectorAutomationPane.hidden).toBe(false);
     expect(elements.taskAutomateBtn.classList.contains("active")).toBe(true);
     expect(elements.inspectorTitle.textContent).toBe("Automation Workspace");
@@ -850,7 +847,7 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
 
     manager.setActiveTask("detection-display");
     manager.setInspectorTab("transform");
-    expect(elements.taskFilesBtn.classList.contains("active")).toBe(false);
+    expect(elements.taskAnnotateBtn.classList.contains("active")).toBe(false);
     expect(elements.inspectorTransformPane.hidden).toBe(false);
     expect(elements.taskAutomateBtn.classList.contains("active")).toBe(false);
     expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
@@ -861,7 +858,7 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     const { manager, elements } = createManagerWithRects({ rects: [] });
 
     elements.editModeBtn.checked = true;
-    manager.setActiveTask("files");
+    manager.setActiveTask("annotate");
     manager.setInspectorTab("automation");
     manager.setActiveTask("preprocessing");
     manager.setActiveTask("review");

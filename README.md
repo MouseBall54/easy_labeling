@@ -46,6 +46,7 @@ YOLOE-26 버전의 추가 설치·n/s/m/l 모델 준비·실행 명령과 사용
 ### 2) 2개 워크플로우 탭
 
 - 상단 탭에서 `Detection / Segmentation` 전환
+- 왼쪽 `Annotate`(Detection) / `Mask`(Segmentation)에서 데이터셋 열기, 라벨 폴더 연결, 클래스 파일 관리와 편집을 함께 진행합니다. 별도 Files 탭은 통합했습니다. `Labeled / Unlabeled`는 함께 켜거나 끌 수 있는 이미지 상태 필터입니다.
 
 ### 3) 공통 편의 기능
 
