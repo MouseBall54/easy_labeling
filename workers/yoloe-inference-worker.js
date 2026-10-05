@@ -9,10 +9,12 @@ ort.env.webgpu.powerPreference = "high-performance";
 let encoder, detector, modelFiles, modelName, profile, classIds, embeddingData;
 let backend = "cpu", fallbackReason = null, queue = Promise.resolve();
 let gpuDescription = null;
+let gpuVendor = null, gpuDevice = null;
 
 async function gpuAvailable() {
   const adapter = self.navigator.gpu && await self.navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   const info = adapter?.info;
+  gpuVendor = info?.vendor ?? null; gpuDevice = info?.device ?? null;
   gpuDescription = info?.description || info?.vendor || "WebGPU";
   return Boolean(adapter && !adapter.isFallbackAdapter && !info?.isFallbackAdapter && !/swiftshader|llvmpipe|software/i.test(gpuDescription));
 }
@@ -116,7 +118,7 @@ function maskRuns(mask) {
 async function handle(request) {
   if (request.operation === "status") {
     const gpu = await gpuAvailable();
-    return { version: 5, cuda: gpu, backend: gpu ? "webgpu" : "cpu", gpu: gpu ? gpuDescription : null,
+    return { version: 5, cuda: gpu, backend: gpu ? "webgpu" : "cpu", gpu: gpu ? gpuDescription : null, gpuVendor, gpuDevice,
       models: [..."nsml"].map((size) => `yoloe-26${size}-seg`), busy: false, engine: "onnx" };
   }
   if (request.operation === "prepare") {
@@ -148,7 +150,7 @@ async function handle(request) {
     profile = { id: crypto.randomUUID(), model: request.model, workflow: request.workflow, classes, classIds,
       exampleCount: references.reduce((count, reference) => count + reference.examples.length, 0), referenceCount: references.length,
       referenceSha256: [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join(""), imgsz: request.imgsz,
-      backend, gpu: backend === "webgpu" ? gpuDescription : null, engine: "onnx", fallbackReason };
+      backend, gpu: backend === "webgpu" ? gpuDescription : null, gpuVendor, gpuDevice, engine: "onnx", fallbackReason };
     return profile;
   }
   if (!profile || profile.id !== request.profileId) throw new Error("Samples changed. Find again to prepare them.");

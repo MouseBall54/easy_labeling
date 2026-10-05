@@ -1,0 +1,26 @@
+
+> easy_labeling@2.0.0 test:e2e
+> npm run build && playwright test --project=chromium tests/e2e/audit-bulk-stable.spec.ts
+
+
+> easy_labeling@2.0.0 prebuild
+> npm run copy:offline-assets
+
+
+> easy_labeling@2.0.0 copy:offline-assets
+> node scripts/copy-offline-assets.mjs
+
+
+> easy_labeling@2.0.0 build
+> tsc -p tsconfig.build.json
+
+
+Running 1 test using 1 worker
+
+(node:42596) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:42596) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\audit-bulk-stable.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable (24.7s)
+
+  1 passed (26.1s)

@@ -248,13 +248,14 @@
                     <section id="yoloeInferenceControls" class="panel-section" hidden>
                         <div class="section-heading-row"><h3>YOLOE-26</h3><span id="yoloeOutputBadge" class="status-badge">Detection · Boxes</span></div>
                         <div class="mt-2"><span id="yoloeBackendBadge" class="status-badge" role="status">Disconnected</span></div>
+                        <p id="yoloeDeviceInfo" class="small text-muted mt-1 mb-0" role="status"></p>
                         <p id="yoloeSummary" class="small text-muted mt-2 mb-0">No samples</p>
                         <button id="openYoloeSetupBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2"><i class="bi bi-sliders" aria-hidden="true"></i> Samples &amp; settings</button>
                         <button id="previewYoloeBtn" type="button" class="btn btn-primary btn-sm w-100 mt-2" disabled><i class="bi bi-search" aria-hidden="true"></i> Find in current image</button>
                         <label class="form-label small mt-2" for="yoloeSaveScope">Save results</label>
                         <div class="input-group input-group-sm">
                             <select id="yoloeSaveScope" class="form-select form-select-sm" aria-label="Images to save"><option value="current">Current image</option><option value="all">All images</option></select>
-                            <button id="saveYoloeCurrentBtn" type="button" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-save" aria-hidden="true"></i> Save results</button>
+                                <button id="saveYoloeCurrentBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Run &amp; save current</button>
                         </div>
                         <p id="yoloeRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
                     </section>
@@ -674,10 +675,10 @@
                         <p id="yoloeDrawingHint" class="small text-muted mt-1 mb-0" hidden>Click around the target. Enter / double-click to finish; Backspace to undo; Esc to cancel.</p>
                         </div>
                         <div id="yoloeExistingBoxes" class="mt-2" hidden>
-                            <label class="form-label small" for="yoloeExistingBoxSelect">Existing boxes · Reference image</label>
+                            <label id="yoloeExistingLabelTitle" class="form-label small" for="yoloeExistingBoxSelect">Existing boxes · Reference image</label>
                             <div class="input-group input-group-sm">
-                                <select id="yoloeExistingBoxSelect" class="form-select"><option value="">Loading labels…</option></select>
-                                <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-secondary" disabled>Add sample</button>
+                                <select id="yoloeExistingBoxSelect" class="form-select" multiple size="4" aria-label="Existing labels" title="Ctrl / Shift: select multiple labels"><option value="">Loading labels…</option></select>
+                                <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-secondary" disabled>Add selected</button>
                             </div>
                         </div>
                         <div class="section-heading-row mt-3"><h6 class="settings-subtitle m-0">Samples</h6><button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear samples</button></div>
@@ -690,6 +691,15 @@
                     </section>
                     <section class="yoloe-settings-column" aria-label="Inference settings">
                         <h6 class="settings-subtitle mt-0">Inference settings</h6>
+                        <label class="form-label small mt-2" for="yoloePresetSelect">Saved samples &amp; settings</label>
+                        <select id="yoloePresetSelect" class="form-select form-select-sm"><option value="">Choose a preset…</option></select>
+                        <div class="d-flex gap-1 mt-2" role="group" aria-label="YOLOE presets">
+                            <button id="saveYoloePresetBtn" type="button" class="btn btn-outline-primary btn-sm">Save</button>
+                            <button id="saveYoloePresetAsBtn" type="button" class="btn btn-outline-secondary btn-sm">Save as…</button>
+                            <button id="loadYoloePresetBtn" type="button" class="btn btn-outline-secondary btn-sm">Open…</button>
+                        </div>
+                        <input id="yoloePresetFileInput" type="file" accept=".json,application/json" hidden>
+                        <p id="yoloePresetLocation" class="small text-muted mt-1 mb-0 text-break"></p>
                             <div class="section-heading-row mt-2"><button id="connectYoloeBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plug" aria-hidden="true"></i> Reconnect</button></div>
                             <p id="yoloeConnectionStatus" class="small text-muted mt-2" role="status" hidden></p>
                             <label class="form-label small mt-2" for="yoloeModelSelect">Model</label>

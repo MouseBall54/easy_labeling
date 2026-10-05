@@ -38,6 +38,85 @@ async function outline(page: Page, points = [[100, 200], [150, 200], [100, 250]]
   await expect(page.locator("#yoloeDrawingToolbar")).toBeHidden();
 }
 
+for (const workflow of ["detection", "segmentation"] as const) test(`multiple existing labels and persistent presets run all images with progress for ${workflow}`, async ({ page }) => {
+  test.setTimeout(120_000);
+  let prepared: { references: { examples: { mask?: { runs: number[] }; classId: number }[] }[]; imgsz: number } | null = null;
+  let inferred = 0;
+  await page.route("http://127.0.0.1:8766/**", async (route) => {
+    if (route.request().url().endsWith("/status")) return route.fulfill({ json: { version: 5, cuda: true, gpu: "Test GPU", models: ["yoloe-26s-seg"] } });
+    const data = route.request().postDataJSON();
+    if (route.request().url().endsWith("/prepare")) {
+      prepared = data;
+      return route.fulfill({ json: { id: "saved", model: data.model, workflow, classes: { "1": "Light / White" }, imgsz: data.imgsz, exampleCount: 3, backend: "cuda", gpu: "Test GPU" } });
+    }
+    inferred++;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const png = Buffer.from(data.image.split(",")[1], "base64"), width = png.readUInt32BE(16), height = png.readUInt32BE(20);
+    return route.fulfill({ json: { backend: "cuda", detections: [{ classId: 1, confidence: 0.9, left: 0, top: 0, right: 10, bottom: 1 }],
+      ...(workflow === "segmentation" ? { mask: { width, height, runs: [1, 10, 0, width * height - 10] } } : {}) } });
+  });
+  const start = async () => {
+    await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
+    await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+    if (workflow === "segmentation") await page.locator('label[for="segmentationWorkflowTab"]').click();
+    await page.locator("#taskYoloeBtn").click(); await openSetup(page);
+    await expect(page.locator("#yoloePresetSelect")).toBeEnabled();
+  };
+  await start();
+  await expect(page.locator("#yoloeDeviceInfo")).toHaveText("Test GPU");
+  const original = await page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow);
+  await page.locator("#yoloeExistingBoxSelect").selectOption(["0", "1"]); await page.locator("#addYoloeExistingBtn").click();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
+  await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
+  await page.locator("#yoloeExistingBoxSelect").selectOption("0"); await page.locator("#addYoloeExistingBtn").click();
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await page.locator("#yoloeProfileName").fill("saved_parts"); await page.locator("#yoloeImageSize").selectOption("2048");
+  await page.locator("#yoloeConfidenceInput").fill("0.35"); await page.locator("#yoloePromptShape").selectOption("brush");
+  await page.locator("#yoloeAutoFillClosedRegionToggle").check();
+  await page.locator("#saveYoloePresetBtn").click(); await expect(page.locator("#yoloeSetupStatus")).toContainText("Saved");
+  await expect(page.locator("#yoloePresetSelect option")).toHaveCount(2);
+  const downloadEvent = page.waitForEvent("download"); await page.locator("#saveYoloePresetAsBtn").click();
+  const downloaded = await downloadEvent;
+  const saved = JSON.parse(await readFile((await downloaded.path())!, "utf8"));
+  expect(saved.references).toHaveLength(2);
+  expect(saved.references.flatMap((r: { examples: unknown[] }) => r.examples)).toHaveLength(3);
+  expect(saved.settings).toMatchObject({ imgsz: 2048, confidence: 0.35, shape: "brush", autoFill: true });
+  if (workflow === "segmentation") for (const r of saved.references) for (const e of r.examples) expect(e.mask.runs.length).toBeGreaterThan(0);
+  await start();
+  await expect(page.locator("#yoloePresetSelect option")).toHaveCount(2);
+  await page.locator("#yoloePresetSelect").selectOption(`saved_parts-${workflow}.yoloe.json`);
+  await expect(page.locator("#yoloeSetupStatus")).toContainText("Loaded");
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await expect(page.locator("#yoloeImageSize")).toHaveValue("2048");
+  await expect(page.locator("#yoloeConfidenceInput")).toHaveValue("0.35");
+  await expect(page.locator("#yoloeAutoFillClosedRegionToggle")).toBeChecked();
+  await page.locator("#yoloePresetFileInput").setInputFiles({ name: "invalid.json", mimeType: "application/json", buffer: Buffer.from('{"version":9}') });
+  await expect(page.locator("#yoloeSetupStatus")).toContainText("Invalid");
+  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await closeSetup(page); await page.locator("#yoloeSaveScope").selectOption("all");
+  await expect(page.locator("#saveYoloeCurrentBtn")).toHaveText("Run & save all (17)");
+  await page.locator("#saveYoloeCurrentBtn").click();
+  await expect(page.locator("#yoloeRunStatus")).toContainText(/Running · [1-9]+\/17 · \d+%/);
+  await expect(page.locator("#yoloeRunStatus")).toContainText("17 image(s)", { timeout: 60_000 });
+  expect(inferred).toBe(17);
+  expect(prepared).toMatchObject({ imgsz: 2048 });
+  expect((prepared as unknown as { references: unknown[] }).references).toHaveLength(2);
+  await page.locator("#labelSourceSelect").selectOption("0");
+  await expect.poll(() => page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow)).toEqual(original);
+  if (workflow === "detection") {
+    await page.locator('label[for="segmentationWorkflowTab"]').click(); await openSetup(page);
+    await expect(page.locator("#yoloePresetLocation")).toHaveText("Default: browser storage");
+    await page.locator("#yoloeExistingBoxSelect").selectOption("0"); await page.locator("#addYoloeExistingBtn").click();
+    await page.locator("#saveYoloePresetBtn").click();
+    await expect(page.locator("#yoloePresetLocation")).toContainText("saved_parts-segmentation.yoloe.json");
+    await closeSetup(page); await page.locator('label[for="detectionWorkflowTab"]').click(); await openSetup(page);
+    await expect(page.locator("#yoloePresetSelect")).toBeEnabled();
+    await page.locator("#yoloePresetSelect").selectOption("saved_parts-detection.yoloe.json");
+    await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  }
+});
+
 for (const workflow of ["detection", "segmentation"] as const) test(`brush and eraser samples preserve holes, islands and zoomed coordinates for ${workflow}`, async ({ page }) => {
   test.setTimeout(60_000);
   type Prepared = { references: { examples: { box: number[]; polygon?: number[][]; mask: { width: number; height: number; runs: number[] }; maskCanvas?: unknown }[] }[] };
@@ -574,7 +653,7 @@ test("existing Detection boxes can be imported inside the popup from different i
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await openSetup(page);
   await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
-  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(208);
+  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(207);
   await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
   const pixels = () => page.locator("#yoloePreviewCanvas").evaluate((element) => (element as HTMLCanvasElement).toDataURL());
   const before = await pixels();
@@ -583,7 +662,7 @@ test("existing Detection boxes can be imported inside the popup from different i
   await page.locator("#addYoloeExistingBtn").click();
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
   await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
-  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(101);
+  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(100);
   await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
   await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
   await page.locator("#yoloeExistingBoxSelect").selectOption("0");

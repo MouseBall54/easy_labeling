@@ -1,8 +1,16 @@
 import { expect, it, vi, afterEach } from "vitest";
 import type { FabricRectLike } from "../../../../src/features/canvas/fabric-types.js";
-import { selectedVisualExamples, requestYoloe, decodeYoloeMask, maskRegionExample, sampleMaskGeometry } from "../../../../src/features/inference/yoloe.js";
+import { selectedVisualExamples, requestYoloe, decodeYoloeMask, maskRegionExample, sampleMaskGeometry, maskVisualExamples } from "../../../../src/features/inference/yoloe.js";
 
 afterEach(() => vi.unstubAllGlobals());
+
+it("lists separate mask regions with class IDs, preserving holes and preventing row wrap connections", () => {
+  const mask = new Uint16Array([5, 5, 5, 0, 12, 5, 0, 5, 0, 0, 5, 5, 5, 0, 12]);
+  const samples = maskVisualExamples(mask, 5, 3, new Map([["5", "ring"], ["12", "particle"]]));
+  expect(samples.map((s) => [s.classId, s.name, s.box])).toEqual([[5, "ring", [0, 0, 3, 3]], [12, "particle", [4, 0, 5, 1]], [12, "particle", [4, 2, 5, 3]]]);
+  expect(Array.from(decodeYoloeMask(samples[0]!.mask!).mask)).toEqual([1, 1, 1, 1, 0, 1, 1, 1, 1]);
+  expect(maskVisualExamples(new Uint16Array([0, 1, 1, 0]), 2, 2, new Map())).toHaveLength(2);
+});
 
 it("crops painted samples while preserving erased holes and disconnected islands", () => {
   const pixels = new Uint16Array(7 * 5);

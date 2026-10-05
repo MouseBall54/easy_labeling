@@ -1,0 +1,153 @@
+
+> easy_labeling@2.0.0 test:e2e
+> npm run build && playwright test --project=chromium
+
+
+> easy_labeling@2.0.0 prebuild
+> npm run copy:offline-assets
+
+
+> easy_labeling@2.0.0 copy:offline-assets
+> node scripts/copy-offline-assets.mjs
+
+
+> easy_labeling@2.0.0 build
+> tsc -p tsconfig.build.json
+
+
+Running 50 tests using 1 worker
+
+(node:60640) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:60640) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x   1 [chromium] › tests\e2e\alignment-history.spec.ts:61:1 › arrange/history: align-left, undo/redo, distribute, delete, undo-delete (30.1s)
+(node:50004) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:50004) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x   2 [chromium] › tests\e2e\alignment-history.spec.ts:292:1 › arrange/history: class-group selection restores exact geometry after align-left undo (35.0s)
+(node:61240) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61240) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  3 [chromium] › tests\e2e\automation-workflow.spec.ts:3:1 › layout and automation: modal management, both matching modes, and offscreen batch labeling (33.5s)
+  ok  4 [chromium] › tests\e2e\bootstrap-smoke.spec.ts:3:1 › bootstrap-smoke: modular dist/main.js entry boots with parity defaults (6.5s)
+  ok  5 [chromium] › tests\e2e\bootstrap-smoke.spec.ts:52:1 › bootstrap-smoke: 200 percent equivalent viewport keeps empty actions visible (6.5s)
+  ok  6 [chromium] › tests\e2e\bootstrap-smoke.spec.ts:82:1 › bootstrap-smoke: matching startup failure stays actionable (572ms)
+  ok  7 [chromium] › tests\e2e\class-file-profile.spec.ts:4:3 › Annotate: Class Info profile creates, edits and shares a class file across tabs (6.3s)
+  ok  8 [chromium] › tests\e2e\class-file-profile.spec.ts:4:3 › Inference: Class Info profile creates, edits and shares a class file across tabs (5.9s)
+  x   9 [chromium] › tests\e2e\detection-bulk-operation.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable (1.7m)
+(node:19860) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:19860) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 10 [chromium] › tests\e2e\detection-render-performance.spec.ts:17:1 › keeps real Fabric render time bounded as detection box count grows (11.6s)
+  ok 11 [chromium] › tests\e2e\filter-visibility.spec.ts:32:1 › filter visibility: class toggles, reset, persistence, and stability (8.5s)
+  ok 12 [chromium] › tests\e2e\folder-switch-autosave.spec.ts:6:1 › folder-switch: autosave persists current labels before switching folders (7.2s)
+  ok 13 [chromium] › tests\e2e\image-list-interactions.spec.ts:5:1 › image-list: search, box counts, and image navigation work together (7.2s)
+  ok 14 [chromium] › tests\e2e\inference-electron.spec.ts:7:1 › Electron file:// ONNX runtime saves real result files and preserves the source labels (19.2s)
+  ok 15 [chromium] › tests\e2e\inference.spec.ts:6:3 › YOLO unavailable GPU falls back to real CPU inference and updates the device display (9.3s)
+  ok 16 [chromium] › tests\e2e\inference.spec.ts:6:3 › YOLO execution GPU falls back to real CPU inference and updates the device display (9.3s)
+  ok 17 [chromium] › tests\e2e\inference.spec.ts:42:1 › selected ONNX filename survives loading and picker cancellation, with same-file reload (8.2s)
+  ok 18 [chromium] › tests\e2e\inference.spec.ts:79:1 › YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe source switching and themes (30.1s)
+  ok 19 [chromium] › tests\e2e\inference.spec.ts:175:1 › batch inference rejects duplicate label filenames and model loading recovers after an invalid file (10.5s)
+  ok 20 [chromium] › tests\e2e\label-folder-resolution.spec.ts:3:1 › parity: label-folder selection hook and autosave navigation bindings stay active (7.4s)
+  ok 21 [chromium] › tests\e2e\layout-management.spec.ts:3:1 › layout setup creates from selected boxes and updates the saved layout (13.2s)
+  ok 22 [chromium] › tests\e2e\missing-label-folder-focus.spec.ts:3:1 › keeps text and numeric inputs editable immediately after creating a missing label folder (8.7s)
+  ok 23 [chromium] › tests\e2e\mobile-unsupported.spec.ts:3:1 › unsupported-env: mobile user agent triggers legacy mobile gate (561ms)
+  ok 24 [chromium] › tests\e2e\review-queue.spec.ts:3:1 › review workspace filters quality findings, selects an affected box, navigates the queue, and restores review status (12.3s)
+  ok 25 [chromium] › tests\e2e\sample-labels.spec.ts:4:1 › all bundled images load their own boxes and semantic masks in both workflows (39.9s)
+  ok 26 [chromium] › tests\e2e\sample-test-data.spec.ts:3:1 › bundled sample test loads labeled cars and applies the prepared template layout (21.9s)
+  ok 27 [chromium] › tests\e2e\segmentation-draw.spec.ts:5:1 › segmentation draw creates overlay state and enables undo (11.7s)
+  ok 28 [chromium] › tests\e2e\segmentation-preprocessing-panel.spec.ts:3:1 › Image Preprocessing shows only settings for the selected Canvas View (9.9s)
+  ok 29 [chromium] › tests\e2e\super-resolution-runtime.spec.ts:3:1 › all enhancement models prefer WebGPU when the adapter supports it (7.3s)
+  ok 30 [chromium] › tests\e2e\ui-consistency.spec.ts:3:1 › merged editing workspaces retain dataset controls and compact status filters (10.9s)
+  ok 31 [chromium] › tests\e2e\ui-consistency.spec.ts:45:1 › workbench controls keep a consistent rhythm across themes and compact viewports (1.1s)
+  ok 32 [chromium] › tests\e2e\unsupported-env.spec.ts:3:1 › unsupported-env: missing File System Access API keeps the bundled sample available (9.7s)
+  ok 33 [chromium] › tests\e2e\workflow-switching.spec.ts:5:1 › workflow switching keeps workflow-specific panels and state coherent (9.0s)
+  ok 34 [chromium] › tests\e2e\yoloe.spec.ts:41:64 › multiple existing labels and persistent presets run all images with progress for detection (31.8s)
+  ok 35 [chromium] › tests\e2e\yoloe.spec.ts:41:64 › multiple existing labels and persistent presets run all images with progress for segmentation (30.7s)
+  ok 36 [chromium] › tests\e2e\yoloe.spec.ts:120:64 › brush and eraser samples preserve holes, islands and zoomed coordinates for detection (15.1s)
+  ok 37 [chromium] › tests\e2e\yoloe.spec.ts:120:64 › brush and eraser samples preserve holes, islands and zoomed coordinates for segmentation (16.2s)
+  ok 38 [chromium] › tests\e2e\yoloe.spec.ts:252:98 › named mask samples find and save detection results at 1024 without changing source labels (14.4s)
+  ok 39 [chromium] › tests\e2e\yoloe.spec.ts:252:98 › named mask samples find and save detection results at 2048 without changing source labels (14.8s)
+  ok 40 [chromium] › tests\e2e\yoloe.spec.ts:252:98 › named mask samples find and save segmentation results at 1024 without changing source labels (15.5s)
+  ok 41 [chromium] › tests\e2e\yoloe.spec.ts:252:98 › named mask samples find and save segmentation results at 2048 without changing source labels (15.3s)
+  ok 42 [chromium] › tests\e2e\yoloe.spec.ts:341:1 › YOLOE setup fits a narrow viewport, follows the theme, and keeps settings after closing (8.5s)
+  ok 43 [chromium] › tests\e2e\yoloe.spec.ts:366:64 › popup zoom and pan preserve sample coordinates and preview detection on its selected image (10.7s)
+  ok 44 [chromium] › tests\e2e\yoloe.spec.ts:366:64 › popup zoom and pan preserve sample coordinates and preview segmentation on its selected image (11.0s)
+  ok 45 [chromium] › tests\e2e\yoloe.spec.ts:465:1 › YOLOE reports unavailable service, missing models and stale API without repeated requests (7.4s)
+  ok 46 [chromium] › tests\e2e\yoloe.spec.ts:489:64 › CPU defaults to n and model changes re-encode samples for detection (14.9s)
+  ok 47 [chromium] › tests\e2e\yoloe.spec.ts:489:64 › CPU defaults to n and model changes re-encode samples for segmentation (14.6s)
+  ok 48 [chromium] › tests\e2e\yoloe.spec.ts:531:1 › existing mask labels become pixel-accurate samples without modifying the source (11.8s)
+  ok 49 [chromium] › tests\e2e\yoloe.spec.ts:598:1 › existing box prompts and settings remain available, with cancellation preserving labels (15.0s)
+  ok 50 [chromium] › tests\e2e\yoloe.spec.ts:638:1 › existing Detection boxes can be imported inside the popup from different images without main selection (11.3s)
+
+
+  1) [chromium] › tests\e2e\alignment-history.spec.ts:61:1 › arrange/history: align-left, undo/redo, distribute, delete, undo-delete 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.goto: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - navigating to "http://127.0.0.1:4174/index.html", waiting until "load"[22m
+
+
+      164 |   });
+      165 |
+    > 166 |   await page.goto("/index.html");
+          |              ^
+      167 |   await page.locator("#selectImageFolderBtn").click();
+      168 |
+      169 |   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(3);
+        at C:\Git\easy_labeling\tests\e2e\alignment-history.spec.ts:166:14
+
+    Error Context: test-results\alignment-history-arrange--ffd1f-stribute-delete-undo-delete-chromium\error-context.md
+
+  2) [chromium] › tests\e2e\alignment-history.spec.ts:292:1 › arrange/history: class-group selection restores exact geometry after align-left undo 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+    Call log:
+    [2m  - navigating to "http://127.0.0.1:4174/index.html", waiting until "load"[22m
+
+
+      395 |   });
+      396 |
+    > 397 |   await page.goto("/index.html");
+          |              ^
+      398 |   await page.locator("#selectImageFolderBtn").click();
+      399 |
+      400 |   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(3);
+        at C:\Git\easy_labeling\tests\e2e\alignment-history.spec.ts:397:14
+
+    Error Context: test-results\alignment-history-arrange--1e0b6-metry-after-align-left-undo-chromium\error-context.md
+
+  3) [chromium] › tests\e2e\detection-bulk-operation.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m10000[39m
+    Received: [31m5207[39m
+
+    Call Log:
+    - Timeout 90000ms exceeded while waiting on the predicate
+
+      26 |   await expect(page.locator("#activeOperationPanel")).toBeVisible();
+      27 |   await expect(page.locator("#activeOperationProgressText")).toHaveText(/\d+ \/ 5000/);
+    > 28 |   await expect.poll(async () => page.evaluate(() => {
+         |   ^
+      29 |     return Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? 0;
+      30 |   }), { timeout: 90_000 }).toBe(10000);
+      31 |   await expect.poll(async () => page.evaluate(() => {
+        at C:\Git\easy_labeling\tests\e2e\detection-bulk-operation.spec.ts:28:3
+
+    Error Context: test-results\detection-bulk-operation-s-23f74-d-keeps-the-result-undoable-chromium\error-context.md
+
+  3 failed
+    [chromium] › tests\e2e\alignment-history.spec.ts:61:1 › arrange/history: align-left, undo/redo, distribute, delete, undo-delete 
+    [chromium] › tests\e2e\alignment-history.spec.ts:292:1 › arrange/history: class-group selection restores exact geometry after align-left undo 
+    [chromium] › tests\e2e\detection-bulk-operation.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable 
+  47 passed (13.0m)

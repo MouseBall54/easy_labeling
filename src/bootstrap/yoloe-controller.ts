@@ -11,6 +11,8 @@ import { parseYoloRows } from "../domain/yolo/yolo.js";
 import { normalizeClassName } from "../domain/class-files.js";
 import { applyBrushStroke, applyEraseStroke, applyClosedRegionAutoFillFromStroke } from "../features/segmentation/tools.js";
 import type { SegmentationRegionBounds } from "../features/segmentation/types.js";
+import { maskVisualExamples } from "../features/inference/yoloe.js";
+import { parseYoloePreset, listYoloePresets, saveYoloePreset, type YoloePreset } from "../features/inference/yoloe-presets.js";
 
 export function bindYoloeControls(input: { state: AppState; documentRef: Document; canvasController: RuntimeCanvasController; fileSystem: RuntimeFileSystem; uiManager: RuntimeUiManager }): () => void {
   const { state, documentRef, canvasController, fileSystem, uiManager } = input;
@@ -37,6 +39,18 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const referenceSelect = el<HTMLSelectElement>("yoloeReferenceSelect");
   const existingBoxSelect = el<HTMLSelectElement>("yoloeExistingBoxSelect");
   let existingBoxes: VisualExample[] = [];
+  let presets: EasyLabelingLibraryFile[] = [];
+  let presetPath: string | undefined;
+  const defaultPresetLocation = documentRef.defaultView!.saveEasyLabelingLibraryFile ? "Default: Documents / Easy Labeling / YOLOE Presets" : "Default: browser storage";
+  el("yoloePresetLocation").textContent = defaultPresetLocation;
+  let gpuName: string | null = null;
+  const setDevice = (device: typeof backend, gpu: string | null): void => {
+    backend = device; gpuName = device === "cpu" ? null : gpu;
+    badge.textContent = device === "webgpu" ? "GPU · WebGPU" : device === "cuda" ? "GPU · CUDA" : device === "cpu" ? "CPU" : "Disconnected";
+    badge.title = gpuName ?? "GPU unavailable · Using CPU";
+    el("yoloeDeviceInfo").textContent = device === "cpu" ? "GPU unavailable · Using CPU" : gpuName ?? "";
+    el("yoloeConnectionStatus").textContent = el("yoloeDeviceInfo").textContent;
+  };
   let setupOpen = false;
   let sampleImage: HTMLImageElement | null = null;
   let sampleImageName = "";
@@ -71,6 +85,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     const hasImage = Boolean((setupOpen ? sampleImage : state.session.currentImage) && state.session.imageFolderHandle);
     el("yoloeInferenceControls").dataset.busy = String(busy);
     if (workflow !== state.session.workflow || sourceFolder && sourceFolder !== state.session.imageFolderHandle) {
+      if (workflow !== state.session.workflow) { presetPath = undefined; el("yoloePresetLocation").textContent = defaultPresetLocation; }
       workflow = state.session.workflow;
       profile = null; sourceFolder = null;
       examples = []; referenceImage = null; drawing = false; outline = []; start = end = null;
@@ -89,14 +104,15 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el("yoloeSetupSummary").textContent = `${workflow === "segmentation" ? "Masks" : "Boxes"} · ${backend === "webgpu" ? "GPU / WebGPU" : backend === "cuda" ? "GPU / CUDA" : backend === "cpu" ? "CPU" : "Disconnected"} · ${summary}`;
     el("yoloeSamplesEmpty").hidden = Boolean(examples.length);
     el<HTMLButtonElement>("openYoloeSetupBtn").disabled = busy;
-    const imagesSignature = JSON.stringify(state.session.imageFiles.map((file) => file.name));
+    const referenceNames = [...new Set([...state.session.imageFiles.map((file) => file.name), ...examples.map((example) => example.sourceName)])];
+    const imagesSignature = JSON.stringify(referenceNames);
     if (referenceSelect.dataset.images !== imagesSignature) {
-      referenceSelect.replaceChildren(...state.session.imageFiles.map((file) => new Option(file.name, file.name)));
-      if (!state.session.imageFiles.length) referenceSelect.append(new Option("Open a dataset first", ""));
+      referenceSelect.replaceChildren(...referenceNames.map((name) => new Option(name, name)));
+      if (!referenceNames.length) referenceSelect.append(new Option("Open a dataset first", ""));
       referenceSelect.dataset.images = imagesSignature;
     }
     referenceSelect.value = sampleImageName;
-    referenceSelect.disabled = busy || drawing || !state.session.imageFiles.length;
+    referenceSelect.disabled = busy || drawing || !referenceNames.length;
     overlay.parentElement!.dataset.yoloeDrawing = String(drawing);
     overlay.setAttribute("aria-hidden", String(!setupOpen && !drawing));
     overlay.tabIndex = setupOpen ? 0 : -1;
@@ -161,15 +177,20 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     selectedButton.title = !sameImage ? "Choose the current main image to use its selected labels."
       : !selectedCount ? "Select existing labels in Edit mode on the main canvas, then open Samples & settings."
       : "Add the selected labels as samples with their existing class names and IDs. Original labels stay unchanged.";
-    el("yoloeExistingBoxes").hidden = workflow !== "detection";
+    el("yoloeExistingBoxes").hidden = false;
+    el("yoloeExistingLabelTitle").textContent = `Existing ${workflow === "detection" ? "boxes" : "mask regions"} · Reference image`;
     existingBoxSelect.disabled = busy || drawing || !existingBoxes.length;
-    el<HTMLButtonElement>("addYoloeExistingBtn").disabled = busy || drawing || !existingBoxes[Number(existingBoxSelect.value)] || existingBoxSelect.value === "";
+    el<HTMLButtonElement>("addYoloeExistingBtn").disabled = busy || drawing || ![...existingBoxSelect.selectedOptions].some((option) => option.value !== "" && existingBoxes[Number(option.value)]);
     el<HTMLButtonElement>("clearYoloeExamplesBtn").disabled = busy;
     el("clearYoloeExamplesBtn").hidden = !examples.length;
     el<HTMLButtonElement>("connectYoloeBtn").disabled = busy;
     modelSelect.disabled = busy || drawing || !connected;
     nameInput.disabled = busy;
     el<HTMLSelectElement>("yoloeSaveScope").disabled = busy || drawing;
+    el("saveYoloeCurrentBtn").textContent = el<HTMLSelectElement>("yoloeSaveScope").value === "all" ? `Run & save all (${state.session.imageFiles.length})` : "Run & save current";
+    for (const id of ["saveYoloePresetBtn", "saveYoloePresetAsBtn"]) el<HTMLButtonElement>(id).disabled = busy || drawing || !examples.length;
+    el<HTMLButtonElement>("loadYoloePresetBtn").disabled = busy || drawing;
+    el<HTMLSelectElement>("yoloePresetSelect").disabled = busy || drawing;
     for (const id of ["previewYoloeBtn", "previewYoloeSampleBtn", "saveYoloeCurrentBtn"]) el<HTMLButtonElement>(id).disabled = busy || drawing || !examples.length || !hasImage;
     for (const button of el("yoloeExampleList").querySelectorAll<HTMLButtonElement>("button")) button.disabled = busy || drawing;
     for (const id of ["taskInferenceBtn", "taskYoloeBtn"]) el<HTMLButtonElement>(id).disabled = busy || el<HTMLInputElement>("inferenceModelInput").disabled;
@@ -207,12 +228,22 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       el("yoloeSampleZoom").textContent = `${Math.round(zoom * 100)}%`;
       context.setTransform(...sampleTransform);
       context.drawImage(sampleImage, 0, 0);
-      const chosen = existingBoxSelect.value === "" ? null : existingBoxes[Number(existingBoxSelect.value)];
-      if (workflow === "detection" && chosen) {
+      for (const option of existingBoxSelect.selectedOptions) {
+        const chosen = option.value === "" ? null : existingBoxes[Number(option.value)];
+        if (!chosen) continue;
         const [x1, y1, x2, y2] = chosen.box;
         const color = getColorForClass(String(chosen.classId));
+        if (chosen.mask) {
+          const pixels = decodeYoloeMask(chosen.mask).mask;
+          const maskCanvas = documentRef.createElement("canvas"); maskCanvas.width = chosen.mask.width; maskCanvas.height = chosen.mask.height;
+          const ctx = maskCanvas.getContext("2d")!, rgba = ctx.createImageData(maskCanvas.width, maskCanvas.height);
+          const rgb = color.slice(1).match(/../g)!.map((value) => Number.parseInt(value, 16));
+          for (let i = 0; i < pixels.length; i++) rgba.data.set([...rgb, pixels[i] ? 110 : 0], i * 4);
+          ctx.putImageData(rgba, 0, 0); context.drawImage(maskCanvas, x1, y1, x2 - x1, y2 - y1);
+        }
         context.fillStyle = `${color}33`; context.strokeStyle = "#ffffff"; context.lineWidth = 4 / zoom;
-        context.fillRect(x1, y1, x2 - x1, y2 - y1); context.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        if (!chosen.mask) context.fillRect(x1, y1, x2 - x1, y2 - y1);
+        context.strokeRect(x1, y1, x2 - x1, y2 - y1);
         context.strokeStyle = color; context.lineWidth = 2 / zoom; context.strokeRect(x1, y1, x2 - x1, y2 - y1);
       }
       context.lineWidth = 2 / zoom;
@@ -309,9 +340,17 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const loadExistingBoxes = async (): Promise<void> => {
     existingBoxes = [];
     existingBoxSelect.replaceChildren(new Option("Loading labels…", "")); sync();
-    if (workflow !== "detection" || !sampleImage) return;
+    if (!sampleImage) return;
     const width = sampleImage.naturalWidth, height = sampleImage.naturalHeight;
-    if (sampleImageName === state.session.currentImageFile?.name) {
+    if (workflow === "segmentation") {
+      const snapshot = sampleImageName === state.session.currentImageFile?.name
+        ? canvasController.raw.getSegmentationDocumentSnapshot?.() ?? null
+        : await fileSystem.readSegmentationLabels(sampleImageName, width, height);
+      if (snapshot) {
+        if (snapshot.width !== width || snapshot.height !== height) throw new Error("Mask size does not match the reference image.");
+        existingBoxes = maskVisualExamples(snapshot.mask, width, height, state.session.classNames);
+      }
+    } else if (sampleImageName === state.session.currentImageFile?.name) {
       // Include unsaved edits on the current main image.
       existingBoxes = canvasController.raw.canvas.getObjects().filter(isRectObject).flatMap((rect) => selectedVisualExamples([rect], width, height, state.session.classNames));
     } else {
@@ -322,7 +361,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
         return { classId: Number(row.labelClass), name: normalizeClassName(state.session.classNames.get(row.labelClass) ?? `class ${row.labelClass}`), box };
       });
     }
-    existingBoxSelect.replaceChildren(new Option(existingBoxes.length ? `Choose a box (${existingBoxes.length})` : "No boxes in the active label folder", ""), ...existingBoxes.map((box, index) => new Option(`#${index + 1} · ${box.classId}: ${box.name} · ${Math.round(box.box[2] - box.box[0])}×${Math.round(box.box[3] - box.box[1])}`, String(index))));
+    existingBoxSelect.replaceChildren(...(existingBoxes.length ? existingBoxes.map((box, index) => new Option(`#${index + 1} · ${box.classId}: ${box.name} · ${Math.round(box.box[2] - box.box[0])}×${Math.round(box.box[3] - box.box[1])}`, String(index))) : [new Option("No labels in the active label folder", "")]));
     sync(); drawPreview();
   };
   setupElement.addEventListener("shown.bs.modal", () => {
@@ -333,6 +372,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el("yoloeSetupStatus").textContent = status.hidden ? "Changes apply immediately." : status.textContent;
     sync(); fitSample();
     void work("Loading existing labels", loadExistingBoxes);
+    void refreshPresets();
   });
   setupElement.addEventListener("hidden.bs.modal", () => {
     setupOpen = false; spaceHeld = false; pan = null; stopDrawing();
@@ -340,16 +380,19 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     drawPreview();
   });
   referenceSelect.addEventListener("change", () => {
-    const file = state.session.imageFiles.find((entry) => entry.name === referenceSelect.value);
-    if (!file) return;
+    const name = referenceSelect.value;
+    const file = state.session.imageFiles.find((entry) => entry.name === name);
+    const saved = examples.find((entry) => entry.sourceName === name);
+    if (!file && !saved) return;
     const folder = state.session.imageFolderHandle;
     void work("Loading reference image", async (signal) => {
-      const image = examples.find((e) => e.sourceName === file.name)?.sourceImage
-        ?? (file.name === state.session.currentImageFile?.name ? state.session.currentImage : null)
-        ?? await fileSystem.decodeImageForAutomation(file);
+      const image = saved?.sourceImage
+        ?? examples.find((e) => e.sourceName === name)?.sourceImage
+        ?? (name === state.session.currentImageFile?.name ? state.session.currentImage : null)
+        ?? await fileSystem.decodeImageForAutomation(file!);
       signal.throwIfAborted();
       if (!setupOpen || folder !== state.session.imageFolderHandle) return;
-      sampleImage = image; sampleImageName = file.name; clearPreview();
+      sampleImage = image; sampleImageName = name; clearPreview();
       await loadExistingBoxes();
       sync(); fitSample();
     });
@@ -591,27 +634,24 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   el("addYoloeSelectedBtn").addEventListener("click", () => { try { addExamples(selectedExamples()); } catch (error) { message(status, error instanceof Error ? error.message : String(error)); } });
   existingBoxSelect.addEventListener("change", () => { sync(); drawPreview(); });
   el("addYoloeExistingBtn").addEventListener("click", () => {
-    const box = existingBoxSelect.value === "" ? null : existingBoxes[Number(existingBoxSelect.value)];
-    if (!box) return;
-    try { addExamples([box]); } catch (error) { message(status, error instanceof Error ? error.message : String(error)); }
+    const selected = [...existingBoxSelect.selectedOptions].filter((option) => option.value !== "").map((option) => existingBoxes[Number(option.value)]!);
+    if (!selected.length) return;
+    try { addExamples(selected); } catch (error) { message(status, error instanceof Error ? error.message : String(error)); }
   });
   el("clearYoloeExamplesBtn").addEventListener("click", () => { stopDrawing(); examples = []; profile = null; referenceImage = null; clearPreview(); renderExamples(); status.hidden = true; });
   const connect = async (signal: AbortSignal): Promise<void> => {
     const previous = modelSelect.value;
     const previousBackend = backend;
     connected = false; profile = null; clearPreview();
-    backend = null;
-    badge.textContent = "Disconnected";
+    setDevice(null, null);
     el("yoloeConnectionStatus").hidden = true;
     modelSelect.replaceChildren(new Option("Connect first", ""));
     const result = await requestYoloe<YoloeStatus>("status", undefined, AbortSignal.any([signal, AbortSignal.timeout(5000)]));
     signal.throwIfAborted();
     if (result.version !== 5) throw new Error(bundled ? "Restart the app to update the bundled YOLOE service." : "Restart npm run yoloe:start to enable model selection and CPU inference.");
-    backend = result.backend ?? (result.cuda ? "cuda" : "cpu");
-    badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : result.cuda ? "GPU · CUDA" : "CPU";
-    badge.title = result.gpu ?? "CUDA unavailable · Running on CPU";
+    setDevice(result.backend ?? (result.cuda ? "cuda" : "cpu"), result.gpu);
     const info = el("yoloeConnectionStatus");
-    message(info, result.cuda ? result.gpu! : "CPU · n is the default model");
+    message(info, result.cuda ? gpuName ?? "GPU" : "GPU unavailable · Using CPU · N default");
     readyModels = result.models;
     modelSelect.replaceChildren(...["n", "s", "m", "l"].map((size) => {
       const name = `yoloe-26${size}-seg`;
@@ -625,6 +665,71 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     else status.hidden = true;
   };
   el("connectYoloeBtn").addEventListener("click", () => { connectionAttempted = true; void work("Connecting YOLOE", connect); });
+  const refreshPresets = async (): Promise<void> => {
+    try {
+      presets = (await listYoloePresets(documentRef.defaultView!)).filter((file) => {
+        try { return parseYoloePreset(file.contents).workflow === workflow; } catch { return false; }
+      });
+      const select = el<HTMLSelectElement>("yoloePresetSelect");
+      select.replaceChildren(new Option("Choose a preset…", ""), ...presets.map((file) => new Option(file.name, file.filePath)));
+      select.value = presetPath ?? "";
+    } catch (error) { el("yoloePresetLocation").textContent = error instanceof Error ? error.message : String(error); }
+  };
+  const loadPreset = (file: EasyLabelingLibraryFile, path?: string): void => { void work("Loading YOLOE preset", async (signal) => {
+    const saved = parseYoloePreset(file.contents);
+    if (saved.workflow !== workflow) throw new Error(`Switch to ${saved.workflow === "segmentation" ? "Segmentation" : "Detection"} to load this preset.`);
+    const restored: typeof examples = [];
+    for (const reference of saved.references) {
+      const image = new Image(); image.src = reference.image; await image.decode(); signal.throwIfAborted();
+      if (image.naturalWidth * image.naturalHeight > 32_000_000
+        || reference.examples.some((e) => e.box[2] > image.naturalWidth || e.box[3] > image.naturalHeight
+          || e.polygon?.some(([x, y]) => x < 0 || y < 0 || x > image.naturalWidth || y > image.naturalHeight))) throw new Error("Preset sample lies outside its reference image.");
+      restored.push(...reference.examples.map((example) => ({ ...example, sourceImage: image, sourceName: reference.name })));
+    }
+    if (!connected) await connect(signal);
+    const s = saved.settings;
+    stopDrawing(); examples = restored; sourceFolder = state.session.imageFolderHandle; profile = null;
+    presetPath = path; referenceImage = examples[0]!.sourceImage; referenceName = examples[0]!.sourceName;
+    sampleImage = referenceImage; sampleImageName = referenceName;
+    modelSelect.value = s.model; nameInput.value = s.name; sampleName.value = s.sampleName; shape.value = s.shape;
+    el<HTMLSelectElement>("yoloeImageSize").value = String(s.imgsz);
+    el<HTMLInputElement>("yoloeConfidenceInput").value = String(s.confidence);
+    el<HTMLInputElement>("yoloeIouInput").value = String(s.iou);
+    el<HTMLInputElement>("yoloeBrushRadius").value = String(s.radius);
+    el("yoloeBrushRadiusValue").textContent = `${s.radius}px`;
+    el<HTMLInputElement>("yoloeAutoFillClosedRegionToggle").checked = s.autoFill; paintTool = s.paintTool;
+    clearPreview(); renderExamples(); fitSample(); await loadExistingBoxes();
+    el("yoloePresetLocation").textContent = path ?? file.name;
+    message(status, `Loaded ${file.name} · ${examples.length} sample(s)`);
+  }); };
+  const savePreset = (saveAs: boolean): void => { void work("Saving YOLOE preset", async () => {
+    const [confidence, iou] = parameters();
+    const saved: YoloePreset = { version: 1, engine: "yoloe26", workflow,
+      settings: { model: modelSelect.value, imgsz: Number(el<HTMLSelectElement>("yoloeImageSize").value), confidence, iou,
+        name: nameInput.value.trim(), sampleName: sampleName.value, shape: shape.value,
+        radius: brushRadius(), autoFill: el<HTMLInputElement>("yoloeAutoFillClosedRegionToggle").checked, paintTool },
+      references: [...new Set(examples.map((e) => e.sourceImage))].map((image) => ({ name: examples.find((e) => e.sourceImage === image)!.sourceName,
+        image: imagePng(image, documentRef), examples: examples.filter((e) => e.sourceImage === image).map(({ sourceName, sourceImage, maskCanvas, ...example }) => example) })) };
+    const path = await saveYoloePreset(documentRef.defaultView!, saved, saveAs, presetPath);
+    if (!path) return;
+    presetPath = path; el("yoloePresetLocation").textContent = path;
+    await refreshPresets(); message(status, `Saved ${path}`);
+  }); };
+  el("saveYoloePresetBtn").addEventListener("click", () => savePreset(false));
+  el("saveYoloePresetAsBtn").addEventListener("click", () => savePreset(true));
+  el("yoloePresetSelect").addEventListener("change", () => {
+    const file = presets.find((entry) => entry.filePath === el<HTMLSelectElement>("yoloePresetSelect").value);
+    if (file) loadPreset(file, file.filePath);
+  });
+  el("loadYoloePresetBtn").addEventListener("click", () => {
+    const opener = documentRef.defaultView!.openEasyLabelingLibraryFile;
+    if (!opener) { el<HTMLInputElement>("yoloePresetFileInput").click(); return; }
+    void opener("yoloe").then((file) => { if (file) loadPreset(file, file.filePath); }).catch((error: Error) => message(status, error.message));
+  });
+  el("yoloePresetFileInput").addEventListener("change", () => {
+    const input = el<HTMLInputElement>("yoloePresetFileInput"), file = input.files?.[0]; input.value = "";
+    if (file) void file.text().then((contents) => loadPreset({ name: file.name, filePath: file.name, contents }));
+  });
   sampleName.addEventListener("input", sync);
   el<HTMLSelectElement>("yoloeExistingTarget").addEventListener("change", () => {
     sampleName.value = el<HTMLSelectElement>("yoloeExistingTarget").value;
@@ -662,8 +767,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     signal.throwIfAborted();
     if (source !== state.session.imageFolderHandle) throw new Error("Dataset changed. Register the examples again.");
     profile = result; sourceFolder = source;
-    backend = result.backend;
-    badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : backend === "cuda" ? "GPU · CUDA" : "CPU";
+    setDevice(result.backend, result.gpu);
     renderExamples();
     return result;
   };
@@ -674,8 +778,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     clearPreview(); drawPreview();
     const [confidence, iou] = parameters();
     const prediction = await inferYoloe(image, documentRef, currentProfile, confidence, iou, signal);
-    backend = currentProfile.backend;
-    badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : backend === "cuda" ? "GPU · CUDA" : "CPU";
+    setDevice(currentProfile.backend, currentProfile.gpu);
     signal.throwIfAborted();
     if (inSetup ? image !== sampleImage : image !== state.session.currentImage) throw new Error("Image changed. Preview the current image again.");
     let maskCanvas: HTMLCanvasElement | null = null;
@@ -713,6 +816,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       busy = true; clearPreview(); sync();
       message(status, "Running YOLOE inference…");
       const options = { allImages, modelName: `${preparedProfile.model}-${target}`,
+        onProgress: (current: number, total: number, imageName: string) => message(status, `Running · ${current}/${total} · ${Math.round(current / total * 100)}% · ${imageName}`),
         classNames: new Map(Object.entries(preparedProfile.classes)),
         metadata: { engine: "yoloe26", workflow, checkpoint: `${preparedProfile.model}.${bundled ? "onnx" : "pt"}`, backend: preparedProfile.backend, gpu: preparedProfile.gpu, targetSet: target,
           referenceImage: referenceName, referenceSha256: preparedProfile.referenceSha256, exampleCount: preparedProfile.exampleCount,
@@ -722,10 +826,9 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       };
       const infer = async (image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult> => {
         const result = await inferYoloe(image, documentRef, preparedProfile, confidence, iou, signal);
-        backend = preparedProfile.backend;
+        setDevice(preparedProfile.backend, preparedProfile.gpu);
         options.metadata.backend = preparedProfile.backend;
         options.metadata.gpu = preparedProfile.gpu;
-        badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : backend === "cuda" ? "GPU · CUDA" : "CPU";
         return result;
       };
       const result = workflow === "segmentation"
@@ -736,6 +839,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     finally { busy = false; sync(); }
   };
   el("saveYoloeCurrentBtn").addEventListener("click", () => { void save(el<HTMLSelectElement>("yoloeSaveScope").value === "all"); });
+  el("yoloeSaveScope").addEventListener("change", sync);
   canvasController.raw.canvas.on?.("after:render", drawPreview);
   const refresh = (): void => {
     sync(); drawPreview();

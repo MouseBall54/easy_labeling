@@ -54,6 +54,27 @@ export function maskRegionExample(region: SegmentationRegionSelection | null, na
   return [{ classId: Number(region.classId), name: normalizeClassName(names.get(region.classId) ?? `class ${region.classId}`), box: [left, top, right + 1, bottom + 1], mask: { width, height, runs } }];
 }
 
+export function maskVisualExamples(mask: Uint16Array, width: number, height: number, names: ReadonlyMap<string, string>): VisualExample[] {
+  const visited = new Uint8Array(mask.length), examples: VisualExample[] = [];
+  for (let seed = 0; seed < mask.length; seed++) {
+    const classId = mask[seed]!;
+    if (!classId || visited[seed]) continue;
+    const indices = [seed]; visited[seed] = 1;
+    let left = width, top = height, right = 0, bottom = 0;
+    for (let cursor = 0; cursor < indices.length; cursor++) {
+      const index = indices[cursor]!, x = index % width, y = Math.floor(index / width);
+      left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y);
+      for (const neighbor of [x > 0 ? index - 1 : -1, x < width - 1 ? index + 1 : -1, y > 0 ? index - width : -1, y < height - 1 ? index + width : -1]) {
+        if (neighbor < 0 || visited[neighbor] || mask[neighbor] !== classId) continue;
+        visited[neighbor] = 1; indices.push(neighbor);
+      }
+    }
+    examples.push(...maskRegionExample({ classId: String(classId), pixelIndices: Uint32Array.from(indices), pixelCount: indices.length,
+      bounds: { left, top, right, bottom }, seedPoint: { x: seed % width, y: Math.floor(seed / width) } }, names, width));
+  }
+  return examples;
+}
+
 export function decodeYoloeMask(value: { width: number; height: number; runs: number[] }): NonNullable<YoloeResult["mask"]> {
   const { width, height, runs } = value;
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height > 32_000_000 || !Array.isArray(runs) || runs.length % 2) throw new Error("Invalid YOLOE mask dimensions or runs.");
@@ -92,7 +113,15 @@ export function imagePng(image: HTMLImageElement, documentRef: Document): string
 }
 
 export async function requestYoloe<T>(path: string, payload?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
-  if (usesYoloeOnnx()) return requestYoloeOnnx<T>(path, payload, signal);
+  if (usesYoloeOnnx()) {
+    const result = await requestYoloeOnnx<T>(path, payload, signal);
+    const info = result as { gpu?: string | null; gpuVendor?: string; gpuDevice?: string };
+    const lookup = globalThis.window?.easyLabelingDesktop?.getGpuName;
+    if (info.gpu && info.gpuVendor && lookup) {
+      try { info.gpu = await lookup(info.gpuVendor, info.gpuDevice ?? "") || info.gpu; } catch { /* Keep the adapter's own description. */ }
+    }
+    return result;
+  }
   signal?.throwIfAborted();
   let response: Response;
   try {

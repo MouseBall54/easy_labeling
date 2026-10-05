@@ -1,0 +1,52 @@
+
+> easy_labeling@2.0.0 test:e2e
+> npm run build && playwright test --project=chromium tests/e2e/alignment-history.spec.ts tests/e2e/detection-bulk-operation.spec.ts
+
+
+> easy_labeling@2.0.0 prebuild
+> npm run copy:offline-assets
+
+
+> easy_labeling@2.0.0 copy:offline-assets
+> node scripts/copy-offline-assets.mjs
+
+
+> easy_labeling@2.0.0 build
+> tsc -p tsconfig.build.json
+
+
+Running 3 tests using 1 worker
+
+(node:16048) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16048) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\alignment-history.spec.ts:61:1 › arrange/history: align-left, undo/redo, distribute, delete, undo-delete (7.9s)
+  ok 2 [chromium] › tests\e2e\alignment-history.spec.ts:292:1 › arrange/history: class-group selection restores exact geometry after align-left undo (6.9s)
+  x  3 [chromium] › tests\e2e\detection-bulk-operation.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable (1.7m)
+
+
+  1) [chromium] › tests\e2e\detection-bulk-operation.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m10000[39m
+    Received: [31m5207[39m
+
+    Call Log:
+    - Timeout 90000ms exceeded while waiting on the predicate
+
+      26 |   await expect(page.locator("#activeOperationPanel")).toBeVisible();
+      27 |   await expect(page.locator("#activeOperationProgressText")).toHaveText(/\d+ \/ 5000/);
+    > 28 |   await expect.poll(async () => page.evaluate(() => {
+         |   ^
+      29 |     return Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? 0;
+      30 |   }), { timeout: 90_000 }).toBe(10000);
+      31 |   await expect.poll(async () => page.evaluate(() => {
+        at C:\Git\easy_labeling\tests\e2e\detection-bulk-operation.spec.ts:28:3
+
+    Error Context: test-results\detection-bulk-operation-s-23f74-d-keeps-the-result-undoable-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\detection-bulk-operation.spec.ts:3:1 › shows progress while pasting 5,000 detection boxes and keeps the result undoable 
+  2 passed (2.0m)

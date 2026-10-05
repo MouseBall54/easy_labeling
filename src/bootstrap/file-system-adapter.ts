@@ -184,6 +184,7 @@ export interface RuntimeFileSystem extends FileSystem {
   runSegmentationInference(options: {
     allImages: boolean; modelName: string; classNames: ReadonlyMap<string, string>; metadata: Record<string, unknown>;
     infer(image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult>;
+    onProgress?(current: number, total: number, imageName: string): void;
   }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   runDetectionInference(options: {
     allImages: boolean;
@@ -191,6 +192,7 @@ export interface RuntimeFileSystem extends FileSystem {
     classNames?: ReadonlyMap<string, string>;
     metadata?: Record<string, unknown>;
     infer(image: HTMLImageElement, signal?: AbortSignal): Promise<Detection[]>;
+    onProgress?(current: number, total: number, imageName: string): void;
   }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   loadDefaultClassInfo(): Promise<void>;
@@ -202,6 +204,7 @@ export interface RuntimeFileSystem extends FileSystem {
   loadImage(fileHandle: FileHandleLike): Promise<void>;
   decodeImageForAutomation(fileHandle: FileHandleLike): Promise<HTMLImageElement>;
   readDetectionLabels(imageFileName: string): Promise<string>;
+  readSegmentationLabels(imageFileName: string, width: number, height: number): Promise<import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null>;
   writeDetectionLabels(imageFileName: string, yoloData: string): Promise<void>;
   loadClassNamesFromFile(fileHandle: FileHandleLike): Promise<void>;
   showClassFileContent(): Promise<void>;
@@ -837,6 +840,7 @@ export function createFileSystemAdapter(input: {
             for (const file of files) {
               throwIfOperationCancelled(operation?.signal);
               operation?.update({ detail: `${file.name} → ${folderName}`, current: completed.length, total: files.length });
+              options.onProgress?.(completed.length, files.length, file.name);
               const image = await decodeImage(file);
               throwIfOperationCancelled(operation?.signal);
               const boxes = await options.infer(image, operation?.signal);
@@ -846,6 +850,7 @@ export function createFileSystemAdapter(input: {
               detectionCount += boxes.length;
               completed.push(file.name);
               operation?.update({ current: completed.length, total: files.length });
+              options.onProgress?.(completed.length, files.length, file.name);
             }
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(name)}`).join("\n")}\n`);
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
@@ -879,6 +884,7 @@ export function createFileSystemAdapter(input: {
             for (const file of files) {
               throwIfOperationCancelled(operation?.signal);
               operation?.update({ detail: `${file.name} → ${folderName}`, current: completed.length, total: files.length });
+              options.onProgress?.(completed.length, files.length, file.name);
               const image = await decodeImage(file);
               const prediction = await options.infer(image, operation?.signal);
               throwIfOperationCancelled(operation?.signal);
@@ -889,6 +895,7 @@ export function createFileSystemAdapter(input: {
               detectionCount += prediction.detections.length;
               completed.push(file.name);
               operation?.update({ current: completed.length, total: files.length });
+              options.onProgress?.(completed.length, files.length, file.name);
             }
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...options.classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(normalizeClassName(name))}`).join("\n")}\n`);
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, workflow: "segmentation", maskFormat: "png-semantic-mask", overlapPolicy: "highest-confidence", images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
@@ -1052,6 +1059,27 @@ export function createFileSystemAdapter(input: {
           }
           throw error;
         }
+      },
+
+      async readSegmentationLabels(imageFileName, width, height) {
+        const session = input.state.session;
+        let snapshot: import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null = null;
+        // Reuse the PNG/YOLO/COCO/LabelMe loader with isolated state; never navigate or overwrite current edits.
+        const reader = createImageSessionService({
+          imageFolderHandle: session.imageFolderHandle as unknown as DirectoryHandleLike | null,
+          labelFolderHandle: null,
+          segmentationLabelFolderHandle: session.segmentationLabelFolderHandle as unknown as DirectoryHandleLike | null,
+          imageFiles: [], imageWorkflowStatus: new Map(), currentImageFile: null,
+          currentImage: { width, height }, currentLoadToken: 0, isAutoSaveEnabled: false,
+          workflow: "segmentation", segmentationAnnotationType: session.segmentationAnnotationType,
+          segmentationSourceFormat: session.segmentationSourceFormat, segmentationExportFormat: session.segmentationExportFormat,
+          classFiles: [], classNames: session.classNames, saveTimeout: null
+        }, {
+          decodeImage: async () => null, readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => null,
+          applyLoadedYolo: () => {}, applyLoadedSegmentationSnapshot: (loaded) => { snapshot = loaded; }, clearPendingSaveTimeout: () => {}
+        });
+        await reader.loadLabels(imageFileName, 0);
+        return snapshot;
       },
 
       async writeDetectionLabels(imageFileName: string, yoloData: string): Promise<void> {

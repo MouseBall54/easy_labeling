@@ -13,6 +13,7 @@ const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 window.easyLabelingDesktop = Object.freeze({
   readYoloeModel: require("../package.json").name === "easy-labeling-yoloe26"
     ? (file) => ipcRenderer.invoke("easy-labeling:read-yoloe-model", file) : undefined,
+  getGpuName: (vendor, device) => ipcRenderer.invoke("easy-labeling:get-gpu-name", vendor, device),
   setHasUnsavedChanges(hasUnsavedChanges) {
     ipcRenderer.send(DOCUMENT_DIRTY_CHANNEL, Boolean(hasUnsavedChanges));
   }
@@ -202,6 +203,7 @@ window.showDirectoryPicker = async function showDirectoryPicker(options) {
 window.openEasyLabelingLibraryFile = function openEasyLabelingLibraryFile(kind) {
   return ipcRenderer.invoke(OPEN_LIBRARY_FILE_CHANNEL, kind);
 };
+
 
 window.listEasyLabelingLibraryFiles = function listEasyLabelingLibraryFiles(kind) {
   return ipcRenderer.invoke(LIST_LIBRARY_FILES_CHANNEL, kind);

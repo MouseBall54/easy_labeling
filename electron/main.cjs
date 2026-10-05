@@ -14,6 +14,7 @@ const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 const PROFILE_DIRECTORY_NAMES = {
   preset: "Template Presets",
   layout: "Layouts",
+  yoloe: "YOLOE Presets",
   "class-info": "Class Info"
 };
 
@@ -82,6 +83,14 @@ function createMainWindow() {
 }
 
 function registerIpcHandlers() {
+  ipcMain.handle("easy-labeling:get-gpu-name", async (_event, vendor, device) => {
+    const vendorId = { nvidia: 0x10de, amd: 0x1002, intel: 0x8086, qualcomm: 0x5143, apple: 0x106b }[String(vendor).toLowerCase()];
+    if (!vendorId) return null;
+    const info = await app.getGPUInfo("complete");
+    const deviceId = typeof device === "string" && /^0x[\da-f]+$/i.test(device) ? Number.parseInt(device, 16) : null;
+    const matches = (info.gpuDevice ?? []).filter((gpu) => gpu.vendorId === vendorId && (deviceId === null || gpu.deviceId === deviceId));
+    return matches.length === 1 ? matches[0].deviceString || null : null;
+  });
   ipcMain.handle(PICK_DIRECTORY_CHANNEL, async (_event, options = {}) => {
     const defaultPath = options.id === "class-info"
       ? await ensureProfileDirectory("class-info")
@@ -144,8 +153,13 @@ function registerIpcHandlers() {
     }
     const directoryPath = await ensureProfileDirectory(options.kind);
     const defaultPath = path.join(directoryPath, sanitizeSuggestedFileName(options.suggestedName));
+    if (options.kind === "yoloe" && !options.saveAs) {
+      const filePath = options.filePath || defaultPath;
+      await fs.writeFile(filePath, options.contents, "utf8");
+      return { filePath };
+    }
     const result = await dialog.showSaveDialog({
-      defaultPath,
+      defaultPath: options.kind === "yoloe" && options.filePath ? options.filePath : defaultPath,
       filters: [{ name: "Easy Labeling JSON", extensions: ["json"] }]
     });
     if (result.canceled || !result.filePath) {
