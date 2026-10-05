@@ -90,7 +90,7 @@ for (const workflow of ['detection', 'segmentation']) {
     await expect(page.locator('#yoloeSetupStatus')).toContainText('Loaded'); await expect(page.locator('#yoloeExampleList > div')).toHaveCount(3);
     await expect(page.locator('#yoloeImageSize')).toHaveValue('1024'); await expect(page.locator('#yoloeConfidenceInput')).toHaveValue('0.2');
     await page.screenshot({ path: path.join(out, `${workflow}-restored.png`) });
-    await page.locator('#yoloeSetupModal').getByRole('button', { name: 'Done', exact: true }).click();
+    await page.locator('#closeYoloeSetupBtn').click();
     await page.locator('#yoloeSaveScope').selectOption('all');
     await page.evaluate(() => {
       window.__yoloeProgress = [];

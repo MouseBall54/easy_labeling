@@ -8,7 +8,7 @@ async function openSetup(page: Page): Promise<void> {
 }
 
 async function closeSetup(page: Page): Promise<void> {
-  await page.locator("#yoloeSetupModal").getByRole("button", { name: "Done", exact: true }).click();
+  await page.locator("#closeYoloeSetupBtn").click();
   await expect(page.locator("#yoloeSetupModal")).toBeHidden();
   await expect(page.locator("#openYoloeSetupBtn")).toBeFocused();
 }

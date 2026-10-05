@@ -92,6 +92,7 @@ class LiveCanvasControllerState implements CanvasControllerState {
 
 export interface RuntimeCanvasController extends AppCanvasController {
   raw: FeatureCanvasController;
+  preprocessing?: FeatureCanvasController;
   getSuperResolutionStatus(): import("../features/super-resolution/types.js").SuperResolutionStatus;
   subscribeSuperResolutionStatus(listener: import("../features/super-resolution/types.js").SuperResolutionStatusListener): () => void;
   loadImageSession(input: {
@@ -170,6 +171,8 @@ export function createCanvasControllerAdapter(input: {
   const syncWorkflowVisibility = (workflow: WorkflowType): void => {
     workflowControllers.detection.setWorkflowActive?.(workflow === "detection");
     workflowControllers.segmentation.setWorkflowActive?.(workflow === "segmentation");
+    workflowControllers.segmentation.cancelSegmentationSrRoiSelection?.();
+    workflowControllers.segmentation.setSegmentationViewSource?.(workflowControllers.segmentation.getSegmentationViewSource?.() ?? "original");
   };
   syncWorkflowVisibility(input.state.session.workflow);
 
@@ -180,6 +183,10 @@ export function createCanvasControllerAdapter(input: {
   return {
     get raw() {
       return getActiveController();
+    },
+
+    get preprocessing() {
+      return workflowControllers.segmentation;
     },
 
     getSuperResolutionStatus() {

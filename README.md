@@ -8,6 +8,8 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 
 > 기본 문서 언어는 한국어입니다.
 
+UI·UX 개선을 이어서 작업할 때는 [진행 기록](docs/UI_UX_PROGRESS_KO.md)과 [점검 보고서](docs/UI_UX_AUDIT_20261006_KO.md)를 먼저 확인하세요. 항목별 상태·검증·다음 단계와 변경 이력을 기록합니다.
+
 ## 바로 사용하기
 
 - 서비스 URL: **https://mouseball54.github.io/easy_labeling/**

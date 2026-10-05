@@ -163,7 +163,8 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
     });
   });
 
-  await page.goto("/index.html");
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
   await page.locator("#selectImageFolderBtn").click();
 
   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(3);
@@ -394,7 +395,8 @@ test("arrange/history: class-group selection restores exact geometry after align
     });
   });
 
-  await page.goto("/index.html");
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
   await page.locator("#selectImageFolderBtn").click();
 
   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(3);

@@ -438,10 +438,6 @@ export class FakeCanvas implements FabricCanvasLike {
     this.height = dimensions.height;
   }
 
-  getCenter(): { left: number; top: number } {
-    return { left: this.width / 2, top: this.height / 2 };
-  }
-
   zoomToPoint(point: { x: number; y: number }, zoom: number): void {
     void point;
     this.zoom = zoom;

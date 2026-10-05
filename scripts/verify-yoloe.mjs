@@ -94,7 +94,7 @@ try {
   await page.locator("#addYoloeSelectedBtn").click();
   await verifyPopup("detection");
   expect(await count()).toBe(2);
-  await page.locator("#yoloeSetupModal").getByRole("button", { name: "Done", exact: true }).click();
+  await page.locator("#closeYoloeSetupBtn").click();
   await expect(page.locator("#yoloeSetupModal")).toBeHidden();
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2, { timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
@@ -179,7 +179,7 @@ try {
   expect(await maskBounds()).toEqual(sourceBounds);
   await verifyPopup("segmentation");
   expect(await maskBounds()).toEqual(sourceBounds);
-  await page.locator("#yoloeSetupModal").getByRole("button", { name: "Done", exact: true }).click();
+  await page.locator("#closeYoloeSetupBtn").click();
   await expect(page.locator("#yoloeSetupModal")).toBeHidden();
   await expect(page.locator("#previewYoloeBtn")).toBeEnabled({ timeout: 120_000 });
   await page.locator("#nextImageBtn").click();

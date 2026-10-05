@@ -55,6 +55,36 @@ function getSelectionAnnotationIds(activeObject: unknown): string[] {
 
 describe("features/canvas/canvas-controller", () => {
 
+  it("keeps enhancement ROI overlays out of detection labels and exports", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5");
+    const original = controller.getLabelsAsYolo();
+    const roi = Object.assign(createRect({ left: 10, top: 10, width: 60, height: 40 }), { _isSrRoiOverlay: true });
+    controller.canvas.add(roi);
+    expect(controller.getObjects("rect")).toHaveLength(1);
+    expect(controller.getLabelsAsYolo()).toBe(original);
+  });
+
+  it("zooms without removed Fabric APIs, clamps buttons, and rejects invalid numeric input", () => {
+    const deps = createDeps();
+    const shell = createCanvasShell(createState(), deps);
+    const zoomToPoint = vi.spyOn(shell.canvas, "zoomToPoint");
+    shell.setZoomPercentage("125");
+    expect(shell.canvas.getZoom()).toBe(1.25);
+    expect(zoomToPoint).toHaveBeenLastCalledWith(expect.objectContaining({ x: 400, y: 300 }), 1.25);
+    shell.zoom(1.2);
+    expect(shell.canvas.getZoom()).toBe(1.5);
+    shell.zoom(100);
+    expect(shell.canvas.getZoom()).toBe(20);
+    shell.zoom(0.001);
+    expect(shell.canvas.getZoom()).toBe(0.1);
+    shell.setZoomPercentage("2001");
+    expect(shell.canvas.getZoom()).toBe(0.1);
+    expect(deps.notify).toHaveBeenCalled();
+    shell.resetZoom();
+    expect(deps.updateZoomDisplay).toHaveBeenCalled();
+  });
+
   it("activates the detection adapter explicitly through workflow selection", () => {
     const deps = createDeps();
     const controller = createCanvasControllerForWorkflow("detection", createState(), deps);

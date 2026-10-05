@@ -1,0 +1,11 @@
+
+Running 2 tests using 1 worker
+
+(node:42132) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:42132) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\alignment-history.spec.ts:61:1 › arrange/history: align-left, undo/redo, distribute, delete, undo-delete (7.4s)
+  ok 2 [chromium] › tests\e2e\alignment-history.spec.ts:293:1 › arrange/history: class-group selection restores exact geometry after align-left undo (7.5s)
+
+  2 passed (16.2s)

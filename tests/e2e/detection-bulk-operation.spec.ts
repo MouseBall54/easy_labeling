@@ -7,6 +7,9 @@ test("shows progress while pasting 5,000 detection boxes and keeps the result un
   await expect.poll(async () => page.evaluate(() => {
     return Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "";
   }), { timeout: 30_000 }).toBe("sample_1.jpg");
+  await expect(page.locator("#loading-overlay")).toBeHidden();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.())).toBe(207);
   await page.locator('label[for="detectionWorkflowTab"]').click();
 
   await page.evaluate(() => {
