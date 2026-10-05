@@ -52,7 +52,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`brush and e
     const png = Buffer.from(data.image.split(",")[1], "base64"), width = png.readUInt32BE(16), height = png.readUInt32BE(20);
     return route.fulfill({ json: { detections: [], ...(workflow === "segmentation" ? { mask: { width, height, runs: [0, width * height] } } : {}) } });
   });
-  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   if (workflow === "segmentation") await page.locator('label[for="segmentationWorkflowTab"]').click();
   await page.locator("#taskYoloeBtn").click(); await openSetup(page);
@@ -187,7 +187,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`named mask 
     const image = Buffer.from(data.image.split(",")[1], "base64"), width = image.readUInt32BE(16), height = image.readUInt32BE(20);
     return route.fulfill({ json: { detections: [{ classId: id, confidence: 0.9, left: 1, top: 1, right: 11, bottom: 2 }], ...(workflow === "segmentation" ? { mask: { width, height, runs: [0, width + 1, id, 10, 0, width * height - width - 11] } } : {}) } });
   });
-  await page.goto("/index.html");
+  await page.goto("/index.html?yoloe=python");
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   await page.locator("#taskYoloeBtn").click();
@@ -260,7 +260,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`named mask 
 
 test("YOLOE setup fits a narrow viewport, follows the theme, and keeps settings after closing", async ({ page }) => {
   await page.route("http://127.0.0.1:8766/status", (route) => route.fulfill({ json: { version: 5, cuda: false, gpu: null, models: ["yoloe-26n-seg"] } }));
-  await page.goto("/index.html"); await page.locator("#taskYoloeBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#taskYoloeBtn").click();
   await openSetup(page);
   await page.setViewportSize({ width: 740, height: 800 });
   await page.locator("#yoloeConfidenceInput").fill("0.10");
@@ -298,7 +298,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`popup zoom 
     inferredSize = [width, height];
     return route.fulfill({ json: { detections: [{ classId: 5, confidence: 0.9, left: 200, top: 200, right: 350, bottom: 350 }], ...(workflow === "segmentation" ? { mask: { width, height, runs: [0, width * 200, 5, width * 100, 0, width * (height - 300)] } } : {}) } });
   });
-  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   if (workflow === "segmentation") await page.locator('label[for="segmentationWorkflowTab"]').click();
   await page.locator("#taskYoloeBtn").click(); await openSetup(page);
@@ -385,7 +385,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`popup zoom 
 test("YOLOE reports unavailable service, missing models and stale API without repeated requests", async ({ page }) => {
   let attempts = 0;
   await page.route("http://127.0.0.1:8766/**", (route) => { attempts++; return route.abort(); });
-  await page.goto("/index.html"); await page.locator("#taskYoloeBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#taskYoloeBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("npm run yoloe:start");
   await openSetup(page);
   expect(attempts).toBe(1);
@@ -425,7 +425,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`CPU default
     const png = Buffer.from(data.image.split(",")[1], "base64"), width = png.readUInt32BE(16), height = png.readUInt32BE(20);
     return route.fulfill({ json: { detections: [{ classId: id, confidence: 0.9, left: 1, top: 1, right: 11, bottom: 2 }], ...(workflow === "segmentation" ? { mask: { width, height, runs: [0, width + 1, id, 10, 0, width * height - width - 11] } } : {}) } });
   });
-  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   if (workflow === "segmentation") await page.locator('label[for="segmentationWorkflowTab"]').click();
   await page.locator("#taskYoloeBtn").click();
@@ -462,7 +462,7 @@ test("existing mask labels become pixel-accurate samples without modifying the s
     const png = Buffer.from(data.image.split(",")[1], "base64"), width = png.readUInt32BE(16), height = png.readUInt32BE(20);
     return route.fulfill({ json: { detections: [], mask: { width, height, runs: [0, width * height] } } });
   });
-  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await page.locator("#segmentationBrushModeBtn").click();
@@ -524,7 +524,7 @@ test("existing box prompts and settings remain available, with cancellation pres
     if (route.request().url().endsWith("/prepare")) { prepared = data; return route.fulfill({ json: { id: "profile-1", model: "yoloe-26s-seg", classes: { "2": "Dark / Gray" }, exampleCount: 1, referenceSha256: "reference", backend: "cuda", gpu: "Test GPU", workflow: "detection" } }); }
     return route.fulfill({ json: { detections: [{ classId: 2, confidence: 0.9, left: 20, top: 20, right: 80, bottom: 80 }] } });
   });
-  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount());
   await page.locator("#taskYoloeBtn").click();
@@ -567,7 +567,7 @@ test("existing Detection boxes can be imported inside the popup from different i
     }
     return route.fulfill({ json: { detections: [] } });
   });
-  await page.goto("/index.html"); await page.locator("#emptyLoadSampleBtn").click();
+  await page.goto("/index.html?yoloe=python"); await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   await page.locator("#taskYoloeBtn").click();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");

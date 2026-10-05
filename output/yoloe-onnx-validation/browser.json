@@ -1,0 +1,18 @@
+{
+  "status": {
+    "version": 5,
+    "cuda": false,
+    "backend": "cpu",
+    "gpu": null,
+    "models": [
+      "yoloe-26n-seg",
+      "yoloe-26s-seg",
+      "yoloe-26m-seg",
+      "yoloe-26l-seg"
+    ],
+    "busy": false,
+    "engine": "onnx"
+  },
+  "backend": "cpu",
+  "detections": 3
+}

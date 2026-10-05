@@ -12,3 +12,9 @@ torchvision = { index = "pytorch-cu130" }
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
+
+[dependency-groups]
+export = [
+    "onnx>=1.23.1",
+    "onnxruntime>=1.30.0",
+]

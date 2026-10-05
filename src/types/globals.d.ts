@@ -20,6 +20,7 @@ declare global {
     getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
     saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
     easyLabelingDesktop?: {
+      readYoloeModel?: (file: string) => Promise<Uint8Array>;
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
     };
   }

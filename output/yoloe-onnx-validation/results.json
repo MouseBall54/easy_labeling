@@ -1,0 +1,293 @@
+{
+  "runtime": {
+    "version": 5,
+    "cuda": true,
+    "backend": "webgpu",
+    "gpu": "nvidia",
+    "models": [
+      "yoloe-26n-seg",
+      "yoloe-26s-seg",
+      "yoloe-26m-seg",
+      "yoloe-26l-seg"
+    ],
+    "busy": false,
+    "engine": "onnx"
+  },
+  "model": "yoloe-26s-seg",
+  "checks": {
+    "noPythonOrPtInInstallation": true,
+    "onnxWithoutPythonOrService": true,
+    "bundledSamplesBothModes": 17,
+    "installedSetupCommands": true,
+    "popupdetectionZoomPanPreview": true,
+    "previewPreservedSource": true,
+    "stableFolderAndSourceRestoration": true,
+    "review": true,
+    "popupsegmentationZoomPanPreview": true,
+    "noPythonChildProcess": true
+  },
+  "images": [
+    {
+      "name": "0-reference.txt",
+      "detections": 4
+    },
+    {
+      "name": "1-target-gray.txt",
+      "detections": 4
+    },
+    {
+      "name": "2-target-rgb.txt",
+      "detections": 2
+    }
+  ],
+  "errors": [],
+  "installation": {
+    "name": "easy-labeling-yoloe26",
+    "version": "2.1.0",
+    "appPath": "C:\\Users\\young\\AppData\\Local\\Programs\\Easy Labeling YOLOE-26\\resources\\app.asar",
+    "executable": "C:\\Users\\young\\AppData\\Local\\Programs\\Easy Labeling YOLOE-26\\Easy Labeling YOLOE-26.exe",
+    "userData": "C:\\Git\\easy_labeling\\output\\yoloe-onnx-validation\\app-profile"
+  },
+  "preview": {
+    "detections": [
+      {
+        "classId": 12,
+        "confidence": 0.971245527267456,
+        "left": 4.286624908447266,
+        "top": 231.56740379333496,
+        "right": 803.1843910217285,
+        "bottom": 737.993631362915
+      },
+      {
+        "classId": 5,
+        "confidence": 0.8180206418037415,
+        "left": 54.39947319030762,
+        "top": 399.39617443084717,
+        "right": 230.40364265441895,
+        "bottom": 899.5653963088989
+      },
+      {
+        "classId": 5,
+        "confidence": 0.7711876630783081,
+        "left": 226.33010530471802,
+        "top": 407.77290630340576,
+        "right": 341.89679288864136,
+        "bottom": 861.6850175857544
+      },
+      {
+        "classId": 5,
+        "confidence": 0.6250734329223633,
+        "left": 670.2061929702759,
+        "top": 395.455078125,
+        "right": 808.892294883728,
+        "bottom": 873.775634765625
+      }
+    ],
+    "backend": "webgpu",
+    "fallbackReason": null,
+    "mask": null
+  },
+  "metadata": {
+    "engine": "yoloe26",
+    "workflow": "detection",
+    "checkpoint": "yoloe-26s-seg.onnx",
+    "backend": "webgpu",
+    "gpu": "nvidia",
+    "targetSet": "acceptance_v1",
+    "referenceImage": "0-reference.png",
+    "referenceSha256": "3c3e1277a2fff9d277ed10f105257b40f5fe8dd09c051bde9408cb9c019c68a4",
+    "exampleCount": 2,
+    "referenceImages": [
+      "0-reference.png"
+    ],
+    "samples": [
+      {
+        "classId": 5,
+        "name": "person",
+        "box": [
+          50.00000399999999,
+          399.9999996,
+          247.00000339999997,
+          901.9999964
+        ],
+        "referenceImage": "0-reference.png"
+      },
+      {
+        "classId": 12,
+        "name": "bus",
+        "box": [
+          20.00000160000002,
+          239.99999760000003,
+          786.0000044,
+          741.9999944
+        ],
+        "referenceImage": "0-reference.png"
+      }
+    ],
+    "imgsz": 640,
+    "confidence": 0.25,
+    "iou": 0.45,
+    "model": "yoloe-26s-seg-acceptance_v1",
+    "images": [
+      "0-reference.png",
+      "1-target-gray.png",
+      "2-target-rgb.png"
+    ],
+    "detections": 10,
+    "createdAt": "2026-10-05T10:41:01.986Z"
+  },
+  "segmentation": {
+    "checks": {
+      "standaloneTab": true,
+      "polygonMaskPrompts": true,
+      "drawnExamplesPreservedSource": true,
+      "previewPreservedSource": true,
+      "fullResolutionMasks": true,
+      "originalFilesPreserved": true,
+      "sourceSwitchAndRefresh": true,
+      "stableFolder": true,
+      "brushUndoRedoAndSave": true
+    },
+    "masks": [
+      {
+        "name": "0-reference.png",
+        "width": 810,
+        "height": 1080,
+        "pixelsByClass": {
+          "0": 501088,
+          "5": 108259,
+          "12": 265453
+        }
+      },
+      {
+        "name": "1-target-gray.png",
+        "width": 810,
+        "height": 1080,
+        "pixelsByClass": {
+          "0": 514174,
+          "5": 96402,
+          "12": 264224
+        }
+      },
+      {
+        "name": "2-target-rgb.png",
+        "width": 1280,
+        "height": 720,
+        "pixelsByClass": {
+          "0": 750378,
+          "5": 171222
+        }
+      }
+    ],
+    "metadata": {
+      "engine": "yoloe26",
+      "workflow": "segmentation",
+      "checkpoint": "yoloe-26s-seg.onnx",
+      "backend": "webgpu",
+      "gpu": "nvidia",
+      "targetSet": "acceptance_v1",
+      "referenceImage": "0-reference.png",
+      "referenceSha256": "13c45eae5112a0983821ef9e768a55d6329b422a5348c04fdbdd172309a20b29",
+      "exampleCount": 2,
+      "referenceImages": [
+        "0-reference.png"
+      ],
+      "samples": [
+        {
+          "classId": 5,
+          "name": "person",
+          "box": [
+            49.999969482421875,
+            400.0000305175781,
+            245.00006103515625,
+            900
+          ],
+          "polygon": [
+            [
+              90,
+              400.0000305175781
+            ],
+            [
+              184.99996948242188,
+              400.0000305175781
+            ],
+            [
+              245.00006103515625,
+              900
+            ],
+            [
+              49.999969482421875,
+              900
+            ]
+          ],
+          "referenceImage": "0-reference.png"
+        },
+        {
+          "classId": 12,
+          "name": "bus",
+          "box": [
+            30,
+            240,
+            785.0000610351562,
+            739.9999694824219
+          ],
+          "polygon": [
+            [
+              30,
+              250.00003051757812
+            ],
+            [
+              774.9999389648438,
+              240
+            ],
+            [
+              785.0000610351562,
+              700.0000305175781
+            ],
+            [
+              30,
+              739.9999694824219
+            ]
+          ],
+          "referenceImage": "0-reference.png"
+        }
+      ],
+      "imgsz": 640,
+      "confidence": 0.25,
+      "iou": 0.45,
+      "model": "yoloe-26s-seg-acceptance_v1",
+      "maskFormat": "png-semantic-mask",
+      "overlapPolicy": "highest-confidence",
+      "images": [
+        "0-reference.png",
+        "1-target-gray.png",
+        "2-target-rgb.png"
+      ],
+      "detections": 10,
+      "createdAt": "2026-10-05T10:41:10.815Z"
+    },
+    "previewInstances": 4
+  },
+  "childProcesses": [
+    {
+      "Name": "Easy Labeling YOLOE-26.exe",
+      "ProcessId": 62664,
+      "ParentProcessId": 52724
+    },
+    {
+      "Name": "Easy Labeling YOLOE-26.exe",
+      "ProcessId": 61172,
+      "ParentProcessId": 62664
+    },
+    {
+      "Name": "Easy Labeling YOLOE-26.exe",
+      "ProcessId": 17676,
+      "ParentProcessId": 62664
+    },
+    {
+      "Name": "Easy Labeling YOLOE-26.exe",
+      "ProcessId": 17944,
+      "ParentProcessId": 62664
+    }
+  ]
+}

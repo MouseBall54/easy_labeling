@@ -157,6 +157,12 @@ function registerIpcHandlers() {
 }
 
 app.whenReady().then(() => {
+  if (require("../package.json").name === "easy-labeling-yoloe26") {
+    ipcMain.handle("easy-labeling:read-yoloe-model", (_event, file) => {
+      if (typeof file !== "string" || !/^[nsml]\/(manifest\.json|encoder\.onnx|detector\.onnx|(encoder|detector)-\d+\.data)$/.test(file)) throw new TypeError("Invalid bundled YOLOE model file.");
+      return fs.readFile(path.join(process.resourcesPath, "yoloe26", file));
+    });
+  }
   registerIpcHandlers();
   createMainWindow();
 

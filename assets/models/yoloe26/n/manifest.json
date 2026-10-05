@@ -1,0 +1,64 @@
+{
+  "model": "yoloe-26n-seg",
+  "format": "onnx-visual-prompt-v1",
+  "maskChannels": 32,
+  "embeddingSize": 512,
+  "resolutions": [
+    640,
+    1024
+  ],
+  "files": [
+    {
+      "file": "detector-0.data",
+      "bytes": 11311848,
+      "sha256": "2db6f7c0e11f95af5cf75f49cc3366b1a912083cfccee14a73f089fcfeac3994"
+    },
+    {
+      "file": "detector.onnx",
+      "bytes": 153960,
+      "sha256": "e66eaf195aed53c32d99a35ae64d2d6b938a931a369587fae081eeeb24451b5e"
+    },
+    {
+      "file": "encoder-0.data",
+      "bytes": 11809440,
+      "sha256": "a11c1ea3e9dd5ae40282b1578fbf399a1ed8c0e90e43e790870cd00303424b4c"
+    },
+    {
+      "file": "encoder.onnx",
+      "bytes": 115448,
+      "sha256": "5b0fa7582224b9b70e6b95633b2feb3eab5fb10815bb077ef99f45da54a44b62"
+    }
+  ],
+  "parity": [
+    {
+      "imgsz": 640,
+      "examples": 1,
+      "predictions": [
+        1,
+        37,
+        8400
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 640,
+      "examples": 3,
+      "predictions": [
+        1,
+        39,
+        8400
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 1024,
+      "examples": 2,
+      "predictions": [
+        1,
+        38,
+        21504
+      ],
+      "parity": "PASS"
+    }
+  ]
+}

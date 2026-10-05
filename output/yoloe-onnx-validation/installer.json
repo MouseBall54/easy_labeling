@@ -1,0 +1,18 @@
+{
+  "version": "2.1.0",
+  "file": "Easy-Labeling-YOLOE26-Setup-2.1.0-x64.exe",
+  "bytes": 714792781,
+  "sha256": "85CDDBFA8D9F283EA9CE2B322729ABF95E83B15B4B507DD9CB630136921F9088",
+  "signature": "NotSigned",
+  "installationExit": 0,
+  "format": "onnx-visual-prompt-v1",
+  "pythonRequired": false,
+  "offlineModels": [
+    "n",
+    "s",
+    "m",
+    "l"
+  ],
+  "windows": "Windows 11 Pro 10.0.26200",
+  "gpu": "NVIDIA GeForce RTX 2080 SUPER"
+}

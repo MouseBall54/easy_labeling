@@ -11,6 +11,8 @@ const GET_PROFILE_DIRECTORY_CHANNEL = "easy-labeling:get-profile-directory";
 const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 
 window.easyLabelingDesktop = Object.freeze({
+  readYoloeModel: require("../package.json").name === "easy-labeling-yoloe26"
+    ? (file) => ipcRenderer.invoke("easy-labeling:read-yoloe-model", file) : undefined,
   setHasUnsavedChanges(hasUnsavedChanges) {
     ipcRenderer.send(DOCUMENT_DIRTY_CHANNEL, Boolean(hasUnsavedChanges));
   }

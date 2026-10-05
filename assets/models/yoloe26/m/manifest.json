@@ -1,0 +1,74 @@
+{
+  "model": "yoloe-26m-seg",
+  "format": "onnx-visual-prompt-v1",
+  "maskChannels": 32,
+  "embeddingSize": 512,
+  "resolutions": [
+    640,
+    1024
+  ],
+  "files": [
+    {
+      "file": "detector-0.data",
+      "bytes": 49945344,
+      "sha256": "4b927ec47881db93ca8f6ad73df66ab37059391e6def7170624d06d24ca32130"
+    },
+    {
+      "file": "detector-1.data",
+      "bytes": 45663560,
+      "sha256": "fd3c1844c123070385b3476515327e2c7ef689137ede8eec2e72f9fffaa1880b"
+    },
+    {
+      "file": "detector.onnx",
+      "bytes": 163189,
+      "sha256": "3d24c091f0e07d499c098bface2209ee331eb03ca7a90e36f6531c1832205fa6"
+    },
+    {
+      "file": "encoder-0.data",
+      "bytes": 49945344,
+      "sha256": "4b927ec47881db93ca8f6ad73df66ab37059391e6def7170624d06d24ca32130"
+    },
+    {
+      "file": "encoder-1.data",
+      "bytes": 48111168,
+      "sha256": "10fe95b14f340f7f16864b516e5fb72d37bf5bbeae94faa4229c124653cdf773"
+    },
+    {
+      "file": "encoder.onnx",
+      "bytes": 124538,
+      "sha256": "79531ef93f708718f77c7928f53e08961d48ca017be65d9d9b661a77b52f7894"
+    }
+  ],
+  "parity": [
+    {
+      "imgsz": 640,
+      "examples": 1,
+      "predictions": [
+        1,
+        37,
+        8400
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 640,
+      "examples": 3,
+      "predictions": [
+        1,
+        39,
+        8400
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 1024,
+      "examples": 2,
+      "predictions": [
+        1,
+        38,
+        21504
+      ],
+      "parity": "PASS"
+    }
+  ]
+}

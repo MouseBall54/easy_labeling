@@ -3,7 +3,7 @@ import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { isRectObject } from "../features/canvas/fabric-types.js";
-import { imagePng, selectedVisualExamples, maskRegionExample, sampleMaskGeometry, decodeYoloeMask, requestYoloe, inferYoloe, type VisualExample, type YoloeProfile, type YoloeStatus, type YoloeResult } from "../features/inference/yoloe.js";
+import { imagePng, selectedVisualExamples, maskRegionExample, sampleMaskGeometry, decodeYoloeMask, requestYoloe, inferYoloe, usesYoloeOnnx, type VisualExample, type YoloeProfile, type YoloeStatus, type YoloeResult } from "../features/inference/yoloe.js";
 import type { Detection } from "../features/inference/yolo.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { installModalFocusManagement } from "../ui/modal-focus.js";
@@ -17,6 +17,13 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   if (!documentRef.getElementById("yoloeInferenceControls")) return () => {};
   const el = <T extends HTMLElement>(id: string): T => documentRef.getElementById(id) as T;
   const modelSelect = el<HTMLSelectElement>("yoloeModelSelect");
+  const bundled = usesYoloeOnnx(documentRef.defaultView!);
+  const prepareMessage = () => bundled ? "Bundled model is missing. Reinstall Easy Labeling YOLOE-26."
+    : `Run npm.cmd run yoloe:prepare -- --model ${modelSelect.value}, then reconnect.`;
+  if (bundled) {
+    const commands = documentRef.querySelector<HTMLElement>(".yoloe-setup-commands");
+    if (commands) commands.textContent = "ONNX · N/S/M/L included · No Python or separate setup";
+  }
   const nameInput = el<HTMLInputElement>("yoloeProfileName");
   const sampleName = el<HTMLInputElement>("yoloeSampleName");
   const shape = el<HTMLSelectElement>("yoloePromptShape");
@@ -38,7 +45,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   let spaceHeld = false;
   let pan: { pointerId: number; x: number; y: number } | null = null;
   let connected = false, busy = false;
-  let backend: "cuda" | "cpu" | null = null;
+  let backend: "cuda" | "cpu" | "webgpu" | null = null;
   let readyModels: string[] = [];
   let connectionAttempted = false;
   let profile: YoloeProfile | null = null;
@@ -79,7 +86,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el("yoloeOutputBadge").textContent = workflow === "segmentation" ? "Segmentation · Masks" : "Detection · Boxes";
     const summary = `${modelSelect.value || "YOLOE-26"} · ${examples.length} sample(s) · ${new Set(examples.map((e) => e.sourceName)).size} image(s)`;
     el("yoloeSummary").textContent = summary;
-    el("yoloeSetupSummary").textContent = `${workflow === "segmentation" ? "Masks" : "Boxes"} · ${backend === "cuda" ? "GPU / CUDA" : backend === "cpu" ? "CPU" : "Disconnected"} · ${summary}`;
+    el("yoloeSetupSummary").textContent = `${workflow === "segmentation" ? "Masks" : "Boxes"} · ${backend === "webgpu" ? "GPU / WebGPU" : backend === "cuda" ? "GPU / CUDA" : backend === "cpu" ? "CPU" : "Disconnected"} · ${summary}`;
     el("yoloeSamplesEmpty").hidden = Boolean(examples.length);
     el<HTMLButtonElement>("openYoloeSetupBtn").disabled = busy;
     const imagesSignature = JSON.stringify(state.session.imageFiles.map((file) => file.name));
@@ -281,7 +288,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const work = async (title: string, action: (signal: AbortSignal) => Promise<void>): Promise<void> => {
     if (busy) return;
     busy = true; sync();
-    const operation = uiManager.beginOperation({ title, detail: `YOLOE-26 · ${backend === "cuda" ? "GPU / CUDA" : backend === "cpu" ? "CPU" : "Connecting"}`, cancellable: true });
+    const operation = uiManager.beginOperation({ title, detail: `YOLOE-26 · ${backend === "webgpu" ? "GPU / WebGPU" : backend === "cuda" ? "GPU / CUDA" : backend === "cpu" ? "CPU" : "Connecting"}`, cancellable: true });
     operationController = new AbortController();
     const controller = operationController;
     const cancel = (): void => controller.abort(new Error("YOLOE operation stopped."));
@@ -599,9 +606,9 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     modelSelect.replaceChildren(new Option("Connect first", ""));
     const result = await requestYoloe<YoloeStatus>("status", undefined, AbortSignal.any([signal, AbortSignal.timeout(5000)]));
     signal.throwIfAborted();
-    if (result.version !== 5) throw new Error("Restart npm run yoloe:start to enable model selection and CPU inference.");
-    backend = result.cuda ? "cuda" : "cpu";
-    badge.textContent = result.cuda ? "GPU · CUDA" : "CPU";
+    if (result.version !== 5) throw new Error(bundled ? "Restart the app to update the bundled YOLOE service." : "Restart npm run yoloe:start to enable model selection and CPU inference.");
+    backend = result.backend ?? (result.cuda ? "cuda" : "cpu");
+    badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : result.cuda ? "GPU · CUDA" : "CPU";
     badge.title = result.gpu ?? "CUDA unavailable · Running on CPU";
     const info = el("yoloeConnectionStatus");
     message(info, result.cuda ? result.gpu! : "CPU · n is the default model");
@@ -614,7 +621,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       ? [previous, "yoloe-26s-seg", "yoloe-26n-seg", "yoloe-26m-seg", "yoloe-26l-seg"].find((name) => readyModels.includes(name)) ?? "yoloe-26s-seg"
       : previousBackend === "cpu" && readyModels.includes(previous) ? previous : "yoloe-26n-seg";
     connected = true;
-    if (!readyModels.includes(modelSelect.value)) message(status, `Run npm.cmd run yoloe:prepare -- --model ${modelSelect.value}, then reconnect.`);
+    if (!readyModels.includes(modelSelect.value)) message(status, prepareMessage());
     else status.hidden = true;
   };
   el("connectYoloeBtn").addEventListener("click", () => { connectionAttempted = true; void work("Connecting YOLOE", connect); });
@@ -635,14 +642,14 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   });
   modelSelect.addEventListener("change", () => {
     profile = null; clearPreview(); sync(); drawPreview();
-    if (!readyModels.includes(modelSelect.value)) message(status, `Run npm.cmd run yoloe:prepare -- --model ${modelSelect.value}, then reconnect.`);
+    if (!readyModels.includes(modelSelect.value)) message(status, prepareMessage());
     else status.hidden = true;
   });
   nameInput.addEventListener("input", () => { clearPreview(); drawPreview(); });
   for (const id of ["yoloeConfidenceInput", "yoloeIouInput"]) el(id).addEventListener("input", () => { clearPreview(); drawPreview(); });
   const prepare = async (signal: AbortSignal): Promise<YoloeProfile> => {
     if (!connected) await connect(signal);
-    if (!readyModels.includes(modelSelect.value)) throw new Error(`Run npm.cmd run yoloe:prepare -- --model ${modelSelect.value}, then reconnect.`);
+    if (!readyModels.includes(modelSelect.value)) throw new Error(prepareMessage());
     if (profile) return profile;
     if (!examples.length) throw new Error("Outline a sample first.");
     const source = state.session.imageFolderHandle;
@@ -655,6 +662,8 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     signal.throwIfAborted();
     if (source !== state.session.imageFolderHandle) throw new Error("Dataset changed. Register the examples again.");
     profile = result; sourceFolder = source;
+    backend = result.backend;
+    badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : backend === "cuda" ? "GPU · CUDA" : "CPU";
     renderExamples();
     return result;
   };
@@ -665,6 +674,8 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     clearPreview(); drawPreview();
     const [confidence, iou] = parameters();
     const prediction = await inferYoloe(image, documentRef, currentProfile, confidence, iou, signal);
+    backend = currentProfile.backend;
+    badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : backend === "cuda" ? "GPU · CUDA" : "CPU";
     signal.throwIfAborted();
     if (inSetup ? image !== sampleImage : image !== state.session.currentImage) throw new Error("Image changed. Preview the current image again.");
     let maskCanvas: HTMLCanvasElement | null = null;
@@ -703,13 +714,20 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       message(status, "Running YOLOE inference…");
       const options = { allImages, modelName: `${preparedProfile.model}-${target}`,
         classNames: new Map(Object.entries(preparedProfile.classes)),
-        metadata: { engine: "yoloe26", workflow, checkpoint: `${preparedProfile.model}.pt`, backend: preparedProfile.backend, gpu: preparedProfile.gpu, targetSet: target,
+        metadata: { engine: "yoloe26", workflow, checkpoint: `${preparedProfile.model}.${bundled ? "onnx" : "pt"}`, backend: preparedProfile.backend, gpu: preparedProfile.gpu, targetSet: target,
           referenceImage: referenceName, referenceSha256: preparedProfile.referenceSha256, exampleCount: preparedProfile.exampleCount,
           referenceImages: [...new Set(examples.map((e) => e.sourceName))],
           samples: examples.map(({ sourceImage, sourceName, maskCanvas, ...example }) => ({ ...example, referenceImage: sourceName })),
           imgsz: preparedProfile.imgsz, confidence, iou },
       };
-      const infer = (image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult> => inferYoloe(image, documentRef, preparedProfile, confidence, iou, signal);
+      const infer = async (image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult> => {
+        const result = await inferYoloe(image, documentRef, preparedProfile, confidence, iou, signal);
+        backend = preparedProfile.backend;
+        options.metadata.backend = preparedProfile.backend;
+        options.metadata.gpu = preparedProfile.gpu;
+        badge.textContent = backend === "webgpu" ? "GPU · WebGPU" : backend === "cuda" ? "GPU · CUDA" : "CPU";
+        return result;
+      };
       const result = workflow === "segmentation"
         ? await fileSystem.runSegmentationInference({ ...options, infer })
         : await fileSystem.runDetectionInference({ ...options, infer: async (image, signal) => (await infer(image, signal)).detections });

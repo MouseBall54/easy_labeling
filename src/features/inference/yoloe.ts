@@ -3,19 +3,25 @@ import type { Detection } from "./yolo.js";
 import { normalizeClassName } from "../../domain/class-files.js";
 import type { WorkflowType } from "../../types/labels.js";
 import type { SegmentationRegionSelection } from "../segmentation/types.js";
+import { requestYoloeOnnx } from "./yoloe-onnx.js";
 
 export interface VisualExample {
   classId: number; name: string; box: [number, number, number, number];
   polygon?: [number, number][];
   mask?: { width: number; height: number; runs: number[] };
 }
-export interface YoloeStatus { version: number; cuda: boolean; gpu: string | null; models: string[]; busy: boolean; }
+export interface YoloeStatus { version: number; cuda: boolean; gpu: string | null; models: string[]; busy: boolean; backend?: "webgpu" | "cpu"; }
 export interface YoloeProfile {
   id: string; model: string; classes: Record<string, string>; exampleCount: number; referenceSha256: string;
-  backend: "cuda" | "cpu"; gpu: string | null; workflow: WorkflowType;
+  backend: "cuda" | "cpu" | "webgpu"; gpu: string | null; workflow: WorkflowType;
   imgsz: number;
 }
 export interface YoloeResult { detections: Detection[]; mask: { width: number; height: number; mask: Uint16Array } | null; }
+
+export function usesYoloeOnnx(windowRef = globalThis.window): boolean {
+  return Boolean(windowRef?.easyLabelingDesktop?.readYoloeModel || windowRef?.location?.search.includes("yoloe=onnx")
+    || windowRef?.location?.protocol === "http:" && !windowRef.location.search.includes("yoloe=python"));
+}
 
 export function sampleMaskGeometry(pixels: Uint16Array, width: number, height: number): Pick<VisualExample, "box" | "mask"> {
   let left = width, top = height, right = -1, bottom = -1;
@@ -86,6 +92,8 @@ export function imagePng(image: HTMLImageElement, documentRef: Document): string
 }
 
 export async function requestYoloe<T>(path: string, payload?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  if (usesYoloeOnnx()) return requestYoloeOnnx<T>(path, payload, signal);
+  signal?.throwIfAborted();
   let response: Response;
   try {
     response = await fetch(`http://127.0.0.1:8766/${path}`, {
@@ -102,7 +110,8 @@ export async function requestYoloe<T>(path: string, payload?: Record<string, unk
 }
 
 export async function inferYoloe(image: HTMLImageElement, documentRef: Document, profile: YoloeProfile, confidence: number, iou: number, signal?: AbortSignal): Promise<YoloeResult> {
-  const result = await requestYoloe<{ detections: Detection[]; mask?: { width: number; height: number; runs: number[] } }>("infer", { profileId: profile.id, image: imagePng(image, documentRef), confidence, iou }, signal);
+  const result = await requestYoloe<{ detections: Detection[]; backend?: YoloeProfile["backend"]; mask?: { width: number; height: number; runs: number[] } }>("infer", { profileId: profile.id, image: imagePng(image, documentRef), confidence, iou }, signal);
+  if (result.backend) { profile.backend = result.backend; profile.gpu = result.backend === "cpu" ? null : profile.gpu; }
   if (profile.workflow === "segmentation" && !result.mask) throw new Error("YOLOE did not return a segmentation mask. Restart the YOLOE service.");
   return { detections: result.detections, mask: result.mask ? decodeYoloeMask(result.mask) : null };
 }

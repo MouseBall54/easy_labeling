@@ -1,0 +1,181 @@
+{
+  "checks": [
+    {
+      "size": "n",
+      "workflow": "detection",
+      "imgsz": 640,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 4,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": null,
+      "elapsedMs": 1887
+    },
+    {
+      "size": "n",
+      "workflow": "segmentation",
+      "imgsz": 640,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 4,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": {
+        "width": 810,
+        "height": 1080,
+        "positiveRuns": 2761
+      },
+      "elapsedMs": 194
+    },
+    {
+      "size": "s",
+      "workflow": "detection",
+      "imgsz": 640,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 4,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": null,
+      "elapsedMs": 641
+    },
+    {
+      "size": "s",
+      "workflow": "segmentation",
+      "imgsz": 640,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 4,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": {
+        "width": 810,
+        "height": 1080,
+        "positiveRuns": 2713
+      },
+      "elapsedMs": 226
+    },
+    {
+      "size": "m",
+      "workflow": "detection",
+      "imgsz": 1024,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 6,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": null,
+      "elapsedMs": 1289
+    },
+    {
+      "size": "m",
+      "workflow": "segmentation",
+      "imgsz": 1024,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 6,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": {
+        "width": 810,
+        "height": 1080,
+        "positiveRuns": 3168
+      },
+      "elapsedMs": 690
+    },
+    {
+      "size": "l",
+      "workflow": "detection",
+      "imgsz": 1024,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 5,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": null,
+      "elapsedMs": 1470
+    },
+    {
+      "size": "l",
+      "workflow": "segmentation",
+      "imgsz": 1024,
+      "backend": "webgpu",
+      "samples": 3,
+      "references": 2,
+      "classIds": [
+        5,
+        12,
+        5
+      ],
+      "detections": 5,
+      "classes": [
+        12,
+        5
+      ],
+      "mask": {
+        "width": 810,
+        "height": 1080,
+        "positiveRuns": 3084
+      },
+      "elapsedMs": 695
+    }
+  ],
+  "network": []
+}

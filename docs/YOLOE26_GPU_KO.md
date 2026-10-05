@@ -1,62 +1,49 @@
-# YOLOE-26 GPU/CPU 시각 프롬프트 라벨링
+# YOLOE-26 ONNX 시각 샘플 라벨링
 
-이 기능은 `codex/yoloe26-gpu` 버전의 독립 **YOLOE-26** 탭에서 제공합니다. 일반 ONNX 기능은 **Inference** 탭에서 사용합니다. YOLOE는 예시 이미지의 영역을 이용하여 비슷한 대상을 다른 이미지에서 찾습니다. 상단 Detection 모드에서는 박스, Segmentation 모드에서는 실제 모델 마스크를 생성합니다. 원본 라벨과 별도의 결과 폴더를 사용합니다.
+YOLOE-26 탭은 샘플 영역을 보고 비슷한 대상을 다른 이미지에서 찾습니다. Detection에서는 박스, Segmentation에서는 마스크를 생성하고 기존 라벨과 별도의 결과 폴더를 사용합니다.
 
-## Windows 셋업
+## Windows 설치와 실행
 
-CUDA가 사용 가능하면 NVIDIA GPU로, 없으면 CPU로 실행합니다. GPU 실행에는 CUDA 13.0 PyTorch를 지원하는 NVIDIA 드라이버가 필요합니다. 이 프로젝트는 Python 3.11, PyTorch 2.11.0+cu130, torchvision 0.26.0, Ultralytics 8.4.168을 사용합니다. 고정된 PyTorch 패키지는 GPU 없는 Windows에서도 CPU 연산을 지원하며 별도 CUDA Toolkit 설치는 필요하지 않습니다. 의존성은 `runtime/yoloe/uv.lock`에 고정되어 있습니다. 일반 ONNX 추론은 이 셋업 없이 실행 가능합니다.
+`release/yoloe26/Easy-Labeling-YOLOE26-Setup-2.1.0-x64.exe` 한 파일을 실행해 설치한 뒤 시작 메뉴의 **Easy Labeling YOLOE-26**을 엽니다. 별도 Python, PyTorch, uv, npm, CUDA Toolkit, 서비스 터미널, 모델 다운로드가 필요 없습니다. 설치 파일에 ONNX Runtime과 N/S/M/L 모델이 모두 포함됩니다. 이전 2.0.0 수동 셋업형 및 2.0.1 Python 포함형과 달리 **2.1.0은 Python을 실행하거나 로컬 HTTP 서버를 띄우지 않습니다.**
+
+데이터셋을 연 뒤 **YOLOE-26 → Samples & settings**에서 샘플을 지정하고 **Find → Save**를 사용합니다. GPU를 사용할 수 있으면 WebGPU와 S, 없으면 CPU/WASM과 N이 기본입니다. N/S/M/L은 모두 선택할 수 있습니다. 실제 실행 장치를 **GPU · WebGPU** 또는 **CPU**로 표시하며 GPU 초기화·실행에 실패하면 같은 모델을 CPU로 실행합니다. GPU에는 WebGPU를 지원하는 그래픽 드라이버가 필요합니다.
+
+## ONNX 구성
+
+모델 크기마다 `encoder.onnx`와 `detector.onnx`가 있습니다. encoder는 이미지와 지정 영역 마스크를 받아 샘플 특징을 계산하고, detector는 대상 이미지와 그 특징을 받아 박스·점수·마스크 계수와 프로토타입을 반환합니다. 가변 샘플 수와 640/1024 해상도를 지원합니다. 일반 Ultralytics export처럼 샘플을 모델에 고정하지 않으므로 박스·폴리곤·브러시, 같은 이름의 여러 영역과 여러 기준 이미지를 계속 사용할 수 있습니다.
+
+ONNX 및 가중치 데이터 파일은 `assets/models/yoloe26/`에서 **실제 파일로 Git 관리**합니다. 각 가중치 파일은 50MB 이하이며 LFS 포인터를 사용하지 않습니다. 설치 후에는 `resources/yoloe26/`의 로컬 파일만 읽습니다. 모델별 크기와 SHA256, 갱신 방법은 [YOLOE26_OFFLINE_MODELS_KO.md](YOLOE26_OFFLINE_MODELS_KO.md)를 참고하세요.
+
+## 소스 실행과 설치 파일 빌드
+
+모델이 포함된 체크아웃에서는 Python 없이 다음 명령으로 브라우저 개발 및 Windows 빌드를 합니다. npm 의존성은 개발 PC에서 먼저 준비합니다.
 
 ```powershell
 cd C:\Git\easy_labeling
-git switch codex/yoloe26-gpu
-# uv가 없는 경우 한 번 설치하고 새 터미널을 엽니다.
-winget install --id astral-sh.uv -e
-npm install
-npm run yoloe:setup
-npm run yoloe:prepare
-npm run yoloe:check
+npm.cmd ci
+npm.cmd start
+# http://localhost:4173/ — YOLOE도 기본 ONNX 실행
+npm.cmd run electron:dist:yoloe:win
 ```
 
-`yoloe:setup`은 프로젝트의 `runtime/yoloe/.venv`에 전용 환경을 만들고 실제 GPU 또는 CPU 행렬 연산을 검사합니다. `yoloe:prepare`는 GPU 환경에서 s, CPU 환경에서 n을 기본으로 다운로드합니다. 모델 파일은 `runtime/yoloe/models/`에 저장합니다. UI의 **Settings → Model**에서 N/S/M/L을 선택합니다. GPU 초기 선택은 준비된 s를 우선하며, CPU 초기 선택은 n입니다. CPU에서도 다른 크기를 직접 선택할 수 있고 재연결 시 선택을 유지합니다. 준비되지 않은 모델은 **Not prepared**로 표시하고 정확한 준비 명령을 안내합니다.
+## 모델을 교체하는 개발자만 필요한 내보내기
+
+`.pt` 원본은 `runtime/yoloe/models/`에 두며 설치본에 포함하지 않습니다. 변환 도구는 개발 PC에서만 Python을 사용합니다. 고정 환경은 `runtime/yoloe/uv.lock`에 기록합니다.
 
 ```powershell
-# n/s/m/l을 모두 준비
+uv sync --project runtime/yoloe --locked --group export
 npm.cmd run yoloe:prepare -- --model all
-# 필요한 크기만 준비
-npm.cmd run yoloe:prepare -- --model yoloe-26n-seg
-npm.cmd run yoloe:prepare -- --model yoloe-26s-seg
-npm.cmd run yoloe:prepare -- --model yoloe-26m-seg
-npm.cmd run yoloe:prepare -- --model yoloe-26l-seg
+npm.cmd run yoloe:export:onnx -- --size all
+npm.cmd run yoloe:models:record
+npm.cmd run electron:dist:yoloe:win
 ```
 
-PowerShell에서 `--model` 전달 시 npm.ps1이 인수를 제거하는 환경을 피하려고 `npm.cmd`를 사용합니다. 모델 준비 후 **Reconnect**를 누릅니다. 초기 설치와 모델 준비에는 인터넷이 필요합니다. 시각 프롬프트에는 CLIP 텍스트 인코더가 필요하지 않습니다.
-
-## 실행
-
-첫 번째 터미널에서 YOLOE 서비스를 실행하고 유지합니다.
-
-```powershell
-cd C:\Git\easy_labeling
-npm run yoloe:start
-```
-
-두 번째 터미널에서 앱을 실행합니다.
-
-```powershell
-cd C:\Git\easy_labeling
-npm start
-# 브라우저: http://localhost:4173/
-# 또는 Electron 실행:
-npm run electron:dev
-```
-
-서비스는 이 컴퓨터의 `127.0.0.1:8766`에서만 수신합니다. 로컬 4173 브라우저와 Electron의 file:// 화면을 지원합니다. 이미지는 해당 로컬 서비스로 PNG 픽셀을 전달하며 외부 서버에 전송하지 않습니다. 서비스 종료는 해당 터미널에서 Ctrl+C입니다. 설치형 앱을 사용할 때도 YOLOE 서비스는 이 프로젝트 폴더에서 별도로 실행합니다.
-
+내보내기 명령은 각 크기에서 640/1024와 샘플 개수 1/2/3의 ONNX 출력을 PyTorch와 비교합니다. 명령 종료 코드 0과 manifest의 parity PASS를 확인한 뒤 모델과 소스를 같은 커밋으로 갱신합니다. Python 구현을 비교 기준으로 사용할 개발자는 별도 `npm.cmd run yoloe:start`와 `http://localhost:4173/?yoloe=python`을 사용할 수 있습니다. 일반 버전 Inference와 YOLOE-26 설치형의 ONNX 실행에는 이 비교 서비스가 필요 없습니다.
 ## UI 사용
 
 왼쪽 사이드바에는 실행 장치·모델·예시 개수와 **Samples & settings → Find → Save**만 표시됩니다. **Samples & settings**는 레이아웃·템플릿 설정처럼 별도 창을 엽니다. 창 왼쪽에서 기준 이미지와 대상 예시를 지정하고, 오른쪽에서 모델·해상도·결과 세트 이름·Confidence·IoU를 조절합니다. 값은 즉시 적용되며 **Done**으로 닫아도 현재 세션에 유지됩니다.
 
-1. 데이터셋을 열고 **Detection** 또는 **Segmentation → YOLOE-26**을 선택합니다. 로컬 서비스에 자동 연결하며 실제 실행 장치를 `GPU · CUDA` 또는 `CPU`로 표시합니다. 서비스가 꺼져 있으면 안내에 따라 `npm run yoloe:start`를 실행한 뒤 설정에서 **Reconnect**를 누릅니다.
+1. 데이터셋을 열고 **Detection** 또는 **Segmentation → YOLOE-26**을 선택합니다. 모델을 로컬 ONNX Runtime으로 실행하며 실제 장치를 `GPU · WebGPU` 또는 `CPU`로 표시합니다.
 2. **Samples & settings**를 열고 **Reference image**에서 예시 이미지를 선택합니다. **Name the target**에 `sampleA`처럼 대상 이름을 입력하고 **Outline sample**을 누릅니다. 설정 창의 이미지에서 윤곽을 클릭해 점을 찍고, 3개 이상의 점으로 영역을 만든 뒤 **Enter**, 더블클릭 또는 **Finish outline**으로 마칩니다. **Backspace**는 마지막 점 취소, **Esc**는 현재 윤곽 취소입니다. 창을 닫으면 미완성 윤곽만 취소하고 완료한 예시는 유지합니다. 배경을 포함하지 않도록 대상의 실제 형상을 따라 지정합니다. 기준 이미지 선택과 예시 지정은 메인 이미지·원본 라벨·마스크·Undo 기록을 변경하지 않습니다.
 3. 다음 이름은 `sampleB`, `sampleC` 순으로 제안합니다. 서로 다른 이름은 서로 다른 출력 클래스가 됩니다. 같은 대상의 다른 형태를 추가하려면 **Add another example to → sampleA**를 선택하고 **Outline sample**을 다시 누릅니다. **Reference image**에서 다른 이미지를 선택한 뒤에도 같은 방식으로 추가할 수 있습니다. 선택 목록에 `sampleA · 2 example(s)`처럼 누적 개수가 표시됩니다. 같은 이미지의 같은 클래스 영역은 합쳐 인코딩하고, 서로 다른 이미지의 특징은 각각 보관해 같은 출력 클래스 ID에 연결합니다. 썸네일은 선택한 마스크만 보여주며 마우스를 올리면 원본 이미지 이름을 확인할 수 있습니다. 잘못 만든 샘플은 행의 ×로 삭제합니다. 여러 이미지를 합쳐 최대 32개 예시를 지원합니다.
 4. 창 안에서 **Run preview**를 누르면 **Reference image**에 선택된 이미지에 샘플을 적용합니다. Detection은 박스·이름·신뢰도, Segmentation은 실제 모델 마스크를 겹쳐 표시합니다. **Show results**로 결과를 켜고 끄며 원본 이미지와 비교합니다. 모델·해상도·임계값·샘플을 바꾸면 이전 미리보기를 제거하므로 다시 실행합니다. 메인 이미지는 그대로 유지되며 원본 라벨도 변경하지 않습니다. 메인 화면에서 찾으려면 **Done**으로 닫고 대상 이미지로 이동한 뒤 **Find in current image**를 누릅니다. 첫 실행에서 모델과 예시를 자동 등록하므로 별도 Register 버튼은 없습니다.
@@ -81,9 +68,9 @@ Detection 기존 라벨은 **Samples & settings → Reference image**에서 이�
 
 - Detection은 모델을 Detection 구조로 로딩하여 박스만 계산합니다. Segmentation은 전체 Segmentation 가중치와 마스크 분기를 사용하며 원본 이미지 크기로 마스크를 복원합니다. 박스를 채워 가짜 마스크를 만들지 않습니다.
 - RGB와 회색조 이미지를 지원합니다. 회색조는 RGB로 복제하고, 모델 내부 전처리로 입력 크기를 맞춥니다. 이미지당 최대 3,200만 픽셀, 최종 박스 300개를 지원합니다.
-- CUDA가 사용 가능하면 GPU로 실행하며, CUDA가 없으면 CPU와 n 모델을 기본으로 사용합니다. 예시 인코딩과 실제 추론 모두 같은 장치를 사용하고 결과 메타데이터에 `backend: cuda/cpu`를 기록합니다. GPU 메모리 부족은 오류로 표시하며 선택한 모델을 임의로 다른 크기로 바꾸지 않습니다.
+- WebGPU를 사용할 수 있으면 GPU로, 없으면 CPU/WASM으로 실행합니다. 결과에 `backend: webgpu/cpu`를 기록하며 GPU 실패 시 CPU로 전환합니다. 선택한 모델 크기는 유지합니다.
 - 연결은 서비스 연결 확인이며 첫 Find/Save에서 실제 모델 로딩과 예시 인코딩을 수행합니다. 최초 실행은 초기화 때문에 시간이 더 걸립니다. Ultralytics 8.4.168의 마스크 입력·letterbox 제약은 프로젝트의 마스크 인코더에서 보완하며 설치 패키지는 수정하지 않습니다.
-- 예시 등록은 현재 세션에 유지됩니다. 앱·YOLOE 서비스를 재시작하거나 모델·해상도를 변경하면 다음 찾기에서 다시 인코딩합니다. 데이터셋·Detection/Segmentation 모드를 변경하면 예시를 다시 지정합니다. 서비스 API v5를 사용하므로 이전 서비스를 켜둔 상태라면 Ctrl+C 후 `npm run yoloe:start`로 다시 실행합니다. 다른 창이 서비스의 예시를 바꾸면 이전 창의 추론은 오류로 중단하여 잘못된 클래스 결과를 저장하지 않습니다.
+- 예시 등록은 현재 세션에 유지됩니다. 앱을 재시작하거나 모델·해상도를 변경하면 다음 찾기에서 다시 인코딩합니다. 데이터셋·Detection/Segmentation 모드를 변경하면 예시를 다시 지정합니다. 앱 창마다 독립적인 ONNX Worker와 샘플을 사용합니다.
 - Stop은 UI 요청을 중단하고 추가 파일 저장을 막습니다. 이미 저장된 결과는 보존합니다. 현재 연산은 끝날 때까지 실행될 수 있으며 그동안 다른 요청에는 YOLOE busy를 표시합니다.
 - 결과는 예시 기반 탐지이며 학습된 전용 모델과 같은 정확도를 보장하지 않습니다. 특히 세포·현미경 영상은 실제 데이터로 검수해야 합니다.
 
