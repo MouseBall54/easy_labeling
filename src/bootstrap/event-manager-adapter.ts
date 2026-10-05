@@ -1352,19 +1352,15 @@ export function createEventManagerAdapter(input: {
           else aiProgressTrack.setAttribute("aria-valuenow", String(status.progressPercent));
         }
         if (aiProgressBar) aiProgressBar.style.width = status.progressPercent == null ? "0" : `${status.progressPercent}%`;
-        const unitLabel = status.mode?.startsWith("tk-r-em") ? "patches" : "tiles";
         if (aiProgressUnits) aiProgressUnits.textContent = status.phase === "ready"
           ? status.cacheHit ? "Completed · Cached result" : "Completed"
           : status.totalUnits
-            ? `${status.completedUnits} / ${status.totalUnits} ${unitLabel} · ${status.progressPercent ?? 0}%`
+            ? `${status.completedUnits} / ${status.totalUnits} tiles · ${status.progressPercent ?? 0}%`
             : status.message ?? stage;
         if (aiElapsed) aiElapsed.textContent = formatElapsed(status.elapsedMs);
         if (aiFallback) {
-          const limitUnsupported = status.fallbackReason?.includes("storage buffers per compute stage") ?? false;
           aiFallback.textContent = status.fallbackOccurred
-            ? limitUnsupported
-              ? status.phase === "ready" ? "GPU limit unsupported — completed with CPU / WASM" : "GPU limit unsupported — continuing on CPU / WASM"
-              : status.phase === "ready" ? "WebGPU unavailable — completed with CPU / WASM" : "WebGPU unavailable — continuing on CPU / WASM"
+            ? status.phase === "ready" ? "WebGPU unavailable — completed with CPU / WASM" : "WebGPU unavailable — continuing on CPU / WASM"
             : "";
           aiFallback.toggleAttribute("hidden", !status.fallbackOccurred);
           if (status.fallbackReason) aiFallback.setAttribute("title", status.fallbackReason);

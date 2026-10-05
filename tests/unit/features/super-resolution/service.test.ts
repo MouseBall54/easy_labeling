@@ -9,7 +9,7 @@ function createWorker() {
     onerror: null as ((event: ErrorEvent) => void) | null,
     postMessage: vi.fn((message: { id: number; operation: string; image?: { width: number; height: number; cacheKey: string; mode: SuperResolutionMode } }) => {
       if (message.operation !== "UPSCALE") return;
-      const scale = message.image?.mode === "cfsr-x4" ? 4 : message.image?.mode === "cfsr-x2" ? 2 : 1;
+      const scale = message.image?.mode === "cfsr-x4" ? 4 : 2;
       const width = (message.image?.width ?? 0) * scale;
       const height = (message.image?.height ?? 0) * scale;
       queueMicrotask(() => worker.onmessage?.({
@@ -120,15 +120,15 @@ describe("super resolution service", () => {
             fallbackOccurred: true,
             fallbackReason: "WebGPU initialization failed: GPU limit unsupported"
           },
-          result: { mode: image.mode, width: image.width, height: image.height, cacheKey: image.cacheKey, rgba: new Uint8ClampedArray(image.width * image.height * 4).buffer }
+          result: { mode: image.mode, width: image.width * 2, height: image.height * 2, cacheKey: image.cacheKey, rgba: new Uint8ClampedArray(image.width * image.height * 16).buffer }
         }
       }));
     });
     const service = createSuperResolutionService(() => worker);
 
     await service.upscale({
-      cacheKey: "image-fallback:sr:tk-r-em-hrsem",
-      mode: "tk-r-em-hrsem",
+      cacheKey: "image-fallback:sr:cfsr-x2",
+      mode: "cfsr-x2",
       width: 4,
       height: 3,
       rgba: new Uint8ClampedArray(4 * 3 * 4)
@@ -141,13 +141,4 @@ describe("super resolution service", () => {
     });
   });
 
-  it.each(["tk-r-em-hrsem", "tk-r-em-hrtem", "tk-r-em-lrsem", "tk-r-em-lrtem"] as const)(
-    "validates same-size %s restoration results",
-    async (mode) => {
-      const service = createSuperResolutionService(createWorker);
-      const input = { cacheKey: `image-1:sr:${mode}`, mode, width: 5, height: 7, rgba: new Uint8ClampedArray(5 * 7 * 4) };
-
-      await expect(service.upscale(input)).resolves.toMatchObject({ mode, width: 5, height: 7 });
-    }
-  );
 });

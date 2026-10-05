@@ -56,7 +56,7 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await expect(processedSettings).toBeHidden();
   await expect(roiGroup).toBeVisible();
   await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText([
-    "Off", "CFSR x2", "CFSR x4", "tk_r_em hrsem", "tk_r_em hrtem", "tk_r_em lrsem", "tk_r_em lrtem"
+    "Off", "CFSR x2", "CFSR x4"
   ]);
   await page.keyboard.press("Escape");
 

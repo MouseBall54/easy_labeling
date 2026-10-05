@@ -1,4 +1,8 @@
-# EasyLabeling SR / 복원 모델 통합 구현 계획
+# EasyLabeling SR / 복원 모델 통합 구현 및 검증 기록
+
+2026-10-05 갱신: TK-R 4종을 선택 UI, worker, 모델 registry 및 배포 자산에서 제거했다.
+현재 지원 모델은 CFSR x2/x4이며, Off로 AI enhancement를 끌 수 있다.
+아래 내용은 제거 전 구현과 검증의 역사적 기록이다.
 
 - 작성일: 2026-09-12
 - 최종 갱신일: 2026-09-13

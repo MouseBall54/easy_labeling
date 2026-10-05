@@ -142,7 +142,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
   await expect(page.locator("#segmentationSrSettingsGroup")).toBeHidden();
   await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeHidden();
-  await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText(["Off", "CFSR x2", "CFSR x4", "tk_r_em hrsem", "tk_r_em hrtem", "tk_r_em lrsem", "tk_r_em lrtem"]);
+  await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText(["Off", "CFSR x2", "CFSR x4"]);
   await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
   await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
   const viewButtonTopOffsets = await page.locator(".segmentation-preprocessing-toggle .btn").evaluateAll((buttons) =>
@@ -238,7 +238,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   expect(roiRows.summaryTop).toBeGreaterThanOrEqual(roiRows.controlsBottom);
   expect(roiRows.controlsOverflow).toBe(0);
   await expect(page.locator("#segmentationSrModePicker")).toBeVisible();
-  await expect(page.locator("#segmentationSrModePicker [data-segmentation-sr-mode]")).toHaveText(["CFSR x2", "CFSR x4", "tk_r_em hrsem", "tk_r_em hrtem", "tk_r_em lrsem", "tk_r_em lrtem"]);
+  await expect(page.locator("#segmentationSrModePicker [data-segmentation-sr-mode]")).toHaveText(["CFSR x2", "CFSR x4"]);
   await page.locator('[data-segmentation-sr-mode="cfsr-x2"]').click();
   await expect(page.locator("#segmentationAiProgress")).toBeVisible();
   await expect(page.locator("#segmentationAiProgressModel")).toHaveText("CFSR x2");
@@ -314,17 +314,6 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSrPreviewInfo?.()?.visible ?? false)).toBe(true);
   await page.locator("#segmentationFocusSrRoiBtn").click();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCanvasViewportTransform?.()[0] ?? null)).toBe(2);
-  await page.locator("#segmentationSuperResolutionSelect").selectOption("tk-r-em-hrsem");
-  await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("tk-r-em-hrsem", { timeout: 60_000 });
-  await expect.poll(() => page.evaluate(() => {
-    const preview = Reflect.get(window, "__easyLabelingTestApi")?.getSegmentationSrPreviewInfo?.();
-    return preview ? {
-      mode: preview.mode,
-      sameSize: preview.workingWidth === preview.originalRoi.width && preview.workingHeight === preview.originalRoi.height,
-      zoom: Reflect.get(window, "__easyLabelingTestApi")?.getCanvasViewportTransform?.()[0] ?? null
-    } : null;
-  }), { timeout: 60_000 }).toEqual({ mode: "tk-r-em-hrsem", sameSize: true, zoom: 1 });
-  await expect(page.locator("#segmentationSrResultStatus")).toContainText(/→ tk_r_em hrsem .* · coordinates: Original/);
   await page.locator("#segmentationResetSrRoiBtn").click();
   await expect(page.locator("#segmentationResetSrRoiBtn")).toBeDisabled();
   await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("off");

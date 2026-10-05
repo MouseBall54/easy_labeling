@@ -102,7 +102,7 @@ describe("segmentation working image coordinates", () => {
       originalWidth: 7,
       originalHeight: 5,
       originalRoi: { x: 2, y: 1, width: 3, height: 2 },
-      cacheKey: "image-1:roi:2,1,3,2:sr:tk-r-em-hrsem"
+      cacheKey: "image-1:roi:2,1,3,2:processed"
     };
 
     expect(getWorkingImageScale(descriptor)).toEqual({ x: 1, y: 1 });
