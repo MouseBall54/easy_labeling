@@ -141,6 +141,10 @@ class FakeElement {
     return child;
   }
 
+  contains(node: FakeElement | null | undefined): boolean {
+    return this === node || this.children.some((child) => child.contains(node));
+  }
+
   append(...children: FakeElement[]): void {
     children.forEach((child) => {
       this.appendChild(child);

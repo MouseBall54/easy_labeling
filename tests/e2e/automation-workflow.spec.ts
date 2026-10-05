@@ -119,7 +119,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   });
 
   await page.goto("/index.html");
-  await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
+  await expect(page.locator("#inspectorAnnotationPane")).toHaveClass(/active/);
   await expect(page.locator("#right-panel #layoutNameInput")).toHaveCount(0);
   await page.locator("#taskAnnotateBtn").click();
   await expect(page.locator("#left-panel")).not.toHaveClass(/collapsed/);
@@ -148,7 +148,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await expect(page.locator("#editMode")).toBeChecked();
   await expect(page.locator("#taskAutomateBtn")).toHaveAttribute("aria-pressed", "true");
   await page.locator('label[for="drawMode"]').click();
-  await expect(page.locator("#inspectorAnnotationPane")).toBeVisible();
+  await expect(page.locator("#inspectorAnnotationPane")).toHaveClass(/active/);
   await expect(page.locator("#taskAutomateBtn")).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".app-workspace")).not.toHaveAttribute("data-active-tool", "automation");
   await page.locator("#inspectorTransformTabBtn").click();

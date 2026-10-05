@@ -76,7 +76,7 @@ test("selected ONNX filename survives loading and picker cancellation, with same
   await expect(input).toHaveValue(/selected-model\.onnx$/);
 });
 
-test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe source switching and themes", async ({ page }) => {
+test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe source switching and themes", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1480, height: 940 });
   const errors: string[] = [];
@@ -163,9 +163,9 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   await page.locator("#onnxInferenceControls summary").click();
   await page.locator("#selectInferenceModelBtn").scrollIntoViewIfNeeded();
   await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
-  await page.screenshot({ path: "output/playwright/inference-light.png" });
+  await page.screenshot({ path: testInfo.outputPath("inference-light.png") });
   await page.locator('label[for="darkModeToggle"]').click();
-  await page.screenshot({ path: "output/playwright/inference-dark.png" });
+  await page.screenshot({ path: testInfo.outputPath("inference-dark.png") });
   await page.locator("#taskReviewBtn").click();
   await expect(page.locator("#detectionInferenceWorkspace")).toBeHidden();
   await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();

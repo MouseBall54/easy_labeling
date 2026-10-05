@@ -48,3 +48,14 @@ export function getColorForClassRgba(labelClass: string | undefined, opacity: nu
   const alpha = Math.max(0, Math.min(1, opacity));
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
+
+export function getContrastTextColor(color: string): "#000000" | "#ffffff" {
+  const channels = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!channels) return "#ffffff";
+  const linear = channels.slice(1).map((value) => {
+    const channel = Number.parseInt(value, 16) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? "#000000" : "#ffffff";
+}

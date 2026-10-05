@@ -408,6 +408,9 @@ export function createUiManagerAdapter(input: {
     elements.segmentationEdgeGlowSlider.value = `${Math.round(edgeHighlightIntensity * 100)}`;
     elements.segmentationEdgeGlowValue.textContent = `${Math.round(edgeHighlightIntensity * 100)}`;
     const paintClassList = elements.segmentationPaintClassList;
+    const focusedClassControl = paintClassList?.contains(input.documentRef.activeElement) ? input.documentRef.activeElement as HTMLElement : null;
+    const focusedClassId = focusedClassControl?.dataset.classId;
+    const focusedClassUi = focusedClassControl?.dataset.ui;
     elements.segmentationClassSummary.innerHTML = "";
     if (paintClassList) paintClassList.innerHTML = "";
     if (summary && segmentationClassIds.length > 0) {
@@ -479,6 +482,7 @@ export function createUiManagerAdapter(input: {
       paintClassList?.querySelectorAll<HTMLElement>('[data-ui="segmentation-class-visibility-item"]').forEach((row) => {
         row.hidden = query.length > 0 && !row.textContent?.toLocaleLowerCase().includes(query);
       });
+      if (focusedClassId && focusedClassUi) paintClassList?.querySelector<HTMLElement>(`[data-ui="${focusedClassUi}"][data-class-id="${focusedClassId}"]`)?.focus({ preventScroll: true });
     } else {
       if (paintClassList) paintClassList.textContent = "";
       elements.segmentationClassSummary.textContent = visibleClassIds.length > 0
@@ -628,6 +632,7 @@ export function createUiManagerAdapter(input: {
     },
 
     setActiveTask(task: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void {
+      const changedTask = activeTask !== task;
       activeTask = task;
       const isPreprocessingTask = task === "preprocessing";
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display";
@@ -687,9 +692,11 @@ export function createUiManagerAdapter(input: {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
       }
       manager.syncWorkspaceState();
+      if (changedTask) elements.leftPanel.querySelector<HTMLElement>(".panel-content")?.scrollTo?.(0, 0);
     },
 
     setInspectorTab(tab: "annotation" | "transform" | "automation"): void {
+      const changedTab = activeInspectorTab !== tab;
       activeInspectorTab = tab;
       const automationActive = tab === "automation";
       elements.taskAutomateBtn.classList.toggle("active", automationActive);
@@ -732,6 +739,7 @@ export function createUiManagerAdapter(input: {
           elements.inspectorSubtitle.textContent = tab === "transform" ? "Adjust selected annotation geometry" : "Select a box to inspect or edit";
         }
       }
+      if (changedTab) elements.rightPanel.querySelector<HTMLElement>(".panel-content")?.scrollTo?.(0, 0);
     },
 
     setLabelDisplayMode(mode: LabelDisplayMode, persist = true): void {
@@ -827,6 +835,9 @@ export function createUiManagerAdapter(input: {
       const currentFile = input.state.session.currentImageFile;
       const currentImage = input.state.session.currentImage;
       const hasImage = Boolean(currentFile && currentImage);
+      const workspace = input.documentRef.querySelector<HTMLElement>(".app-workspace");
+      workspace?.setAttribute("data-has-image", String(hasImage));
+      workspace?.setAttribute("data-has-dataset", String(input.state.session.imageFiles.length > 0));
       const isCompactViewport = input.documentRef.defaultView?.matchMedia("(max-width: 800px)").matches ?? false;
       const imageCount = input.state.session.imageFiles.length;
       const rectCount = canvasController?.raw.getObjects("rect").filter(isRectObject).length ?? 0;
@@ -1542,7 +1553,7 @@ export function createUiManagerAdapter(input: {
         emptyState.className = "label-list-empty list-group-item text-muted";
         emptyState.dataset.ui = "label-list-empty";
         emptyState.dataset.testid = "label-list-empty";
-        emptyState.textContent = "No labels match the current filter.";
+        emptyState.textContent = rects.length === 0 ? "No labels yet. Draw a box to start." : "No labels match the current filter.";
         elements.labelList.appendChild(emptyState);
       }
 
@@ -1730,8 +1741,19 @@ export function createUiManagerAdapter(input: {
       panel.style.display = "";
       panel.classList.toggle("collapsed", collapse);
       panel.setAttribute("aria-hidden", String(collapse));
+      const moveFocus = collapse ? panel.contains(input.documentRef.activeElement) : input.documentRef.activeElement === expandButton;
+      panel.toggleAttribute("inert", collapse);
       splitter.style.display = collapse ? "none" : "";
       expandButton.style.display = collapse ? "inline-flex" : "none";
+      expandButton.setAttribute("aria-controls", panel.id);
+      expandButton.setAttribute("aria-expanded", String(!collapse));
+      if (moveFocus) {
+        if (collapse) expandButton.focus();
+        // Wait for the panel/header CSS transitions before focusing a visible control.
+        else globalThis.setTimeout(() => {
+          if (!panel.classList.contains("collapsed")) panel.querySelector<HTMLButtonElement>('[id^="collapse-"]')?.focus({ preventScroll: true });
+        }, 300);
+      }
       const resizeCanvas = (): void => {
         const canvasController = getCanvasController();
         canvasController?.raw.resizeCanvas?.();

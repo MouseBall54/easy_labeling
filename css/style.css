@@ -101,9 +101,15 @@ body.dark-mode .btn-secondary:hover {
 }
 
 body.dark-mode .btn-outline-primary {
-    color: var(--dm-primary-bg);
-    border-color: var(--dm-primary-bg);
+    --bs-btn-color: #a8caff;
+    --bs-btn-border-color: #8cb8ff;
+    --bs-btn-active-color: #ffffff;
+    --bs-btn-active-bg: #255b97;
+    --bs-btn-active-border-color: #8cb8ff;
+    color: #a8caff;
+    border-color: #8cb8ff;
 }
+body.dark-mode .btn-outline-primary.active { color: #ffffff; background-color: #255b97; border-color: #8cb8ff; }
 body.dark-mode .btn-outline-primary:hover {
     background-color: var(--dm-primary-bg);
     color: var(--dm-primary-text);
@@ -1429,6 +1435,7 @@ body.dark-mode {
     --workbench-text: #f3f5f7;
     --workbench-text-muted: #aeb7bf;
     --workbench-primary-soft: #203a5b;
+    --bs-secondary-color: var(--workbench-text-muted);
 }
 
 body {
@@ -3659,7 +3666,17 @@ body.dark-mode .placement-notice[data-state="busy"] {
 .yoloe-label-choice span { font-size: var(--fs-caption); overflow-wrap: anywhere; }
 .yoloe-label-choice:focus-within { outline: 2px solid var(--workbench-primary); outline-offset: -2px; }
 
+.app-workspace[data-has-dataset="false"] .image-library-section,
+.app-workspace[data-has-dataset="false"] #classSearchInput,
+.app-workspace[data-has-dataset="false"] #label-filters,
+.app-workspace[data-has-image="false"] .selection-inspector-section,
+.app-workspace[data-has-image="false"] .label-list-section,
+.app-workspace[data-has-image="false"] .segmentation-summary-section { display: none; }
+.panel-icon-button:focus-visible, .task-rail-button:focus-visible { outline: 2px solid var(--workbench-primary); outline-offset: 2px; }
 .automation-result-details > summary { font-size: var(--fs-caption); cursor: pointer; }
+body.dark-mode .automation-batch-result-row[data-state="success"] .automation-result-state { color: #74dca4; }
+body.dark-mode .automation-batch-result-row[data-state="failed"] .automation-result-state { color: #ff9ba8; }
+body.dark-mode .automation-batch-result-row[data-state="skipped"] .automation-result-state { color: var(--workbench-text-muted); }
 
 .segmentation-paint-class-button {
     display: inline-flex;

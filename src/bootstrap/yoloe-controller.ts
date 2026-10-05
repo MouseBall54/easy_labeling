@@ -5,7 +5,7 @@ import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import { isRectObject } from "../features/canvas/fabric-types.js";
 import { imagePng, selectedVisualExamples, maskRegionExample, sampleMaskGeometry, decodeYoloeMask, requestYoloe, inferYoloe, usesYoloeOnnx, type VisualExample, type YoloeProfile, type YoloeStatus, type YoloeResult } from "../features/inference/yoloe.js";
 import type { Detection } from "../features/inference/yolo.js";
-import { getColorForClass } from "../features/canvas/colors.js";
+import { getColorForClass, getContrastTextColor } from "../features/canvas/colors.js";
 import { installModalFocusManagement } from "../ui/modal-focus.js";
 import { parseYoloRows } from "../domain/yolo/yolo.js";
 import { normalizeClassName } from "../domain/class-files.js";
@@ -316,7 +316,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       context.fillStyle = detection ? getColorForClass(String(box.classId)) : "#111827";
       context.fillRect(x, y, width, labelHeight);
       if (!detection) { context.fillStyle = getColorForClass(String(box.classId)); context.fillRect(x, y, 4, labelHeight); }
-      context.fillStyle = "#ffffff";
+      context.fillStyle = detection ? getContrastTextColor(getColorForClass(String(box.classId))) : "#ffffff";
       context.fillText(text, x + (detection ? 5 : 9), y + (detection ? 3 : 4), Math.max(1, width - (detection ? 10 : 14)));
     }
     context.restore();

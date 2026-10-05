@@ -3,7 +3,7 @@ import { createBoxLayout, isPixelRectInsideImageBounds, placeBoxLayout } from ".
 import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
-import { getColorForClass as defaultGetColorForClass } from "./colors.js";
+import { getContrastTextColor, getColorForClass as defaultGetColorForClass } from "./colors.js";
 import type { CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
 import {
   createAnnotationId,
@@ -1261,7 +1261,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         fontSize: state.labelFontSize,
         fontFamily: "'Segoe UI', sans-serif",
         fontWeight: "600",
-        fill: "#ffffff",
+        fill: getContrastTextColor(String(rect.stroke)),
         backgroundColor: rect.stroke,
         padding: 3,
         selectable: false,
@@ -1292,7 +1292,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         originY: "bottom",
         fontSize: state.labelFontSize,
         backgroundColor: rect.stroke,
-        fill: "#ffffff",
+        fill: getContrastTextColor(String(rect.stroke)),
         visible: workflowActive && state.showLabelsOnCanvas && rect.visible !== false
       });
       rect._labelText._labelLayoutVisible = true;
@@ -1353,7 +1353,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           fontFamily: "'Segoe UI', sans-serif",
           fontWeight: placement?.representation === "full" ? "600" : "700",
           padding: 3,
-          fill: "#ffffff",
+          fill: getContrastTextColor(String(rect.stroke)),
           backgroundColor: rect.stroke,
           visible: workflowActive && rect.visible !== false && layoutVisible
         });
