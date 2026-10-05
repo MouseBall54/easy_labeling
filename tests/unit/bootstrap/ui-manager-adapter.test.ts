@@ -309,6 +309,8 @@ function createElements() {
     imageCountBadge: new FakeElement("span"),
     datasetConnectionStatus: new FakeElement("span"),
     refreshDatasetBtn: new FakeElement("button"),
+    selectImageFolderBtn: new FakeElement("button"),
+    segmentationPaintClassList: new FakeElement("div"),
     selectLabelFolderBtn: new FakeElement("button"),
     prevImageBtn: new FakeElement("button"),
     nextImageBtn: new FakeElement("button"),

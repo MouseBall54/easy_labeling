@@ -1,0 +1,50 @@
+
+Running 7 tests using 1 worker
+
+(node:61132) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61132) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\layout-management.spec.ts:3:1 › layout setup creates from selected boxes and updates the saved layout (13.9s)
+  ok 2 [chromium] › tests\e2e\review-queue.spec.ts:3:1 › review workspace filters quality findings, selects an affected box, navigates the queue, and restores review status (10.1s)
+  ok 3 [chromium] › tests\e2e\ux-stage2.spec.ts:13:3 › detection: existing label thumbnails, class filter and focus preserve original labels (9.0s)
+  ok 4 [chromium] › tests\e2e\ux-stage2.spec.ts:13:3 › segmentation: existing label thumbnails, class filter and focus preserve original labels (8.5s)
+  x  5 [chromium] › tests\e2e\ux-stage2.spec.ts:56:1 › empty startup, compact dataset management and panel/tool navigation remain clear (17.9s)
+(node:24108) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24108) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 6 [chromium] › tests\e2e\ux-stage2.spec.ts:94:3 › light: Review actions lead the panel and Mask classes have independent paint/visibility (8.7s)
+  ok 7 [chromium] › tests\e2e\ux-stage2.spec.ts:94:3 › dark: Review actions lead the panel and Mask classes have independent paint/visibility (8.8s)
+
+
+  1) [chromium] › tests\e2e\ux-stage2.spec.ts:56:1 › empty startup, compact dataset management and panel/tool navigation remain clear
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeFocused[2m([22m[2m)[22m failed
+
+    Locator:  locator('#collapse-left-panel-btn')
+    Expected: focused
+    Received: inactive
+    Timeout:  10000ms
+
+    Call log:
+    [2m  - Expect "toBeFocused" with timeout 10000ms[22m
+    [2m  - waiting for locator('#collapse-left-panel-btn')[22m
+    [2m    14 × locator resolved to <button type="button" class="panel-icon-button" id="collapse-left-panel-btn" title="Collapse files panel" aria-label="Collapse files panel">…</button>[22m
+    [2m       - unexpected value "inactive"[22m
+
+
+      72 |   await expect(page.locator("#expand-left-panel-btn")).toBeFocused();
+      73 |   await page.locator("#expand-left-panel-btn").click();
+    > 74 |   await expect(page.locator("#collapse-left-panel-btn")).toBeFocused();
+         |                                                          ^
+      75 |   await page.locator("#left-panel .panel-content").evaluate((panel) => { panel.scrollTop = panel.scrollHeight; });
+      76 |   await page.locator("#taskInferenceBtn").click();
+      77 |   await expect.poll(() => page.locator("#left-panel .panel-content").evaluate((panel) => panel.scrollTop)).toBe(0);
+        at C:\Git\easy_labeling\tests\e2e\ux-stage2.spec.ts:74:58
+
+    Error Context: test-results\ux-stage2-empty-startup-co-52905-ool-navigation-remain-clear-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\ux-stage2.spec.ts:56:1 › empty startup, compact dataset management and panel/tool navigation remain clear
+  6 passed (1.3m)

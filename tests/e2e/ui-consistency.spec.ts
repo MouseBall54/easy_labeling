@@ -13,6 +13,7 @@ test("merged editing workspaces retain dataset controls and compact status filte
     await page.locator(editTab).click();
     await expect(page.locator("#selectImageFolderBtn")).toBeVisible();
     await expect(page.locator("#selectLabelFolderBtn")).toBeVisible();
+    if (!await page.locator("#loadClassInfoFolderBtn").isVisible()) await page.locator("#classManagement > summary").click();
     await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
     const before = await page.locator("#image-list [data-file-name]").count();
     expect(before).toBeGreaterThan(0);
@@ -45,12 +46,9 @@ test("merged editing workspaces retain dataset controls and compact status filte
 test("workbench controls keep a consistent rhythm across themes and compact viewports", async ({ page }) => {
   await page.goto("/index.html");
   await expect(page.locator('[data-standby-step="interface"]')).toHaveAttribute("data-state", "ready");
-  // This is a visual-system check; model-worker readiness is covered by the
-  // bootstrap smoke tests and must not make typography assertions flaky.
-  await page.evaluate(() => {
-    document.querySelector<HTMLElement>("#workspaceStandbyPanel")?.setAttribute("hidden", "");
-    document.body.classList.remove("workspace-standby-active");
-  });
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+  await page.locator("#classManagement > summary").click();
 
   const lightMetrics = await page.evaluate(() => {
     const compactButton = document.querySelector<HTMLElement>("#loadClassInfoFolderBtn");

@@ -386,7 +386,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#confirmAutomationBatchBtn").click();
   await expect(page.locator("#automationBatchCounts")).toHaveText("2 / 2", { timeout: 30_000 });
   await expect(page.locator("#automationBatchStage")).toContainText("Batch complete");
-  await expect(page.locator("#automationBatchResultSummary")).toContainText("Success 1");
+  await expect(page.locator("#automationBatchResultSummary")).toContainText("Matched 1");
   await expect(page.locator("#automationBatchResultSummary")).toContainText("Skipped 1");
   await expect(page.locator("#automationBatchResultList .automation-batch-result-row")).toHaveCount(2);
   await expect(page.locator('#automationBatchResultList .automation-batch-result-row[data-state="success"]')).toContainText("scene-b.png");
@@ -400,6 +400,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   expect(batchDimensions).not.toBeNull();
   expect(batchDimensions?.progressHeight ?? 0).toBeGreaterThanOrEqual(11);
   expect(batchDimensions?.listHeight ?? 0).toBeGreaterThanOrEqual(288);
+  await page.locator("#automationBatchResultList .automation-result-details > summary").first().click();
   const resultLayout = await page.locator("#automationBatchResultList .automation-batch-result-row").first().evaluate((row) => {
     const heading = row.querySelector<HTMLElement>(".automation-result-heading")?.getBoundingClientRect();
     const file = row.querySelector<HTMLElement>(".automation-result-file")?.getBoundingClientRect();
@@ -557,7 +558,7 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#runAutomationBatchBtn").click();
   await page.locator("#confirmAutomationBatchBtn").click();
   await expect(page.locator("#automationBatchCounts")).toHaveText("2 / 2", { timeout: 30_000 });
-  await expect(page.locator("#automationBatchResultSummary")).toContainText("Success 2");
+  await expect(page.locator("#automationBatchResultSummary")).toContainText("Matched 2");
   await expect.poll(async () => page.evaluate(() => {
     const fixture = Reflect.get(window, "__automationFixture") as { readLabel?: (name: string) => string | null } | undefined;
     return fixture?.readLabel?.("scene-b.txt") ?? "";

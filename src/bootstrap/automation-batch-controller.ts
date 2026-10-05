@@ -7,7 +7,7 @@ import {
   serializeAutomationBoxes
 } from "../features/automation/batch-labels.js";
 import { imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
-import { requireAcceptedMatch, type TemplateMatchInput } from "../features/automation/template-matching-service.js";
+import type { TemplateMatchInput } from "../features/automation/template-matching-service.js";
 import type {
   AutomationLibraryDocument,
   AutomationPreset,
@@ -88,7 +88,7 @@ export function createAutomationBatchController(input: {
     elements.automationBatchProgressBar.textContent = percent >= 15 ? `${percent}%` : "";
     const failures = summary.items.filter((item) => item.state === "failed");
     const suffix = summary.cancelled ? " | Cancelled" : "";
-    elements.automationBatchResultSummary.textContent = `${dryRun ? "Dry run | " : ""}Success ${summary.success} | Failed ${summary.failed} | Skipped ${summary.skipped}${suffix}`;
+    elements.automationBatchResultSummary.textContent = `${dryRun ? "Dry run | " : ""}Processed ${summary.processed} · Matched ${summary.success} · No target ${summary.noMatch} · Errors ${summary.failed} · Skipped ${summary.skipped}${suffix}`;
     elements.automationBatchResultSummary.title = failures.map((item) => `${item.fileName}: ${item.reason ?? "Failed"}`).join("\n");
     elements.automationBatchResultList.replaceChildren();
     summary.items.forEach((item) => {
@@ -103,13 +103,14 @@ export function createAutomationBatchController(input: {
       file.title = item.reason ?? "";
       const state = input.documentRef.createElement("span");
       state.className = "automation-result-state";
-      state.textContent = item.state;
+      state.textContent = item.state === "no-match" ? "No target" : item.state === "failed" ? "Error" : item.state === "success" ? `${item.matchCount ?? 1} match(es)` : "Skipped";
       state.title = item.durationMs == null
         ? item.reason ?? ""
         : `Decode ${(item.decodeMs ?? 0).toFixed(1)} ms | ImageData ${(item.imageDataMs ?? 0).toFixed(1)} ms | Worker ${(item.workerMs ?? 0).toFixed(1)} ms | Save ${(item.saveMs ?? 0).toFixed(1)} ms`;
       heading.append(file, state);
-      const details = input.documentRef.createElement("div");
+      const details = input.documentRef.createElement("details");
       details.className = "automation-result-details";
+      const detailTitle = input.documentRef.createElement("summary"); detailTitle.textContent = "Details"; details.appendChild(detailTitle);
       const metrics = input.documentRef.createElement("dl");
       metrics.className = "automation-result-metrics";
       const appendMetric = (label: string, value: string): void => {
@@ -268,11 +269,9 @@ export function createAutomationBatchController(input: {
               matchScore = match.score;
               matchX = match.x;
               matchY = match.y;
-              if (activePreset.outputMode === "layout-best-match") {
-                requireAcceptedMatch(match, activePreset.matching.minimumScore);
-              } else if (match.matches.length === 0) {
+              if (activePreset.outputMode === "layout-best-match" ? match.score < activePreset.matching.minimumScore : match.matches.length === 0) {
                 return {
-                  state: "failed" as const,
+                  state: "no-match" as const,
                   score: match.score,
                   x: match.x,
                   y: match.y,

@@ -95,7 +95,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`multiple ex
   await expect(page.locator("#yoloeSetupStatus")).toContainText("Invalid");
   await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
   await closeSetup(page); await page.locator("#yoloeSaveScope").selectOption("all");
-  await expect(page.locator("#saveYoloeCurrentBtn")).toHaveText("Run & save all (17)");
+  await expect(page.locator("#saveYoloeCurrentBtn")).toHaveText("Run & save results");
   await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText(/Running · [1-9]+\/17 · \d+%/);
   await expect(page.locator("#yoloeRunStatus")).toContainText("17 image(s)", { timeout: 60_000 });

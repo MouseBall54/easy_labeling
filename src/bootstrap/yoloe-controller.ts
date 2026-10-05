@@ -106,9 +106,14 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       clearPreview();
     }
     el("yoloeOutputBadge").textContent = workflow === "segmentation" ? "Segmentation · Masks" : "Detection · Boxes";
-    const summary = `${modelSelect.value || "YOLOE-26"} · ${examples.length} sample(s) · ${new Set(examples.map((e) => e.sourceName)).size} image(s)`;
+    const modelSize = modelSelect.value.match(/yoloe-26([nsml])/i)?.[1]?.toUpperCase() ?? "YOLOE-26";
+    const device = backend === "cpu" ? "CPU · GPU unavailable" : backend ? `GPU · ${gpuName ?? backend}` : "Disconnected";
+    const summary = `${modelSize} · ${el<HTMLSelectElement>("yoloeImageSize").value} · ${device}`;
     el("yoloeSummary").textContent = summary;
-    el("yoloeSetupSummary").textContent = `${workflow === "segmentation" ? "Masks" : "Boxes"} · ${backend === "webgpu" ? "GPU / WebGPU" : backend === "cuda" ? "GPU / CUDA" : backend === "cpu" ? "CPU" : "Disconnected"} · ${summary}`;
+    el("yoloeSetupSummary").textContent = `${summary} · ${examples.length} examples / ${new Set(examples.map((e) => e.sourceName)).size} images`;
+    const folder = `inference-${modelSelect.value}-${nameInput.value.trim() || "targets"}${workflow === "segmentation" ? "-masks" : ""}`;
+    el("yoloeResultFolder").textContent = `Results: ${folder}`;
+    el("yoloeResultFolder").title = folder;
     el("yoloeSamplesEmpty").hidden = Boolean(examples.length);
     el<HTMLButtonElement>("openYoloeSetupBtn").disabled = busy;
     const referenceNames = [...new Set([...state.session.imageFiles.map((file) => file.name), ...examples.map((example) => example.sourceName)])];
@@ -187,16 +192,26 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el("yoloeExistingBoxes").hidden = false;
     el("yoloeExistingLabelTitle").textContent = `Existing ${workflow === "detection" ? "boxes" : "mask regions"} · Reference image`;
     existingBoxSelect.disabled = busy || drawing || !existingBoxes.length;
+    const selectedLabelCount = [...existingBoxSelect.selectedOptions].filter((option) => option.value !== "").length;
+    el("yoloeLabelSelectionSummary").textContent = `${selectedLabelCount} selected / ${existingBoxes.length}`;
+    el<HTMLButtonElement>("focusYoloeLabelsBtn").disabled = !selectedLabelCount || busy || drawing;
+    el<HTMLSelectElement>("yoloeLabelClassFilter").disabled = busy || drawing;
+    el("yoloeLabelChoices").querySelectorAll<HTMLInputElement>("input").forEach((checkbox) => {
+      checkbox.disabled = existingBoxSelect.disabled;
+      checkbox.checked = existingBoxSelect.options[Number(checkbox.value)]?.selected ?? false;
+    });
     el<HTMLButtonElement>("addYoloeExistingBtn").disabled = busy || drawing || ![...existingBoxSelect.selectedOptions].some((option) => option.value !== "" && existingBoxes[Number(option.value)]);
     el<HTMLButtonElement>("clearYoloeExamplesBtn").disabled = busy;
     el("clearYoloeExamplesBtn").hidden = !examples.length;
     el<HTMLButtonElement>("connectYoloeBtn").disabled = busy;
+    el("connectYoloeBtn").hidden = connected && readyModels.includes(modelSelect.value);
     el<HTMLButtonElement>("stopYoloePreviewBtn").hidden = !busy || !operationController;
     el<HTMLButtonElement>("stopYoloePreviewBtn").disabled = operationController?.signal.aborted ?? false;
     modelSelect.disabled = busy || drawing || !connected;
     nameInput.disabled = busy;
     el<HTMLSelectElement>("yoloeSaveScope").disabled = busy || drawing;
-    el("saveYoloeCurrentBtn").textContent = el<HTMLSelectElement>("yoloeSaveScope").value === "all" ? `Run & save all (${state.session.imageFiles.length})` : "Run & save current";
+    el("saveYoloeCurrentBtn").textContent = "Run & save results";
+    el<HTMLSelectElement>("yoloeSaveScope").options[1]!.textContent = `All images (${state.session.imageFiles.length})`;
     for (const id of ["saveYoloePresetBtn", "saveYoloePresetAsBtn"]) el<HTMLButtonElement>(id).disabled = busy || drawing || !examples.length;
     el<HTMLButtonElement>("loadYoloePresetBtn").disabled = busy || drawing;
     el<HTMLSelectElement>("yoloePresetSelect").disabled = busy || drawing;
@@ -354,10 +369,51 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const fitSample = (): void => { sampleZoom = 1; samplePanX = samplePanY = 0; drawPreview(); };
   el("fitYoloeSampleBtn").addEventListener("click", fitSample);
   el("yoloeShowSampleResults").addEventListener("change", drawPreview);
+  const renderLabelChoices = (): void => {
+    const list = el("yoloeLabelChoices"); list.replaceChildren();
+    const filter = el<HTMLSelectElement>("yoloeLabelClassFilter").value;
+    existingBoxes.forEach((example, index) => {
+      if (filter && String(example.classId) !== filter) return;
+      const row = documentRef.createElement("label"); row.className = "yoloe-label-choice";
+      const checkbox = documentRef.createElement("input"); checkbox.type = "checkbox"; checkbox.className = "form-check-input";
+      checkbox.value = String(index); checkbox.dataset.ui = "yoloe-label-choice";
+      checkbox.setAttribute("aria-label", `Use label #${index + 1} · ${example.name}`);
+      checkbox.checked = existingBoxSelect.options[index]?.selected ?? false;
+      checkbox.addEventListener("change", () => {
+        existingBoxSelect.options[index]!.selected = checkbox.checked;
+        existingBoxSelect.dispatchEvent(new Event("change"));
+      });
+      const thumb = documentRef.createElement("canvas"); thumb.width = thumb.height = 44; thumb.setAttribute("aria-hidden", "true");
+      const [x, y, right, bottom] = example.box;
+      const scale = Math.min(44 / (right - x), 44 / (bottom - y));
+      const width = (right - x) * scale, height = (bottom - y) * scale;
+      thumb.getContext("2d")!.drawImage(sampleImage!, x, y, right - x, bottom - y, (44 - width) / 2, (44 - height) / 2, width, height);
+      const text = documentRef.createElement("span"); text.textContent = `#${index + 1} · ${example.name} · ${Math.round(right - x)}×${Math.round(bottom - y)}`;
+      row.append(checkbox, thumb, text); list.appendChild(row);
+    });
+    if (!list.childElementCount) list.textContent = existingBoxes.length ? "No labels in this class" : "No labels in the active label folder";
+    sync();
+  };
+  el("yoloeLabelClassFilter").addEventListener("change", renderLabelChoices);
+  el("focusYoloeLabelsBtn").addEventListener("click", () => {
+    const selected = [...existingBoxSelect.selectedOptions].filter((option) => option.value !== "").map((option) => existingBoxes[Number(option.value)]!);
+    if (!selected.length || !sampleImage) return;
+    const left = Math.min(...selected.map((e) => e.box[0])), top = Math.min(...selected.map((e) => e.box[1]));
+    const right = Math.max(...selected.map((e) => e.box[2])), bottom = Math.max(...selected.map((e) => e.box[3]));
+    const base = Math.min(overlay.width / sampleImage.naturalWidth, overlay.height / sampleImage.naturalHeight);
+    const zoom = Math.min(overlay.width * 0.8 / (right - left), overlay.height * 0.8 / (bottom - top));
+    sampleZoom = Math.max(1, Math.min(20, zoom / base));
+    samplePanX = (sampleImage.naturalWidth / 2 - (left + right) / 2) * base * sampleZoom;
+    samplePanY = (sampleImage.naturalHeight / 2 - (top + bottom) / 2) * base * sampleZoom;
+    drawPreview();
+  });
   const loadExistingBoxes = async (): Promise<void> => {
     existingBoxes = [];
     existingBoxSelect.replaceChildren(new Option("Loading labels…", "")); sync();
-    if (!sampleImage) return;
+    if (!sampleImage) {
+      existingBoxSelect.replaceChildren(new Option("Open an image first", ""));
+      renderLabelChoices(); return;
+    }
     const width = sampleImage.naturalWidth, height = sampleImage.naturalHeight;
     if (workflow === "segmentation") {
       const snapshot = sampleImageName === state.session.currentImageFile?.name
@@ -379,6 +435,9 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       });
     }
     existingBoxSelect.replaceChildren(...(existingBoxes.length ? existingBoxes.map((box, index) => new Option(`#${index + 1} · ${box.classId}: ${box.name} · ${Math.round(box.box[2] - box.box[0])}×${Math.round(box.box[3] - box.box[1])}`, String(index))) : [new Option("No labels in the active label folder", "")]));
+    const classFilter = el<HTMLSelectElement>("yoloeLabelClassFilter");
+    classFilter.replaceChildren(new Option("All classes", ""), ...[...new Map(existingBoxes.map((e) => [e.classId, e.name]))].map(([id, name]) => new Option(name, String(id))));
+    renderLabelChoices();
     sync(); drawPreview();
   };
   setupElement.addEventListener("shown.bs.modal", () => {
@@ -418,6 +477,13 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   sampleResize.observe(el("yoloeSampleStage"));
   const renderExamples = (): void => {
     const list = el("yoloeExampleList"); list.replaceChildren();
+    const groups = new Map<string, typeof examples>();
+    for (const example of examples) groups.set(example.name, [...groups.get(example.name) ?? [], example]);
+    for (const [name, entries] of groups) {
+      const summary = documentRef.createElement("p"); summary.className = "small mb-1";
+      summary.textContent = `${name} · ${entries.length} examples · ${new Set(entries.map((e) => e.sourceName)).size} images`;
+      list.appendChild(summary);
+    }
     for (const example of examples) {
       const row = documentRef.createElement("div");
       row.style.borderLeft = `3px solid ${getColorForClass(String(example.classId))}`;

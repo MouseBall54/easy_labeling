@@ -62,6 +62,7 @@ for (const task of ["Annotate", "Inference"]) {
     await page.goto("/index.html");
     await page.locator(`#task${task}Btn`).click();
     await expect(page.locator(".classes-panel-section")).toBeVisible();
+    if (!await page.locator("#loadClassInfoFolderBtn").isVisible()) await page.locator("#classManagement > summary").click();
     await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
     await expect(page.locator("#addClassShortcutBtn")).toBeVisible();
     await expect(page.locator('#class-file-select option[value="__CREATE_NEW__"]')).toHaveCount(1);

@@ -197,6 +197,7 @@ function createElements() {
     segmentationEdgeGlowSlider: new FakeInputElement(),
     segmentationEdgeGlowValue: new FakeHtmlElement(),
     segmentationClassSummary: new FakeHtmlElement(),
+    segmentationPaintClassList: new FakeHtmlElement(),
     saveLabelClassBtn: new FakeHtmlElement(),
     crosshairToggle: new FakeInputElement(),
     contextMenu: new FakeHtmlElement(),

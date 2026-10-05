@@ -206,12 +206,12 @@ test("workflow switching keeps workflow-specific panels and state coherent", asy
   await page.locator("#taskSegmentationDisplayBtn").click();
   await expect(page.locator("#right-panel")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#inspectorTitle")).toHaveText("Mask Inspector");
-  await expect(page.locator("#segmentationClassSection")).toBeVisible();
+  await expect(page.locator("#segmentationPaintClassList")).toBeVisible();
   await expect(page.locator("#detectionLeftWorkspace")).toBeHidden();
   await expect(page.locator("#segmentationDisplayWorkspace")).toBeVisible();
   await expect(page.locator("#left-panel #segmentationDisplaySection")).toBeVisible();
   await expect(page.locator("#right-panel #segmentationDisplaySection")).toHaveCount(0);
-  await expect(page.locator("#segmentationDisplaySection summary")).toHaveCount(0);
+  await expect(page.locator("#segmentationDisplaySection summary")).toHaveText("Display class filter");
   await expect(page.locator("#segmentationMaskVisibilityToggle")).toBeVisible();
   await expect(page.locator("#leftPanelTitle")).toHaveText("Mask Display");
 

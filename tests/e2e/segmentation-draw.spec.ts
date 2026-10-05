@@ -143,8 +143,8 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await expect(page.locator("#segmentationSrSettingsGroup")).toBeHidden();
   await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeHidden();
   await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText(["Off", "CFSR x2", "CFSR x4"]);
-  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
-  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
+  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
+  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
   const viewButtonTopOffsets = await page.locator(".segmentation-preprocessing-toggle .btn").evaluateAll((buttons) =>
     buttons.map((button) => button.getBoundingClientRect().top)
   );

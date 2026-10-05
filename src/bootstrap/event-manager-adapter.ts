@@ -1795,7 +1795,7 @@ export function createEventManagerAdapter(input: {
         input.uiManager.setWorkflow?.(input.state.session.workflow);
       });
 
-      elements.segmentationClassSummary.addEventListener("change", (event) => {
+      elements.segmentationPaintClassList.addEventListener("change", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
           return;
@@ -1840,7 +1840,7 @@ export function createEventManagerAdapter(input: {
         const inputElement = event.currentTarget;
         if (!(inputElement instanceof HTMLInputElement)) return;
         const query = inputElement.value.trim().toLocaleLowerCase();
-        elements.segmentationClassSummary.querySelectorAll<HTMLElement>('[data-ui="segmentation-class-visibility-item"]').forEach((item) => {
+        elements.segmentationPaintClassList.querySelectorAll<HTMLElement>('[data-ui="segmentation-class-visibility-item"]').forEach((item) => {
           item.hidden = query.length > 0 && !item.textContent?.toLocaleLowerCase().includes(query);
         });
       });

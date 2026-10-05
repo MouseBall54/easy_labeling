@@ -91,7 +91,7 @@ describe("sequential automation batch", () => {
     expect(summary.items).toEqual([]);
   });
 
-  it("records low-score and save failures without stopping later files", async () => {
+  it("separates no targets from save failures without stopping later files", async () => {
     const summary = await runSequentialBatch({
       files: ["low.png", "disk-error.png", "good.png"],
       preset: { ...createPreset(), existingLabelsPolicy: "append" },
@@ -101,7 +101,7 @@ describe("sequential automation batch", () => {
         isCancellationRequested: () => false,
         processFile: async (file) => {
           if (file === "low.png") {
-            return { state: "failed", score: 0.42, x: 7, y: 8, reason: "Score below minimum" };
+            return { state: "no-match", score: 0.42, x: 7, y: 8, reason: "Score below minimum" };
           }
           if (file === "disk-error.png") {
             throw new Error("Unable to save label file");
@@ -111,8 +111,8 @@ describe("sequential automation batch", () => {
       }
     });
 
-    expect(summary).toMatchObject({ processed: 3, success: 1, failed: 2, skipped: 0 });
-    expect(summary.items[0]).toMatchObject({ state: "failed", score: 0.42, reason: "Score below minimum" });
+    expect(summary).toMatchObject({ processed: 3, success: 1, failed: 1, noMatch: 1, skipped: 0 });
+    expect(summary.items[0]).toMatchObject({ state: "no-match", score: 0.42, reason: "Score below minimum" });
     expect(summary.items[1]).toMatchObject({ state: "failed", reason: "Unable to save label file" });
   });
 

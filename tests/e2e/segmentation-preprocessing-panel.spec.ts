@@ -15,8 +15,8 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
   await expect(page.locator("#segmentationViewSrBtn")).toHaveText("AI");
   await expect(page.locator("#segmentationPreprocessSourceSelect option")).toHaveText(["Original", "AI"]);
-  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
-  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
+  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
+  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
   await expect(srSettings).toBeHidden();
   await expect(processedSettings).toBeHidden();
   await expect(roiGroup).toBeVisible();

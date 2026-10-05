@@ -399,6 +399,7 @@ export function createUiManagerAdapter(input: {
       button.classList.toggle("active", isActive);
       button.classList.toggle("btn-outline-secondary", !isActive);
     });
+    elements.segmentationAutoFillClosedRegionGroup.hidden = input.state.session.workflow !== "segmentation" || !isDrawingMode || activeTool !== "brush";
     elements.segmentationAutoFillClosedRegionToggle.checked = autoFillClosedRegionEnabled;
     elements.segmentationMaskVisibilityToggle.checked = overlayVisible;
     elements.segmentationMaskOpacitySlider.value = `${Math.round(overlayOpacity * 100)}`;
@@ -422,8 +423,28 @@ export function createUiManagerAdapter(input: {
         const color = input.documentRef.createElement("span");
         color.className = "segmentation-class-color-chip";
         color.style.background = getColorForClass(classId);
-        paintClassButton.append(color, input.documentRef.createTextNode(classId));
-        paintClassList?.appendChild(paintClassButton);
+        paintClassButton.appendChild(color);
+        paintClassButton.appendChild(input.documentRef.createTextNode(` ${classDisplayName}`));
+        paintClassButton.setAttribute("aria-pressed", String(classId === activeClassId));
+        const row = input.documentRef.createElement("div");
+        row.className = "segmentation-class-row";
+        row.dataset.ui = "segmentation-class-visibility-item";
+        const visibility = input.documentRef.createElement("input");
+        visibility.type = "checkbox";
+        visibility.className = "form-check-input";
+        visibility.checked = !summary.hiddenClassIds.includes(classId);
+        visibility.dataset.classId = classId;
+        visibility.dataset.ui = "segmentation-class-visibility-toggle";
+        visibility.setAttribute("aria-label", `Show class ${classDisplayName}`);
+        const visibilityLabel = input.documentRef.createElement("label");
+        visibilityLabel.className = "segmentation-class-eye";
+        visibilityLabel.title = `Show / hide ${classDisplayName}`;
+        const eye = input.documentRef.createElement("i");
+        eye.className = "bi bi-eye";
+        eye.setAttribute("aria-hidden", "true");
+        visibilityLabel.append(visibility, eye);
+        row.append(paintClassButton, visibilityLabel);
+        paintClassList?.appendChild(row);
       });
 
       const filterControls = input.documentRef.createElement("div");
@@ -454,33 +475,9 @@ export function createUiManagerAdapter(input: {
 
       elements.segmentationClassSummary.appendChild(filterControls);
 
-      const title = input.documentRef.createElement("div");
-      title.className = "mb-2 small text-muted";
-      title.textContent = "Visibility";
-      elements.segmentationClassSummary.appendChild(title);
-
-      segmentationClassIds.forEach((classId) => {
-        const wrapper = input.documentRef.createElement("div");
-        wrapper.className = "form-check d-flex align-items-center justify-content-between gap-2 mb-1";
-        wrapper.dataset.classId = classId;
-        wrapper.dataset.ui = "segmentation-class-visibility-item";
-
-        const checkbox = input.documentRef.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.className = "form-check-input";
-        checkbox.checked = !summary.hiddenClassIds.includes(classId);
-        checkbox.dataset.classId = classId;
-        checkbox.dataset.ui = "segmentation-class-visibility-toggle";
-
-        const label = input.documentRef.createElement("span");
-        label.className = "small text-start";
-        const color = input.documentRef.createElement("span");
-        color.className = "segmentation-class-color-chip";
-        color.style.background = getColorForClass(classId);
-        label.append(color, input.documentRef.createTextNode(manager.getDisplayNameForClass(classId)));
-
-        wrapper.append(checkbox, label);
-        elements.segmentationClassSummary.appendChild(wrapper);
+      const query = (input.documentRef.getElementById("segmentationClassSearchInput") as HTMLInputElement | null)?.value.trim().toLocaleLowerCase() ?? "";
+      paintClassList?.querySelectorAll<HTMLElement>('[data-ui="segmentation-class-visibility-item"]').forEach((row) => {
+        row.hidden = query.length > 0 && !row.textContent?.toLocaleLowerCase().includes(query);
       });
     } else {
       if (paintClassList) paintClassList.textContent = "";
@@ -506,7 +503,7 @@ export function createUiManagerAdapter(input: {
       detectionPanelElement: elements.detectionWorkflowPanel,
       segmentationPanelElement: elements.segmentationWorkflowPanel
     });
-    elements.segmentationAutoFillClosedRegionGroup.hidden = !showSegmentationControls;
+
     const segmentationWorkspace = input.documentRef.getElementById("segmentationLeftWorkspace");
     const segmentationDisplayWorkspace = input.documentRef.getElementById("segmentationDisplayWorkspace");
     const segmentationSuperpixelWorkspace = input.documentRef.getElementById("segmentationSuperpixelWorkspace");
@@ -891,6 +888,13 @@ export function createUiManagerAdapter(input: {
           : "No dataset connected";
       }
       elements.refreshDatasetBtn.disabled = !folderName;
+      const datasetButton = elements.selectImageFolderBtn;
+      datasetButton.textContent = folderName || "Open Dataset";
+      datasetButton.title = folderName ? `${folderName} · Open another dataset` : "Open Dataset";
+      datasetButton.setAttribute("aria-label", folderName ? `Open another dataset · ${folderName}` : "Open Dataset");
+      datasetButton.classList.toggle("btn-primary", !folderName);
+      datasetButton.classList.toggle("btn-outline-secondary", Boolean(folderName));
+      input.documentRef.getElementById("datasetActions")?.classList.toggle("dataset-connected", Boolean(folderName));
       elements.selectLabelFolderBtn.toggleAttribute("disabled", !directoryPickerAvailable || !folderName);
       (elements.prevImageBtn as HTMLButtonElement).disabled = imageCount < 2;
       (elements.nextImageBtn as HTMLButtonElement).disabled = imageCount < 2;
