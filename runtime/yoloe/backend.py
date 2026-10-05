@@ -203,8 +203,8 @@ class Runtime:
             raise ValueError("Model is not prepared. Run npm.cmd run yoloe:prepare -- --model " + str(name))
         references, class_ids, names, example_count = reference_prompts(payload)
         imgsz = payload.get("imgsz", 640)
-        if type(imgsz) is not int or imgsz not in (640, 1024):
-            raise ValueError("Choose inference resolution 640 or 1024.")
+        if type(imgsz) is not int or imgsz not in (640, 1024, 2048):
+            raise ValueError("Choose inference resolution 640, 1024 or 2048.")
         workflow = payload.get("workflow", "detection")
         if workflow not in ("detection", "segmentation"):
             raise ValueError("Choose Detection or Segmentation.")

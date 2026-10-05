@@ -16,7 +16,7 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 
 ## 로컬 실행
 
-YOLOE-26 버전의 추가 설치·n/s/m/l 모델 준비·실행 명령과 사용법은 [YOLOE-26 GPU/CPU 안내](docs/YOLOE26_GPU_KO.md)를 참고하세요. 로컬 서비스는 이 프로젝트 안의 전용 Python 환경을 사용하며 CUDA가 없으면 CPU와 n 모델을 기본으로 사용합니다.
+YOLOE-26 ONNX 버전의 사용법과 모델 갱신 방법은 [YOLOE-26 GPU/CPU 안내](docs/YOLOE26_GPU_KO.md)를 참고하세요. 일반 실행과 설치형 앱은 Python 서비스 없이 동작합니다.
 
 - 의존성 설치: `npm install`
 - 일반 실행: `npm start`
@@ -25,10 +25,19 @@ YOLOE-26 버전의 추가 설치·n/s/m/l 모델 준비·실행 명령과 사용
 
 ## Windows 설치형 앱(Electron)
 
+개발 PC에 Node.js 22.12 이상을 준비하고, 프로젝트 루트에서 `npm ci`로 빌드 의존성을 설치합니다. 만들 설치 버전에 맞춰 아래 명령을 선택하세요.
+
+| 설치 버전 | 설치파일 빌드 명령 | 출력 위치 | YOLOE-26 모델 |
+| --- | --- | --- | --- |
+| 일반 버전 (2.0.0) | `npm run electron:dist:win` | `release/` | 제외 |
+| YOLOE-26 버전 (2.1.0) | `npm run electron:dist:yoloe:win` | `release/yoloe26/` | N/S/M/L ONNX 모델 모두 포함 |
+
+YOLOE-26 설치파일 이름은 현재 `Easy-Labeling-YOLOE26-Setup-2.1.0-x64.exe`입니다. 빌드 명령은 Git에 포함된 ONNX 모델을 검증하고 설치파일에 넣습니다. 모델 다운로드나 Python을 통한 변환은 필요하지 않습니다.
+
+설치 후에는 별도 Python, PyTorch, npm, CUDA Toolkit 설치나 모델 다운로드 없이 실행합니다. YOLOE-26은 GPU를 사용할 수 있으면 WebGPU로 실행하고, 사용할 수 없으면 CPU/WASM으로 실행합니다. 모델을 교체하기 위한 개발자용 내보내기 절차는 [YOLOE-26 안내](docs/YOLOE26_GPU_KO.md#모델을-교체하는-개발자만-필요한-내보내기)를 참고하세요.
+
 - Electron 개발 실행: `npm run electron:dev`
-- Windows 실행 파일 디렉터리(설치 없이): `npm run electron:pack`
-- Windows 설치파일(NSIS `.exe`): `npm run electron:dist:win`
-- 설치파일 출력 경로: `release/`
+- 일반 버전 Windows 실행 파일 디렉터리(설치 없이): `npm run electron:pack`
 
 > 현재 설정은 `x64` 타깃, 무서명(Unsigned) 빌드입니다.
 > 브라우저 `showDirectoryPicker`는 Electron preload 폴리필로 동작합니다.

@@ -5,7 +5,8 @@
   "embeddingSize": 512,
   "resolutions": [
     640,
-    1024
+    1024,
+    2048
   ],
   "files": [
     {
@@ -67,6 +68,16 @@
         1,
         38,
         21504
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 2048,
+      "examples": 1,
+      "predictions": [
+        1,
+        37,
+        86016
       ],
       "parity": "PASS"
     }

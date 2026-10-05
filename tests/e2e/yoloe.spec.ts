@@ -170,7 +170,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`brush and e
   expect(await page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow)).toEqual(original);
 });
 
-for (const workflow of ["detection", "segmentation"] as const) test(`named mask samples find and save ${workflow} results without changing source labels`, async ({ page }) => {
+for (const workflow of ["detection", "segmentation"] as const) for (const imgsz of [1024, 2048]) test(`named mask samples find and save ${workflow} results at ${imgsz} without changing source labels`, async ({ page }) => {
   test.setTimeout(90_000);
   let prepared: Record<string, unknown> | null = null;
   let classes: Record<string, string> = {};
@@ -226,13 +226,14 @@ for (const workflow of ["detection", "segmentation"] as const) test(`named mask 
   await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
   await expect(page.locator("#current-image-name")).toHaveText("sample_1.jpg");
   expect(await source()).toEqual(before);
-  await page.locator("#yoloeImageSize").selectOption("1024");
+  await expect(page.locator("#yoloeImageSize option")).toHaveText(["640 · Standard", "1024 · Small targets", "2048 · Fine details"]);
+  await page.locator("#yoloeImageSize").selectOption(String(imgsz));
   await closeSetup(page);
   await page.locator("#previewYoloeBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText(workflow === "segmentation" ? "1 mask instance(s)" : "1 detection(s)");
   const references = (prepared as unknown as { references: { examples: { classId: number; name: string; polygon: number[][]; box: number[] }[] }[] }).references;
   expect(references).toHaveLength(2);
-  expect(prepared).toMatchObject({ imgsz: 1024 });
+  expect(prepared).toMatchObject({ imgsz });
   const examples = references.flatMap((r) => r.examples);
   expect(examples.map((e) => e.name)).toEqual(["sampleA", "sampleB", "sampleC", "sampleA", "sampleA"]);
   expect(new Set(examples.map((e) => e.classId)).size).toBe(3);

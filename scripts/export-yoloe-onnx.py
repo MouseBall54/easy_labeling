@@ -92,7 +92,7 @@ def export(size):
     encoder_session = ort.InferenceSession(str(folder / "encoder.onnx"), providers=["CPUExecutionProvider"])
     detector_session = ort.InferenceSession(str(folder / "detector.onnx"), providers=["CPUExecutionProvider"])
     checks = []
-    for resolution, count in [(640, 1), (640, 3), (1024, 2)]:
+    for resolution, count in [(640, 1), (640, 3), (1024, 2), (2048, 1)]:
         image = torch.rand(1, 3, resolution, resolution)
         masks = torch.ones(1, count, resolution // 8, resolution // 8)
         with torch.no_grad():
@@ -107,7 +107,7 @@ def export(size):
     files = [{"file": file.name, "bytes": file.stat().st_size, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()}
              for file in sorted(folder.iterdir()) if file.suffix in (".onnx", ".data")]
     manifest = {"model": f"yoloe-26{size}-seg", "format": "onnx-visual-prompt-v1", "maskChannels": 32,
-                "embeddingSize": 512, "resolutions": [640, 1024], "files": files, "parity": checks}
+                "embeddingSize": 512, "resolutions": [640, 1024, 2048], "files": files, "parity": checks}
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf8")
     print(json.dumps({"size": size, "bytes": sum(file["bytes"] for file in files), "checks": checks}), flush=True)
 

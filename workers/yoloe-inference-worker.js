@@ -99,7 +99,7 @@ function masksForReference(examples, letterbox, size, ids) {
       const pixels = resized.getImageData(0, 0, size, size).data;
       for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) data[index * side * side + y * side + x] = pixels[((y * 8) * size + x * 8) * 4 + 3] >= 128 ? 1 : 0;
     }
-    if (!data.subarray(index * side * side, (index + 1) * side * side).some((value) => value)) throw new Error("Sample is too small at this resolution. Enlarge it or use 1024.");
+    if (!data.subarray(index * side * side, (index + 1) * side * side).some((value) => value)) throw new Error("Sample is too small at this resolution. Enlarge it or increase the inference resolution.");
   }
   return new ort.Tensor("float32", data, [1, ids.length, side, side]);
 }
@@ -121,6 +121,7 @@ async function handle(request) {
   }
   if (request.operation === "prepare") {
     profile = null;
+    if (![640, 1024, 2048].includes(request.imgsz)) throw new Error("Choose inference resolution 640, 1024 or 2048.");
     if (request.workflow === "segmentation" && request.references.some((reference) => reference.examples.some(({ classId }) => !Number.isInteger(classId) || classId < 1 || classId > 65535))) {
       throw new Error("Segmentation class IDs must be 1–65535; 0 is reserved for background.");
     }
