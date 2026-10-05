@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { inferenceModel } from "./fixtures/inference-model.js";
 
@@ -24,7 +25,7 @@ for (const failure of ["unavailable", "execution"] as const) {
     await page.goto("/index.html");
     await page.locator("#emptyLoadSampleBtn").click();
     const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? -1);
-    await expect.poll(count, { timeout: 30_000 }).toBe(52);
+    await expect.poll(count, { timeout: 30_000 }).toBe(207);
     await page.locator("#taskInferenceBtn").click();
     await page.locator("#inferenceModelInput").setInputFiles({ name: "fallback.onnx", mimeType: "application/octet-stream", buffer: inferenceModel(1, "nchw") });
     await expect(page.locator("#runInferenceCurrentBtn")).toBeEnabled({ timeout: 30_000 });
@@ -89,7 +90,7 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   await page.goto("/index.html");
   await page.locator("#emptyLoadSampleBtn").click();
   const rectCount = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? -1);
-  await expect.poll(rectCount, { timeout: 30_000 }).toBe(52);
+  await expect.poll(rectCount, { timeout: 30_000 }).toBe(207);
   await page.locator("#taskInferenceBtn").click();
   await expect(page.locator("#taskInferenceBtn")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#detectionInferenceWorkspace")).toBeVisible();
@@ -115,11 +116,11 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
       const resultSource = await source.inputValue();
       await expect(source.locator(`option[value="${resultSource}"]`)).toContainText(`inference-fixture-${channels}ch-${layout}`);
       await source.selectOption("0");
-      await expect.poll(rectCount).toBe(52);
+      await expect.poll(rectCount).toBe(207);
       await source.selectOption(resultSource);
       await expect.poll(rectCount).toBe(1);
       await source.selectOption("0");
-      await expect.poll(rectCount).toBe(52);
+      await expect.poll(rectCount).toBe(207);
     }
   }
   await expect(source.locator("option")).toHaveCount(5);
@@ -173,6 +174,16 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
 
 test("batch inference rejects duplicate label filenames and model loading recovers after an invalid file", async ({ page }) => {
   test.setTimeout(90_000);
+  // This intentionally invalid fixture stays independent of the bundled samples' unique names.
+  await page.route("**/assets/sample/manifest.json", async (route) => {
+    const response = await route.fetch();
+    const manifest = await response.json();
+    manifest.files.push("sample_1.jpeg");
+    await route.fulfill({ json: manifest });
+  });
+  await page.route("**/assets/sample/sample_1.jpeg", async (route) => {
+    await route.fulfill({ contentType: "image/jpeg", body: await readFile("assets/sample/sample_1.jpg") });
+  });
   await page.goto("/index.html");
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#labelSourceSelect option")).toHaveCount(1, { timeout: 30_000 });

@@ -636,7 +636,7 @@
                         <div class="yoloe-sample-view-controls mb-2">
                             <button id="fitYoloeSampleBtn" type="button" class="btn btn-outline-secondary btn-sm">Fit image</button>
                             <span id="yoloeSampleZoom" class="small" aria-live="polite"></span>
-                            <span class="small text-muted">Ctrl + wheel: zoom · Middle drag / Space + drag: pan</span>
+                            <span class="small text-muted">Ctrl + wheel: zoom · Ctrl / Space + drag or Middle drag: pan</span>
                         </div>
                         <div id="yoloeSampleStage" class="yoloe-sample-stage"><p id="yoloeSampleEmpty" class="small text-muted">Open a dataset to outline samples.</p></div>
                         <section id="yoloeDrawingToolbar" class="yoloe-drawing-toolbar mt-2" role="status" hidden>
@@ -654,13 +654,23 @@
                             </div>
                             <div>
                             <label class="form-label small mt-2" for="yoloePromptShape">Sample shape</label>
-                            <select id="yoloePromptShape" class="form-select form-select-sm"><option value="mask">Mask outline</option><option value="box">Box</option></select>
+                            <select id="yoloePromptShape" class="form-select form-select-sm"><option value="mask">Polygon</option><option value="brush">Brush / Eraser</option><option value="box">Box</option></select>
+                            <div id="yoloeMaskTools" class="mt-2" hidden>
+                                <div class="segmented-control" role="group" aria-label="Sample paint tool">
+                                    <button id="yoloeBrushBtn" type="button" class="btn active" aria-pressed="true"><i class="bi bi-brush" aria-hidden="true"></i> Brush</button>
+                                    <button id="yoloeEraserBtn" type="button" class="btn" aria-pressed="false"><i class="bi bi-eraser" aria-hidden="true"></i> Eraser</button>
+                                </div>
+                                <div class="section-heading-row mt-2"><label class="form-label small mb-0" for="yoloeBrushRadius">Radius (image px)</label><span id="yoloeBrushRadiusValue" class="section-value">8px</span></div>
+                                <input id="yoloeBrushRadius" type="range" class="form-range" value="8" min="1" max="128" step="1">
+                                <label class="form-check form-switch mb-0"><input id="yoloeAutoFillClosedRegionToggle" class="form-check-input" type="checkbox"><span class="form-check-label">Auto fill closed regions</span></label>
+                            </div>
                             </div>
                         </div>
                         <div class="yoloe-sample-actions">
                         <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" aria-pressed="false" disabled><i class="bi bi-vector-pen" aria-hidden="true"></i> Outline sample</button>
                         <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2" disabled>Use selected labels</button>
                         <button id="finishYoloeSampleBtn" type="button" class="btn btn-primary btn-sm w-100 mt-2" hidden disabled>Finish outline</button>
+                        <button id="undoYoloeStrokeBtn" type="button" class="btn btn-outline-secondary btn-sm mt-2" hidden disabled>Undo stroke</button>
                         <p id="yoloeDrawingHint" class="small text-muted mt-1 mb-0" hidden>Click around the target. Enter / double-click to finish; Backspace to undo; Esc to cancel.</p>
                         </div>
                         <div id="yoloeExistingBoxes" class="mt-2" hidden>

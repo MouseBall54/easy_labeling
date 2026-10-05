@@ -776,7 +776,7 @@ export function createFileSystemAdapter(input: {
             if (demoStartImage && demoStartImage.name !== input.state.session.currentImageFile?.name) {
               await syncAfterImageLoad(demoStartImage as unknown as FileHandleLike, operation);
             }
-            uiManager?.notify(`Sample test data loaded: ${input.state.session.imageFiles.length} images, color labels, layouts, and template presets.`, 5000);
+            uiManager?.notify(`Sample test data loaded: ${input.state.session.imageFiles.length} images, boxes, segmentation masks, layouts, and template presets.`, 5000);
           });
         });
       },

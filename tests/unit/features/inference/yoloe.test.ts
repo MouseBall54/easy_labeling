@@ -1,8 +1,18 @@
 import { expect, it, vi, afterEach } from "vitest";
 import type { FabricRectLike } from "../../../../src/features/canvas/fabric-types.js";
-import { selectedVisualExamples, requestYoloe, decodeYoloeMask, maskRegionExample } from "../../../../src/features/inference/yoloe.js";
+import { selectedVisualExamples, requestYoloe, decodeYoloeMask, maskRegionExample, sampleMaskGeometry } from "../../../../src/features/inference/yoloe.js";
 
 afterEach(() => vi.unstubAllGlobals());
+
+it("crops painted samples while preserving erased holes and disconnected islands", () => {
+  const pixels = new Uint16Array(7 * 5);
+  for (let y = 1; y <= 3; y++) for (let x = 1; x <= 3; x++) pixels[y * 7 + x] = 1;
+  pixels[2 * 7 + 2] = 0; pixels[2 * 7 + 5] = 1;
+  const geometry = sampleMaskGeometry(pixels, 7, 5);
+  expect(geometry.box).toEqual([1, 1, 6, 4]);
+  expect(Array.from(decodeYoloeMask(geometry.mask!).mask)).toEqual([1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 0]);
+  expect(() => sampleMaskGeometry(new Uint16Array(35), 7, 5)).toThrow(/Paint/);
+});
 
 it("captures scene bounds of grouped/scaled examples, clips the image edges and preserves non-contiguous class IDs", () => {
   const box = { labelClass: "5", getBoundingRect: () => ({ left: -5, top: 8, width: 35, height: 20 }) } as FabricRectLike;

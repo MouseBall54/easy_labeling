@@ -17,6 +17,23 @@ export interface YoloeProfile {
 }
 export interface YoloeResult { detections: Detection[]; mask: { width: number; height: number; mask: Uint16Array } | null; }
 
+export function sampleMaskGeometry(pixels: Uint16Array, width: number, height: number): Pick<VisualExample, "box" | "mask"> {
+  let left = width, top = height, right = -1, bottom = -1;
+  for (let i = 0; i < pixels.length; i++) {
+    if (!pixels[i]) continue;
+    const x = i % width, y = Math.floor(i / width);
+    left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y);
+  }
+  if (right < left) throw new Error("Paint an area of the target before finishing.");
+  const runs: number[] = [];
+  for (let y = top; y <= bottom; y++) for (let x = left; x <= right; x++) {
+    const pixel = pixels[y * width + x] ? 1 : 0;
+    if (runs.length && runs[runs.length - 2] === pixel) runs[runs.length - 1]!++;
+    else runs.push(pixel, 1);
+  }
+  return { box: [left, top, right + 1, bottom + 1], mask: { width: right - left + 1, height: bottom - top + 1, runs } };
+}
+
 export function maskRegionExample(region: SegmentationRegionSelection | null, names: ReadonlyMap<string, string>, imageWidth: number): VisualExample[] {
   if (!region) throw new Error("Select a mask region in Edit mode, or outline a sample here.");
   const { left, top, right, bottom } = region.bounds;

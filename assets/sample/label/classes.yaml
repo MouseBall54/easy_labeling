@@ -1,6 +1,14 @@
-# Vehicle body color classes for bundled sample images.
-0: Light / White
-1: Dark / Gray
-2: Red / Pink
-3: Blue
-4: Green / Yellow
+# Class 0 is reserved for segmentation background.
+0: Background
+1: Light / White
+2: Dark / Gray
+3: Red / Pink
+4: Blue
+5: Green / Yellow
+6: Cat
+7: Potted plant
+8: Flower
+9: Chip
+10: Metal structure
+11: Particle
+12: Grid cell

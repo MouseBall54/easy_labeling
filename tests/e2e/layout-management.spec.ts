@@ -22,7 +22,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
       image: api?.getCurrentImageName?.() ?? "",
       boxes: api?.getRectCount?.() ?? -1
     };
-  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 52 });
+  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 207 });
 
   await page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
@@ -99,12 +99,12 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(55);
+  })).toBe(210);
   await page.locator('[data-ui="history-undo"]').click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(52);
+  })).toBe(207);
 
   await page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
@@ -146,5 +146,5 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(54);
+  })).toBe(209);
 });
