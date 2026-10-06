@@ -31,7 +31,17 @@ const colorPalette = [
   "#7f7f7f"
 ];
 
+let classColorOverrides: ReadonlyMap<string, string> = new Map();
+
+export function setClassColorOverrides(colors: ReadonlyMap<string, string>): void {
+  classColorOverrides = colors;
+}
+
 export function getColorForClass(labelClass: string | undefined): string {
+  return classColorOverrides.get(String(labelClass)) ?? getDefaultColorForClass(labelClass);
+}
+
+export function getDefaultColorForClass(labelClass: string | undefined): string {
   const classNumber = Number.parseInt(String(labelClass), 10);
   if (Number.isNaN(classNumber) || classNumber < 0) {
     return "#000000";

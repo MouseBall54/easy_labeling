@@ -15,6 +15,7 @@ import { getSuperResolutionModelLabel, isSuperResolutionMode } from "../features
 import type { SuperResolutionMode, SuperResolutionStatus } from "../features/super-resolution/types.js";
 import { bindInferenceControls } from "./inference-controller.js";
 import { bindYoloeControls } from "./yoloe-controller.js";
+import { getDefaultColorForClass } from "../features/canvas/colors.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -744,7 +745,7 @@ export function createEventManagerAdapter(input: {
 
       const filterClassControls = (): void => {
         const query = elements.classSearchInput.value.trim().toLocaleLowerCase();
-        elements.labelFilters.querySelectorAll<HTMLElement>(".class-filter-row").forEach((row) => {
+        elements.labelFilters.querySelectorAll<HTMLElement>('.class-filter-entry, [data-ui="filter-all"]').forEach((row) => {
           row.hidden = query.length > 0 && !(row.textContent ?? "").toLocaleLowerCase().includes(query);
         });
       };
@@ -986,6 +987,26 @@ export function createEventManagerAdapter(input: {
           target.closest("tr")?.remove();
         }
       });
+
+      elements.classFileEditorBody.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const row = target.closest("tr");
+        const color = row?.querySelector<HTMLInputElement>(".class-color-input");
+        if (target.type === "color") target.dataset.edited = "true";
+        if (target.classList.contains("class-id-input") && color && !color.dataset.edited) {
+          color.value = getDefaultColorForClass(target.value);
+          color.dataset.classId = target.value;
+        }
+      });
+
+      for (const list of [elements.labelFilters, elements.segmentationPaintClassList]) {
+        list.addEventListener("change", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLInputElement) || target.dataset.ui !== "class-color") return;
+          runAsync(() => input.fileSystem.setClassColor(target.dataset.classId ?? "", target.value));
+        });
+      }
 
       elements.classFileSelect.addEventListener("change", () => {
         const selectedFileName = elements.classFileSelect.value;

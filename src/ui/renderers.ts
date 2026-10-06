@@ -3,6 +3,7 @@ import type { WorkflowType } from "../types/labels.js";
 import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import type { ClassFileRow } from "../domain/class-files.js";
 import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
 import { isThumbnailableFileName, THUMBNAIL_SIZE_PX } from "./image-thumbnails.js";
 
@@ -49,6 +50,45 @@ export interface LabelFilterRenderInput {
   getDisplayNameForClass: (labelClass: string) => string;
   activeFilterKeys?: ReadonlySet<string>;
   isAllActive?: boolean;
+  canEditColors?: boolean;
+}
+
+export function createClassColorInput(documentRef: Document, classId: string, displayName: string): HTMLInputElement {
+  const input = documentRef.createElement("input");
+  input.type = "color";
+  input.className = "form-control form-control-color class-color-input";
+  input.value = getColorForClass(classId);
+  input.dataset.ui = "class-color";
+  input.dataset.classId = classId;
+  input.title = `Change color for ${displayName}`;
+  input.setAttribute("aria-label", input.title);
+  return input;
+}
+
+export function createClassFileEditorRow(documentRef: Document, row: ClassFileRow): HTMLTableRowElement {
+  const tr = documentRef.createElement("tr");
+  for (const field of ["id", "name"] as const) {
+    const cell = documentRef.createElement("td");
+    const input = documentRef.createElement("input");
+    input.className = `form-control class-${field}-input`;
+    input.value = row[field];
+    input.setAttribute("aria-label", field === "id" ? "Class ID" : "Class name");
+    cell.appendChild(input);
+    tr.appendChild(cell);
+  }
+  const colorCell = documentRef.createElement("td");
+  const color = createClassColorInput(documentRef, row.id, row.name || "new class");
+  color.dataset.ui = "class-file-color";
+  if (row.color) {
+    color.value = row.color;
+    color.dataset.edited = "true";
+  }
+  colorCell.appendChild(color);
+  tr.appendChild(colorCell);
+  const actions = documentRef.createElement("td");
+  actions.innerHTML = '<button type="button" class="btn btn-sm btn-danger delete-class-row-btn">Delete</button>';
+  tr.appendChild(actions);
+  return tr;
 }
 
 export interface LabelFilterBindingInput {
@@ -300,7 +340,7 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
     button.className = `class-filter-row ${isActive ? "active btn-primary" : ""}`.trim();
     button.type = "button";
     button.setAttribute("aria-pressed", String(isActive));
-    button.innerHTML = `<span class="label-color-swatch" style="background-color:${getColorForClass(labelClass)}" aria-hidden="true"></span><span class="class-name"></span><span class="class-count">${classCounts[labelClass] ?? 0}</span><i class="bi ${isActive ? "bi-eye" : "bi-eye-slash"} class-visibility-icon" aria-hidden="true"></i>`;
+    button.innerHTML = `<span class="class-name"></span><span class="class-count">${classCounts[labelClass] ?? 0}</span><i class="bi ${isActive ? "bi-eye" : "bi-eye-slash"} class-visibility-icon" aria-hidden="true"></i>`;
     const className = button.querySelector<HTMLElement>(".class-name");
     if (className) {
       className.textContent = input.getDisplayNameForClass(labelClass);
@@ -312,7 +352,13 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
     button.dataset.testid = normalizedFilterKey === UNLABELED_FILTER_KEY
       ? "filter-class-unlabeled"
       : `filter-class-${labelClass}`;
-    input.labelFiltersElement.appendChild(button);
+    const row = document.createElement("div");
+    row.className = "class-filter-entry";
+    const color = createClassColorInput(document, labelClass, input.getDisplayNameForClass(labelClass));
+    color.disabled = !input.canEditColors || !/^\d+$/.test(labelClass);
+    row.appendChild(color);
+    row.appendChild(button);
+    input.labelFiltersElement.appendChild(row);
   }
 }
 

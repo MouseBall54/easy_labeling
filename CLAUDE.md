@@ -8,7 +8,7 @@ Easy Labeling is a local-first, browser-based image annotation tool (Detection =
 
 ## Versioning
 
-The project uses semantic versioning (`MAJOR.MINOR.PATCH`, e.g. `1.1.1`) tracked in `package.json`'s `version` field (current baseline: `2.0.0`). Bump it with every change that ships to users — patch for fixes, minor for backward-compatible features, major for breaking changes — using `npm version <new-version> --no-git-tag-version` so `package-lock.json` stays in sync. Don't leave the version unchanged across a real code change.
+The project uses semantic versioning (`MAJOR.MINOR.PATCH`, e.g. `1.1.1`) tracked in `package.json`'s `version` field (current baseline: `2.1.0`). Bump it with every change that ships to users — patch for fixes, minor for backward-compatible features, major for breaking changes — using `npm version <new-version> --no-git-tag-version` so `package-lock.json` stays in sync. Don't leave the version unchanged across a real code change.
 
 ## Commands
 

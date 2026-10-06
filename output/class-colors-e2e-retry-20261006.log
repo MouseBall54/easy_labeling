@@ -1,0 +1,42 @@
+
+Running 1 test using 1 worker
+
+(node:56976) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:56976) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x  1 [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels (20.3s)
+
+
+  1) [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  - 3[39m
+    [31m+ Received  + 3[39m
+
+    [2m  Array [[22m
+    [32m-   254,[39m
+    [32m-   220,[39m
+    [32m-   186,[39m
+    [31m+   255,[39m
+    [31m+   248,[39m
+    [31m+   241,[39m
+    [2m  ][22m
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+       98 |   const maskColor = page.locator(`#segmentationPaintClassList [data-ui="class-color"][data-class-id="${mask.id}"]`);
+       99 |   await changeColor(maskColor, "#fedcba");
+    > 100 |   await expect.poll(() => page.evaluate(({ x, y }) => Reflect.get(window, "__easyLabelingTestApi").getSegmentationOverlayPixel(x, y)?.slice(0, 3), mask)).toEqual([254, 220, 186]);
+          |   ^
+      101 |   await expect(maskColor).toBeFocused();
+      102 |   expect(await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds())).toEqual(mask.bounds);
+      103 |   expect(await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationSummary())).toEqual(mask.summary);
+        at C:\Git\easy_labeling\tests\e2e\class-colors.spec.ts:100:3
+
+    Error Context: test-results\class-colors-class-colors--9209f-ows-without-changing-labels-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels

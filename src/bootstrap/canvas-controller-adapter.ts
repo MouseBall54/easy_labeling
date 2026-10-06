@@ -93,6 +93,7 @@ class LiveCanvasControllerState implements CanvasControllerState {
 export interface RuntimeCanvasController extends AppCanvasController {
   raw: FeatureCanvasController;
   preprocessing?: FeatureCanvasController;
+  refreshClassColors(): void;
   getSuperResolutionStatus(): import("../features/super-resolution/types.js").SuperResolutionStatus;
   subscribeSuperResolutionStatus(listener: import("../features/super-resolution/types.js").SuperResolutionStatusListener): () => void;
   loadImageSession(input: {
@@ -187,6 +188,10 @@ export function createCanvasControllerAdapter(input: {
 
     get preprocessing() {
       return workflowControllers.segmentation;
+    },
+
+    refreshClassColors(): void {
+      Object.values(workflowControllers).forEach((controller) => controller.refreshClassColors?.());
     },
 
     getSuperResolutionStatus() {

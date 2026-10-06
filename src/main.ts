@@ -15,6 +15,7 @@ import {
 import { createUiManagerAdapter, type RuntimeUiManager } from "./bootstrap/ui-manager-adapter.js";
 import { ensureAnnotationId, isActiveSelectionObject, isRectObject } from "./features/canvas/fabric-types.js";
 import { normalizeFilterClassKey } from "./ui/filter-state.js";
+import { installModalDragging } from "./ui/modal-drag.js";
 
 export type { CdnRuntimeGlobals };
 
@@ -109,6 +110,7 @@ export function createBootstrapProbe(): "scaffold-ready" {
 }
 
 function bootstrapBrowserRuntime(): void {
+  installModalDragging(document);
   const gateResult = runLegacyUnsupportedGate({
     windowRef: window,
     documentRef: document,

@@ -4,7 +4,7 @@ YOLOE-26 탭은 샘플 영역을 보고 비슷한 대상을 다른 이미지에�
 
 ## Windows 설치와 실행
 
-`release/yoloe26/Easy-Labeling-YOLOE26-Setup-2.1.0-x64.exe` 한 파일을 실행해 설치한 뒤 시작 메뉴의 **Easy Labeling YOLOE-26**을 엽니다. 별도 Python, PyTorch, uv, npm, CUDA Toolkit, 서비스 터미널, 모델 다운로드가 필요 없습니다. 설치 파일에 ONNX Runtime과 N/S/M/L 모델이 모두 포함됩니다. 이전 2.0.0 수동 셋업형 및 2.0.1 Python 포함형과 달리 **2.1.0은 Python을 실행하거나 로컬 HTTP 서버를 띄우지 않습니다.**
+`release/yoloe26/Easy-Labeling-YOLOE26-Setup-<버전>-x64.exe` 한 파일을 실행해 설치한 뒤 시작 메뉴의 **Easy Labeling YOLOE-26**을 엽니다. 현재 소스의 YOLOE 빌드 버전은 **2.2.0**이며 새 설치파일은 빌드 명령으로 생성합니다. 별도 Python, PyTorch, uv, npm, CUDA Toolkit, 서비스 터미널, 모델 다운로드가 필요 없습니다. 설치 파일에 ONNX Runtime과 N/S/M/L 모델이 모두 포함됩니다. 이전 2.0.0 수동 셋업형 및 2.0.1 Python 포함형과 달리 **ONNX 버전은 Python을 실행하거나 로컬 HTTP 서버를 띄우지 않습니다.**
 
 데이터셋을 연 뒤 **YOLOE-26 → Samples & settings**에서 샘플을 지정하고 **Find → Save**를 사용합니다. GPU를 사용할 수 있으면 WebGPU와 S, 없으면 CPU/WASM과 N이 기본입니다. N/S/M/L은 모두 선택할 수 있습니다. 실제 실행 장치를 **GPU · WebGPU** 또는 **CPU**로 표시하며 GPU 초기화·실행에 실패하면 같은 모델을 CPU로 실행합니다. GPU에는 WebGPU를 지원하는 그래픽 드라이버가 필요합니다.
 

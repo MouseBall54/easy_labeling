@@ -18,6 +18,7 @@ import { renderLabelClassModalContent } from "../ui/modals.js";
 import { installModalFocusManagement } from "../ui/modal-focus.js";
 import {
   bindLabelFilterEvents,
+  createClassColorInput,
   renderClassFileSelect,
   renderImageList,
   renderLabelFilters,
@@ -423,10 +424,6 @@ export function createUiManagerAdapter(input: {
         const classDisplayName = manager.getDisplayNameForClass(classId);
         paintClassButton.title = classDisplayName;
         paintClassButton.setAttribute("aria-label", `Paint class ${classDisplayName}`);
-        const color = input.documentRef.createElement("span");
-        color.className = "segmentation-class-color-chip";
-        color.style.background = getColorForClass(classId);
-        paintClassButton.appendChild(color);
         paintClassButton.appendChild(input.documentRef.createTextNode(` ${classDisplayName}`));
         paintClassButton.setAttribute("aria-pressed", String(classId === activeClassId));
         const row = input.documentRef.createElement("div");
@@ -446,7 +443,9 @@ export function createUiManagerAdapter(input: {
         eye.className = "bi bi-eye";
         eye.setAttribute("aria-hidden", "true");
         visibilityLabel.append(visibility, eye);
-        row.append(paintClassButton, visibilityLabel);
+        const color = createClassColorInput(input.documentRef, classId, classDisplayName);
+        color.disabled = !input.state.session.selectedClassFile;
+        row.append(color, paintClassButton, visibilityLabel);
         paintClassList?.appendChild(row);
       });
 
@@ -1361,6 +1360,8 @@ export function createUiManagerAdapter(input: {
       if (!canvasController) {
         return;
       }
+      const focusedColorClass = (input.documentRef.activeElement as HTMLElement | null)?.dataset?.ui === "class-color"
+        ? (input.documentRef.activeElement as HTMLElement).dataset.classId : null;
 
       if (input.state.session.workflow === "segmentation") {
         elements.labelList.innerHTML = "";
@@ -1562,7 +1563,8 @@ export function createUiManagerAdapter(input: {
         rects: rects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
         getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass),
         activeFilterKeys: new Set(visibleRects.map((rect) => normalizeFilterClassKey(rect.labelClass))),
-        isAllActive: rects.every((rect) => !input.state.view.hiddenLabelClasses.has(normalizeFilterClassKey(rect.labelClass)))
+        isAllActive: rects.every((rect) => !input.state.view.hiddenLabelClasses.has(normalizeFilterClassKey(rect.labelClass))),
+        canEditColors: Boolean(input.state.session.selectedClassFile)
       });
 
       const filterSummary = input.documentRef.createElement("span");
@@ -1572,10 +1574,12 @@ export function createUiManagerAdapter(input: {
       elements.labelFilters.appendChild(filterSummary);
       const classSearchQuery = elements.classSearchInput.value.trim().toLocaleLowerCase();
       if (classSearchQuery) {
-        elements.labelFilters.querySelectorAll<HTMLElement>(".class-filter-row").forEach((row) => {
+        elements.labelFilters.querySelectorAll<HTMLElement>('.class-filter-entry, [data-ui="filter-all"]').forEach((row) => {
           row.hidden = !(row.textContent ?? "").toLocaleLowerCase().includes(classSearchQuery);
         });
       }
+
+      if (focusedColorClass) elements.labelFilters.querySelector<HTMLElement>(`[data-ui="class-color"][data-class-id="${focusedColorClass}"]`)?.focus({ preventScroll: true });
 
       bindLabelFilterEvents({
         labelFiltersElement: elements.labelFilters,

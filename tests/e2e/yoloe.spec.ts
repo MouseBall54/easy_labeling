@@ -363,7 +363,7 @@ test("YOLOE setup fits a narrow viewport, follows the theme, and keeps settings 
   await expect(page.locator("#openYoloeSetupBtn")).toBeFocused();
 });
 
-for (const workflow of ["detection", "segmentation"] as const) test(`popup zoom and pan preserve sample coordinates and preview ${workflow} on its selected image`, async ({ page }) => {
+for (const workflow of ["detection", "segmentation"] as const) test(`popup drag, zoom and pan preserve sample coordinates and preview ${workflow} on its selected image`, async ({ page }) => {
   test.setTimeout(60_000);
   let prepared: { references: { examples: { box: number[]; polygon: number[][] }[] }[] } | null = null;
   let inferredSize: number[] = [];
@@ -385,6 +385,11 @@ for (const workflow of ["detection", "segmentation"] as const) test(`popup zoom 
   const original = await page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow);
   await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
   await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
+  const popupHeader = (await page.locator("#yoloeSetupModal .modal-header").boundingBox())!;
+  await page.mouse.move(popupHeader.x + 25, popupHeader.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(popupHeader.x + 45, popupHeader.y + 32, { steps: 5 });
+  await page.mouse.up();
   await page.locator("#drawYoloeExampleBtn").click();
   const canvas = page.locator("#yoloePreviewCanvas");
   const initial = await canvas.evaluate((element) => {

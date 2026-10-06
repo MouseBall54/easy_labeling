@@ -1,6 +1,7 @@
 export interface ClassFileRow {
   id: string;
   name: string;
+  color?: string;
 }
 
 export interface ClassFileSaveResult {
@@ -10,6 +11,7 @@ export interface ClassFileSaveResult {
   invalidIdRows: number[];
   duplicateIdRows: number[];
   emptyNameRows: number[];
+  invalidColorRows: number[];
 }
 
 export const NEW_CLASS_FILE_SEED_CONTENT = "# YAML Class file. Format: id: name\n0: class1\n1: class2";
@@ -61,8 +63,21 @@ export function parseClassContent(content: string): Map<string, string> {
 
 export function parseClassContentForEditor(content: string): ClassFileRow[] {
   const classData = parseLoadableRows(content);
+  const colors = parseClassColors(content);
+  classData.forEach((row) => {
+    const color = colors.get(row.id);
+    if (color) row.color = color;
+  });
   classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
   return classData;
+}
+
+export function parseClassColors(content: string): Map<string, string> {
+  const colors = new Map<string, string>();
+  for (const match of content.matchAll(/^\s*# easy-labeling-color (\d+): (#[\da-f]{6})\s*$/gim)) {
+    colors.set(match[1]!, match[2]!.toLowerCase());
+  }
+  return colors;
 }
 
 export function validateAndSerializeClassRows(rows: ClassFileRow[]): ClassFileSaveResult {
@@ -72,10 +87,12 @@ export function validateAndSerializeClassRows(rows: ClassFileRow[]): ClassFileSa
   const invalidIdRows: number[] = [];
   const duplicateIdRows: number[] = [];
   const emptyNameRows: number[] = [];
+  const invalidColorRows: number[] = [];
 
   rows.forEach((row, index) => {
     const id = row.id.trim();
     const name = normalizeClassName(row.name);
+    const color = row.color?.trim().toLowerCase();
 
     const numId = parseInt(id, 10);
     if (id === "" && name === "") {
@@ -97,13 +114,19 @@ export function validateAndSerializeClassRows(rows: ClassFileRow[]): ClassFileSa
       isValid = false;
     }
 
+    if (color !== undefined && !/^#[\da-f]{6}$/.test(color)) {
+      invalidColorRows.push(index);
+      isValid = false;
+    }
+
     if (isValid) {
-      classData.push({ id, name });
+      classData.push({ id, name, ...(color ? { color } : {}) });
     }
   });
 
   classData.sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
-  const newContent = classData.map((item) => `${item.id}: ${item.name}`).join("\n");
+  // YAML comments keep existing ID/name readers compatible with custom colors.
+  const newContent = classData.map((item) => `${item.color ? `# easy-labeling-color ${item.id}: ${item.color}\n` : ""}${item.id}: ${item.name}`).join("\n");
 
   return {
     isValid,
@@ -111,7 +134,8 @@ export function validateAndSerializeClassRows(rows: ClassFileRow[]): ClassFileSa
     newContent,
     invalidIdRows,
     duplicateIdRows,
-    emptyNameRows
+    emptyNameRows,
+    invalidColorRows
   };
 }
 

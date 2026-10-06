@@ -18,7 +18,8 @@ import { normalizeClassName, type ClassFileRow } from "../domain/class-files.js"
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
-import { CREATE_NEW_CLASS_FILE_VALUE } from "../ui/renderers.js";
+import { CREATE_NEW_CLASS_FILE_VALUE, createClassFileEditorRow } from "../ui/renderers.js";
+import { setClassColorOverrides } from "../features/canvas/colors.js";
 import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 import { createImageDecoder } from "../features/images/image-decoder.js";
 import { detectionsToYolo, type Detection } from "../features/inference/yolo.js";
@@ -207,6 +208,7 @@ export interface RuntimeFileSystem extends FileSystem {
   readSegmentationLabels(imageFileName: string, width: number, height: number): Promise<import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null>;
   writeDetectionLabels(imageFileName: string, yoloData: string): Promise<void>;
   loadClassNamesFromFile(fileHandle: FileHandleLike): Promise<void>;
+  setClassColor(classId: string, color: string): Promise<void>;
   showClassFileContent(): Promise<void>;
   saveClassFileContent(): Promise<void>;
   addNewClassRow(): void;
@@ -236,6 +238,7 @@ export function createFileSystemAdapter(input: {
   windowRef: FileSystemWindowRuntime;
   tiffRef: unknown;
 }): RuntimeFileSystem {
+  setClassColorOverrides(input.state.session.classColors);
   let connectedDeps: FileSystemDeps | null = null;
   let pendingLoadedYolo: string | null = null;
   let pendingLoadedSegmentationSnapshot: import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null = null;
@@ -259,6 +262,7 @@ export function createFileSystemAdapter(input: {
     currentImageFile: input.state.session.currentImageFile,
     currentImage: input.state.session.currentImage,
     classNames: new Map(input.state.session.classNames),
+    classColors: new Map(input.state.session.classColors),
     reviewState: structuredClone(input.state.session.reviewState ?? createReviewStateDocument()),
     reviewFindings: new Map(input.state.session.reviewFindings ?? []),
     documentStatusByImage: new Map(input.state.session.documentStatusByImage ?? []),
@@ -282,6 +286,8 @@ export function createFileSystemAdapter(input: {
     input.state.session.currentImageFile = snapshot.currentImageFile;
     input.state.session.currentImage = snapshot.currentImage;
     input.state.session.classNames = snapshot.classNames;
+    input.state.session.classColors = snapshot.classColors;
+    setClassColorOverrides(snapshot.classColors);
     input.state.session.reviewState = snapshot.reviewState;
     input.state.session.reviewFindings = snapshot.reviewFindings;
     input.state.session.documentStatusByImage = snapshot.documentStatusByImage;
@@ -293,6 +299,7 @@ export function createFileSystemAdapter(input: {
     if (connectedDeps) {
       const uiManager = connectedDeps.uiManager as RuntimeUiManager;
       uiManager.updateCurrentImageName();
+      (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
       uiManager.updateLabelFolderButton(Boolean(input.state.session.labelFolderHandle));
       uiManager.renderClassFileSelect();
       uiManager.renderImageList();
@@ -405,8 +412,11 @@ export function createFileSystemAdapter(input: {
       input.state.session.classFiles = [];
       input.state.session.selectedClassFile = null;
       input.state.session.classNames = new Map<string, string>();
+      input.state.session.classColors = new Map();
+      setClassColorOverrides(input.state.session.classColors);
       if (connectedDeps) {
         const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+        (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
         uiManager.renderClassFileSelect();
         uiManager.updateLabelList();
       }
@@ -429,10 +439,13 @@ export function createFileSystemAdapter(input: {
     } else {
       input.state.session.selectedClassFile = null;
       input.state.session.classNames = new Map<string, string>();
+      input.state.session.classColors = new Map();
+      setClassColorOverrides(input.state.session.classColors);
     }
 
     if (connectedDeps) {
       const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+      (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
       uiManager.renderClassFileSelect();
       uiManager.updateLabelList();
     }
@@ -1098,7 +1111,28 @@ export function createFileSystemAdapter(input: {
         await loadClassNamesIntoState(fileHandle as FileHandle, input.state);
         if (connectedDeps) {
           const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+          (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
           uiManager.renderClassFileSelect();
+          uiManager.updateLabelList();
+        }
+      },
+
+      async setClassColor(classId: string, color: string): Promise<void> {
+        const file = input.state.session.selectedClassFile;
+        if (!file || !connectedDeps) return;
+        const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+        try {
+          await enqueueOperation(async () => {
+            const rows = await readClassFileRowsForEditor(file);
+            const row = rows.find((item) => item.id === classId);
+            if (row) row.color = color;
+            else rows.push({ id: classId, name: input.state.session.classNames.get(classId) ?? `class ${classId}`, color });
+            const result = await validateAndSaveClassRowsToFileHandle(file, rows);
+            if (!result.saved) throw new Error("Unable to save class color. Check the class ID and color.");
+            if (input.state.session.selectedClassFile === file) await this.loadClassNamesFromFile(file);
+            uiManager.notify("Class color saved.");
+          });
+        } finally {
           uiManager.updateLabelList();
         }
       },
@@ -1130,9 +1164,7 @@ export function createFileSystemAdapter(input: {
         const uiManager = connectedDeps.uiManager as RuntimeUiManager;
         uiManager.elements.classFileEditorBody.innerHTML = "";
         rows.forEach((row) => {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `<td><input class="form-control class-id-input" value="${row.id}"></td><td><input class="form-control class-name-input" value="${row.name}"></td><td><button type="button" class="btn btn-sm btn-danger delete-class-row-btn">Delete</button></td>`;
-          uiManager.elements.classFileEditorBody.appendChild(tr);
+          uiManager.elements.classFileEditorBody.appendChild(createClassFileEditorRow(document, row));
         });
         uiManager.showClassFileContentModal();
       },
@@ -1146,9 +1178,11 @@ export function createFileSystemAdapter(input: {
         const rows: ClassFileRow[] = Array.from(uiManager.elements.classFileEditorBody.querySelectorAll("tr")).map((row) => {
           const idInput = row.querySelector<HTMLInputElement>(".class-id-input");
           const nameInput = row.querySelector<HTMLInputElement>(".class-name-input");
+          const colorInput = row.querySelector<HTMLInputElement>(".class-color-input");
           return {
             id: idInput?.value ?? "",
-            name: nameInput?.value ?? ""
+            name: nameInput?.value ?? "",
+            color: colorInput?.value
           };
         });
 
@@ -1167,9 +1201,7 @@ export function createFileSystemAdapter(input: {
           return;
         }
         const tbody = (connectedDeps.uiManager as RuntimeUiManager).elements.classFileEditorBody;
-        const tr = document.createElement("tr");
-        tr.innerHTML = '<td><input class="form-control class-id-input" value=""></td><td><input class="form-control class-name-input" value=""></td><td><button type="button" class="btn btn-sm btn-danger delete-class-row-btn">Delete</button></td>';
-        tbody.appendChild(tr);
+        tbody.appendChild(createClassFileEditorRow(document, { id: "", name: "" }));
       },
 
       async createNewClassFile(): Promise<boolean> {
@@ -1211,6 +1243,8 @@ export function createFileSystemAdapter(input: {
 export async function loadClassNamesIntoState(fileHandle: FileHandle, state: AppState): Promise<ReadClassNamesResult> {
   const result = await readClassNamesFromFileHandle(fileHandle);
   state.session.classNames = result.classNames;
+  state.session.classColors = result.classColors;
+  setClassColorOverrides(result.classColors);
   state.session.selectedClassFile = fileHandle;
   return result;
 }

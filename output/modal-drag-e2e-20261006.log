@@ -1,0 +1,46 @@
+
+Running 3 tests using 1 worker
+
+(node:62372) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:62372) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\missing-label-folder-focus.spec.ts:3:1 › keeps text and numeric inputs editable immediately after creating a missing label folder (11.8s)
+  x  2 [chromium] › tests\e2e\modal-drag.spec.ts:20:3 › detection-light: every popup drags by its header and resets after closing (19.3s)
+(node:41028) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:41028) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 3 [chromium] › tests\e2e\modal-drag.spec.ts:20:3 › segmentation-dark: every popup drags by its header and resets after closing (24.9s)
+
+
+  1) [chromium] › tests\e2e\modal-drag.spec.ts:20:3 › detection-light: every popup drags by its header and resets after closing › createClassFileModal
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  - 1[39m
+    [31m+ Received  + 1[39m
+
+    [2m  Object {[22m
+    [2m    "height": 249.359375,[22m
+    [2m    "width": 300,[22m
+    [2m    "x": 490,[22m
+    [32m-   "y": 235.3125,[39m
+    [31m+   "y": 235.03793334960938,[39m
+    [2m  }[22m
+
+      65 |         expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+      66 |         await hideModal(page, id);
+    > 67 |         expect(await content.evaluate((element) => element.style.translate)).toBe("");
+         |                                             ^
+      68 |         await showModal(page, id);
+      69 |         expect(await content.boundingBox()).toEqual(initial);
+      70 |         await hideModal(page, id);
+        at C:\Git\easy_labeling\tests\e2e\modal-drag.spec.ts:67:45
+        at C:\Git\easy_labeling\tests\e2e\modal-drag.spec.ts:38:7
+
+    Error Context: test-results\modal-drag-detection-light-14a53-er-and-resets-after-closing-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\modal-drag.spec.ts:20:3 › detection-light: every popup drags by its header and resets after closing
+  2 passed (58.3s)

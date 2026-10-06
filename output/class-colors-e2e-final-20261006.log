@@ -1,0 +1,55 @@
+
+Running 5 tests using 1 worker
+
+(node:59368) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:59368) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x  1 [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels (2.0m)
+(node:51520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:51520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 2 [chromium] › tests\e2e\class-file-profile.spec.ts:4:3 › Annotate: Class Info profile creates, edits and shares a class file across tabs (7.6s)
+  ok 3 [chromium] › tests\e2e\class-file-profile.spec.ts:4:3 › Inference: Class Info profile creates, edits and shares a class file across tabs (7.9s)
+  ok 4 [chromium] › tests\e2e\ux-stage2.spec.ts:154:3 › light: Review actions lead the panel and Mask classes have independent paint/visibility (15.4s)
+  ok 5 [chromium] › tests\e2e\ux-stage2.spec.ts:154:3 › dark: Review actions lead the panel and Mask classes have independent paint/visibility (15.1s)
+
+
+  1) [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels
+
+    [31mTest timeout of 120000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 120000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('#viewClassFileBtn')[22m
+    [2m    - locator resolved to <button type="button" id="viewClassFileBtn" title="Edit class file" data-ui="view-class-file" aria-label="Edit class file" class="btn btn-outline-secondary">…</button>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is not visible[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is not visible[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 100ms[22m
+    [2m    136 × waiting for element to be visible, enabled and stable[22m
+    [2m        - element is not visible[22m
+    [2m      - retrying click action[22m
+    [2m        - waiting 500ms[22m
+
+
+      114 |   await page.reload({ waitUntil: "domcontentloaded" });
+      115 |   await expect(page.locator("#class-file-select")).toHaveValue("colors.yaml");
+    > 116 |   if (!await page.locator("#viewClassFileBtn").isVisible()) await page.locator("#classManagement > summary").click();
+          |                                           ^
+      117 |   await page.locator("#viewClassFileBtn").click();
+      118 |   await expect(page.locator(`#classFileEditorBody .class-color-input[data-class-id="${mask.id}"]`)).toHaveValue("#fedcba");
+      119 | });
+        at C:\Git\easy_labeling\tests\e2e\class-colors.spec.ts:116:43
+
+    Error Context: test-results\class-colors-class-colors--9209f-ows-without-changing-labels-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels
+  4 passed (2.8m)

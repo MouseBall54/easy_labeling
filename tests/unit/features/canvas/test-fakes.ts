@@ -305,6 +305,10 @@ class FakeActiveSelection extends FakeFabricObject<"activeSelection"> implements
     return this.objects.filter((obj) => obj.type === type);
   }
 
+  removeAll(): FabricObjectLike[] {
+    return this.objects.splice(0);
+  }
+
   forEachObject(callback: (obj: FabricObjectLike) => void): void {
     this.objects.forEach((obj) => {
       callback(obj);

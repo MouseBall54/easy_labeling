@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { FakeDocument } from "../ui/test-dom.js";
 
 import { createInitialAppState } from "../../../src/app/state.js";
 import { createFileSystemAdapter } from "../../../src/bootstrap/file-system-adapter.js";
@@ -191,9 +192,7 @@ function createConnectedDeps() {
 
 function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
   const previousDocument = Reflect.get(globalThis, "document");
-  Reflect.set(globalThis, "document", {
-    createElement: () => ({ innerHTML: "" })
-  });
+  Reflect.set(globalThis, "document", new FakeDocument());
   return run().finally(() => {
     if (previousDocument === undefined) {
       Reflect.deleteProperty(globalThis, "document");
@@ -373,6 +372,28 @@ describe("bootstrap/file-system-adapter", () => {
 
     expect(deps.uiManager.notify).toHaveBeenCalledWith("Please select a class file first.");
     expect(deps.uiManager.showClassFileContentModal).not.toHaveBeenCalled();
+  });
+
+  it("queues class colors without losing names and keeps saved colors on write failure", async () => {
+    const file = new MockFileHandle("classes.yaml", "0: person\n1: car");
+    const state = createInitialAppState();
+    const fileSystem = createFileSystemAdapter({
+      state,
+      windowRef: createWindowRef(new MockDirectoryHandle("classes")) as never,
+      tiffRef: null
+    });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    await fileSystem.loadClassNamesFromFile(file);
+    await Promise.all([fileSystem.setClassColor("0", "#112233"), fileSystem.setClassColor("1", "#abcdef")]);
+    expect(state.session.classColors).toEqual(new Map([["0", "#112233"], ["1", "#abcdef"]]));
+    expect(state.session.classNames).toEqual(new Map([["0", "person"], ["1", "car"]]));
+    const saved = await (await file.getFile()).text();
+    vi.spyOn(file, "createWritable").mockRejectedValueOnce(new Error("Write denied"));
+    await expect(fileSystem.setClassColor("0", "#ffffff")).rejects.toThrow("Write denied");
+    expect(await (await file.getFile()).text()).toBe(saved);
+    expect(state.session.classColors.get("0")).toBe("#112233");
+    expect(deps.uiManager.updateLabelList).toHaveBeenCalled();
   });
 
   it("loads class files from the default Class Info profile before dataset-local files", async () => {

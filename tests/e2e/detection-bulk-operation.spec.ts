@@ -34,9 +34,19 @@ test("shows progress while pasting 5,000 detection boxes and keeps the result un
   await expect.poll(async () => page.evaluate(() => {
     return Reflect.get(window, "__easyLabelingTestApi")?.canUndo?.() ?? false;
   })).toBe(true);
+  await expect(page.locator("#activeOperationPanel")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getActiveSelectionBounds?.())).not.toBeNull();
+  await expect.poll(() => page.evaluate(() => {
+    const api = Reflect.get(window, "__easyLabelingTestApi");
+    const pastedIds = api.getRectGeometries().slice(5000).map((rect: { annotationId: string }) => rect.annotationId);
+    return JSON.stringify(api.getSelectedRectIds().sort()) === JSON.stringify(pastedIds.sort());
+  })).toBe(true);
 
   await page.keyboard.press("Control+z");
   await expect.poll(async () => page.evaluate(() => {
     return Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? 0;
   })).toBe(5000);
+  await page.keyboard.press("Control+Shift+z");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.())).toBe(10000);
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getActiveSelectionBounds?.())).not.toBeNull();
 });

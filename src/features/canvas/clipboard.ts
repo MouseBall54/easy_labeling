@@ -125,7 +125,9 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
       };
 
       if (isActiveSelectionObject(cloned)) {
-        const copiedRects = cloned.getObjects().filter(isRectObject);
+        // Fabric applies the selection transform when removing its members.
+        // Convert to image coordinates before measuring or moving rectangles.
+        const copiedRects = cloned.removeAll().filter(isRectObject);
         if (copiedRects.length === 0) {
           return [];
         }
@@ -141,7 +143,6 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
         copiedRects.forEach((obj) => {
           obj.left += offsetX;
           obj.top += offsetY;
-          obj.group = null;
           resetPastedRectStyling(obj, deps.getColorForClass);
           newObjects.push(obj);
           pastedRects.push(obj);
@@ -162,14 +163,8 @@ export function createClipboardManager(deps: ClipboardDeps): ClipboardManager {
       await addObjectsInBatches(newObjects);
       throwIfAborted(options.signal);
 
-      // Fabric rebuilds every member's coordinates while constructing an
-      // ActiveSelection. That is disproportionately expensive for thousands
-      // of rectangles, so retain normal selection behavior only while it is
-      // still practical to manipulate as one object.
-      if (newObjects.length <= 250) {
-        const selection = new deps.fabric.ActiveSelection(newObjects, { canvas: deps.canvas });
-        deps.canvas.setActiveObject(selection);
-      }
+      const selection = new deps.fabric.ActiveSelection(newObjects, { canvas: deps.canvas });
+      deps.canvas.setActiveObject(selection);
       options.onProgress?.({ detail: "Rendering pasted boxes", current: newObjects.length, total: newObjects.length });
       if (!options.deferRender) {
         deps.canvas.requestRenderAll();

@@ -119,6 +119,7 @@ export interface FabricCircleLike extends FabricObjectLike {
 export interface FabricActiveSelectionLike extends FabricObjectLike {
   type: "activeSelection";
   getObjects(type?: string): FabricObjectLike[];
+  removeAll(): FabricObjectLike[];
   forEachObject(callback: (obj: FabricObjectLike) => void): void;
 }
 

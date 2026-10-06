@@ -36,6 +36,7 @@ export interface AppSessionState {
   currentImageFile: FileHandle | null;
   currentImage: HTMLImageElement | null;
   classNames: Map<string, string>;
+  classColors: Map<string, string>;
   reviewState: ReviewStateDocument;
   reviewFindings: Map<string, ReviewFinding>;
   workflow: WorkflowType;
@@ -92,6 +93,7 @@ export function createInitialAppState(): AppState {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
+      classColors: new Map<string, string>(),
       reviewState: createReviewStateDocument(),
       reviewFindings: new Map(),
       workflow: "detection",

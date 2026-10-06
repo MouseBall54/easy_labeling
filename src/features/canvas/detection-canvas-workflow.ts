@@ -392,8 +392,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       const isEditMode = state.currentMode === "edit";
         const rect = new deps.fabric.Rect({
-          left: snapshot.left,
-          top: snapshot.top,
+          left: snapshot.boundsLeft,
+          top: snapshot.boundsTop,
           originX: "left",
           originY: "top",
           width: snapshot.width,
@@ -1030,6 +1030,13 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
 
       this.renderAll();
+    },
+
+    refreshClassColors(): void {
+      this.getObjects("rect").filter(isRectObject).forEach((rect) => {
+        rect.set({ fill: `${colorForClass(rect.labelClass)}33` });
+      });
+      this.highlightSelection();
     },
 
     startDrawing(pointer: CanvasPoint): void {

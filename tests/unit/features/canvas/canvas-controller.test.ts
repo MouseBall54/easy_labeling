@@ -171,6 +171,26 @@ describe("features/canvas/canvas-controller", () => {
     expect(rect.strokeDashArray).toEqual([]);
   });
 
+  it("recolors loaded boxes without changing geometry, selection or history", () => {
+    let color = "#123456";
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ getColorForClass: () => color, historyService: history }));
+    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5\n4 0.7 0.4 0.2 0.5");
+    const [rect, other] = controller.getObjects("rect");
+    controller.canvas.setActiveObject(rect!);
+    const labels = controller.getLabelsAsYolo();
+    const entries = [...history.getPastEntries()];
+    color = "#abcdef";
+    controller.refreshClassColors?.();
+    expect(rect?.fill).toBe("#abcdef33");
+    expect(rect?.stroke).toBe("#ff0000");
+    expect(other?.stroke).toBe("#abcdef");
+    expect(Reflect.get(other!._labelText!, "backgroundColor")).toBe("#abcdef");
+    expect(controller.canvas.getActiveObject()).toBe(rect);
+    expect(controller.getLabelsAsYolo()).toBe(labels);
+    expect(history.getPastEntries()).toEqual(entries);
+  });
+
   it("wraps DOM images in a non-evented base Fabric image layer", () => {
     const fabric = createFakeFabricRuntime();
     const controller = createCanvasController(
@@ -1009,6 +1029,7 @@ describe("features/canvas/canvas-controller", () => {
     });
 
     expect(controller.getObjects("rect")).toHaveLength(10000);
+    expect(controller.getSelectedBoxCount()).toBe(5000);
     expect(progress).toContain(5000);
     expect(history.getPastEntries()).toHaveLength(1);
     expect(history.getPastEntries()[0]?.before).toHaveLength(5000);
@@ -1016,8 +1037,10 @@ describe("features/canvas/canvas-controller", () => {
 
     controller.undo();
     expect(controller.getObjects("rect")).toHaveLength(5000);
+    expect(controller.getSelectedBoxCount()).toBe(5000);
     controller.redo();
     expect(controller.getObjects("rect")).toHaveLength(10000);
+    expect(controller.getSelectedBoxCount()).toBe(5000);
   });
 
   it("rolls back an interrupted bulk paste without creating a history entry", async () => {

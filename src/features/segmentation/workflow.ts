@@ -1371,6 +1371,11 @@ export function createSegmentationCanvasWorkflow(
       renderAiPromptOverlay();
     },
 
+    refreshClassColors(): void {
+      requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
+      renderAiPromptOverlay();
+    },
+
     toggleAllLabelTexts(): void {
       return;
     },

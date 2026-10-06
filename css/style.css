@@ -2378,6 +2378,35 @@ body {
     gap: 4px;
 }
 
+.class-color-input {
+    width: 30px;
+    height: 30px;
+    padding: 3px;
+    cursor: pointer;
+    flex: 0 0 30px;
+    border-color: var(--workbench-border);
+}
+
+.class-color-input:disabled {
+    cursor: default;
+}
+
+.class-filter-entry {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+}
+
+.class-filter-entry .class-filter-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    width: 100%;
+}
+
+.class-filter-entry[hidden] {
+    display: none;
+}
+
 /* Author display:flex/block on these two otherwise beats the UA [hidden]
    default (equal specificity, author stylesheet wins) -- without this the
    segmentation-mode hidden toggle on them is a no-op. */
@@ -4125,6 +4154,16 @@ summary {
     font-size: var(--fs-section);
     font-weight: 700;
     line-height: 1.25;
+}
+
+.modal-header[data-modal-drag="installed"] {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+.modal-header.is-dragging {
+    cursor: grabbing;
 }
 
 .modal-footer {

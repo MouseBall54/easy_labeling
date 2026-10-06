@@ -26,4 +26,4 @@ git commit -m "Update YOLOE-26 ONNX models"
 
 `--size n`, `s`, `m`, `l`로 개별 크기를 갱신할 수 있습니다. 변환 명령은 manifest를 갱신하고 PyTorch와 ONNX의 수치 비교가 실패하면 종료합니다. `yoloe:models:record` 및 설치 파일 빌드는 파일별 크기와 SHA256이 manifest와 맞는지 검증하여 일부 가중치만 바뀐 상태로 배포하는 것을 막습니다. `.pt`, 가상 환경 및 다른 연구용 모델은 Git에서 제외합니다.
 
-모델이 포함된 체크아웃을 오프라인 환경으로 전달하면 모델 다운로드가 필요 없습니다. 일반 사용자는 **Easy-Labeling-YOLOE26-Setup-2.1.0-x64.exe** 하나로 설치합니다. Python·PyTorch·CUDA Toolkit·서비스 설정 없이 앱 내부의 ONNX Runtime에서 실행합니다. 소스 개발 PC의 npm 의존성은 별도로 준비해야 합니다. 상세 사용 방법은 [YOLOE26_GPU_KO.md](YOLOE26_GPU_KO.md)를 참고하세요.
+모델이 포함된 체크아웃을 오프라인 환경으로 전달하면 모델 다운로드가 필요 없습니다. 일반 사용자는 빌드한 **Easy-Labeling-YOLOE26-Setup-<버전>-x64.exe** 하나로 설치합니다. Python·PyTorch·CUDA Toolkit·서비스 설정 없이 앱 내부의 ONNX Runtime에서 실행합니다. 소스 개발 PC의 npm 의존성은 별도로 준비해야 합니다. 현재 빌드 버전과 상세 사용 방법은 [YOLOE26_GPU_KO.md](YOLOE26_GPU_KO.md)를 참고하세요.

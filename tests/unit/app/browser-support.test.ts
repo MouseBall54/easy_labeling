@@ -27,6 +27,7 @@ function createFactorySpies() {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
+      classColors: new Map<string, string>(),
       reviewState: createReviewStateDocument(),
       reviewFindings: new Map(),
       workflow: "detection",

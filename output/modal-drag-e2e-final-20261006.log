@@ -1,0 +1,47 @@
+
+Running 4 tests using 1 worker
+
+(node:25528) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:25528) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\class-colors.spec.ts:12:1 › class colors persist per file and repaint both workflows without changing labels (30.4s)
+  ok 2 [chromium] › tests\e2e\missing-label-folder-focus.spec.ts:3:1 › keeps text and numeric inputs editable immediately after creating a missing label folder (8.1s)
+  x  3 [chromium] › tests\e2e\modal-drag.spec.ts:22:3 › detection-light: every popup drags by its header and resets after closing (36.5s)
+(node:3792) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3792) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 4 [chromium] › tests\e2e\modal-drag.spec.ts:22:3 › segmentation-dark: every popup drags by its header and resets after closing (25.0s)
+
+
+  1) [chromium] › tests\e2e\modal-drag.spec.ts:22:3 › detection-light: every popup drags by its header and resets after closing
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeHidden[2m([22m[2m)[22m failed
+
+    Locator:  locator('#classFileViewerModal')
+    Expected: hidden
+    Received: visible
+    Timeout:  10000ms
+
+    Call log:
+    [2m  - Expect "toBeHidden" with timeout 10000ms[22m
+    [2m  - waiting for locator('#classFileViewerModal')[22m
+    [2m    14 × locator resolved to <div tabindex="-1" role="dialog" aria-modal="true" class="modal fade show" id="classFileViewerModal" data-focus-management="installed" aria-labelledby="classFileViewerModalLabel">…</div>[22m
+    [2m       - unexpected value "visible"[22m
+
+
+      133 |       await expect(header).not.toHaveClass(/is-dragging/);
+      134 |       await page.mouse.up();
+    > 135 |       await expect(page.locator("#classFileViewerModal")).toBeHidden();
+          |                                                           ^
+      136 |       await expect(page.locator("#viewClassFileBtn")).toBeFocused();
+      137 |     }
+      138 |   });
+        at C:\Git\easy_labeling\tests\e2e\modal-drag.spec.ts:135:59
+
+    Error Context: test-results\modal-drag-detection-light-14a53-er-and-resets-after-closing-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\modal-drag.spec.ts:22:3 › detection-light: every popup drags by its header and resets after closing
+  3 passed (1.7m)

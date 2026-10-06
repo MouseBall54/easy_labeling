@@ -148,7 +148,7 @@ describe("ui/renderers", () => {
     });
 
     const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
-    const classButtons = labelFiltersElement.children.filter((child) => child.dataset.ui === "filter-class");
+    const classButtons = labelFiltersElement.querySelectorAll('[data-ui="filter-class"]');
 
     expect(allButton?.dataset.testid).toBe("filter-all");
     expect(classButtons).toHaveLength(2);
@@ -200,7 +200,7 @@ describe("ui/renderers", () => {
     });
 
     const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
-    const classButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-class" && child.dataset.labelClass === "2");
+    const classButton = labelFiltersElement.querySelectorAll('[data-ui="filter-class"]').find((child) => child.dataset.labelClass === "2");
 
     allButton?.dispatch("click");
     classButton?.dispatch("click");
@@ -221,7 +221,7 @@ describe("ui/renderers", () => {
       getDisplayNameForClass: (labelClass) => `Class ${labelClass}`
     });
 
-    const unlabeledButton = labelFiltersElement.children.find(
+    const unlabeledButton = labelFiltersElement.querySelectorAll('[data-ui="filter-class"]').find(
       (child) => child.dataset.ui === "filter-class" && child.dataset.filterKey === UNLABELED_FILTER_KEY
     );
 

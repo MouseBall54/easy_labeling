@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile, readdir, copyFile } from "node:fs/promises"
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import yoloeBuildConfig from "../electron-builder.yoloe.cjs";
 import { encodeSegmentationMaskPng, decodeSegmentationMaskPng } from "../dist/domain/annotations/segmentation-codec.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,7 +61,7 @@ try {
     }, { dataset, documents: path.join(output, "documents") });
     expect(evidence.installation.executable).toBe(installedExecutable);
     expect(evidence.installation.appPath).toMatch(/app\.asar$/);
-    expect(evidence.installation.version).toBe("2.1.0");
+    expect(evidence.installation.version).toBe(yoloeBuildConfig.extraMetadata.version);
     const resources = await readdir(path.join(path.dirname(installedExecutable), "resources"), { recursive: true });
     expect(resources.some((file) => /(^|[/\\])python(\.exe)?$/i.test(file) || file.endsWith(".pt"))).toBe(false);
     evidence.checks.noPythonOrPtInInstallation = true;

@@ -117,6 +117,7 @@ export interface CanvasController {
   updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
   setSelectedBoxesVisibility?(visible: boolean): boolean;
   highlightSelection(): void;
+  refreshClassColors?(): void;
   startDrawing(pointer: CanvasPoint): void;
   continueDrawing(pointer: CanvasPoint): void;
   finishDrawing(): Promise<void>;

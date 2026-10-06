@@ -1,5 +1,15 @@
 import { expect, it } from "vitest";
-import { getColorForClass, getContrastTextColor } from "../../../../src/features/canvas/colors.js";
+import { getColorForClass, getContrastTextColor, getColorForClassRgba, setClassColorOverrides } from "../../../../src/features/canvas/colors.js";
+
+it("uses active class-file colors for boxes, masks and contrast, then returns to defaults", () => {
+  const fallback = getColorForClass("1");
+  setClassColorOverrides(new Map([["1", "#ffffff"]]));
+  expect(getColorForClass("1")).toBe("#ffffff");
+  expect(getColorForClassRgba("1", 0.5)).toBe("rgba(255, 255, 255, 0.5)");
+  expect(getContrastTextColor(getColorForClass("1"))).toBe("#000000");
+  setClassColorOverrides(new Map());
+  expect(getColorForClass("1")).toBe(fallback);
+});
 
 it("class badges choose black or white with readable contrast across the palette", () => {
   for (let id = 0; id < 30; id++) {

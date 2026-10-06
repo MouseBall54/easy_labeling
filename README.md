@@ -31,10 +31,12 @@ YOLOE-26 ONNX 버전의 사용법과 모델 갱신 방법은 [YOLOE-26 GPU/CPU �
 
 | 설치 버전 | 설치파일 빌드 명령 | 출력 위치 | YOLOE-26 모델 |
 | --- | --- | --- | --- |
-| 일반 버전 (2.0.0) | `npm run electron:dist:win` | `release/` | 제외 |
-| YOLOE-26 버전 (2.1.0) | `npm run electron:dist:yoloe:win` | `release/yoloe26/` | N/S/M/L ONNX 모델 모두 포함 |
+| 일반 버전 (2.1.0) | `npm run electron:dist:win` | `release/` | 제외 |
+| YOLOE-26 버전 (2.2.0) | `npm run electron:dist:yoloe:win` | `release/yoloe26/` | N/S/M/L ONNX 모델 모두 포함 |
 
-YOLOE-26 설치파일 이름은 현재 `Easy-Labeling-YOLOE26-Setup-2.1.0-x64.exe`입니다. 빌드 명령은 Git에 포함된 ONNX 모델을 검증하고 설치파일에 넣습니다. 모델 다운로드나 Python을 통한 변환은 필요하지 않습니다.
+현재 설정으로 빌드하면 YOLOE-26 설치파일 이름은 `Easy-Labeling-YOLOE26-Setup-2.2.0-x64.exe`입니다. 빌드 명령은 Git에 포함된 ONNX 모델을 검증하고 설치파일에 넣습니다. 모델 다운로드나 Python을 통한 변환은 필요하지 않습니다.
+
+이번 소스 버전에는 Detection 다중 붙여넣기 위치·선택 묶음 수정, 클래스 색 편집·저장, 팝업 헤더 드래그 이동이 포함됩니다. 소스 검증과 새 설치파일 제작·검증은 별개이며 [진행 기록의 U24~U26](docs/UI_UX_PROGRESS_KO.md#추가-결함-u24--detection-다중-선택-붙여넣기)에 완료 기준과 결과를 기록했습니다.
 
 설치 후에는 별도 Python, PyTorch, npm, CUDA Toolkit 설치나 모델 다운로드 없이 실행합니다. YOLOE-26은 GPU를 사용할 수 있으면 WebGPU로 실행하고, 사용할 수 없으면 CPU/WASM으로 실행합니다. 모델을 교체하기 위한 개발자용 내보내기 절차는 [YOLOE-26 안내](docs/YOLOE26_GPU_KO.md#모델을-교체하는-개발자만-필요한-내보내기)를 참고하세요.
 

@@ -4,6 +4,7 @@ import {
   normalizeNewClassFileName,
   parseClassContent,
   parseClassContentForEditor,
+  parseClassColors,
   validateAndSerializeClassRows,
   type ClassFileRow,
   type ClassFileSaveResult
@@ -12,6 +13,7 @@ import type { DirectoryHandleLike, FileHandleLike } from "../../types/files.js";
 
 export interface ReadClassNamesResult {
   classNames: Map<string, string>;
+  classColors: Map<string, string>;
 }
 
 export interface SaveClassRowsResult {
@@ -28,7 +30,7 @@ export interface CreateClassFileResult {
 export async function readClassNamesFromFileHandle(fileHandle: FileHandleLike): Promise<ReadClassNamesResult> {
   const file = await fileHandle.getFile();
   const content = await file.text();
-  return { classNames: parseClassContent(content) };
+  return { classNames: parseClassContent(content), classColors: parseClassColors(content) };
 }
 
 export async function readClassFileRowsForEditor(fileHandle: FileHandleLike): Promise<ClassFileRow[]> {
