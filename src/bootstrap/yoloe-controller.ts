@@ -178,7 +178,6 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     el<HTMLButtonElement>("finishYoloeSampleBtn").disabled = !drawing || (shape.value === "brush" ? !hasPaint || Boolean(paintStroke) : outline.length < 3);
     el("finishYoloeSampleBtn").textContent = shape.value === "brush" ? "Finish mask" : "Finish outline";
     el("finishYoloeSampleBtn").hidden = !drawing || shape.value === "box";
-    el("yoloeDrawingHint").hidden = !drawing || shape.value !== "mask";
     const selectedCount = workflow === "segmentation"
       ? canvasController.raw.getSelectedSegmentationRegion?.() ? 1 : 0
       : canvasController.raw.canvas.getActiveObjects().filter(isRectObject).length;
@@ -479,14 +478,21 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     const list = el("yoloeExampleList"); list.replaceChildren();
     const groups = new Map<string, typeof examples>();
     for (const example of examples) groups.set(example.name, [...groups.get(example.name) ?? [], example]);
+    const groupLists = new Map<string, HTMLElement>();
     for (const [name, entries] of groups) {
-      const summary = documentRef.createElement("p"); summary.className = "small mb-1";
-      summary.textContent = `${name} · ${entries.length} examples · ${new Set(entries.map((e) => e.sourceName)).size} images`;
-      list.appendChild(summary);
+      const group = documentRef.createElement("section"); group.className = "yoloe-sample-group";
+      group.setAttribute("aria-label", `Samples for ${name}`);
+      group.style.borderLeft = `3px solid ${getColorForClass(String(entries[0]!.classId))}`;
+      const title = documentRef.createElement("strong"); title.textContent = name;
+      const summary = documentRef.createElement("small"); summary.className = "text-muted";
+      const imageCount = new Set(entries.map((e) => e.sourceName)).size;
+      summary.textContent = `${entries.length} example${entries.length === 1 ? "" : "s"} · ${imageCount} image${imageCount === 1 ? "" : "s"}`;
+      const rows = documentRef.createElement("div"); rows.className = "yoloe-sample-group-examples";
+      group.append(title, summary, rows); list.appendChild(group); groupLists.set(name, rows);
     }
     for (const example of examples) {
       const row = documentRef.createElement("div");
-      row.style.borderLeft = `3px solid ${getColorForClass(String(example.classId))}`;
+      row.className = "yoloe-example-row";
       const thumb = documentRef.createElement("canvas"); thumb.width = thumb.height = 44;
       const [x1, y1, x2, y2] = example.box;
       const scale = Math.min(44 / (x2 - x1), 44 / (y2 - y1));
@@ -509,11 +515,11 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
         context.drawImage(cutout, (44 - w) / 2, (44 - h) / 2, w, h); context.globalCompositeOperation = "source-over";
         example.maskCanvas = cutout;
       }
-      const label = documentRef.createElement("span"); label.textContent = example.name; label.title = `${example.sourceName} · Class ${example.classId}`;
+      const label = documentRef.createElement("span"); label.textContent = example.sourceName; label.title = `${example.name} · Class ${example.classId} · ${example.sourceName}`;
       const remove = documentRef.createElement("button"); remove.type = "button"; remove.className = "btn btn-sm btn-outline-secondary";
       remove.innerHTML = '<i class="bi bi-x" aria-hidden="true"></i>'; remove.setAttribute("aria-label", `Remove sample ${example.name}`);
       remove.addEventListener("click", () => { examples.splice(examples.indexOf(example), 1); profile = null; clearPreview(); if (!examples.length) referenceImage = null; markPresetDirty(); renderExamples(); });
-      row.append(thumb, label, remove); list.append(row);
+      row.append(thumb, label, remove); groupLists.get(example.name)!.append(row);
     }
     sync(); drawPreview();
   };
@@ -532,6 +538,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     ? maskRegionExample(canvasController.raw.getSelectedSegmentationRegion?.() ?? null, state.session.classNames, state.session.currentImage!.naturalWidth)
     : selectedVisualExamples([...new Set(canvasController.raw.canvas.getActiveObjects().filter(isRectObject))], state.session.currentImage!.naturalWidth, state.session.currentImage!.naturalHeight, state.session.classNames);
   const stopDrawing = (): void => {
+    if (status.textContent === "Drawing sample") message(status, "Ready");
     drawing = false; start = end = null; outline = []; overlay.style.pointerEvents = "none"; overlay.style.cursor = "";
     paintMask = null; paintCanvas = null; undoPaint = null; paintStroke = null; hasPaint = false;
     el("drawYoloeExampleBtn").textContent = drawButtonText();
@@ -551,7 +558,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       overlay.style.pointerEvents = "auto"; overlay.style.cursor = "crosshair";
       el("drawYoloeExampleBtn").textContent = "Cancel sample";
       el("drawYoloeExampleBtn").setAttribute("aria-pressed", "true");
-      message(status, shape.value === "box" ? "Drag around the sample." : shape.value === "brush" ? "Paint the target, use Eraser to refine it, then Finish mask." : "Click the target outline, then Enter to finish.");
+      message(status, "Drawing sample");
       sync(); drawPreview();
       overlay.scrollIntoView({ block: "nearest", inline: "nearest" });
       overlay.focus({ preventScroll: true });

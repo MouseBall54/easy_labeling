@@ -66,11 +66,11 @@ for (const workflow of ["detection", "segmentation"] as const) test(`multiple ex
   await expect(page.locator("#yoloeDeviceInfo")).toHaveText("Test GPU");
   const original = await page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow);
   await page.locator("#yoloeExistingBoxSelect").selectOption(["0", "1"]); await page.locator("#addYoloeExistingBtn").click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
   await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
   await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
   await page.locator("#yoloeExistingBoxSelect").selectOption("0"); await page.locator("#addYoloeExistingBtn").click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(3);
   await page.locator("#yoloeProfileName").fill("saved_parts"); await page.locator("#yoloeImageSize").selectOption("2048");
   await page.locator("#yoloeConfidenceInput").fill("0.35"); await page.locator("#yoloePromptShape").selectOption("brush");
   await page.locator("#yoloeAutoFillClosedRegionToggle").check();
@@ -87,13 +87,13 @@ for (const workflow of ["detection", "segmentation"] as const) test(`multiple ex
   await expect(page.locator("#yoloePresetSelect option")).toHaveCount(2);
   await page.locator("#yoloePresetSelect").selectOption(`saved_parts-${workflow}.yoloe.json`);
   await expect(page.locator("#yoloeSetupStatus")).toContainText("Loaded");
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(3);
   await expect(page.locator("#yoloeImageSize")).toHaveValue("2048");
   await expect(page.locator("#yoloeConfidenceInput")).toHaveValue("0.35");
   await expect(page.locator("#yoloeAutoFillClosedRegionToggle")).toBeChecked();
   await page.locator("#yoloePresetFileInput").setInputFiles({ name: "invalid.json", mimeType: "application/json", buffer: Buffer.from('{"version":9}') });
   await expect(page.locator("#yoloeSetupStatus")).toContainText("Invalid");
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(3);
   await closeSetup(page); await page.locator("#yoloeSaveScope").selectOption("all");
   await expect(page.locator("#saveYoloeCurrentBtn")).toHaveText("Run & save results");
   await page.locator("#saveYoloeCurrentBtn").click();
@@ -102,7 +102,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`multiple ex
   expect(inferred).toBe(17);
   expect(prepared).toMatchObject({ imgsz: 2048 });
   expect((prepared as unknown as { references: unknown[] }).references).toHaveLength(2);
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await expect.poll(() => page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow)).toEqual(original);
   if (workflow === "detection") {
     await page.locator('label[for="segmentationWorkflowTab"]').click(); await openSetup(page);
@@ -113,7 +113,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`multiple ex
     await closeSetup(page); await page.locator('label[for="detectionWorkflowTab"]').click(); await openSetup(page);
     await expect(page.locator("#yoloePresetSelect")).toBeEnabled();
     await page.locator("#yoloePresetSelect").selectOption("saved_parts-detection.yoloe.json");
-    await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+    await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(3);
   }
 });
 
@@ -194,7 +194,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`brush and e
   point = await screen(490, 250); await page.mouse.click(point.x, point.y);
   await page.keyboard.press("Enter");
   await expect(page.locator("#yoloeDrawingToolbar")).toBeHidden();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(1);
   await page.locator("#previewYoloeSampleBtn").click();
   await expect(page.locator("#yoloeSetupStatus")).toContainText("Preview");
   const example = (prepared as unknown as Prepared).references[0]!.examples[0]!;
@@ -244,7 +244,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`brush and e
   await page.locator("#drawYoloeExampleBtn").click();
   await expect(page.locator("#finishYoloeSampleBtn")).toBeDisabled();
   point = await screen(400, 250); await page.mouse.click(point.x, point.y); await page.keyboard.press("Escape");
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(4);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(4);
   await closeSetup(page);
   expect(await page.evaluate((workflow) => workflow === "detection" ? Reflect.get(window, "__easyLabelingTestApi").getRectCount() : Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds(), workflow)).toEqual(original);
 });
@@ -284,22 +284,22 @@ for (const workflow of ["detection", "segmentation"] as const) for (const imgsz 
     await expect(page.locator("#yoloeSampleName")).toHaveValue(name);
     await outline(page);
   }
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(3);
   const imageName = await page.locator("#current-image-name").textContent();
   await page.locator("#drawYoloeExampleBtn").click(); await page.keyboard.press("d");
   await expect(page.locator("#current-image-name")).toHaveText(imageName!);
   await closeSetup(page); await openSetup(page);
   await expect(page.locator("#drawYoloeExampleBtn")).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(3);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(3);
   // A second example for sampleA reuses its output class rather than creating another category.
   await page.locator("#yoloeExistingTarget").selectOption("sampleA"); await outline(page);
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(4);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(4);
   await expect(page.locator("#yoloeSampleName")).toHaveValue("sampleA");
   await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
   await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
   await expect(page.locator("#current-image-name")).toHaveText("sample_1.jpg");
   await page.locator("#yoloeExistingTarget").selectOption("sampleA"); await outline(page);
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(5);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(5);
   await expect(page.locator("#yoloeExistingTarget option[value='sampleA']")).toHaveText("sampleA · 3 example(s)");
   await page.locator("#yoloeReferenceSelect").selectOption("sample_1.jpg");
   await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
@@ -322,11 +322,11 @@ for (const workflow of ["detection", "segmentation"] as const) for (const imgsz 
   expect(await source()).toEqual(before);
   await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText(workflow === "segmentation" ? "-targets-masks" : "-targets");
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await expect.poll(source).toEqual(before);
   await openSetup(page);
   await page.getByRole("button", { name: "Remove sample sampleB", exact: true }).click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(4);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(4);
   await expect(page.locator("#yoloeDrawingToolbar")).toBeHidden();
   await page.locator("#drawYoloeExampleBtn").click(); await page.keyboard.press("Escape");
   await expect(page.locator("#drawYoloeExampleBtn")).toHaveAttribute("aria-pressed", "false");
@@ -334,7 +334,7 @@ for (const workflow of ["detection", "segmentation"] as const) for (const imgsz 
   await closeSetup(page);
   await expect(page.locator(workflow === "detection" ? "#detectionCanvasToolbar" : "#segmentationCanvasToolbar")).toBeVisible();
   await page.locator(`label[for="${workflow === "detection" ? "segmentation" : "detection"}WorkflowTab"]`).click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(0);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(0);
   await expect(page.locator("#previewYoloeBtn")).toBeDisabled();
 });
 
@@ -420,7 +420,12 @@ for (const workflow of ["detection", "segmentation"] as const) test(`popup drag,
   await expect(page.locator("#yoloeSampleZoom")).not.toHaveText(zoomIn!);
   expect(Number.parseInt((await page.locator("#yoloeSampleZoom").textContent())!)).toBeLessThan(Number.parseInt(zoomIn!));
   await page.locator("#fitYoloeSampleBtn").click();
-  await expect(page.locator("#yoloeSampleZoom")).toHaveText(zoomBefore!);
+  // Finishing the outline hides its toolbar and gives the image more height.
+  await expect.poll(() => canvas.evaluate((element) => {
+    const c = element as HTMLCanvasElement;
+    const fit = Math.round(Math.min(c.width / Number(c.dataset.referenceWidth), c.height / Number(c.dataset.referenceHeight)) * 100);
+    return document.getElementById("yoloeSampleZoom")!.textContent === `${fit}%`;
+  })).toBe(true);
   const pixels = () => canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
   const before = await pixels();
   await page.locator("#previewYoloeSampleBtn").click();
@@ -453,12 +458,12 @@ for (const workflow of ["detection", "segmentation"] as const) test(`popup drag,
   await page.mouse.move(startPan.x, startPan.y); await page.keyboard.down("Control");
   await page.mouse.down(); await page.mouse.move(startPan.x + 20, startPan.y + 10); await page.mouse.up(); await page.keyboard.up("Control");
   await expect(page.locator("#yoloeDrawingToolbar")).toBeVisible();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(1);
   const fit = Math.min(initial.width / initial.imageWidth, initial.height / initial.imageHeight);
   const boxPoint = (x: number, y: number) => ({ x: bounds.x + (initial.width - initial.imageWidth * fit) / 2 + 20 + x * fit, y: bounds.y + (initial.height - initial.imageHeight * fit) / 2 + 10 + y * fit });
   const from = boxPoint(400, 250), to = boxPoint(450, 300);
   await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y); await page.mouse.up();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
   await Promise.all([page.waitForResponse((r) => r.url().endsWith("/infer")), page.locator("#previewYoloeSampleBtn").click()]);
   const box = (prepared as unknown as { references: { examples: { box: number[] }[] }[] }).references[0]!.examples[1]!.box;
   box.forEach((value, index) => expect(Math.abs(value - [400, 250, 450, 300][index]!)).toBeLessThan(1));
@@ -580,7 +585,7 @@ test("existing mask labels become pixel-accurate samples without modifying the s
   await openSetup(page);
   await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Use selected mask (1)");
   await page.locator("#addYoloeSelectedBtn").click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(1);
   await page.locator("#previewYoloeSampleBtn").click();
   await expect(page.locator("#yoloeSetupStatus")).toContainText("Preview");
   const example = (prepared as unknown as Prepared).references[0]!.examples[0]!;
@@ -629,7 +634,7 @@ test("existing box prompts and settings remain available, with cancellation pres
   await expect(page.locator("#yoloePreviewCanvas")).toBeHidden();
   await page.locator("#yoloeSaveScope").selectOption("current"); await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("inference-yoloe-26s-seg-parts_v1");
-  await page.locator("#labelSourceSelect").selectOption("0"); await expect.poll(count).toBe(207);
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click(); await expect.poll(count).toBe(207);
   await openSetup(page); await page.locator("#yoloeConfidenceInput").fill("1.1"); await closeSetup(page); await page.locator("#previewYoloeBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("between 0 and 1");
   await openSetup(page); await page.locator("#yoloeConfidenceInput").fill("0.25"); await closeSetup(page);
@@ -665,14 +670,14 @@ test("existing Detection boxes can be imported inside the popup from different i
   await page.locator("#yoloeExistingBoxSelect").selectOption("1");
   expect(await pixels()).not.toBe(before);
   await page.locator("#addYoloeExistingBtn").click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(1);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(1);
   await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
   await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(100);
   await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
   await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
   await page.locator("#yoloeExistingBoxSelect").selectOption("0");
   await page.locator("#addYoloeExistingBtn").click();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
   await page.locator("#previewYoloeSampleBtn").click();
   await expect(page.locator("#yoloeSetupStatus")).toContainText("sample_2.jpg");
   const references = (prepared as unknown as Prepared).references;

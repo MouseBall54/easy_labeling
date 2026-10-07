@@ -988,6 +988,16 @@ export function createEventManagerAdapter(input: {
         }
       });
 
+      const switchLabelSource = (index: number): void => {
+        runAsync(() => input.fileSystem.switchLabelFolder(index).finally(() => input.uiManager.syncWorkspaceState()));
+      };
+      input.documentRef?.getElementById("labelSourceTabs")?.addEventListener("change", (event) => {
+        switchLabelSource(Number((event.target as HTMLInputElement).value));
+      });
+      input.windowRef.addEventListener("resize", () => {
+        input.documentRef?.querySelector<HTMLElement>("#labelSourceTabs input:checked + label")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+
       elements.classFileEditorBody.addEventListener("change", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLInputElement)) return;
@@ -2332,7 +2342,26 @@ export function createEventManagerAdapter(input: {
       });
 
       input.windowRef.addEventListener("keydown", (event) => {
-        if (isEditableKeyboardTarget(event.target)) {
+        const folderShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+          && /^[1-9]$/.test(getNumericShortcut(event) ?? "");
+        const folderTarget = Boolean((event.target as HTMLElement | null)?.closest?.("#labelSourceTabs"));
+        const isSelectNavigationShortcut = ((event.target as HTMLElement | null)?.tagName === "SELECT" || folderTarget)
+          && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+          && (event.key.toLowerCase() === "q" || folderShortcut)
+          && input.documentRef?.querySelector(".modal.show, .modal[aria-modal='true']") == null;
+        if ((isEditableKeyboardTarget(event.target) || folderTarget) && !isSelectNavigationShortcut) {
+          return;
+        }
+
+        if (folderShortcut && input.state.session.currentImage !== null
+          && input.documentRef?.querySelector(".modal.show, .modal[aria-modal='true']") == null) {
+          const index = Number(getNumericShortcut(event)) - 1;
+          const sources = input.state.session.workflow === "segmentation"
+            ? input.state.session.segmentationLabelFolders : input.state.session.labelFolders;
+          if (sources?.[index]) {
+            event.preventDefault();
+            if (!event.repeat) switchLabelSource(index);
+          }
           return;
         }
 

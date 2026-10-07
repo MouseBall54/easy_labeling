@@ -2378,6 +2378,32 @@ body {
     gap: 4px;
 }
 
+.image-source-navigation {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    gap: 3px;
+    width: 100%;
+}
+
+.image-source-navigation .image-navigation { gap: 6px; padding: 0 8px; }
+.image-source-navigation .app-icon-button { width: 26px; min-width: 26px; height: 26px; }
+.label-source-control { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; font-size: var(--fs-body); }
+.label-source-icon { flex-shrink: 0; color: #aeb7bf; }
+#detectionLabelSources { min-width: 0; flex: 1; }
+.label-source-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.label-source-tabs::-webkit-scrollbar { display: none; }
+.label-source-tab { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: min(160px, 100%); height: 28px; margin: 0; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-sm); color: #cbd3da; background: rgba(255, 255, 255, 0.05); cursor: pointer; white-space: nowrap; }
+.label-source-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.label-source-key { flex-shrink: 0; padding: 0 3px; color: inherit; background: rgba(255, 255, 255, 0.08); border-radius: 3px; font: inherit; font-size: var(--fs-badge); }
+.label-source-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.label-source-tabs .btn-check:checked + .label-source-tab { color: #e2efff; background: #203a5b; border-color: #528bc9; }
+.label-source-tabs .btn-check:focus-visible + .label-source-tab { outline: 2px solid #9ec5fe; outline-offset: -2px; }
+.app-navbar .label-source-control .app-icon-button { color: #cbd3da; background: transparent; border-color: transparent; }
+.label-source-control .app-icon-button.btn-danger { color: #ff9aa5; }
+.label-source-control .app-icon-button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.12); border-color: #53606a; }
+
 .class-color-input {
     width: 30px;
     height: 30px;
@@ -3089,18 +3115,18 @@ body.workspace-standby-active .workbench-status-bar {
 
 .yoloe-example-list {
     display: grid;
-    gap: 4px;
-    max-height: 180px;
-    overflow-y: auto;
+    gap: 8px;
 }
 
-.yoloe-example-list > div {
+.yoloe-sample-group { padding: 8px; min-width: 0; background: var(--workbench-surface); border: 1px solid var(--workbench-border); border-radius: var(--radius-sm); }
+.yoloe-sample-group > strong, .yoloe-sample-group > small { display: block; overflow-wrap: anywhere; }
+.yoloe-sample-group-examples { display: grid; gap: 4px; margin-top: 8px; }
+.yoloe-example-row {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 4px;
-    background: var(--workbench-surface);
-    border: 1px solid var(--workbench-border);
+    background: var(--workbench-surface-muted);
     border-radius: var(--radius-sm);
     font-size: var(--fs-caption);
 }
@@ -3111,33 +3137,42 @@ body.workspace-standby-active .workbench-status-bar {
 .yoloe-setup-commands { display: grid; gap: 4px; }
 .yoloe-setup-commands code { color: var(--workbench-text); user-select: all; }
 
-.yoloe-setup-dialog { max-width: min(1280px, 96vw); }
+.yoloe-setup-dialog { max-width: min(1760px, calc(100vw - 24px)); margin: 12px auto; }
 #yoloeSetupModal .text-muted { color: var(--workbench-text-muted) !important; }
 body.dark-mode #yoloeSetupModal .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
-.yoloe-setup-dialog .modal-content { height: min(920px, calc(100dvh - 3.5rem)); }
-.yoloe-setup-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; overflow: hidden; min-height: 0; }
-.yoloe-sample-workspace { min-width: 0; min-height: 0; overflow-y: auto; }
-.yoloe-sample-view-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.yoloe-sample-view-controls .btn { flex-shrink: 0; }
-.yoloe-settings-column { padding-left: 20px; border-left: 1px solid var(--workbench-border); min-height: 0; overflow-y: auto; }
-.yoloe-settings-column > .row { margin-inline: 0; }
-.yoloe-sample-stage { position: relative; height: clamp(140px, 28vh, 380px); display: grid; place-items: center; overflow: hidden; background: var(--workbench-canvas); border: 1px solid var(--workbench-border); border-radius: var(--radius-sm); }
-.yoloe-sample-builder { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-.yoloe-sample-actions { display: flex; align-items: start; gap: 8px; }
-.yoloe-sample-actions .btn { width: auto !important; flex-shrink: 0; }
-.yoloe-sample-actions p { align-self: center; }
-.yoloe-sample-workspace .yoloe-example-list { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); max-height: 180px; }
-.yoloe-sample-workspace .yoloe-drawing-toolbar { padding: 8px; background: var(--workbench-surface-muted); }
+.yoloe-setup-dialog .modal-content { height: calc(100dvh - 24px); max-height: none; }
+.yoloe-setup-dialog .yoloe-setup-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; padding: 12px; overflow: clip; min-height: 0; }
+.yoloe-sample-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.yoloe-sample-workspace > :not(.yoloe-sample-stage) { flex-shrink: 0; }
+.yoloe-reference-controls { display: flex; align-items: center; gap: 8px; }
+.yoloe-reference-controls label { flex-shrink: 0; }
+.yoloe-reference-controls select { flex: 1; width: 0; min-width: 0; }
+.yoloe-reference-controls .btn, #yoloeSampleZoom { flex-shrink: 0; }
+.yoloe-view-help { position: relative; }
+.yoloe-view-help summary { list-style: none; cursor: pointer; padding: 4px; }
+.yoloe-view-help p { position: absolute; right: 0; top: 100%; z-index: 7; width: 260px; padding: 8px; background: var(--workbench-surface); border: 1px solid var(--workbench-border); border-radius: var(--radius-sm); }
+.yoloe-settings-column { display: flex; flex-direction: column; gap: 12px; padding-left: 12px; border-left: 1px solid var(--workbench-border); min-width: 0; min-height: 0; }
+.yoloe-sample-tools { flex-shrink: 0; }
+.yoloe-settings-scroll { min-height: 0; overflow-y: auto; border-top: 1px solid var(--workbench-border); }
+.yoloe-settings-scroll > .row { margin-inline: 0; }
+.yoloe-sample-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; background: var(--workbench-canvas); border: 1px solid var(--workbench-border); border-radius: var(--radius-sm); }
+.yoloe-sample-builder { display: grid; gap: 8px; }
+.yoloe-target-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: end; }
+.yoloe-target-fields:has(#yoloeTargetChoice[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.yoloe-sample-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.yoloe-sample-actions .btn { flex: 1; width: auto !important; }
+.yoloe-drawing-toolbar { display: grid; gap: 4px; padding: 8px; margin-top: 8px; background: var(--workbench-surface-muted); border-radius: var(--radius-sm); }
+.yoloe-drawing-toolbar[hidden] { display: none; }
 .yoloe-sample-stage canvas { touch-action: none; }
 .yoloe-footer { display: block; }
 body:has(#yoloeSetupModal.show) .active-operation-panel { visibility: hidden; }
-.yoloe-footer .yoloe-sample-actions { margin: 0 0 8px; flex-wrap: wrap; }
 .yoloe-preview-actions { display: flex; gap: 8px; align-items: center; }
 .yoloe-preview-actions p { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .yoloe-preview-actions .btn { flex-shrink: 0; }
 @media (max-width: 800px) {
-    .yoloe-setup-body { grid-template-columns: 1fr; gap: 20px; overflow-y: auto; }
-    .yoloe-sample-workspace, .yoloe-settings-column { overflow: visible; }
+    .yoloe-setup-dialog .yoloe-setup-body { grid-template-columns: 1fr; gap: 20px; overflow-y: auto; }
+    .yoloe-sample-workspace, .yoloe-settings-column, .yoloe-settings-scroll { overflow: visible; }
+    .yoloe-sample-stage { flex: none; height: 55dvh; min-height: 240px; }
     .yoloe-settings-column { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--workbench-border); }
     .yoloe-sample-actions { flex-wrap: wrap; }
 }
@@ -3919,14 +3954,14 @@ summary {
 
 @media (max-width: 800px) {
     :root {
-        --workbench-header-height: 108px;
+        --workbench-header-height: 136px;
         --workbench-rail-width: 52px;
         --workbench-status-height: 40px;
     }
 
     .app-navbar {
         grid-template-columns: max-content minmax(0, 1fr) max-content;
-        grid-template-rows: 52px 44px;
+        grid-template-rows: 44px 36px 44px;
         gap: 0 8px;
         padding: 6px 8px;
     }
@@ -3934,7 +3969,9 @@ summary {
     .app-navbar-brand { grid-column: 1; grid-row: 1; }
     .app-navbar-workflow { grid-column: 2; grid-row: 1; }
     .image-navigation { grid-column: 3; grid-row: 1; }
-    .canvas-toolbar { grid-column: 1 / 4; grid-row: 2; justify-self: stretch; justify-content: center; }
+    .image-source-navigation { display: contents; }
+    .label-source-control { grid-column: 1 / 4; grid-row: 2; justify-self: stretch; }
+    .canvas-toolbar { grid-column: 1 / 4; grid-row: 3; justify-self: stretch; justify-content: center; }
     .workflow-tabs .btn { font-size: 0.68rem; }
     .history-controls { display: none; }
     .current-image-name { display: none; }

@@ -131,10 +131,16 @@ function createFileHandle(filePath) {
   };
 }
 
+const directoryPaths = new WeakMap();
+
 function createDirectoryHandle(directoryPath) {
-  return {
+  const handle = {
     kind: "directory",
     name: path.basename(directoryPath),
+    async isSameEntry(other) {
+      const otherPath = directoryPaths.get(other);
+      return Boolean(otherPath && await fs.realpath(directoryPath) === await fs.realpath(otherPath));
+    },
     async *values() {
       const entries = await fs.readdir(directoryPath, { withFileTypes: true });
       for (const entry of entries) {
@@ -188,6 +194,8 @@ function createDirectoryHandle(directoryPath) {
       }
     }
   };
+  directoryPaths.set(handle, directoryPath);
+  return handle;
 }
 
 window.showDirectoryPicker = async function showDirectoryPicker(options) {

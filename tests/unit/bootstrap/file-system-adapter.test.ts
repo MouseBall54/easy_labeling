@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FakeDocument } from "../ui/test-dom.js";
 
 import { createInitialAppState } from "../../../src/app/state.js";
+import { markCurrentDocumentDirty } from "../../../src/app/document-status.js";
 import { createFileSystemAdapter } from "../../../src/bootstrap/file-system-adapter.js";
 import type { DirectoryEntryLike, DirectoryHandleLike, FileHandleLike, FileTextLike, WritableFileLike } from "../../../src/types/files.js";
 
@@ -203,6 +204,26 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  it("keeps the active folder when saving edited labels before switching fails", async () => {
+    const currentLabel = new MockFileHandle("image.txt", "0 0.5 0.5 1 1");
+    vi.spyOn(currentLabel, "createWritable").mockRejectedValue(new Error("Disk is read-only"));
+    const source = new MockDirectoryHandle("source").withFile(currentLabel);
+    const target = new MockDirectoryHandle("comparison");
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = source as never;
+    state.session.labelFolders = [source, target] as never;
+    state.session.currentImageFile = new MockFileHandle("image.png", new Uint8Array([1])) as never;
+    markCurrentDocumentDirty(state);
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(target) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    await expect(fileSystem.switchLabelFolder(1)).rejects.toThrow("Disk is read-only");
+    expect(state.session.labelFolderHandle).toBe(source);
+    expect(state.session.labelFolders).toEqual([source, target]);
+    expect(deps.canvasController.raw.clear).not.toHaveBeenCalled();
+    expect(await (await currentLabel.getFile()).text()).toBe("0 0.5 0.5 1 1");
+  });
+
   it("cancels inference without activating partial results or changing the original label source", async () => {
     class TestImage {
       width = 32;

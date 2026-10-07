@@ -523,6 +523,15 @@ export function createFileSystemAdapter(input: {
   const activateLabelFolder = async (folder: FileSystemDirectoryHandle, operation: RuntimeOperationHandle | null): Promise<void> => {
     const snapshot = captureSessionSnapshot();
     try {
+      const sources = input.state.session.workflow === "segmentation"
+        ? (input.state.session.segmentationLabelFolders ??= []) : input.state.session.labelFolders;
+      for (const source of sources) {
+        if (source === folder || (typeof source.isSameEntry === "function" && await source.isSameEntry(folder))) {
+          folder = source;
+          break;
+        }
+      }
+      if (!sources.includes(folder)) sources.push(folder);
       if (input.state.session.workflow === "segmentation") {
         input.state.session.segmentationLabelFolderHandle = folder;
         input.state.session.segmentationSourceFormat = "auto";
@@ -539,7 +548,14 @@ export function createFileSystemAdapter(input: {
         // Reload labels without image navigation's autosave, which would write the old canvas into the new source.
         await imageSessionService.loadLabels(input.state.session.currentImageFile.name, input.state.runtime.currentLoadToken);
         throwIfOperationCancelled(operation?.signal);
+        const canvasController = connectedDeps?.canvasController as RuntimeCanvasController | undefined;
+        const viewport = canvasController ? [...canvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number] : null;
         applyCurrentImageToCanvas();
+        if (viewport && canvasController) {
+          canvasController.raw.canvas.setViewportTransform(viewport);
+          canvasController.raw.canvas.requestRenderAll();
+          (connectedDeps?.uiManager as RuntimeUiManager).updateZoomDisplay(canvasController.raw.canvas.getZoom());
+        }
       }
       (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.updateLabelFolderButton(true);
       input.windowRef.dispatchEvent?.(new Event("easy-labeling:label-source-change"));
@@ -812,8 +828,6 @@ export function createFileSystemAdapter(input: {
             const folder = await (selectedFolder ?? picker({ mode: "readwrite" }));
             throwIfOperationCancelled(operation?.signal);
             await saveBeforeLabelSwitch();
-            const sources = input.state.session.workflow === "segmentation" ? (input.state.session.segmentationLabelFolders ??= []) : input.state.session.labelFolders;
-            if (!sources.includes(folder)) sources.push(folder);
             await activateLabelFolder(folder, operation);
           });
         });
@@ -868,9 +882,6 @@ export function createFileSystemAdapter(input: {
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(name)}`).join("\n")}\n`);
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
             throwIfOperationCancelled(operation?.signal);
-            const folderIndex = session.labelFolders.findIndex((source) => source.name === folder.name);
-            if (folderIndex < 0) session.labelFolders.push(folder);
-            else session.labelFolders[folderIndex] = folder;
             await activateLabelFolder(folder, operation);
             result = { folderName, imageCount: completed.length, detectionCount };
           });
@@ -913,9 +924,6 @@ export function createFileSystemAdapter(input: {
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...options.classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(normalizeClassName(name))}`).join("\n")}\n`);
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, workflow: "segmentation", maskFormat: "png-semantic-mask", overlapPolicy: "highest-confidence", images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
             throwIfOperationCancelled(operation?.signal);
-            const sources = session.segmentationLabelFolders ??= [session.imageFolderHandle!];
-            const index = sources.findIndex((source) => source.name === folder.name);
-            if (index < 0) sources.push(folder); else sources[index] = folder;
             await activateLabelFolder(folder, operation);
             result = { folderName, imageCount: completed.length, detectionCount };
           });

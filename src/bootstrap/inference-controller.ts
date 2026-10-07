@@ -135,10 +135,6 @@ export function bindInferenceControls(input: {
   };
   currentButton.addEventListener("click", () => { void run(false); });
   allButton.addEventListener("click", () => { void run(true); });
-  element<HTMLSelectElement>("labelSourceSelect").addEventListener("change", (event) => {
-    const index = Number((event.target as HTMLSelectElement).value);
-    void fileSystem.switchLabelFolder(index).catch((error) => reportError(runStatus, error)).finally(() => uiManager.syncWorkspaceState());
-  });
   documentRef.defaultView?.addEventListener("easy-labeling:document-status-change", sync);
   documentRef.defaultView?.addEventListener("easy-labeling:label-source-change", sync);
   sync();

@@ -41,10 +41,17 @@
             </div>
         </div>
 
-        <div class="image-navigation" data-ui="image-navigation">
-            <button class="app-icon-button" type="button" id="prevImageBtn" data-ui="nav-prev-image" title="Previous image (A)" aria-label="Previous image"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
-            <span id="current-image-name" class="current-image-name" data-ui="current-image-name">No image</span>
-            <button class="app-icon-button" type="button" id="nextImageBtn" data-ui="nav-next-image" title="Next image (D)" aria-label="Next image"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+        <div class="image-source-navigation">
+            <div class="image-navigation" data-ui="image-navigation">
+                <button class="app-icon-button" type="button" id="prevImageBtn" data-ui="nav-prev-image" title="Previous image (A)" aria-label="Previous image"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                <span id="current-image-name" class="current-image-name" data-ui="current-image-name">No image</span>
+                <button class="app-icon-button" type="button" id="nextImageBtn" data-ui="nav-next-image" title="Next image (D)" aria-label="Next image"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+            </div>
+            <div class="label-source-control" role="group" aria-label="Compare label folders">
+                <i class="bi bi-layers label-source-icon" title="Label folders · Ctrl+1–9 to switch" aria-hidden="true"></i>
+                <div id="detectionLabelSources" hidden><div id="labelSourceTabs" class="label-source-tabs" role="radiogroup" aria-label="Label folders"></div></div>
+                <button id="selectLabelFolderBtn" type="button" class="app-icon-button" data-ui="load-label-folder" title="Add label folder" aria-label="Add label folder" disabled><i class="bi bi-folder-plus" aria-hidden="true"></i></button>
+            </div>
         </div>
 
         <div id="info-display" class="canvas-toolbar" data-ui="canvas-toolbar">
@@ -288,12 +295,6 @@
                     <section id="datasetActions" class="dataset-actions" data-ui="folder-actions">
                         <button id="selectImageFolderBtn" type="button" class="btn btn-primary" data-ui="load-image-folder"><i class="bi bi-folder2-open" aria-hidden="true"></i> Open Dataset</button>
                         <button id="refreshDatasetBtn" type="button" class="panel-icon-button" title="Refresh dataset" aria-label="Refresh dataset"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
-                        <button id="selectLabelFolderBtn" type="button" class="panel-icon-button" data-ui="load-label-folder" title="Connect label folder" aria-label="Connect label folder" disabled><i class="bi bi-folder-symlink" aria-hidden="true"></i></button>
-                    </section>
-
-                    <section id="detectionLabelSources" class="panel-section" hidden>
-                        <label class="form-label small fw-semibold" for="labelSourceSelect">Active label folder</label>
-                        <select id="labelSourceSelect" class="form-select form-select-sm" aria-label="Active label folder" title="Connect more folders with the folder button. Changes save before switching."></select>
                     </section>
 
                     <section class="panel-section image-library-section" data-ui="image-library-section">
@@ -515,9 +516,10 @@
 
                     <section id="inspectorAutomationPane" class="inspector-pane" data-inspector-pane="automation" hidden>
                         <section class="inspector-section layout-panel-section" data-ui="layout-controls">
-                            <div class="section-heading-row"><h3>Layout</h3><button id="openLayoutSetupBtn" type="button" class="panel-icon-button" title="Open layout setup" aria-label="Open layout setup"><i class="bi bi-sliders" aria-hidden="true"></i></button></div>
+                            <h3>Layout</h3>
                             <select id="boxLayoutSelect" class="form-select form-select-sm mb-2" aria-label="Saved box layout"><option value="">Choose layout...</option></select>
                             <div id="layoutPlacementNotice" class="placement-notice" role="status">Choose a layout to preview its placement.</div>
+                            <button id="openLayoutSetupBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="bi bi-sliders" aria-hidden="true"></i> Layout setup</button>
                             <button id="applyBoxLayoutBtn" type="button" class="btn btn-primary btn-sm w-100"><i class="bi bi-layers" aria-hidden="true"></i> Apply layout</button>
                         </section>
                         <section class="inspector-section automation-panel-section" data-ui="automation-controls">
@@ -636,19 +638,26 @@
                 </div>
                 <div class="modal-body yoloe-setup-body">
                     <section class="yoloe-sample-workspace" aria-label="Sample workspace">
-                        <label class="form-label small fw-semibold" for="yoloeReferenceSelect">Reference image</label>
-                        <select id="yoloeReferenceSelect" class="form-select form-select-sm mb-2"><option value="">Open a dataset first</option></select>
-                        <div class="yoloe-sample-view-controls mb-2">
-                            <button id="fitYoloeSampleBtn" type="button" class="btn btn-outline-secondary btn-sm">Fit image</button>
+                        <div class="yoloe-reference-controls mb-2">
+                            <label class="form-label small fw-semibold mb-0" for="yoloeReferenceSelect">Reference image</label>
+                            <select id="yoloeReferenceSelect" class="form-select form-select-sm"><option value="">Open a dataset first</option></select>
+                            <button id="fitYoloeSampleBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Fit the reference image">Fit image</button>
                             <span id="yoloeSampleZoom" class="small" aria-live="polite"></span>
-                            <span class="small text-muted">Ctrl + wheel: zoom · Ctrl / Space + drag or Middle drag: pan</span>
+                            <details class="yoloe-view-help"><summary aria-label="Image navigation help" title="Image navigation help"><i class="bi bi-question-circle" aria-hidden="true"></i></summary><p class="small mb-0">Ctrl + wheel: zoom<br>Ctrl / Space + drag or Middle drag: pan</p></details>
                         </div>
-                        <div class="yoloe-sample-builder mb-2">
+                        <div id="yoloeSampleStage" class="yoloe-sample-stage"><p id="yoloeSampleEmpty" class="small text-muted">Open a dataset to outline samples.</p></div>
+                    </section>
+                    <section class="yoloe-settings-column" aria-label="Inference settings">
+                        <section class="yoloe-sample-tools" aria-label="Draw samples">
+                        <h6 class="settings-subtitle mt-0">Sample settings</h6>
+                        <div class="yoloe-sample-builder">
+                            <div class="yoloe-target-fields">
                             <div>
                         <label class="form-label small mt-2" for="yoloeSampleName">Name the target</label>
                         <input id="yoloeSampleName" class="form-control form-control-sm" value="sampleA" maxlength="64" autocomplete="off">
+                            </div>
                         <div id="yoloeTargetChoice" class="mt-2" hidden>
-                            <label class="form-label small" for="yoloeExistingTarget">Add another example to</label>
+                            <label class="form-label small" for="yoloeExistingTarget">Existing target</label>
                             <select id="yoloeExistingTarget" class="form-select form-select-sm"><option value="">New target</option></select>
                         </div>
                             </div>
@@ -666,11 +675,24 @@
                             </div>
                             </div>
                         </div>
-                        <div id="yoloeSampleStage" class="yoloe-sample-stage"><p id="yoloeSampleEmpty" class="small text-muted">Open a dataset to outline samples.</p></div>
-                        <section id="yoloeDrawingToolbar" class="yoloe-drawing-toolbar mt-2" role="status" hidden>
+                        <div class="yoloe-sample-actions">
+                        <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm w-100" aria-pressed="false" disabled><i class="bi bi-vector-pen" aria-hidden="true"></i> Outline sample</button>
+                        <button id="finishYoloeSampleBtn" type="button" class="btn btn-primary btn-sm w-100" hidden disabled>Finish outline</button>
+                        <button id="undoYoloeStrokeBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden disabled>Undo stroke</button>
+                        </div>
+                        <section id="yoloeDrawingToolbar" class="yoloe-drawing-toolbar" role="status" hidden>
                             <strong id="yoloeDrawingTitle"></strong>
                             <span id="yoloeCanvasDrawingHint" class="small"></span>
                         </section>
+                        </section>
+                        <div class="yoloe-settings-scroll">
+                        <div class="section-heading-row mt-3"><h6 class="settings-subtitle m-0">Samples</h6><button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear samples</button></div>
+                        <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
+                        <p id="yoloeSamplesEmpty" class="small text-muted mt-2 mb-0">Name a target, then outline it on the reference image.</p>
+                        <details class="advanced-disclosure mt-3"><summary>Use an existing class name</summary>
+                            <label class="form-label small mt-2" for="yoloeExampleClass">Existing label class</label>
+                            <select id="yoloeExampleClass" class="form-select form-select-sm" aria-label="Example class"></select>
+                        </details>
                         <div id="yoloeExistingBoxes" class="mt-2" hidden>
                             <div id="yoloeExistingLabelTitle" class="form-label small">Existing boxes · Reference image</div>
                             <label class="visually-hidden" for="yoloeLabelClassFilter">Filter existing labels by class</label><select id="yoloeLabelClassFilter" class="form-select form-select-sm"><option value="">All classes</option></select>
@@ -680,16 +702,9 @@
                                 <select id="yoloeExistingBoxSelect" class="visually-hidden" multiple tabindex="-1" aria-hidden="true"><option value="">Loading labels…</option></select>
                                 <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Add selected as samples</button>
                             </div>
+                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" disabled>Use selected labels</button>
                         </div>
-                        <div class="section-heading-row mt-3"><h6 class="settings-subtitle m-0">Samples</h6><button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear samples</button></div>
-                        <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
-                        <p id="yoloeSamplesEmpty" class="small text-muted mt-2 mb-0">Name a target, then outline it on the reference image.</p>
-                        <details class="advanced-disclosure mt-3"><summary>Use an existing class name</summary>
-                            <label class="form-label small mt-2" for="yoloeExampleClass">Existing label class</label>
-                            <select id="yoloeExampleClass" class="form-select form-select-sm" aria-label="Example class"></select>
-                        </details>
-                    </section>
-                    <section class="yoloe-settings-column" aria-label="Inference settings">
+                        <hr>
                         <h6 class="settings-subtitle mt-0">Inference settings</h6>
                         <label class="form-label small mt-2" for="yoloePresetSelect">Preset</label>
                         <select id="yoloePresetSelect" class="form-select form-select-sm"><option value="">Choose a preset…</option></select>
@@ -715,16 +730,10 @@
                         <div id="yoloeSampleResultToggle" class="form-check mt-2" hidden><input id="yoloeShowSampleResults" class="form-check-input" type="checkbox" checked><label class="form-check-label small" for="yoloeShowSampleResults">Show results</label></div>
                             <details class="advanced-disclosure mt-2"><summary>Setup &amp; device details</summary><p id="yoloeDeviceInfo" class="small text-muted mt-1 mb-0" role="status"></p><div class="yoloe-setup-commands small mt-2"><code>npm run yoloe:setup</code><code>npm run yoloe:prepare</code><code>npm run yoloe:start</code></div>
                             <a class="small" href="docs/YOLOE26_GPU_KO.md" target="_blank" rel="noopener">Setup &amp; usage guide</a></details>
+                        </div>
                     </section>
                 </div>
                 <div class="modal-footer yoloe-footer">
-                        <div class="yoloe-sample-actions">
-                        <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm w-100" aria-pressed="false" disabled><i class="bi bi-vector-pen" aria-hidden="true"></i> Outline sample</button>
-                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" disabled>Use selected labels</button>
-                        <button id="finishYoloeSampleBtn" type="button" class="btn btn-primary btn-sm w-100" hidden disabled>Finish outline</button>
-                        <button id="undoYoloeStrokeBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden disabled>Undo stroke</button>
-                        <p id="yoloeDrawingHint" class="small text-muted mt-1 mb-0" hidden>Click around the target. Enter / double-click to finish; Backspace to undo; Esc to cancel.</p>
-                        </div>
                     <div class="yoloe-preview-actions">
                         <p id="yoloeSetupStatus" class="small mb-0" role="status"></p>
                         <button id="stopYoloePreviewBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Stop</button>

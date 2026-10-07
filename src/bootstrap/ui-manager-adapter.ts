@@ -815,16 +815,43 @@ export function createUiManagerAdapter(input: {
       const sources = segmentation ? input.state.session.segmentationLabelFolders ?? [] : input.state.session.labelFolders;
       const selectedSource = segmentation ? input.state.session.segmentationLabelFolderHandle ?? input.state.session.imageFolderHandle : input.state.session.labelFolderHandle;
       labelSources?.toggleAttribute("hidden", !sources.length);
-      const labelSelect = input.documentRef.getElementById("labelSourceSelect") as HTMLSelectElement | null;
-      if (labelSelect) {
-        labelSelect.replaceChildren();
-        sources.forEach((folder, index) => {
-          const option = input.documentRef.createElement("option");
-          option.value = String(index);
-          option.textContent = `${index + 1}. ${folder.name}`;
-          labelSelect.appendChild(option);
-        });
-        labelSelect.value = String(sources.indexOf(selectedSource!));
+      const labelTabs = input.documentRef.getElementById("labelSourceTabs");
+      if (labelTabs) {
+        const sourceNames = JSON.stringify([input.state.session.workflow, ...sources.map((folder) => folder.name)]);
+        const changed = labelTabs.dataset.sources !== sourceNames;
+        if (changed) {
+          labelTabs.replaceChildren();
+          sources.forEach((folder, index) => {
+            const radio = input.documentRef.createElement("input");
+            radio.type = "radio";
+            radio.className = "btn-check";
+            radio.name = "label-source";
+            radio.id = `label-source-${index}`;
+            radio.value = String(index);
+            radio.setAttribute("aria-label", `${folder.name}, label folder ${index + 1}`);
+            if (index < 9) radio.setAttribute("aria-keyshortcuts", `Control+${index + 1}`);
+            const tab = input.documentRef.createElement("label");
+            tab.htmlFor = radio.id;
+            tab.className = "label-source-tab";
+            tab.dataset.sourceIndex = String(index);
+            tab.title = `${folder.name}${index < 9 ? ` · Ctrl+${index + 1}` : ""} · Changes save before switching`;
+            const name = input.documentRef.createElement("span");
+            name.className = "label-source-name";
+            name.textContent = folder.name;
+            const key = input.documentRef.createElement(index < 9 ? "kbd" : "span");
+            key.className = "label-source-key";
+            key.textContent = String(index + 1);
+            tab.append(name, key);
+            labelTabs.append(radio, tab);
+          });
+          labelTabs.dataset.sources = sourceNames;
+        }
+        const activeIndex = String(sources.indexOf(selectedSource!));
+        labelTabs.querySelectorAll<HTMLInputElement>("input").forEach((radio) => { radio.checked = radio.value === activeIndex; });
+        if (changed || labelTabs.dataset.activeIndex !== activeIndex) {
+          labelTabs.querySelector<HTMLElement>(`[data-source-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+        labelTabs.dataset.activeIndex = activeIndex;
       }
       input.documentRef.getElementById("detectionReviewWorkspace")?.toggleAttribute(
         "hidden",
@@ -969,17 +996,17 @@ export function createUiManagerAdapter(input: {
       if (hasLabelFolder && folderName) {
         button.classList.remove("btn-secondary", "btn-danger");
         button.classList.add("btn-success");
-        button.setAttribute("aria-label", `Label folder: ${folderName}`);
-        button.setAttribute("title", `Label folder: ${folderName}`);
-        button.innerHTML = '<i class="bi bi-folder-check" aria-hidden="true"></i>';
+        button.setAttribute("aria-label", `Add label folder. Active: ${folderName}`);
+        button.setAttribute("title", `Add label folder · Active: ${folderName}`);
+        button.innerHTML = '<i class="bi bi-folder-plus" aria-hidden="true"></i>';
         return;
       }
 
       button.classList.remove("btn-success");
       button.classList.add("btn-danger");
-      button.setAttribute("aria-label", "Connect label folder");
-      button.setAttribute("title", "Connect label folder");
-      button.innerHTML = '<i class="bi bi-folder-x" aria-hidden="true"></i>';
+      button.setAttribute("aria-label", "Add label folder");
+      button.setAttribute("title", "Add label folder");
+      button.innerHTML = '<i class="bi bi-folder-plus" aria-hidden="true"></i>';
     },
 
     setWorkflow(workflow: WorkflowType): void {

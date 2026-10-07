@@ -35,10 +35,10 @@ for (const workflow of ["detection", "segmentation"] as const) {
     await page.locator("#yoloeLabelClassFilter").selectOption(classId!);
     await expect(page.locator("#yoloeLabelSelectionSummary")).toContainText("2 selected");
     await page.locator("#addYoloeExistingBtn").click();
-    await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+    await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
     await expect(page.locator("#focusYoloeLabelsBtn")).toBeEnabled();
     await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
-    await page.screenshot({ path: `docs/ux-improvements/20261006-stage2/yoloe-${workflow}.png` });
+    await page.screenshot({ path: `output/yoloe-usability-existing-${workflow}.png` });
     await page.locator("#closeYoloeSetupBtn").click();
     await page.locator("#yoloeSaveScope").selectOption("all");
     await expect(page.locator("#yoloeSaveScope option:checked")).toHaveText("All images (17)");

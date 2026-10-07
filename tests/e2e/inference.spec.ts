@@ -96,7 +96,7 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   await expect(page.locator("#detectionInferenceWorkspace")).toBeVisible();
   await expect(page.locator("#runInferenceCurrentBtn")).toBeDisabled();
   await page.locator("#autoSaveToggle").check();
-  const source = page.locator("#labelSourceSelect");
+  const source = page.locator("#labelSourceTabs");
 
   for (const layout of ["nchw", "nhwc"] as const) {
     for (const channels of [1, 3] as const) {
@@ -112,34 +112,34 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
       await page.locator("#runInferenceCurrentBtn").click();
       await expect(page.locator("#inferenceRunStatus")).toContainText("1 image(s) · 1 detection(s)", { timeout: 30_000 });
       await expect.poll(rectCount).toBe(1);
-      expect(await source.inputValue()).not.toBe("0");
-      const resultSource = await source.inputValue();
-      await expect(source.locator(`option[value="${resultSource}"]`)).toContainText(`inference-fixture-${channels}ch-${layout}`);
-      await source.selectOption("0");
+      expect(await source.getAttribute("data-active-index")).not.toBe("0");
+      const resultSource = await source.getAttribute("data-active-index");
+      await expect(source.locator(`[data-source-index="${resultSource}"]`)).toContainText(`inference-fixture-${channels}ch-${layout}`);
+      await source.locator('[data-source-index="0"]').click();
       await expect.poll(rectCount).toBe(207);
-      await source.selectOption(resultSource);
+      await source.locator(`[data-source-index="${resultSource}"]`).click();
       await expect.poll(rectCount).toBe(1);
-      await source.selectOption("0");
+      await source.locator('[data-source-index="0"]').click();
       await expect.poll(rectCount).toBe(207);
     }
   }
-  await expect(source.locator("option")).toHaveCount(5);
+  await expect(source.locator(".label-source-tab")).toHaveCount(5);
   // Editing the source then switching must save into that source, never into an inference folder.
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.seedDetectionBoxesForTest?.(3));
   await expect.poll(rectCount).toBe(3);
-  await source.selectOption("1");
+  await source.locator('[data-source-index="1"]').click();
   await expect.poll(rectCount).toBe(1);
-  await source.selectOption("0");
+  await source.locator('[data-source-index="0"]').click();
   await expect.poll(rectCount).toBe(3);
   await page.locator("#inferenceConfidenceInput").fill("1.1");
   await page.locator("#runInferenceCurrentBtn").click();
   await expect(page.locator("#inferenceRunStatus")).toContainText("between 0 and 1");
-  await expect(source.locator("option")).toHaveCount(5);
+  await expect(source.locator(".label-source-tab")).toHaveCount(5);
   await page.locator("#inferenceConfidenceInput").fill("0.25");
   await page.locator("#runInferenceAllBtn").click();
   await expect(page.locator("#inferenceRunStatus")).toContainText("inference-fixture-3ch-nhwc", { timeout: 60_000 });
   await expect(page.locator("#runInferenceAllBtn")).toBeEnabled();
-  await expect(source.locator("option")).toHaveCount(5);
+  await expect(source.locator(".label-source-tab")).toHaveCount(5);
   await expect.poll(rectCount).toBe(1);
   // Rerun into the active model folder: replace edited results without adding a source.
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.seedDetectionBoxesForTest?.(3));
@@ -147,10 +147,10 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   await page.locator("#runInferenceCurrentBtn").click();
   await expect(page.locator("#runInferenceCurrentBtn")).toBeEnabled();
   await expect.poll(rectCount).toBe(1);
-  await expect(source.locator("option")).toHaveCount(5);
-  await source.selectOption("0");
+  await expect(source.locator(".label-source-tab")).toHaveCount(5);
+  await source.locator('[data-source-index="0"]').click();
   await expect.poll(rectCount).toBe(3);
-  await source.selectOption("4");
+  await source.locator('[data-source-index="4"]').click();
   await expect.poll(rectCount).toBe(1);
   await page.locator("#nextImageBtn").click();
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
@@ -159,7 +159,7 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden();
   await expect.poll(rectCount).toBe(1);
-  await expect(source).toHaveValue("4");
+  await expect(source).toHaveAttribute("data-active-index", "4");
   await page.locator("#onnxInferenceControls summary").click();
   await page.locator("#selectInferenceModelBtn").scrollIntoViewIfNeeded();
   await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
@@ -186,7 +186,7 @@ test("batch inference rejects duplicate label filenames and model loading recove
   });
   await page.goto("/index.html");
   await page.locator("#emptyLoadSampleBtn").click();
-  await expect(page.locator("#labelSourceSelect option")).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(1, { timeout: 30_000 });
   await page.locator("#taskInferenceBtn").click();
   await page.locator("#inferenceModelInput").setInputFiles({ name: "invalid.onnx", mimeType: "application/octet-stream", buffer: Buffer.from("invalid") });
   await expect(page.locator("#inferenceModelStatus")).not.toContainText("Loading", { timeout: 30_000 });
@@ -195,7 +195,7 @@ test("batch inference rejects duplicate label filenames and model loading recove
   await expect(page.locator("#runInferenceAllBtn")).toBeEnabled({ timeout: 30_000 });
   await page.locator("#runInferenceAllBtn").click();
   await expect(page.locator("#inferenceRunStatus")).toContainText("same base name");
-  await expect(page.locator("#labelSourceSelect option")).toHaveCount(1);
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(1);
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await expect(page.locator("#taskInferenceBtn")).toBeHidden();
   await page.locator('label[for="detectionWorkflowTab"]').click();
