@@ -616,7 +616,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       if (!image) {
         throw new Error("Load an image before applying a layout");
       }
-      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height });
+      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height }, options);
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
       const instanceId = typeof globalThis.crypto?.randomUUID === "function"
@@ -685,7 +685,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       if (!image) {
         throw new Error("Load an image before applying a layout");
       }
-      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height });
+      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height }, options);
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
       const instanceId = typeof globalThis.crypto?.randomUUID === "function"

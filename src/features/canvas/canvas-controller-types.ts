@@ -108,8 +108,8 @@ export interface CanvasController {
   getLabelsAsYolo(): string;
   removeBoxesOutsideImageBounds?(): number;
   captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): BoxLayout;
-  applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean }): AppliedBoxLayout;
-  applyBoxLayoutInBatches?(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean } & CanvasBulkOperationOptions): Promise<AppliedBoxLayout>;
+  applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean; preserveOutOfBounds?: boolean }): AppliedBoxLayout;
+  applyBoxLayoutInBatches?(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean; preserveOutOfBounds?: boolean } & CanvasBulkOperationOptions): Promise<AppliedBoxLayout>;
   applyDetectionBoxes(boxes: readonly DetectionBoxInput[], options?: { replaceExisting?: boolean }): AppliedDetectionBoxes;
   translateLayoutInstance(instanceId: string, delta: PixelPoint): void;
   translateSelectedBoxes(delta: PixelPoint): void;

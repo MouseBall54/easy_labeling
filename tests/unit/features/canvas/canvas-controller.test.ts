@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createCanvasController, createCanvasControllerForWorkflow, createCanvasShell, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
 import { createCanvasHistoryService } from "../../../../src/features/canvas/history.js";
+import { createBoxLayout } from "../../../../src/features/automation/layout.js";
 import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
@@ -1347,6 +1348,39 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getObjects("rect")).toHaveLength(2);
     controller.redo();
     expect(controller.getObjects("rect")).toHaveLength(4);
+  });
+
+  it.each(["sync", "batch"])("preserves outside layout geometry until explicit cleanup (%s)", async (mode) => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const boxes = [
+      { left: -5, top: 20 }, { left: 20, top: -5 },
+      { left: 195, top: 20 }, { left: 20, top: 95 },
+      { left: 220, top: 20 }, { left: 20, top: 20 }
+    ].map((position, index) => ({ ...position, id: String(index), classId: String(index), width: 10, height: 10 }));
+    const layout = createBoxLayout({ name: "outside", sourceImageName: "source.png", sourceImageSize: { width: 200, height: 100 }, boxes });
+    const options = { preserveOutOfBounds: true };
+    const result = mode === "batch"
+      ? await controller.applyBoxLayoutInBatches!(layout, layout.sourceAnchor, options)
+      : controller.applyBoxLayout(layout, layout.sourceAnchor, options);
+    const geometry = () => controller.getObjects("rect").map((rect) => ({
+      left: rect.left, top: rect.top, width: Number(rect.width) + Number(rect.strokeWidth),
+      height: Number(rect.height) + Number(rect.strokeWidth), classId: rect.labelClass
+    })).sort((a, b) => Number(a.classId) - Number(b.classId));
+    const expected = boxes.map(({ left, top, width, height, classId }) => ({ left, top, width, height, classId }));
+    expect(result.annotationIds).toHaveLength(boxes.length);
+    expect(result.discardedOutOfBoundsCount).toBe(0);
+    expect(geometry()).toEqual(expected);
+    expect(controller.getLabelsAsYolo().trim().split("\n")).toHaveLength(boxes.length);
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    controller.redo();
+    expect(geometry()).toEqual(expected);
+    expect(controller.removeBoxesOutsideImageBounds!()).toBe(5);
+    expect(geometry()).toEqual([expected[5]]);
+    controller.undo();
+    expect(geometry()).toEqual(expected);
   });
 
   it("applies a 5,000-box layout in chunks with one undoable result", async () => {

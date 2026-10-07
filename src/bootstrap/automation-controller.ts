@@ -582,6 +582,7 @@ export function createAutomationController(input: {
       try {
         await yieldToUi();
         result = await applyInBatches.call(input.canvasController.raw, layout, { ...layout.sourceAnchor }, {
+          preserveOutOfBounds: true,
           signal: operation.signal,
           onProgress: (update) => operation.update(update)
         });
@@ -590,7 +591,7 @@ export function createAutomationController(input: {
         operation.finish();
       }
     } else {
-      result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+      result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor }, { preserveOutOfBounds: true });
     }
     layoutGhostVisible = false;
     clearLayoutGhostPreview();

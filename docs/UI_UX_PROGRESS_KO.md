@@ -256,6 +256,22 @@
 - 모델 자체가 출력 개수를 제한한 경우 UI 상한을 높여도 이미 모델에서 제외된 결과는 복구할 수 없습니다. 기존 NMS 후보 30,000개 제한과 비교 순서는 유지합니다. YOLOE-26은 별도 추론 경로이며 이번 일반 YOLO Inference 설정의 대상은 아닙니다.
 - [라이트](../output/inference-max-det-light.png) · [다크](../output/inference-max-det-dark.png) · [E2E 7개](../output/inference-max-det-e2e.log) · [화면/저장 재검증](../output/inference-max-det-ui-accepted.log) · [단위](../output/inference-max-det-unit.log) · [타입](../output/inference-max-det-typecheck.log) · [빌드](../output/inference-max-det-build.log). 소스와 실행 빌드에 반영했으며 새 설치 파일·버전 변경은 이번 단계에 포함하지 않습니다. 사용자 요청에 따라 검증된 소스·문서·테스트를 U37 단계로 별도 커밋하고 빌드 산출물·검증 로그/화면·임시 설정·프로필·복사 데이터셋은 제외합니다.
 
+## 추가 요구 U38 · Layout 적용 시 경계 밖 박스 보존
+
+- 2026-10-07 · **완료**. Layout 생성 직전에 경계 밖 박스를 제외하던 공통 배치 함수를 확인했습니다. 메인 Apply Layout과 Layout Setup의 Apply에서 해당 필터를 건너뛰고 원래 위치·크기·클래스를 유지합니다. 기존 Save/Auto save 보존과 명시적 Remove outside boxes 버튼을 사용합니다.
+- 완료 기준: 부분/완전 경계 밖 박스의 두 적용 버튼, 소량/5,000개 전체 좌표 보존, Undo/Redo, 실제 TXT 저장·재로딩과 명시적 정리/백업, 기존 Layout·Automation 회귀 및 타입·빌드·단위 통과.
+- 수정 전 동기/배치 단위 테스트에서 6개 중 5개 경계 밖 박스가 삭제되고 1개만 남는 현상을 재현했습니다. 자동 Template Match/Automation 배치의 기존 필터와 프리셋 형식은 유지합니다.
+- 검증: 타입·빌드·단위 **67파일·428개**, 관련 E2E **9/9** 통과. 실제 Windows Electron production preload/file://에서 6개·5,000개 Layout JSON을 가져와 두 Apply 버튼의 전체 좌표/선택 개수·Undo/Redo를 확인했습니다. 이미지의 네 변에 걸친 박스와 완전히 밖에 있는 박스를 그대로 저장하며 모든 클래스/좌표가 실제 TXT에 존재합니다. Auto save·이미지 재로딩 후에도 개수를 유지하고, 명시적 정리에서만 외부 5개가 제거되며 백업이 정리 전 원문과 일치했습니다.
+- 기존 Layout 2·600·4,000·5,000개의 두 Apply/Undo/JSON 왕복, 저장/Recapture, Automation 양 매칭 모드·일괄 실행, 전체 이미지의 Save/Auto save·정리/백업·두 테마·Segmentation 숨김도 통과했습니다. 새 Electron 검사 **2/2 · 35.1초**, 기존 회귀 **7/7 · 4.3분**입니다. 첫 검사의 비활성 이미지 원문 비교는 기존 Auto save 재직렬화를 반영하지 않아 실패했고, 정리 직전 원문을 기준으로 보완했습니다. Undo/Redo의 기존 annotationId 정렬은 좌표 집합 비교로 검증합니다. 실패 로그는 보존합니다.
+- 소스와 실행 빌드에 반영했습니다. 완료 기준에 남은 작업은 없으며 자동 Template Match/Automation 정책, 새 설치 파일 제작·버전 변경·커밋은 이번 범위에 포함하지 않았습니다. 빌드 후 검증 서버를 시작하고 제공된 JS의 보존 옵션을 확인했습니다.
+- [수정 전 재현](../output/layout-outside-reproduction.log) · [Electron 최종 2개](../output/layout-outside-native-accepted.log) · [기존 회귀 7개](../output/layout-outside-regressions.log) · [단위](../output/layout-outside-unit.log) · [타입](../output/layout-outside-typecheck.log) · [빌드](../output/layout-outside-build.log).
+
+### U38 소스 버전 증가와 커밋 · 2026-10-07
+
+- 사용자 요청에 따라 일반판 `2.1.0 → 2.1.1`, YOLOE판 `2.2.0 → 2.2.1`로 패치 버전을 올립니다. `package.json`/`package-lock.json`, YOLOE Electron 메타데이터와 README 빌드 안내를 동기화하고 검증된 U38 소스·문서·회귀 테스트를 함께 커밋합니다.
+- 버전 증가 후 패키지/lock/YOLOE 메타데이터 일치, 타입·빌드·단위 **67파일·428개**를 다시 확인해 통과했습니다. U38의 E2E **9/9** 결과는 위 기록과 같습니다. [타입](../output/layout-outside-version-typecheck.log) · [빌드](../output/layout-outside-version-build.log) · [단위](../output/layout-outside-version-unit.log).
+- 빌드 산출물·검증 로그/화면·임시 설정·앱 프로필·복사 데이터셋은 제외하며 새 설치 파일 제작과 원격 푸시는 포함하지 않습니다.
+
 ## 이어서 확인할 때
 
 1. 이 문서의 상태표와 실제 커밋을 먼저 대조합니다. 완료 항목을 다시 구현하지 않습니다.
