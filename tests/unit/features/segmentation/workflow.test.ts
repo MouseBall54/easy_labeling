@@ -682,8 +682,8 @@ describe("features/segmentation/workflow", () => {
     };
     Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
     const superResolutionService = {
-      upscale: vi.fn(async (input: { mode: "cfsr-x2" | "cfsr-x4" | "tk-r-em-hrsem" | "tk-r-em-hrtem" | "tk-r-em-lrsem" | "tk-r-em-lrtem"; width: number; height: number; cacheKey: string; rgba: Uint8ClampedArray }) => {
-        const scale = input.mode === "cfsr-x4" ? 4 : input.mode === "cfsr-x2" ? 2 : 1;
+      upscale: vi.fn(async (input: { mode: "cfsr-x2" | "cfsr-x4"; width: number; height: number; cacheKey: string; rgba: Uint8ClampedArray }) => {
+        const scale = input.mode === "cfsr-x4" ? 4 : 2;
         return { mode: input.mode, width: input.width * scale, height: input.height * scale, rgba: new Uint8ClampedArray(input.width * input.height * scale * scale * 4).fill(144), cacheKey: input.cacheKey };
       }),
       clear: vi.fn(), dispose: vi.fn(),
@@ -780,15 +780,6 @@ describe("features/segmentation/workflow", () => {
       expect(controller.getObjects("image").find((object) => (object as { _isSrRoiPreview?: boolean })._isSrRoiPreview)).toMatchObject({ width: 8, height: 8, scaleX: 0.25, scaleY: 0.25 });
       expect(controller.focusSegmentationSrRoi?.()).toBe(true);
       expect(controller.canvas.viewportTransform).toEqual([4, 0, 0, 4, 312, 232]);
-
-      await expect(controller.setSegmentationSuperResolutionMode?.("tk-r-em-hrsem")).resolves.toBe(true);
-      expect(superResolutionService.upscale).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "tk-r-em-hrsem", width: 2, height: 2 }));
-      expect(controller.getSegmentationSrPreviewInfo?.()).toMatchObject({ mode: "tk-r-em-hrsem", workingWidth: 2, workingHeight: 2 });
-      expect(controller.getObjects("image").find((object) => (object as { _isSrRoiPreview?: boolean })._isSrRoiPreview)).toMatchObject({ width: 2, height: 2, scaleX: 1, scaleY: 1 });
-      expect(controller.getSegmentationEdgeSamInputSource?.()).toBe("sr-roi-processed");
-      expect(controller.getSegmentationSuperpixelInputSource?.()).toBe("sr-roi-processed");
-      expect(controller.focusSegmentationSrRoi?.()).toBe(true);
-      expect(controller.canvas.viewportTransform).toEqual([1, 0, 0, 1, 318, 238]);
 
       const snapshotBeforeReset = controller.getSegmentationDocumentSnapshot?.();
       expect(controller.canUndo()).toBe(true);

@@ -3,6 +3,7 @@ import type { WorkflowType } from "../types/labels.js";
 import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import type { ClassFileRow } from "../domain/class-files.js";
 import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
 import { isThumbnailableFileName, THUMBNAIL_SIZE_PX } from "./image-thumbnails.js";
 
@@ -49,6 +50,45 @@ export interface LabelFilterRenderInput {
   getDisplayNameForClass: (labelClass: string) => string;
   activeFilterKeys?: ReadonlySet<string>;
   isAllActive?: boolean;
+  canEditColors?: boolean;
+}
+
+export function createClassColorInput(documentRef: Document, classId: string, displayName: string): HTMLInputElement {
+  const input = documentRef.createElement("input");
+  input.type = "color";
+  input.className = "form-control form-control-color class-color-input";
+  input.value = getColorForClass(classId);
+  input.dataset.ui = "class-color";
+  input.dataset.classId = classId;
+  input.title = `Change color for ${displayName}`;
+  input.setAttribute("aria-label", input.title);
+  return input;
+}
+
+export function createClassFileEditorRow(documentRef: Document, row: ClassFileRow): HTMLTableRowElement {
+  const tr = documentRef.createElement("tr");
+  for (const field of ["id", "name"] as const) {
+    const cell = documentRef.createElement("td");
+    const input = documentRef.createElement("input");
+    input.className = `form-control class-${field}-input`;
+    input.value = row[field];
+    input.setAttribute("aria-label", field === "id" ? "Class ID" : "Class name");
+    cell.appendChild(input);
+    tr.appendChild(cell);
+  }
+  const colorCell = documentRef.createElement("td");
+  const color = createClassColorInput(documentRef, row.id, row.name || "new class");
+  color.dataset.ui = "class-file-color";
+  if (row.color) {
+    color.value = row.color;
+    color.dataset.edited = "true";
+  }
+  colorCell.appendChild(color);
+  tr.appendChild(colorCell);
+  const actions = documentRef.createElement("td");
+  actions.innerHTML = '<button type="button" class="btn btn-sm btn-danger delete-class-row-btn">Delete</button>';
+  tr.appendChild(actions);
+  return tr;
 }
 
 export interface LabelFilterBindingInput {
@@ -76,18 +116,8 @@ function compareFileNames(a: FileHandle, b: FileHandle): number {
   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function getDefaultWorkflowStatus(): ImageWorkflowStatus {
-  return {
-    detection: {
-      hasAnnotation: false,
-      boxCount: 0
-    },
-    segmentation: {
-      hasAnnotation: false
-    }
-  };
-}
-function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType): WorkflowBadgeDescriptor {
+function deriveWorkflowBadge(status: ImageWorkflowStatus | undefined, workflow: WorkflowType): WorkflowBadgeDescriptor {
+  if (!status) return { iconClassName: "bi bi-clock text-muted", isPositive: false, statusKey: `${workflow}-pending`, label: "Labels not checked yet" };
   const workflowStatus = workflow === "segmentation" ? status.segmentation : status.detection;
   if (workflowStatus.hasAnnotation) {
     return {
@@ -114,11 +144,12 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const filteredFiles = [...input.imageFiles]
     .sort(compareFileNames)
     .filter((file) => {
-      const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
-      if (!input.showLabeled && badge.isPositive) {
+      const status = input.imageWorkflowStatus.get(file.name);
+      const badge = deriveWorkflowBadge(status, input.activeWorkflow);
+      if (status && !input.showLabeled && badge.isPositive) {
         return false;
       }
-      if (!input.showUnlabeled && !badge.isPositive) {
+      if ((!input.showLabeled && !input.showUnlabeled) || (status && !input.showUnlabeled && !badge.isPositive)) {
         return false;
       }
       const reviewStatus = reviewImages[file.name]?.status ?? "needs-review";
@@ -129,7 +160,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
       if (reviewFilter === "reviewed" && reviewStatus !== "reviewed") {
         return false;
       }
-      if (reviewFilter === "has-issues" && !finding?.issues.length) {
+      if (reviewFilter === "has-issues" && finding && !finding.issues.length) {
         return false;
       }
 
@@ -140,7 +171,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const fragment = document.createDocumentFragment();
 
   for (const file of filteredFiles) {
-    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
+    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name), input.activeWorkflow);
     const item = document.createElement("a");
     item.href = "#";
     item.className = "list-group-item list-group-item-action d-flex align-items-center image-list-item";
@@ -151,7 +182,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     const finding = input.activeWorkflow === "detection" ? reviewFindings.get(file.name) : undefined;
     const reviewStatus = input.activeWorkflow === "detection" ? reviewImages[file.name]?.status ?? "needs-review" : "none";
     item.dataset.reviewStatus = reviewStatus;
-    item.dataset.reviewSeverity = finding?.highestSeverity ?? "none";
+    item.dataset.reviewSeverity = finding?.highestSeverity ?? (input.activeWorkflow === "detection" && !finding ? "pending" : "none");
 
     if (isThumbnailableFileName(file.name)) {
       const thumb = document.createElement("canvas");
@@ -181,13 +212,13 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
 
     item.appendChild(name);
     if (input.activeWorkflow === "detection") {
-      const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount ?? 0;
+      const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount;
       const count = document.createElement("span");
       count.className = "badge rounded-pill image-box-count";
       count.dataset.ui = "image-box-count";
-      count.setAttribute("aria-label", `${boxCount} detection boxes`);
-      count.title = `${boxCount} detection boxes`;
-      count.textContent = String(boxCount);
+      count.setAttribute("aria-label", boxCount === undefined ? "Labels not checked yet" : `${boxCount} detection boxes`);
+      count.title = boxCount === undefined ? "Labels not checked yet" : `${boxCount} detection boxes`;
+      count.textContent = boxCount === undefined ? "…" : String(boxCount);
       item.appendChild(count);
     }
 
@@ -239,7 +270,8 @@ export function renderClassFileSelect(
   for (const file of [...classFiles].sort(compareFileNames)) {
     const option = document.createElement("option");
     option.value = file.name;
-    option.textContent = file.name;
+    option.textContent = file.name.replace(/\.ya?ml$/i, "");
+    option.title = file.name;
     classFileSelectElement.appendChild(option);
   }
 
@@ -300,7 +332,7 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
     button.className = `class-filter-row ${isActive ? "active btn-primary" : ""}`.trim();
     button.type = "button";
     button.setAttribute("aria-pressed", String(isActive));
-    button.innerHTML = `<span class="label-color-swatch" style="background-color:${getColorForClass(labelClass)}" aria-hidden="true"></span><span class="class-name"></span><span class="class-count">${classCounts[labelClass] ?? 0}</span><i class="bi ${isActive ? "bi-eye" : "bi-eye-slash"} class-visibility-icon" aria-hidden="true"></i>`;
+    button.innerHTML = `<span class="class-name"></span><span class="class-count">${classCounts[labelClass] ?? 0}</span><i class="bi ${isActive ? "bi-eye" : "bi-eye-slash"} class-visibility-icon" aria-hidden="true"></i>`;
     const className = button.querySelector<HTMLElement>(".class-name");
     if (className) {
       className.textContent = input.getDisplayNameForClass(labelClass);
@@ -312,7 +344,13 @@ export function renderLabelFilters(input: LabelFilterRenderInput): void {
     button.dataset.testid = normalizedFilterKey === UNLABELED_FILTER_KEY
       ? "filter-class-unlabeled"
       : `filter-class-${labelClass}`;
-    input.labelFiltersElement.appendChild(button);
+    const row = document.createElement("div");
+    row.className = "class-filter-entry";
+    const color = createClassColorInput(document, labelClass, input.getDisplayNameForClass(labelClass));
+    color.disabled = !input.canEditColors || !/^\d+$/.test(labelClass);
+    row.appendChild(color);
+    row.appendChild(button);
+    input.labelFiltersElement.appendChild(row);
   }
 }
 

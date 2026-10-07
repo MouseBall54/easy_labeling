@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveAnnotationAssetPaths } from "../../../../src/domain/annotations/paths.js";
+import { encodeSegmentationMaskPng, decodeSegmentationMaskPng } from "../../../../src/domain/annotations/segmentation-codec.js";
 import {
   createImageSessionService,
   type DecodeImageInput,
@@ -153,10 +154,37 @@ function createState(): ImageSessionServiceState {
 }
 
 describe("features/images/image-session-service", () => {
+  it("loads and saves masks in the selected result source while preserving the original mask and detection source", async () => {
+    const snapshot = { width: 3, height: 2, mask: new Uint16Array([5, 0, 0, 0, 0, 0]), activeClassId: "5", activeTool: "brush" as const, overlayVisible: true, overlayOpacity: 0.6, hiddenClassIds: new Set<string>(), brushRadius: 6 };
+    const original = await encodeSegmentationMaskPng(snapshot);
+    const label = new MockDirectoryHandle("label").withFile(new MockFileHandle("1.txt", "5 0.5 0.5 0.2 0.2"));
+    const imageDir = new MockDirectoryHandle("images").withDirectory(label).withDirectory(new MockDirectoryHandle("mask").withFile(new MockFileHandle("1.png", original))).withFile(new MockFileHandle("1.jpg"));
+    const resultDir = new MockDirectoryHandle("inference-masks");
+    const state = createState(); state.workflow = "segmentation";
+    const loaded = vi.fn();
+    const service = createImageSessionService(state, { decodeImage: vi.fn(async () => "decoded"), readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => ({ ...snapshot, mask: new Uint16Array([0, 1200, 1200, 0, 0, 0]) }), applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot: loaded, clearPendingSaveTimeout: vi.fn() });
+    await service.selectImageFolder(imageDir);
+    state.segmentationLabelFolderHandle = resultDir;
+    await service.saveLabels();
+    await service.refreshImageWorkflowStatus();
+    await service.loadLabels("1.jpg", state.currentLoadToken);
+    expect(loaded.mock.lastCall?.[0].mask).toEqual(new Uint16Array([0, 1200, 1200, 0, 0, 0]));
+    expect(state.labelFolderHandle).toBe(label);
+    const sourceFile = await (await imageDir.getDirectoryHandle("mask")).getFileHandle("1.png");
+    expect(new Uint8Array(await (await sourceFile.getFile()).arrayBuffer!())).toEqual(original);
+    state.segmentationLabelFolderHandle = null;
+    await service.loadLabels("1.jpg", state.currentLoadToken);
+    expect(loaded.mock.lastCall?.[0].mask).toEqual(snapshot.mask);
+    const saved = await (await resultDir.getDirectoryHandle("mask")).getFileHandle("1.png");
+    expect((await decodeSegmentationMaskPng(await (await saved.getFile()).arrayBuffer!())).mask[1]).toBe(1200);
+  });
+
   it("loads image folder and initializes detection/segmentation annotation status", async () => {
+    const unopenedLabel = new MockFileHandle("2.txt", "\n");
+    const unopenedReads = vi.spyOn(unopenedLabel, "getFile");
     const labelDir = new MockDirectoryHandle("label")
       .withFile(new MockFileHandle("1.txt", "0 0.5 0.5 0.1 0.1\n2 0.25 0.25 0.2 0.2\n"))
-      .withFile(new MockFileHandle("2.txt", "\n"));
+      .withFile(unopenedLabel);
     const maskDir = new MockDirectoryHandle("mask").withFile(new MockFileHandle("2.png", new Uint8Array([1, 2, 3])));
     const imageDir = new MockDirectoryHandle("images")
       .withDirectory(labelDir)
@@ -182,10 +210,29 @@ describe("features/images/image-session-service", () => {
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(2);
     expect(state.imageWorkflowStatus.get("1.jpg")?.segmentation.hasAnnotation).toBe(false);
+    expect(state.imageWorkflowStatus.has("2.jpg")).toBe(false);
+    expect(unopenedReads).not.toHaveBeenCalled();
+    await service.refreshImageWorkflowStatus();
+    expect(unopenedReads).toHaveBeenCalledOnce();
     expect(state.imageWorkflowStatus.get("2.jpg")?.detection.hasAnnotation).toBe(false);
     expect(state.imageWorkflowStatus.get("2.jpg")?.detection.boxCount).toBe(0);
     expect(state.imageWorkflowStatus.get("2.jpg")?.segmentation.hasAnnotation).toBe(true);
     expect(decodeImage).toHaveBeenCalled();
+  });
+
+  it("keeps known statuses when a requested full scan is cancelled during file reading", async () => {
+    const state = createState();
+    const controller = new AbortController();
+    const file = new MockFileHandle("1.txt", "0 0.5 0.5 0.1 0.1");
+    const read = file.getFile.bind(file);
+    vi.spyOn(file, "getFile").mockImplementation(async () => { controller.abort(); return read(); });
+    state.labelFolderHandle = new MockDirectoryHandle("labels").withFile(file);
+    state.imageFiles = [new MockFileHandle("1.jpg")];
+    const previous = state.imageWorkflowStatus;
+    const service = createImageSessionService(state, { decodeImage: vi.fn(), readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => null, applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot: vi.fn(), clearPendingSaveTimeout: vi.fn() });
+    await expect(service.refreshImageWorkflowStatus(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(state.imageWorkflowStatus).toBe(previous);
+    expect(previous.size).toBe(0);
   });
 
   it("loads detection labels when workflow is detection", async () => {
@@ -264,11 +311,9 @@ describe("features/images/image-session-service", () => {
       .withFile(new MockFileHandle("1.jpg"));
 
     const state = createState();
-    let currentYolo = "0 0.5 0.5 0.2 0.2";
-    const removeCurrentLabelsOutsideImageBounds = vi.fn(() => 1);
+    let currentYolo = "0 0.5 0.5 0.2 0.2\n1 1.1 0.5 0.2 0.2";
     const service = createImageSessionService(state, {
       decodeImage: vi.fn(async () => "decoded"),
-      removeCurrentLabelsOutsideImageBounds,
       readCurrentLabelsAsYolo: () => currentYolo,
       readCurrentSegmentationSnapshot: () => null,
       applyLoadedYolo: vi.fn(),
@@ -285,12 +330,13 @@ describe("features/images/image-session-service", () => {
     const saved = await (await labelDir.getFileHandle(fileName)).getFile();
 
     expect(result.saved).toBe(true);
-    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(1);
+    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(2);
     expect(result.primaryFilePath).toBe(detectionPath);
-    expect(await saved.text()).toBe("0 0.5 0.5 0.2 0.2");
+    expect(await saved.text()).toBe(currentYolo);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
-    expect(removeCurrentLabelsOutsideImageBounds).toHaveBeenCalledOnce();
-    expect(result.removedOutOfBoundsCount).toBe(1);
+    expect(result.removedOutOfBoundsCount).toBe(0);
+    await service.saveLabels(true);
+    expect(await (await (await labelDir.getFileHandle(fileName)).getFile()).text()).toBe(currentYolo);
 
     currentYolo = "";
     await service.saveLabels(false);

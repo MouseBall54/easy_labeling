@@ -147,14 +147,15 @@ export class FakeElement {
   }
 
   querySelectorAll(selector: string): FakeElement[] {
+    const descendants = this.children.flatMap((child) => [child, ...child.querySelectorAll(selector)]);
     if (selector === ".btn[data-label-class]") {
-      return this.children.filter((child) => child.classList.contains("btn") && Boolean(child.dataset.labelClass));
+      return descendants.filter((child) => child.classList.contains("btn") && Boolean(child.dataset.labelClass));
     }
     if (selector === '[data-ui="filter-class"]') {
-      return this.children.filter((child) => child.dataset.ui === "filter-class");
+      return descendants.filter((child) => child.dataset.ui === "filter-class");
     }
     if (selector === '[data-ui="filter-all"]') {
-      return this.children.filter((child) => child.dataset.ui === "filter-all");
+      return descendants.filter((child) => child.dataset.ui === "filter-all");
     }
     return [];
   }
@@ -213,9 +214,9 @@ export class FakeDocument {
   querySelectorAll(selector: string): FakeElement[] {
     if (
       selector ===
-      'label[for="showLabeled"], label[for="showUnlabeled"], label[for="drawMode"], label[for="editMode"]'
+      'label[for="drawMode"], label[for="editMode"]'
     ) {
-      const accepted = new Set(["showLabeled", "showUnlabeled", "drawMode", "editMode"]);
+      const accepted = new Set(["drawMode", "editMode"]);
       return this.allElements.filter((element) => element.tagName === "label" && accepted.has(element.htmlFor));
     }
     return [];

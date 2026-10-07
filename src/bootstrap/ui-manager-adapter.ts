@@ -18,6 +18,7 @@ import { renderLabelClassModalContent } from "../ui/modals.js";
 import { installModalFocusManagement } from "../ui/modal-focus.js";
 import {
   bindLabelFilterEvents,
+  createClassColorInput,
   renderClassFileSelect,
   renderImageList,
   renderLabelFilters,
@@ -101,7 +102,7 @@ export interface RuntimeUiManager extends UIManager {
   finishWorkspaceStandby(state: "ready" | "warning" | "error", summary: string): void;
   hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
-  setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review"): void;
+  setActiveTask(task: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void;
   setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
@@ -169,17 +170,17 @@ export function createUiManagerAdapter(input: {
     "segmentationFormatModal",
     "createClassFileModal",
     "classFileViewerModal",
+    "classRemapModal",
     "labelClassModal",
     "missingLabelFolderModal"
   ]);
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
   let workspaceStandbyActive = false;
-  let workspaceStandbyHideTimer: ReturnType<typeof setTimeout> | null = null;
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
-  let activeTask: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" = "annotate";
+  let activeTask: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe" = "annotate";
   let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
   let missingLabelFolderModal: BootstrapModalLike | null = null;
@@ -399,6 +400,7 @@ export function createUiManagerAdapter(input: {
       button.classList.toggle("active", isActive);
       button.classList.toggle("btn-outline-secondary", !isActive);
     });
+    elements.segmentationAutoFillClosedRegionGroup.hidden = input.state.session.workflow !== "segmentation" || !isDrawingMode || activeTool !== "brush";
     elements.segmentationAutoFillClosedRegionToggle.checked = autoFillClosedRegionEnabled;
     elements.segmentationMaskVisibilityToggle.checked = overlayVisible;
     elements.segmentationMaskOpacitySlider.value = `${Math.round(overlayOpacity * 100)}`;
@@ -407,6 +409,9 @@ export function createUiManagerAdapter(input: {
     elements.segmentationEdgeGlowSlider.value = `${Math.round(edgeHighlightIntensity * 100)}`;
     elements.segmentationEdgeGlowValue.textContent = `${Math.round(edgeHighlightIntensity * 100)}`;
     const paintClassList = elements.segmentationPaintClassList;
+    const focusedClassControl = paintClassList?.contains(input.documentRef.activeElement) ? input.documentRef.activeElement as HTMLElement : null;
+    const focusedClassId = focusedClassControl?.dataset.classId;
+    const focusedClassUi = focusedClassControl?.dataset.ui;
     elements.segmentationClassSummary.innerHTML = "";
     if (paintClassList) paintClassList.innerHTML = "";
     if (summary && segmentationClassIds.length > 0) {
@@ -419,11 +424,29 @@ export function createUiManagerAdapter(input: {
         const classDisplayName = manager.getDisplayNameForClass(classId);
         paintClassButton.title = classDisplayName;
         paintClassButton.setAttribute("aria-label", `Paint class ${classDisplayName}`);
-        const color = input.documentRef.createElement("span");
-        color.className = "segmentation-class-color-chip";
-        color.style.background = getColorForClass(classId);
-        paintClassButton.append(color, input.documentRef.createTextNode(classId));
-        paintClassList?.appendChild(paintClassButton);
+        paintClassButton.appendChild(input.documentRef.createTextNode(` ${classDisplayName}`));
+        paintClassButton.setAttribute("aria-pressed", String(classId === activeClassId));
+        const row = input.documentRef.createElement("div");
+        row.className = "segmentation-class-row";
+        row.dataset.ui = "segmentation-class-visibility-item";
+        const visibility = input.documentRef.createElement("input");
+        visibility.type = "checkbox";
+        visibility.className = "form-check-input";
+        visibility.checked = !summary.hiddenClassIds.includes(classId);
+        visibility.dataset.classId = classId;
+        visibility.dataset.ui = "segmentation-class-visibility-toggle";
+        visibility.setAttribute("aria-label", `Show class ${classDisplayName}`);
+        const visibilityLabel = input.documentRef.createElement("label");
+        visibilityLabel.className = "segmentation-class-eye";
+        visibilityLabel.title = `Show / hide ${classDisplayName}`;
+        const eye = input.documentRef.createElement("i");
+        eye.className = "bi bi-eye";
+        eye.setAttribute("aria-hidden", "true");
+        visibilityLabel.append(visibility, eye);
+        const color = createClassColorInput(input.documentRef, classId, classDisplayName);
+        color.disabled = !input.state.session.selectedClassFile;
+        row.append(color, paintClassButton, visibilityLabel);
+        paintClassList?.appendChild(row);
       });
 
       const filterControls = input.documentRef.createElement("div");
@@ -454,34 +477,11 @@ export function createUiManagerAdapter(input: {
 
       elements.segmentationClassSummary.appendChild(filterControls);
 
-      const title = input.documentRef.createElement("div");
-      title.className = "mb-2 small text-muted";
-      title.textContent = "Visibility";
-      elements.segmentationClassSummary.appendChild(title);
-
-      segmentationClassIds.forEach((classId) => {
-        const wrapper = input.documentRef.createElement("div");
-        wrapper.className = "form-check d-flex align-items-center justify-content-between gap-2 mb-1";
-        wrapper.dataset.classId = classId;
-        wrapper.dataset.ui = "segmentation-class-visibility-item";
-
-        const checkbox = input.documentRef.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.className = "form-check-input";
-        checkbox.checked = !summary.hiddenClassIds.includes(classId);
-        checkbox.dataset.classId = classId;
-        checkbox.dataset.ui = "segmentation-class-visibility-toggle";
-
-        const label = input.documentRef.createElement("span");
-        label.className = "small text-start";
-        const color = input.documentRef.createElement("span");
-        color.className = "segmentation-class-color-chip";
-        color.style.background = getColorForClass(classId);
-        label.append(color, input.documentRef.createTextNode(manager.getDisplayNameForClass(classId)));
-
-        wrapper.append(checkbox, label);
-        elements.segmentationClassSummary.appendChild(wrapper);
+      const query = (input.documentRef.getElementById("segmentationClassSearchInput") as HTMLInputElement | null)?.value.trim().toLocaleLowerCase() ?? "";
+      paintClassList?.querySelectorAll<HTMLElement>('[data-ui="segmentation-class-visibility-item"]').forEach((row) => {
+        row.hidden = query.length > 0 && !row.textContent?.toLocaleLowerCase().includes(query);
       });
+      if (focusedClassId && focusedClassUi) paintClassList?.querySelector<HTMLElement>(`[data-ui="${focusedClassUi}"][data-class-id="${focusedClassId}"]`)?.focus({ preventScroll: true });
     } else {
       if (paintClassList) paintClassList.textContent = "";
       elements.segmentationClassSummary.textContent = visibleClassIds.length > 0
@@ -506,7 +506,7 @@ export function createUiManagerAdapter(input: {
       detectionPanelElement: elements.detectionWorkflowPanel,
       segmentationPanelElement: elements.segmentationWorkflowPanel
     });
-    elements.segmentationAutoFillClosedRegionGroup.hidden = !showSegmentationControls;
+
     const segmentationWorkspace = input.documentRef.getElementById("segmentationLeftWorkspace");
     const segmentationDisplayWorkspace = input.documentRef.getElementById("segmentationDisplayWorkspace");
     const segmentationSuperpixelWorkspace = input.documentRef.getElementById("segmentationSuperpixelWorkspace");
@@ -524,12 +524,14 @@ export function createUiManagerAdapter(input: {
       .forEach((button) => {
       button.hidden = !showSegmentationControls;
     });
-    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn]
+    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn")]
       .filter((button): button is HTMLButtonElement => Boolean(button))
       .forEach((button) => {
       button.hidden = showSegmentationControls;
     });
     if (preprocessingTaskButton) preprocessingTaskButton.hidden = false;
+    input.documentRef.getElementById("detectionInferenceWorkspace")?.toggleAttribute("hidden", showSegmentationControls || activeTask !== "inference");
+    input.documentRef.getElementById("yoloeInferenceControls")?.toggleAttribute("hidden", activeTask !== "yoloe");
     input.documentRef.getElementById("reviewFilterControl")?.toggleAttribute("hidden", showSegmentationControls);
     input.documentRef.getElementById("segmentationFormatShortcut")?.toggleAttribute("hidden", !showSegmentationControls);
     const genericModeControls = input.documentRef.getElementById("genericModeControls");
@@ -628,19 +630,20 @@ export function createUiManagerAdapter(input: {
       manager.syncWorkspaceState();
     },
 
-    setActiveTask(task: "files" | "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review"): void {
+    setActiveTask(task: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void {
+      const changedTask = activeTask !== task;
       activeTask = task;
       const isPreprocessingTask = task === "preprocessing";
       const isSegmentationTask = task === "segmentation" || task === "superpixel" || task === "segmentation-display";
       const isLeftWorkspaceTask = isSegmentationTask || isPreprocessingTask;
-      const isCompactLeftPanelTask = task === "files" || task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review";
+      const isCompactLeftPanelTask = task === "detection-display" || task === "superpixel" || task === "segmentation-display" || isPreprocessingTask || task === "review" || task === "inference" || task === "yoloe";
       const preprocessingTaskButton = input.documentRef.getElementById("taskPreprocessingBtn");
       const detectionDisplayTaskButton = input.documentRef.getElementById("taskDetectionDisplayBtn");
       if (task === "automate") {
         manager.setInspectorTab("automation");
         return;
       }
-      const buttons = [elements.taskFilesBtn, elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn]
+      const buttons = [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskSegmentationBtn, elements.taskSuperpixelBtn, elements.taskSegmentationDisplayBtn, preprocessingTaskButton, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn"), input.documentRef.getElementById("taskYoloeBtn")]
         .filter((button): button is HTMLButtonElement => Boolean(button));
       buttons.forEach((button) => {
         const active = button.dataset.task === task;
@@ -660,18 +663,11 @@ export function createUiManagerAdapter(input: {
       input.documentRef.querySelector<HTMLElement>(".app-workspace")?.setAttribute("data-active-task", task);
       elements.leftPanel.classList.toggle("mobile-open", isCompactLeftPanelTask);
       elements.rightPanel.classList.toggle("mobile-open", false);
-      elements.leftPanel.classList.toggle("task-focus", task === "files" || task === "detection-display" || isLeftWorkspaceTask || task === "review");
+      elements.leftPanel.classList.toggle("task-focus", task === "detection-display" || isLeftWorkspaceTask || task === "review" || task === "inference" || task === "yoloe");
       elements.rightPanel.classList.toggle("task-focus", false);
       elements.expandRightPanelBtn.toggleAttribute("hidden", isPreprocessingTask);
       if (elements.reviewQueueControls) {
         elements.reviewQueueControls.hidden = task !== "review";
-      }
-
-      if (task === "files") {
-        manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
-        elements.imageSearchInput.focus({ preventScroll: true });
-        manager.syncWorkspaceState();
-        return;
       }
 
       if (isPreprocessingTask) {
@@ -695,9 +691,11 @@ export function createUiManagerAdapter(input: {
         manager.togglePanel(elements.leftPanel, elements.leftSplitter, elements.expandLeftPanelBtn, false);
       }
       manager.syncWorkspaceState();
+      if (changedTask) elements.leftPanel.querySelector<HTMLElement>(".panel-content")?.scrollTo?.(0, 0);
     },
 
     setInspectorTab(tab: "annotation" | "transform" | "automation"): void {
+      const changedTab = activeInspectorTab !== tab;
       activeInspectorTab = tab;
       const automationActive = tab === "automation";
       elements.taskAutomateBtn.classList.toggle("active", automationActive);
@@ -740,6 +738,7 @@ export function createUiManagerAdapter(input: {
           elements.inspectorSubtitle.textContent = tab === "transform" ? "Adjust selected annotation geometry" : "Select a box to inspect or edit";
         }
       }
+      if (changedTab) elements.rightPanel.querySelector<HTMLElement>(".panel-content")?.scrollTo?.(0, 0);
     },
 
     setLabelDisplayMode(mode: LabelDisplayMode, persist = true): void {
@@ -809,6 +808,51 @@ export function createUiManagerAdapter(input: {
     },
 
     syncWorkspaceState(): void {
+      input.documentRef.getElementById("detectionInferenceWorkspace")?.toggleAttribute("hidden", input.state.session.workflow !== "detection" || activeTask !== "inference");
+      input.documentRef.getElementById("yoloeInferenceControls")?.toggleAttribute("hidden", activeTask !== "yoloe");
+      const labelSources = input.documentRef.getElementById("detectionLabelSources");
+      const segmentation = input.state.session.workflow === "segmentation";
+      const sources = segmentation ? input.state.session.segmentationLabelFolders ?? [] : input.state.session.labelFolders;
+      const selectedSource = segmentation ? input.state.session.segmentationLabelFolderHandle ?? input.state.session.imageFolderHandle : input.state.session.labelFolderHandle;
+      labelSources?.toggleAttribute("hidden", !sources.length);
+      const labelTabs = input.documentRef.getElementById("labelSourceTabs");
+      if (labelTabs) {
+        const sourceNames = JSON.stringify([input.state.session.workflow, ...sources.map((folder) => folder.name)]);
+        const changed = labelTabs.dataset.sources !== sourceNames;
+        if (changed) {
+          labelTabs.replaceChildren();
+          sources.forEach((folder, index) => {
+            const radio = input.documentRef.createElement("input");
+            radio.type = "radio";
+            radio.className = "btn-check";
+            radio.name = "label-source";
+            radio.id = `label-source-${index}`;
+            radio.value = String(index);
+            radio.setAttribute("aria-label", `${folder.name}, label folder ${index + 1}`);
+            if (index < 9) radio.setAttribute("aria-keyshortcuts", `Control+${index + 1}`);
+            const tab = input.documentRef.createElement("label");
+            tab.htmlFor = radio.id;
+            tab.className = "label-source-tab";
+            tab.dataset.sourceIndex = String(index);
+            tab.title = `${folder.name}${index < 9 ? ` · Ctrl+${index + 1}` : ""} · Changes save before switching`;
+            const name = input.documentRef.createElement("span");
+            name.className = "label-source-name";
+            name.textContent = folder.name;
+            const key = input.documentRef.createElement(index < 9 ? "kbd" : "span");
+            key.className = "label-source-key";
+            key.textContent = String(index + 1);
+            tab.append(name, key);
+            labelTabs.append(radio, tab);
+          });
+          labelTabs.dataset.sources = sourceNames;
+        }
+        const activeIndex = String(sources.indexOf(selectedSource!));
+        labelTabs.querySelectorAll<HTMLInputElement>("input").forEach((radio) => { radio.checked = radio.value === activeIndex; });
+        if (changed || labelTabs.dataset.activeIndex !== activeIndex) {
+          labelTabs.querySelector<HTMLElement>(`[data-source-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+        labelTabs.dataset.activeIndex = activeIndex;
+      }
       input.documentRef.getElementById("detectionReviewWorkspace")?.toggleAttribute(
         "hidden",
         input.state.session.workflow !== "detection" || activeTask !== "review"
@@ -817,6 +861,9 @@ export function createUiManagerAdapter(input: {
       const currentFile = input.state.session.currentImageFile;
       const currentImage = input.state.session.currentImage;
       const hasImage = Boolean(currentFile && currentImage);
+      const workspace = input.documentRef.querySelector<HTMLElement>(".app-workspace");
+      workspace?.setAttribute("data-has-image", String(hasImage));
+      workspace?.setAttribute("data-has-dataset", String(input.state.session.imageFiles.length > 0));
       const isCompactViewport = input.documentRef.defaultView?.matchMedia("(max-width: 800px)").matches ?? false;
       const imageCount = input.state.session.imageFiles.length;
       const rectCount = canvasController?.raw.getObjects("rect").filter(isRectObject).length ?? 0;
@@ -850,16 +897,16 @@ export function createUiManagerAdapter(input: {
       elements.imageCountBadge.textContent = String(imageCount);
       const leftPanelTitle = input.documentRef.getElementById("leftPanelTitle");
       // Preprocess/Display/Superpixel are settings-only panels that get their own
-      // title and hide the dataset subtitle. Files/Annotate/Mask all render the
-      // same dataset-browsing panel, so the title is what tells the user their
-      // click on the rail actually registered. Review reuses that panel's shape
-      // but not its content, so it needs its own title too (see UI/UX audit).
+      // title and hide the dataset subtitle. Annotate/Mask combine dataset
+      // browsing and editing. Review reuses the browsing panel with its own title.
       const settingsOnlyTaskTitles: Partial<Record<typeof activeTask, string>> = {
         preprocessing: "Image Preprocessing",
         "segmentation-display": "Mask Display",
         superpixel: "Superpixel Settings",
         "detection-display": "Display Settings",
-        review: "Review"
+        review: "Review",
+        inference: "Inference",
+        yoloe: "YOLOE-26"
       };
       const browsingTaskTitles: Partial<Record<typeof activeTask, string>> = {
         annotate: "Annotate",
@@ -878,10 +925,28 @@ export function createUiManagerAdapter(input: {
           : "No dataset connected";
       }
       elements.refreshDatasetBtn.disabled = !folderName;
+      const datasetButton = elements.selectImageFolderBtn;
+      datasetButton.textContent = folderName || "Open Dataset";
+      datasetButton.title = folderName ? `${folderName} · Open another dataset` : "Open Dataset";
+      datasetButton.setAttribute("aria-label", folderName ? `Open another dataset · ${folderName}` : "Open Dataset");
+      datasetButton.classList.toggle("btn-primary", !folderName);
+      datasetButton.classList.toggle("btn-outline-secondary", false);
+      datasetButton.classList.toggle("btn-outline-success", Boolean(folderName));
+      datasetButton.dataset.connected = String(Boolean(folderName));
+      input.documentRef.getElementById("datasetActions")?.classList.toggle("dataset-connected", Boolean(folderName));
       elements.selectLabelFolderBtn.toggleAttribute("disabled", !directoryPickerAvailable || !folderName);
       (elements.prevImageBtn as HTMLButtonElement).disabled = imageCount < 2;
       (elements.nextImageBtn as HTMLButtonElement).disabled = imageCount < 2;
-      (elements.saveLabelsBtn as HTMLButtonElement).disabled = !hasImage;
+      (elements.saveLabelsBtn as HTMLButtonElement).disabled = !hasImage || phase === "saving" || elements.saveLabelsBtn.getAttribute("aria-busy") === "true";
+      input.documentRef.getElementById("outsideBoxesActions")?.toggleAttribute("hidden", segmentation);
+      const cleanupButton = input.documentRef.getElementById("removeOutsideBoxesBtn") as HTMLButtonElement | null;
+      if (cleanupButton) cleanupButton.disabled = !hasImage || !input.state.session.labelFolderHandle || cleanupButton.getAttribute("aria-busy") === "true";
+      const currentCleanupButton = input.documentRef.getElementById("removeCurrentOutsideBoxesBtn") as HTMLButtonElement | null;
+      if (currentCleanupButton) currentCleanupButton.disabled = !hasImage;
+      const rescanButton = input.documentRef.getElementById("rescanReviewBtn") as HTMLButtonElement | null;
+      if (rescanButton) rescanButton.disabled = segmentation || !imageCount || rescanButton.getAttribute("aria-busy") === "true";
+      const classRemapButton = input.documentRef.getElementById("openClassRemapBtn") as HTMLButtonElement | null;
+      if (classRemapButton) { classRemapButton.hidden = segmentation; classRemapButton.disabled = !hasImage; }
       elements.headerDocumentStatus.dataset.state = phase;
       elements.documentStatus.dataset.state = phase;
       elements.headerDocumentStatus.title = documentStatus?.errorMessage ?? statusText;
@@ -937,22 +1002,22 @@ export function createUiManagerAdapter(input: {
 
     updateLabelFolderButton(hasLabelFolder: boolean): void {
       const button = elements.selectLabelFolderBtn;
-      const folderName = input.state.session.labelFolderHandle?.name ?? "";
+      const folderName = (input.state.session.workflow === "segmentation" ? input.state.session.segmentationLabelFolderHandle ?? input.state.session.imageFolderHandle : input.state.session.labelFolderHandle)?.name ?? "";
 
       if (hasLabelFolder && folderName) {
         button.classList.remove("btn-secondary", "btn-danger");
         button.classList.add("btn-success");
-        button.setAttribute("aria-label", `Label folder: ${folderName}`);
-        button.setAttribute("title", `Label folder: ${folderName}`);
-        button.innerHTML = '<i class="bi bi-folder-check" aria-hidden="true"></i>';
+        button.setAttribute("aria-label", `Add label folder. Active: ${folderName}`);
+        button.setAttribute("title", `Add label folder · Active: ${folderName}`);
+        button.innerHTML = '<i class="bi bi-folder-plus" aria-hidden="true"></i>';
         return;
       }
 
       button.classList.remove("btn-success");
       button.classList.add("btn-danger");
-      button.setAttribute("aria-label", "Connect label folder");
-      button.setAttribute("title", "Connect label folder");
-      button.innerHTML = '<i class="bi bi-folder-x" aria-hidden="true"></i>';
+      button.setAttribute("aria-label", "Add label folder");
+      button.setAttribute("title", "Add label folder");
+      button.innerHTML = '<i class="bi bi-folder-plus" aria-hidden="true"></i>';
     },
 
     setWorkflow(workflow: WorkflowType): void {
@@ -965,7 +1030,7 @@ export function createUiManagerAdapter(input: {
         elements.taskReviewBtn.disabled = workflow !== "detection";
       }
       if (workflow === "segmentation") {
-        if (workflowChanged && activeTask !== "preprocessing") {
+        if (workflowChanged && activeTask !== "preprocessing" && activeTask !== "yoloe") {
           manager.setActiveTask("segmentation");
         }
       } else if (activeTask === "segmentation" || activeTask === "superpixel" || activeTask === "segmentation-display") {
@@ -1181,6 +1246,13 @@ export function createUiManagerAdapter(input: {
 
     renderImageList(): void {
       const fileSystem = getFileSystem();
+      const filter = input.state.view.imageStatusFilter;
+      const filterLabel = filter === "labeled" ? "Labeled" : filter === "unlabeled" ? "Unlabeled" : "All";
+      elements.imageStatusFilterBtn.textContent = filterLabel;
+      elements.imageStatusFilterBtn.dataset.filter = filter;
+      elements.imageStatusFilterBtn.setAttribute("aria-label", `Image filter: ${filterLabel} images`);
+      elements.imageStatusFilterBtn.title = `${filterLabel} images. Click for ${filter === "all" ? "labeled" : filter === "labeled" ? "unlabeled" : "all"} images.`;
+      elements.imageStatusFilterBtn.classList.toggle("active", filter !== "all");
       renderImageList({
         imageListElement: elements.imageList,
         imageFiles: input.state.session.imageFiles,
@@ -1188,8 +1260,8 @@ export function createUiManagerAdapter(input: {
         activeWorkflow: input.state.session.workflow,
         currentImageFile: input.state.session.currentImageFile,
         searchTerm: elements.imageSearchInput.value,
-        showLabeled: elements.showLabeledCheckbox.checked,
-        showUnlabeled: elements.showUnlabeledCheckbox.checked,
+        showLabeled: filter !== "unlabeled",
+        showUnlabeled: filter !== "labeled",
         reviewFilter: input.state.view.reviewFilter,
         reviewState: input.state.session.reviewState,
         reviewFindings: input.state.session.reviewFindings,
@@ -1226,20 +1298,23 @@ export function createUiManagerAdapter(input: {
       elements.reviewRequiredClassesInput.value = input.state.session.reviewState.settings.requiredClassIds.join(", ");
       elements.saveReviewRulesBtn.disabled = !input.state.session.imageFolderHandle;
       const queueItems = [...elements.imageList.querySelectorAll<HTMLElement>("[data-file-name]")];
+      const checkedCount = input.state.session.imageFiles.filter((file) => input.state.session.reviewFindings.has(file.name)).length;
+      const pending = checkedCount < input.state.session.imageFiles.length;
       const currentImageName = input.state.session.currentImageFile?.name;
       const currentQueueIndex = queueItems.findIndex((item) => item.dataset.fileName === currentImageName);
-      elements.reviewQueueSummary.textContent = queueItems.length === 0
+      elements.reviewQueueSummary.textContent = pending ? `Not checked · ${checkedCount} / ${input.state.session.imageFiles.length}` : queueItems.length === 0
         ? "0"
         : currentQueueIndex >= 0
           ? `${currentQueueIndex + 1} / ${queueItems.length}`
           : String(queueItems.length);
-      elements.previousReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex <= 0;
-      elements.nextReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex < 0 || currentQueueIndex >= queueItems.length - 1;
+      elements.previousReviewIssueBtn.disabled = pending || queueItems.length < 2 || currentQueueIndex <= 0;
+      elements.nextReviewIssueBtn.disabled = pending || queueItems.length < 2 || currentQueueIndex < 0 || currentQueueIndex >= queueItems.length - 1;
       elements.reviewIssueList.replaceChildren();
+      if (activeTask !== "review") return;
       const issues = finding?.issues ?? [];
       const empty = input.documentRef.createElement("div");
       empty.className = "list-group-item text-muted py-2";
-      empty.textContent = imageName ? (issues.length ? "" : "No quality issues found.") : "Open an image to review it.";
+      empty.textContent = imageName ? (!finding ? "Labels not checked yet." : issues.length ? "" : "No quality issues found.") : "Open an image to review it.";
       if (!issues.length) {
         elements.reviewIssueList.appendChild(empty);
         return;
@@ -1333,6 +1408,8 @@ export function createUiManagerAdapter(input: {
       if (!canvasController) {
         return;
       }
+      const focusedColorClass = (input.documentRef.activeElement as HTMLElement | null)?.dataset?.ui === "class-color"
+        ? (input.documentRef.activeElement as HTMLElement).dataset.classId : null;
 
       if (input.state.session.workflow === "segmentation") {
         elements.labelList.innerHTML = "";
@@ -1525,7 +1602,7 @@ export function createUiManagerAdapter(input: {
         emptyState.className = "label-list-empty list-group-item text-muted";
         emptyState.dataset.ui = "label-list-empty";
         emptyState.dataset.testid = "label-list-empty";
-        emptyState.textContent = "No labels match the current filter.";
+        emptyState.textContent = rects.length === 0 ? "No labels yet. Draw a box to start." : "No labels match the current filter.";
         elements.labelList.appendChild(emptyState);
       }
 
@@ -1534,7 +1611,8 @@ export function createUiManagerAdapter(input: {
         rects: rects.map((rect) => ({ labelClass: normalizeFilterClassKey(rect.labelClass) })),
         getDisplayNameForClass: (labelClass) => manager.getDisplayNameForClass(labelClass),
         activeFilterKeys: new Set(visibleRects.map((rect) => normalizeFilterClassKey(rect.labelClass))),
-        isAllActive: rects.every((rect) => !input.state.view.hiddenLabelClasses.has(normalizeFilterClassKey(rect.labelClass)))
+        isAllActive: rects.every((rect) => !input.state.view.hiddenLabelClasses.has(normalizeFilterClassKey(rect.labelClass))),
+        canEditColors: Boolean(input.state.session.selectedClassFile)
       });
 
       const filterSummary = input.documentRef.createElement("span");
@@ -1544,10 +1622,12 @@ export function createUiManagerAdapter(input: {
       elements.labelFilters.appendChild(filterSummary);
       const classSearchQuery = elements.classSearchInput.value.trim().toLocaleLowerCase();
       if (classSearchQuery) {
-        elements.labelFilters.querySelectorAll<HTMLElement>(".class-filter-row").forEach((row) => {
+        elements.labelFilters.querySelectorAll<HTMLElement>('.class-filter-entry, [data-ui="filter-all"]').forEach((row) => {
           row.hidden = !(row.textContent ?? "").toLocaleLowerCase().includes(classSearchQuery);
         });
       }
+
+      if (focusedColorClass) elements.labelFilters.querySelector<HTMLElement>(`[data-ui="class-color"][data-class-id="${focusedColorClass}"]`)?.focus({ preventScroll: true });
 
       bindLabelFilterEvents({
         labelFiltersElement: elements.labelFilters,
@@ -1651,10 +1731,6 @@ export function createUiManagerAdapter(input: {
     },
 
     startWorkspaceStandby(title: string, summary: string): void {
-      if (workspaceStandbyHideTimer) {
-        globalThis.clearTimeout(workspaceStandbyHideTimer);
-        workspaceStandbyHideTimer = null;
-      }
       workspaceStandbyActive = true;
       elements.workspaceStandbyPanel.dataset.state = "loading";
       elements.workspaceStandbyTitle.textContent = title;
@@ -1694,17 +1770,10 @@ export function createUiManagerAdapter(input: {
         syncLoadingOverlay();
         return;
       }
-      workspaceStandbyHideTimer = globalThis.setTimeout(() => {
-        workspaceStandbyHideTimer = null;
-        manager.hideWorkspaceStandby();
-      }, 650);
+      manager.hideWorkspaceStandby();
     },
 
     hideWorkspaceStandby(): void {
-      if (workspaceStandbyHideTimer) {
-        globalThis.clearTimeout(workspaceStandbyHideTimer);
-        workspaceStandbyHideTimer = null;
-      }
       workspaceStandbyActive = false;
       syncLoadingOverlay();
     },
@@ -1713,8 +1782,19 @@ export function createUiManagerAdapter(input: {
       panel.style.display = "";
       panel.classList.toggle("collapsed", collapse);
       panel.setAttribute("aria-hidden", String(collapse));
+      const moveFocus = collapse ? panel.contains(input.documentRef.activeElement) : input.documentRef.activeElement === expandButton;
+      panel.toggleAttribute("inert", collapse);
       splitter.style.display = collapse ? "none" : "";
       expandButton.style.display = collapse ? "inline-flex" : "none";
+      expandButton.setAttribute("aria-controls", panel.id);
+      expandButton.setAttribute("aria-expanded", String(!collapse));
+      if (moveFocus) {
+        if (collapse) expandButton.focus();
+        // Wait for the panel/header CSS transitions before focusing a visible control.
+        else globalThis.setTimeout(() => {
+          if (!panel.classList.contains("collapsed")) panel.querySelector<HTMLButtonElement>('[id^="collapse-"]')?.focus({ preventScroll: true });
+        }, 300);
+      }
       const resizeCanvas = (): void => {
         const canvasController = getCanvasController();
         canvasController?.raw.resizeCanvas?.();

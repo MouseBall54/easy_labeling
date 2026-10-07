@@ -20,11 +20,13 @@ declare global {
     getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
     saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
     easyLabelingDesktop?: {
+      readYoloeModel?: (file: string) => Promise<Uint8Array>;
+      getGpuName?: (vendor: string, device: string) => Promise<string | null>;
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
     };
   }
 
-  type EasyLabelingLibraryFileKind = "preset" | "layout";
+  type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe";
   type EasyLabelingProfileDirectoryKind = EasyLabelingLibraryFileKind | "class-info";
 
   interface EasyLabelingLibraryFile {
@@ -37,6 +39,8 @@ declare global {
     kind: EasyLabelingLibraryFileKind;
     suggestedName: string;
     contents: string;
+    saveAs?: boolean;
+    filePath?: string;
   }
 
   interface DirectoryPickerOptions {

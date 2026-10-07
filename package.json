@@ -1,12 +1,19 @@
 {
   "name": "easy_labeling",
-  "version": "2.0.0",
+  "version": "2.1.1",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
+    "yoloe:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-yoloe.ps1",
+    "yoloe:prepare": "uv run --project runtime/yoloe --locked python runtime/yoloe/backend.py prepare",
+    "yoloe:models:record": "node scripts/record-yoloe-models.mjs",
+    "yoloe:export:onnx": "uv run --project runtime/yoloe --locked --group export python scripts/export-yoloe-onnx.py",
+    "yoloe:check": "uv run --project runtime/yoloe --locked python runtime/yoloe/backend.py check",
+    "yoloe:test": "uv run --project runtime/yoloe --locked python -m unittest discover -s runtime/yoloe -p test_backend.py",
+    "yoloe:start": "uv run --project runtime/yoloe --locked python runtime/yoloe/backend.py serve",
     "copy:offline-assets": "node scripts/copy-offline-assets.mjs",
     "prebuild": "npm run copy:offline-assets",
     "predev": "npm run copy:offline-assets",
@@ -24,7 +31,8 @@
     "benchmark:template-matching": "node scripts/benchmark-template-matching.mjs",
     "electron:dev": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder --win --x64 --dir",
-    "electron:dist:win": "npm run build && electron-builder --win nsis --x64"
+    "electron:dist:win": "npm run build && electron-builder --win nsis --x64",
+    "electron:dist:yoloe:win": "npm run build && npm run yoloe:models:record && electron-builder --config electron-builder.yoloe.cjs --win nsis --x64"
   },
   "keywords": [],
   "author": "박영문",
@@ -66,9 +74,12 @@
     },
     "files": [
       "index.html",
+      "docs/YOLOE26_GPU_KO.md",
+      "docs/YOLOE26_VALIDATION_20261004_KO.md",
       "privacy.html",
       "privacy_ko.html",
       "assets/**/*",
+      "!assets/models/yoloe26/**/*",
       "css/**/*",
       "dist/**/*",
       "vendor/**/*",

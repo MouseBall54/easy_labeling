@@ -17,8 +17,7 @@ export interface UiDomElements {
   classFileSelect: HTMLSelectElement;
   imageList: HTMLElement;
   imageSearchInput: HTMLInputElement;
-  showLabeledCheckbox: HTMLInputElement;
-  showUnlabeledCheckbox: HTMLInputElement;
+  imageStatusFilterBtn: HTMLButtonElement;
   reviewFilterSelect: HTMLSelectElement;
   reviewIssueList: HTMLElement;
   reviewStatusBadge: HTMLElement;
@@ -272,7 +271,6 @@ export interface UiDomElements {
   activeOperationProgress: HTMLElement;
   activeOperationProgressBar: HTMLElement;
   cancelActiveOperationBtn: HTMLButtonElement;
-  taskFilesBtn: HTMLButtonElement;
   taskAnnotateBtn: HTMLButtonElement;
   taskSegmentationBtn: HTMLButtonElement;
   taskSuperpixelBtn: HTMLButtonElement;
@@ -353,8 +351,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     classFileSelect: requireById<HTMLSelectElement>(documentRef, "class-file-select"),
     imageList: requireById<HTMLElement>(documentRef, "image-list"),
     imageSearchInput: requireById<HTMLInputElement>(documentRef, "imageSearchInput"),
-    showLabeledCheckbox: requireById<HTMLInputElement>(documentRef, "showLabeled"),
-    showUnlabeledCheckbox: requireById<HTMLInputElement>(documentRef, "showUnlabeled"),
+    imageStatusFilterBtn: requireById<HTMLButtonElement>(documentRef, "imageStatusFilterBtn"),
     reviewFilterSelect: requireById<HTMLSelectElement>(documentRef, "reviewFilterSelect"),
     reviewIssueList: requireById<HTMLElement>(documentRef, "reviewIssueList"),
     reviewStatusBadge: requireById<HTMLElement>(documentRef, "reviewStatusBadge"),
@@ -608,7 +605,6 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     activeOperationProgress: requireById<HTMLElement>(documentRef, "activeOperationProgress"),
     activeOperationProgressBar: requireById<HTMLElement>(documentRef, "activeOperationProgressBar"),
     cancelActiveOperationBtn: requireById<HTMLButtonElement>(documentRef, "cancelActiveOperationBtn"),
-    taskFilesBtn: requireById<HTMLButtonElement>(documentRef, "taskFilesBtn"),
     taskAnnotateBtn: requireById<HTMLButtonElement>(documentRef, "taskAnnotateBtn"),
     taskSegmentationBtn: requireById<HTMLButtonElement>(documentRef, "taskSegmentationBtn"),
     taskSuperpixelBtn: requireById<HTMLButtonElement>(documentRef, "taskSuperpixelBtn"),

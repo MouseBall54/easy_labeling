@@ -15,6 +15,7 @@ import {
 import { createUiManagerAdapter, type RuntimeUiManager } from "./bootstrap/ui-manager-adapter.js";
 import { ensureAnnotationId, isActiveSelectionObject, isRectObject } from "./features/canvas/fabric-types.js";
 import { normalizeFilterClassKey } from "./ui/filter-state.js";
+import { installModalDragging } from "./ui/modal-drag.js";
 
 export type { CdnRuntimeGlobals };
 
@@ -109,6 +110,7 @@ export function createBootstrapProbe(): "scaffold-ready" {
 }
 
 function bootstrapBrowserRuntime(): void {
+  installModalDragging(document);
   const gateResult = runLegacyUnsupportedGate({
     windowRef: window,
     documentRef: document,
@@ -287,12 +289,12 @@ function bootstrapBrowserRuntime(): void {
     },
     getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
     getEdgeSamStatus: () => runtimeCanvasController.raw.getEdgeSamStatus?.() ?? null,
-    getSegmentationSrRoi: () => runtimeCanvasController.raw.getSegmentationSrRoi?.() ?? null,
-    getSegmentationSrPreviewInfo: () => runtimeCanvasController.raw.getSegmentationSrPreviewInfo?.() ?? null,
-    getSegmentationViewSource: () => runtimeCanvasController.raw.getSegmentationViewSource?.() ?? null,
+    getSegmentationSrRoi: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationSrRoi?.() ?? null,
+    getSegmentationSrPreviewInfo: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationSrPreviewInfo?.() ?? null,
+    getSegmentationViewSource: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationViewSource?.() ?? null,
     getSegmentationEdgeSamInputSource: () => runtimeCanvasController.raw.getSegmentationEdgeSamInputSource?.() ?? null,
     getSegmentationSuperpixelInputSource: () => runtimeCanvasController.raw.getSegmentationSuperpixelInputSource?.() ?? null,
-    isSegmentationSrRoiSelecting: () => runtimeCanvasController.raw.isSegmentationSrRoiSelecting?.() ?? false,
+    isSegmentationSrRoiSelecting: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).isSegmentationSrRoiSelecting?.() ?? false,
     getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
     getSegmentationMaskBounds: () => {
       const snapshot = runtimeCanvasController.raw.getSegmentationDocumentSnapshot?.();

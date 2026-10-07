@@ -1,4 +1,5 @@
 import type { AppMode, CanvasPoint, LabelDisplayMode } from "../../types/labels.js";
+import type { ClassRemapRule, ClassRemapSummary } from "../../domain/class-remap.js";
 import type {
   CanvasImageLike,
   FabricActiveSelectionLike,
@@ -104,12 +105,12 @@ export interface CanvasController {
   setBackgroundImage(image: unknown): void;
   setLabelOnlyView?(enabled: boolean, background: "black" | "white" | "gray"): void;
   setMode(mode: AppMode): void;
-  addLabelsFromYolo(yoloData: string): void;
+  addLabelsFromYolo(yoloData: string, replaceExisting?: boolean): void;
   getLabelsAsYolo(): string;
   removeBoxesOutsideImageBounds?(): number;
   captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): BoxLayout;
-  applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean }): AppliedBoxLayout;
-  applyBoxLayoutInBatches?(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean } & CanvasBulkOperationOptions): Promise<AppliedBoxLayout>;
+  applyBoxLayout(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean; preserveOutOfBounds?: boolean }): AppliedBoxLayout;
+  applyBoxLayoutInBatches?(layout: BoxLayout, anchor: PixelPoint, options?: { replaceExisting?: boolean; preserveOutOfBounds?: boolean } & CanvasBulkOperationOptions): Promise<AppliedBoxLayout>;
   applyDetectionBoxes(boxes: readonly DetectionBoxInput[], options?: { replaceExisting?: boolean }): AppliedDetectionBoxes;
   translateLayoutInstance(instanceId: string, delta: PixelPoint): void;
   translateSelectedBoxes(delta: PixelPoint): void;
@@ -117,6 +118,7 @@ export interface CanvasController {
   updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
   setSelectedBoxesVisibility?(visible: boolean): boolean;
   highlightSelection(): void;
+  refreshClassColors?(): void;
   startDrawing(pointer: CanvasPoint): void;
   continueDrawing(pointer: CanvasPoint): void;
   finishDrawing(): Promise<void>;
@@ -149,6 +151,7 @@ export interface CanvasController {
   getClipboardItemCount(): number;
   deleteSelection(options?: CanvasBulkOperationOptions): void;
   setSelectedLabelClass?(classId: string): boolean;
+  remapLabelClasses?(rule: ClassRemapRule): ClassRemapSummary;
   alignSelectionLeft(): void;
   alignSelectionRight(): void;
   alignSelectionTop(): void;

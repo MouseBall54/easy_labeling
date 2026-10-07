@@ -130,7 +130,10 @@ export function filterPixelRectsInsideImageBounds<T extends PixelRect>(
   return rects.filter((rect) => isPixelRectInsideImageBounds(rect, imageSize));
 }
 
-export function placeBoxLayout(layout: BoxLayout, anchor: PixelPoint, imageSize: PixelSize): PlacedLayoutBox[] {
+export function placeBoxLayout(
+  layout: BoxLayout, anchor: PixelPoint, imageSize: PixelSize,
+  options: { preserveOutOfBounds?: boolean } = {}
+): PlacedLayoutBox[] {
   validateBoxLayout(layout);
   validateSize(imageSize, "imageSize");
   requireFinite(anchor.x, "anchor.x");
@@ -146,7 +149,7 @@ export function placeBoxLayout(layout: BoxLayout, anchor: PixelPoint, imageSize:
     order: box.order
   }));
 
-  return filterPixelRectsInsideImageBounds(boxes, imageSize);
+  return options.preserveOutOfBounds ? boxes : filterPixelRectsInsideImageBounds(boxes, imageSize);
 }
 
 export function validateBoxLayout(layout: BoxLayout): void {

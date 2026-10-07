@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createCanvasController, createCanvasControllerForWorkflow, createCanvasShell, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
 import { createCanvasHistoryService } from "../../../../src/features/canvas/history.js";
+import { createBoxLayout } from "../../../../src/features/automation/layout.js";
 import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
@@ -54,6 +55,81 @@ function getSelectionAnnotationIds(activeObject: unknown): string[] {
 }
 
 describe("features/canvas/canvas-controller", () => {
+
+  it("replaces selected labels in one batch and clears an empty source without changing the view", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5");
+    controller.canvas.setActiveObject(controller.getObjects("rect")[0]!);
+    controller.canvas.viewportTransform = [2, 0, 0, 2, -100, 25];
+    const batchCanvas = controller.canvas as typeof controller.canvas & { renderOnAddRemove?: boolean };
+    const renderFlag = batchCanvas.renderOnAddRemove;
+    controller.addLabelsFromYolo("2 0.5 0.5 0.1 0.2\n1 0.3 0.3 0.2 0.2", true);
+    expect(controller.getObjects("rect").map(rect => rect.labelClass)).toEqual(["2", "1"]);
+    expect(controller.canvas.getActiveObject()).toBeNull();
+    expect(batchCanvas.renderOnAddRemove).toBe(renderFlag);
+    expect(controller.canvas.viewportTransform).toEqual([2, 0, 0, 2, -100, 25]);
+    controller.addLabelsFromYolo("", true);
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    expect(controller.getObjects("text")).toHaveLength(0);
+    expect(batchCanvas.renderOnAddRemove).toBe(renderFlag);
+  });
+
+  it("loads 5,000 tiny boxes without hidden text objects and creates a badge when selected", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo(Array.from({ length: 5000 }, () => "0 0.5 0.5 0.001 0.001").join("\n"));
+    const labels = controller.getLabelsAsYolo();
+    expect(controller.getObjects("rect")).toHaveLength(5000);
+    expect(controller.getObjects("text")).toHaveLength(0);
+    const first = controller.getObjects("rect")[0]!;
+    controller.canvas.setActiveObject(first);
+    controller.updateAllLabelTexts();
+    expect(first._labelText?.visible).toBe(true);
+    expect(controller.getObjects("text")).toHaveLength(1);
+    expect(controller.getLabelsAsYolo()).toBe(labels);
+  });
+
+  it("lays out loaded labels after the image's final fit changes the zoom", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    try {
+      const controller = createCanvasController(createState(), createDeps());
+      controller.addLabelsFromYolo("0 0.5 0.5 0.05 0.1");
+      expect(controller.getObjects("text")).toHaveLength(0);
+      controller.canvas.setZoom(2);
+      frames.shift()!(0);
+      expect(controller.getObjects("rect")[0]?._labelText?.visible).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("keeps enhancement ROI overlays out of detection labels and exports", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5");
+    const original = controller.getLabelsAsYolo();
+    const roi = Object.assign(createRect({ left: 10, top: 10, width: 60, height: 40 }), { _isSrRoiOverlay: true });
+    controller.canvas.add(roi);
+    expect(controller.getObjects("rect")).toHaveLength(1);
+    expect(controller.getLabelsAsYolo()).toBe(original);
+  });
+
+  it("zooms without removed Fabric APIs, clamps buttons, and rejects invalid numeric input", () => {
+    const deps = createDeps();
+    const shell = createCanvasShell(createState(), deps);
+    const zoomToPoint = vi.spyOn(shell.canvas, "zoomToPoint");
+    shell.setZoomPercentage("125");
+    expect(shell.canvas.getZoom()).toBe(1.25);
+    expect(zoomToPoint).toHaveBeenLastCalledWith(expect.objectContaining({ x: 400, y: 300 }), 1.25);
+    shell.zoom(1.2);
+    expect(shell.canvas.getZoom()).toBe(1.5);
+    shell.zoom(100);
+    expect(shell.canvas.getZoom()).toBe(20);
+    shell.zoom(0.001);
+    expect(shell.canvas.getZoom()).toBe(0.1);
+    shell.setZoomPercentage("2001");
+    expect(shell.canvas.getZoom()).toBe(0.1);
+    expect(deps.notify).toHaveBeenCalled();
+    shell.resetZoom();
+    expect(deps.updateZoomDisplay).toHaveBeenCalled();
+  });
 
   it("activates the detection adapter explicitly through workflow selection", () => {
     const deps = createDeps();
@@ -139,6 +215,26 @@ describe("features/canvas/canvas-controller", () => {
     controller.highlightSelection();
     expect(rect.stroke).toBe("color-5");
     expect(rect.strokeDashArray).toEqual([]);
+  });
+
+  it("recolors loaded boxes without changing geometry, selection or history", () => {
+    let color = "#123456";
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ getColorForClass: () => color, historyService: history }));
+    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5\n4 0.7 0.4 0.2 0.5");
+    const [rect, other] = controller.getObjects("rect");
+    controller.canvas.setActiveObject(rect!);
+    const labels = controller.getLabelsAsYolo();
+    const entries = [...history.getPastEntries()];
+    color = "#abcdef";
+    controller.refreshClassColors?.();
+    expect(rect?.fill).toBe("#abcdef33");
+    expect(rect?.stroke).toBe("#ff0000");
+    expect(other?.stroke).toBe("#abcdef");
+    expect(Reflect.get(other!._labelText!, "backgroundColor")).toBe("#abcdef");
+    expect(controller.canvas.getActiveObject()).toBe(rect);
+    expect(controller.getLabelsAsYolo()).toBe(labels);
+    expect(history.getPastEntries()).toEqual(entries);
   });
 
   it("wraps DOM images in a non-evented base Fabric image layer", () => {
@@ -979,6 +1075,7 @@ describe("features/canvas/canvas-controller", () => {
     });
 
     expect(controller.getObjects("rect")).toHaveLength(10000);
+    expect(controller.getSelectedBoxCount()).toBe(5000);
     expect(progress).toContain(5000);
     expect(history.getPastEntries()).toHaveLength(1);
     expect(history.getPastEntries()[0]?.before).toHaveLength(5000);
@@ -986,8 +1083,10 @@ describe("features/canvas/canvas-controller", () => {
 
     controller.undo();
     expect(controller.getObjects("rect")).toHaveLength(5000);
+    expect(controller.getSelectedBoxCount()).toBe(5000);
     controller.redo();
     expect(controller.getObjects("rect")).toHaveLength(10000);
+    expect(controller.getSelectedBoxCount()).toBe(5000);
   });
 
   it("rolls back an interrupted bulk paste without creating a history entry", async () => {
@@ -1224,6 +1323,37 @@ describe("features/canvas/canvas-controller", () => {
     expect((shell.canvas as FakeCanvas).selection).toBe(true);
   });
 
+  it("remaps all 5,000 boxes including hidden classes without moving boxes or breaking Layout selection; undo and validation are atomic", () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const rects = Array.from({ length: 5000 }, (_, index) => {
+      const rect = createRect({ left: index - 5, top: 20, width: 10, height: 20, labelClass: String(index % 3),
+        originalYolo: { x_center: "-0.1", y_center: "0.2", width: "0.1", height: "0.2" } });
+      rect.set({ annotationId: `box-${index}`, layoutInstanceId: "layout-instance", layoutBoxId: String(index), visible: index < 2 || index % 2 === 0 });
+      return rect;
+    });
+    controller.canvas.add(...rects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(rects.slice(0, 2), { canvas: controller.canvas }));
+    const geometry = () => controller.getObjects("rect").map(({ annotationId, left, top, width, height, layoutInstanceId, layoutBoxId, originalYolo }) =>
+      ({ annotationId, left, top, width, height, layoutInstanceId, layoutBoxId, originalYolo })).sort((a, b) => a.annotationId!.localeCompare(b.annotationId!));
+    const before = geometry();
+    const summary = controller.remapLabelClasses!({ mode: "mapping", mapping: [{ from: "0", to: "2" }, { from: "2", to: "0" }] });
+    expect(summary.changedCount).toBe(3333);
+    expect(rects.map((rect) => rect.labelClass)).toEqual(rects.map((_, index) => ["2", "1", "0"][index % 3]));
+    expect(geometry()).toEqual(before);
+    expect(controller.getSelectedBoxCount()).toBe(2);
+    expect(history.getPastEntries()).toHaveLength(1);
+    expect(() => controller.remapLabelClasses!({ mode: "offset", offset: -3 })).toThrow();
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(geometry()).toEqual(before);
+    expect(controller.getObjects("rect").every((rect) => rect.labelClass === String(Number(rect.layoutBoxId) % 3))).toBe(true);
+    controller.redo();
+    expect(geometry()).toEqual(before);
+    expect(controller.getObjects("rect").every((rect) => rect.labelClass === ["2", "1", "0"][Number(rect.layoutBoxId) % 3])).toBe(true);
+  });
+
   it("captures selected boxes and applies a class-preserving layout as one history entry", () => {
     const fabric = createFakeFabricRuntime();
     const history = createCanvasHistoryService();
@@ -1249,6 +1379,39 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getObjects("rect")).toHaveLength(2);
     controller.redo();
     expect(controller.getObjects("rect")).toHaveLength(4);
+  });
+
+  it.each(["sync", "batch"])("preserves outside layout geometry until explicit cleanup (%s)", async (mode) => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const boxes = [
+      { left: -5, top: 20 }, { left: 20, top: -5 },
+      { left: 195, top: 20 }, { left: 20, top: 95 },
+      { left: 220, top: 20 }, { left: 20, top: 20 }
+    ].map((position, index) => ({ ...position, id: String(index), classId: String(index), width: 10, height: 10 }));
+    const layout = createBoxLayout({ name: "outside", sourceImageName: "source.png", sourceImageSize: { width: 200, height: 100 }, boxes });
+    const options = { preserveOutOfBounds: true };
+    const result = mode === "batch"
+      ? await controller.applyBoxLayoutInBatches!(layout, layout.sourceAnchor, options)
+      : controller.applyBoxLayout(layout, layout.sourceAnchor, options);
+    const geometry = () => controller.getObjects("rect").map((rect) => ({
+      left: rect.left, top: rect.top, width: Number(rect.width) + Number(rect.strokeWidth),
+      height: Number(rect.height) + Number(rect.strokeWidth), classId: rect.labelClass
+    })).sort((a, b) => Number(a.classId) - Number(b.classId));
+    const expected = boxes.map(({ left, top, width, height, classId }) => ({ left, top, width, height, classId }));
+    expect(result.annotationIds).toHaveLength(boxes.length);
+    expect(result.discardedOutOfBoundsCount).toBe(0);
+    expect(geometry()).toEqual(expected);
+    expect(controller.getLabelsAsYolo().trim().split("\n")).toHaveLength(boxes.length);
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    controller.redo();
+    expect(geometry()).toEqual(expected);
+    expect(controller.removeBoxesOutsideImageBounds!()).toBe(5);
+    expect(geometry()).toEqual([expected[5]]);
+    controller.undo();
+    expect(geometry()).toEqual(expected);
   });
 
   it("applies a 5,000-box layout in chunks with one undoable result", async () => {

@@ -11,46 +11,46 @@
         "height": 650
       },
       "sourceAnchor": {
-        "x": 627.0,
-        "y": 316.0
+        "x": 625,
+        "y": 323
       },
       "createdAt": "2026-07-11T00:00:00.000Z",
       "updatedAt": "2026-07-11T00:00:00.000Z",
       "boxes": [
         {
           "id": "sample-layout-box-1",
-          "classId": "2",
-          "relativeX": 0.0,
-          "relativeY": 0.0,
-          "width": 46,
-          "height": 30,
+          "classId": "3",
+          "relativeX": 0,
+          "relativeY": 0,
+          "width": 54,
+          "height": 23,
           "order": 0
         },
         {
           "id": "sample-layout-box-2",
-          "classId": "0",
-          "relativeX": 50.0,
-          "relativeY": 0.0,
-          "width": 46,
-          "height": 30,
+          "classId": "1",
+          "relativeX": 59,
+          "relativeY": 3,
+          "width": 47,
+          "height": 23,
           "order": 1
         },
         {
           "id": "sample-layout-box-3",
-          "classId": "1",
-          "relativeX": 0.0,
-          "relativeY": 45.0,
-          "width": 46,
-          "height": 30,
+          "classId": "2",
+          "relativeX": 5,
+          "relativeY": 49,
+          "width": 51,
+          "height": 23,
           "order": 2
         },
         {
           "id": "sample-layout-box-4",
-          "classId": "1",
-          "relativeX": 50.0,
-          "relativeY": 45.0,
-          "width": 46,
-          "height": 30,
+          "classId": "4",
+          "relativeX": 62,
+          "relativeY": 51,
+          "width": 44,
+          "height": 21,
           "order": 3
         }
       ]
@@ -123,8 +123,8 @@
       "layoutId": "sample-color-grid-layout",
       "outputMode": "layout-best-match",
       "relationOffset": {
-        "x": 7.0,
-        "y": 15.0
+        "x": 5,
+        "y": 22
       },
       "manualOffset": {
         "x": 0,
@@ -136,7 +136,7 @@
         "mode": "accurate"
       },
       "multipleDetection": {
-        "classId": "2",
+        "classId": "3",
         "maximumDetections": 10,
         "strictNonOverlap": true,
         "nmsIouThreshold": 0.3,
@@ -168,7 +168,7 @@
         "mode": "fast"
       },
       "multipleDetection": {
-        "classId": "2",
+        "classId": "3",
         "maximumDetections": 10,
         "strictNonOverlap": true,
         "nmsIouThreshold": 0.3,

@@ -22,7 +22,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
       image: api?.getCurrentImageName?.() ?? "",
       boxes: api?.getRectCount?.() ?? -1
     };
-  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 52 });
+  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 207 });
 
   await page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
@@ -99,12 +99,12 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(55);
+  })).toBe(210);
   await page.locator('[data-ui="history-undo"]').click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(52);
+  })).toBe(207);
 
   await page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as {
@@ -118,6 +118,7 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect(page.locator("#layoutSetupSelect option:checked")).toHaveText("Selected trio");
   await expect(page.locator("#layoutNameInput")).toHaveValue("Selected trio");
   await expect(page.locator('#layoutCaptureScopeSelect option[value="selected"]')).toHaveText("Selected Boxes (2)");
+  await expect(page.locator("#updateBoxLayoutBtn")).toHaveText("Recapture 3 → 2 boxes");
   await page.locator("#layoutNameInput").fill("Updated pair");
   await page.locator("#updateBoxLayoutBtn").click();
   await expect(page.locator(".toast-message").last()).toHaveText("Layout updated with 2 boxes.");
@@ -146,5 +147,5 @@ test("layout setup creates from selected boxes and updates the saved layout", as
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(54);
+  })).toBe(209);
 });

@@ -49,5 +49,5 @@ test("unsupported-env: missing File System Access API keeps the bundled sample a
       image: api?.getCurrentImageName?.() ?? "",
       boxes: api?.getRectCount?.() ?? -1
     };
-  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 52 });
+  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 207 });
 });

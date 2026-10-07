@@ -15,6 +15,7 @@ import { createEditableSnapshotFromAnnotationModel, createInstanceAnnotationMode
 import { resolveSegmentationExportPath } from "../../domain/annotations/paths.js";
 import { detectSegmentationFormat, type SegmentationFormatDetectionResult } from "../../domain/annotations/segmentation-format.js";
 import { parseYoloRows } from "../../domain/yolo/yolo.js";
+import { throwIfOperationCancelled } from "../../app/operation.js";
 import type { SegmentationDocumentSnapshot } from "../../features/segmentation/types.js";
 import {
   getSubdirectoryHandle,
@@ -37,6 +38,7 @@ const DEFAULT_CLASS_INFO_YAML = [0, 1, 2, 3, 4]
 export interface ImageSessionServiceState {
   imageFolderHandle: DirectoryHandleLike | null;
   labelFolderHandle: DirectoryHandleLike | null;
+  segmentationLabelFolderHandle?: DirectoryHandleLike | null;
   imageFiles: FileHandleLike[];
   imageWorkflowStatus: Map<string, ImageWorkflowStatus>;
   currentImageFile: FileHandleLike | null;
@@ -58,7 +60,6 @@ export interface DecodeImageInput {
 
 export interface ImageSessionServiceDeps {
   decodeImage(input: DecodeImageInput): Promise<unknown>;
-  removeCurrentLabelsOutsideImageBounds?(): number;
   readCurrentLabelsAsYolo(): string;
   readCurrentSegmentationSnapshot(): SegmentationDocumentSnapshot | null;
   applyLoadedYolo(yoloData: string): Promise<void> | void;
@@ -82,7 +83,7 @@ export interface SaveLabelsResult {
 export interface ImageSessionService {
   selectImageFolder(imageFolderHandle: DirectoryHandleLike): Promise<SelectImageFolderResult>;
   listImageFiles(): Promise<FileHandleLike[]>;
-  refreshImageWorkflowStatus(): Promise<void>;
+  refreshImageWorkflowStatus(signal?: AbortSignal): Promise<void>;
   loadImageAndLabels(imageFileHandle: FileHandleLike): Promise<void>;
   loadLabels(imageName: string, loadToken: number): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<SaveLabelsResult>;
@@ -232,6 +233,7 @@ export function createImageSessionService(
       state.currentImageFile = null;
       state.currentImage = null;
       state.labelFolderHandle = null;
+      state.segmentationLabelFolderHandle = null;
       state.classFiles = [];
       state.classNames.clear();
 
@@ -255,7 +257,7 @@ export function createImageSessionService(
       const imageFileHandles = fileHandles.filter((fileHandle) => isSupportedImageFileName(fileHandle.name));
       imageFileHandles.sort(compareNamedFilesByImageName);
       state.imageFiles = imageFileHandles;
-      await this.refreshImageWorkflowStatus();
+      state.imageWorkflowStatus.clear();
 
       if (state.imageFiles.length > 0) {
         await this.loadImageAndLabels(state.imageFiles[0]);
@@ -264,7 +266,8 @@ export function createImageSessionService(
       return state.imageFiles;
     },
 
-    async refreshImageWorkflowStatus(): Promise<void> {
+    async refreshImageWorkflowStatus(signal?: AbortSignal): Promise<void> {
+      throwIfOperationCancelled(signal);
       const detectionAnnotationFileNames = await listFileNames(state.labelFolderHandle, (fileName) => fileName.endsWith(".txt"));
       const detectionBoxCounts = new Map<string, number>();
       await Promise.all([...detectionAnnotationFileNames].map(async (fileName) => {
@@ -272,15 +275,17 @@ export function createImageSessionService(
           return;
         }
         const yoloText = await readTextFileByName(state.labelFolderHandle, fileName);
+        throwIfOperationCancelled(signal);
         detectionBoxCounts.set(fileName, parseYoloRows(yoloText, 1, 1).length);
       }));
-      const segmentationAnnotationPaths = await listRelativeFilePaths(state.imageFolderHandle, ["mask"], (fileName) => {
+      const segmentationAnnotationPaths = await listRelativeFilePaths(state.segmentationLabelFolderHandle ?? state.imageFolderHandle, ["mask"], (fileName) => {
         return fileName.endsWith(".png");
       });
 
-      state.imageWorkflowStatus.clear();
+      throwIfOperationCancelled(signal);
+      const statuses = new Map<string, ImageWorkflowStatus>();
       state.imageFiles.forEach((fileHandle) => {
-        state.imageWorkflowStatus.set(
+        statuses.set(
           fileHandle.name,
           deriveImageWorkflowStatus(
             fileHandle.name,
@@ -289,6 +294,7 @@ export function createImageSessionService(
           )
         );
       });
+      state.imageWorkflowStatus = statuses;
     },
 
     async loadImageAndLabels(imageFileHandle: FileHandleLike): Promise<void> {
@@ -315,6 +321,11 @@ export function createImageSessionService(
 
     async loadLabels(imageName: string, loadToken: number): Promise<void> {
       const imageBaseName = imageFileNameToBaseName(imageName);
+      const applySegmentationSnapshot = async (snapshot: SegmentationDocumentSnapshot | null): Promise<void> => {
+        if (loadToken !== state.currentLoadToken) return;
+        ensureImageWorkflowStatus(state, imageName).segmentation.hasAnnotation = snapshot !== null;
+        await deps.applyLoadedSegmentationSnapshot(snapshot);
+      };
 
       let detectionYolo = "";
       if (state.labelFolderHandle) {
@@ -331,17 +342,21 @@ export function createImageSessionService(
           }
         }
       }
+      if (loadToken !== state.currentLoadToken) return;
+      const boxCount = parseYoloRows(detectionYolo, 1, 1).length;
+      ensureImageWorkflowStatus(state, imageName).detection = { hasAnnotation: boxCount > 0, boxCount };
       await deps.applyLoadedYolo(detectionYolo);
 
       if (!state.imageFolderHandle) {
-        await deps.applyLoadedSegmentationSnapshot(null);
+        await applySegmentationSnapshot(null);
         return;
       }
 
+      const segmentationRoot = state.segmentationLabelFolderHandle ?? state.imageFolderHandle;
       const codec = createSegmentationAnnotationCodec();
-      const detectedSource = state.segmentationSourceFormat === "auto" ? await inspectSegmentationSource(state.imageFolderHandle) : null;
+      const detectedSource = state.segmentationSourceFormat === "auto" ? await inspectSegmentationSource(segmentationRoot) : null;
       if (state.segmentationSourceFormat === "auto" && detectedSource?.confidence !== "certain") {
-        await deps.applyLoadedSegmentationSnapshot(null);
+        await applySegmentationSnapshot(null);
         return;
       }
       const selectedSourceFormat: Exclude<SegmentationExternalFormat, "auto"> = state.segmentationSourceFormat === "auto"
@@ -355,16 +370,16 @@ export function createImageSessionService(
             : `segmentation/labelme/${imageBaseName}.json`;
         const sourceSegments = sourcePath.split("/");
         const sourceFileName = sourceSegments.pop()!;
-        const sourceDirectory = await getNestedDirectoryHandle(state.imageFolderHandle, sourceSegments);
+        const sourceDirectory = await getNestedDirectoryHandle(segmentationRoot, sourceSegments);
         const fallbackYoloDirectory = selectedSourceFormat === "yolo-segmentation"
-          ? await getNestedDirectoryHandle(state.imageFolderHandle, ["labels"])
+          ? await getNestedDirectoryHandle(segmentationRoot, ["labels"])
           : null;
         const fallbackSourceDirectory = selectedSourceFormat === "coco-segmentation" || selectedSourceFormat === "labelme"
-          ? state.imageFolderHandle
+          ? segmentationRoot
           : null;
         const resolvedSourceDirectory = sourceDirectory ?? fallbackYoloDirectory ?? fallbackSourceDirectory;
         if (!resolvedSourceDirectory) {
-          await deps.applyLoadedSegmentationSnapshot(null);
+          await applySegmentationSnapshot(null);
           return;
         }
         try {
@@ -382,20 +397,20 @@ export function createImageSessionService(
           });
           if (loadToken !== state.currentLoadToken) return;
           state.segmentationAnnotationType = model.annotationType;
-          await deps.applyLoadedSegmentationSnapshot(createEditableSnapshotFromAnnotationModel(model));
+          await applySegmentationSnapshot(createEditableSnapshotFromAnnotationModel(model));
           return;
         } catch (error: unknown) {
           if (isNotFoundError(error)) {
-            await deps.applyLoadedSegmentationSnapshot(null);
+            await applySegmentationSnapshot(null);
             return;
           }
           throw error;
         }
       }
       const paths = codec.resolvePaths(imageBaseName);
-      const maskDirectory = await getNestedDirectoryHandle(state.imageFolderHandle, ["mask"]);
+      const maskDirectory = await getNestedDirectoryHandle(segmentationRoot, ["mask"]);
       if (!maskDirectory) {
-        await deps.applyLoadedSegmentationSnapshot(null);
+        await applySegmentationSnapshot(null);
         return;
       }
 
@@ -423,10 +438,10 @@ export function createImageSessionService(
           metadataText
         });
         state.segmentationAnnotationType = "semantic";
-        await deps.applyLoadedSegmentationSnapshot(document.data.snapshot);
+        await applySegmentationSnapshot(document.data.snapshot);
       } catch (error: unknown) {
         if (isNotFoundError(error)) {
-          await deps.applyLoadedSegmentationSnapshot(null);
+          await applySegmentationSnapshot(null);
           return;
         }
         throw error;
@@ -454,7 +469,6 @@ export function createImageSessionService(
           };
         }
 
-        const removedOutOfBoundsCount = deps.removeCurrentLabelsOutsideImageBounds?.() ?? 0;
         const yoloString = deps.readCurrentLabelsAsYolo();
         const trimmedYolo = yoloString.trim();
         const primaryFilePath = resolveAnnotationAssetPaths("detection", imageFileNameToBaseName(state.currentImageFile.name)).primaryFilePath;
@@ -472,7 +486,7 @@ export function createImageSessionService(
           saved: true,
           primaryFilePath,
           hasLabels,
-          removedOutOfBoundsCount
+          removedOutOfBoundsCount: 0
         };
       }
 
@@ -498,7 +512,8 @@ export function createImageSessionService(
       const codec = createSegmentationAnnotationCodec();
       const imageBaseName = imageFileNameToBaseName(state.currentImageFile.name);
       const assets = await codec.encode({ imageBaseName, snapshot });
-      const maskDirectory = await getSubdirectoryHandle(state.imageFolderHandle, "mask", { create: true });
+      const segmentationRoot = state.segmentationLabelFolderHandle ?? state.imageFolderHandle;
+      const maskDirectory = await getSubdirectoryHandle(segmentationRoot, "mask", { create: true });
       for (const asset of assets) {
         const fileName = asset.path.split("/").pop() ?? asset.path;
         if (typeof asset.content === "string") {
@@ -523,7 +538,7 @@ export function createImageSessionService(
         const exportPath = resolveSegmentationExportPath(selectedFormat, imageBaseName);
         const pathSegments = exportPath.split("/");
         const exportFileName = pathSegments.pop()!;
-        const exportDirectory = await getOrCreateNestedDirectoryHandle(state.imageFolderHandle, pathSegments);
+        const exportDirectory = await getOrCreateNestedDirectoryHandle(segmentationRoot, pathSegments);
         await writeTextFileByName(exportDirectory, exportFileName, exported.text);
         primaryFilePath = exportPath;
       }

@@ -89,7 +89,7 @@ export function createAutomationLayoutPreview(input: {
         event.preventDefault();
         const current = Number.parseInt(input.elements.layoutPreviewZoomInput.value, 10) || 100;
         const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-        input.elements.layoutPreviewZoomInput.value = String(Math.max(1, Math.min(400, Math.round(current * factor))));
+        input.elements.layoutPreviewZoomInput.value = String(Math.max(1, Math.min(3000, Math.round(current * factor))));
         input.elements.previewBoxLayoutBtn.click();
       }, { passive: false });
     },
@@ -193,7 +193,7 @@ export function createAutomationLayoutPreview(input: {
       }
       const layout = input.getSelectedSetupLayout();
       const image = input.state.session.currentImage;
-      const zoomPercent = Math.max(1, Math.min(400, Number.parseInt(input.elements.layoutPreviewZoomInput.value, 10) || 100));
+      const zoomPercent = Math.max(1, Math.min(3000, Number.parseInt(input.elements.layoutPreviewZoomInput.value, 10) || 100));
       input.elements.layoutPreviewZoomInput.value = String(zoomPercent);
       input.elements.layoutPreviewZoomValue.textContent = `${zoomPercent}%`;
       context.clearRect(0, 0, canvas.width, canvas.height);

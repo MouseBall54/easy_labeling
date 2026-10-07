@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+assets/models/yoloe26/**/*.onnx binary -filter
+assets/models/yoloe26/**/*.data binary -filter

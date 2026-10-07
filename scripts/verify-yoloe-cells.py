@@ -1,0 +1,120 @@
+"""Measure visual prompting on the existing synthetic-cell dataset; do not modify it."""
+import argparse
+import base64
+import io
+import json
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+from PIL import Image
+import numpy as np
+
+
+def image_data(path):
+    with Image.open(path) as image:
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(), image.size
+
+
+def request(route, payload):
+    try:
+        return json.load(urllib.request.urlopen(urllib.request.Request(
+            "http://127.0.0.1:8766/" + route, data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}), timeout=120))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(error.read().decode()) from error
+
+
+def truth_boxes(path, width, height):
+    result = []
+    for row in path.read_text().splitlines():
+        if not row.strip():
+            continue
+        _, x, y, w, h = map(float, row.split())
+        result.append([(x - w / 2) * width, (y - h / 2) * height,
+                       (x + w / 2) * width, (y + h / 2) * height])
+    return result
+
+
+def iou(a, b):
+    overlap = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    area = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - overlap
+    return overlap / area if area else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset", type=Path, default=Path(r"C:\Git\ym_yolo\datasets\synthetic_cells"))
+    parser.add_argument("--workflow", choices=["detection", "segmentation"], default="detection")
+    parser.add_argument("--prompt", choices=["box", "mask"], default="box")
+    parser.add_argument("--imgsz", type=int, choices=[640, 1024], default=640)
+    parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--reference-count", type=int, choices=[1, 2], default=1)
+    args = parser.parse_args()
+    files = sorted((args.dataset / "images/test").glob("*.png"))[:3]
+    if len(files) < 3:
+        raise RuntimeError("Three test images are required.")
+    references = []
+    for file in files[:args.reference_count]:
+        reference, size = image_data(file)
+        truth = truth_boxes(args.dataset / "labels/test" / (file.stem + ".txt"), *size)
+        examples = [{"classId": 1 if args.workflow == "segmentation" else 0, "name": "cell", "box": box} for box in truth[:3]]
+        if args.prompt == "mask":
+            import cv2
+            with Image.open(args.dataset / "masks/test" / file.name) as source:
+                binary = (np.array(source) > 0).astype(np.uint8)
+            _, components, stats, _ = cv2.connectedComponentsWithStats(binary)
+            for example in examples:
+                index = max(range(1, len(stats)), key=lambda i: iou(example["box"], [int(stats[i, 0]), int(stats[i, 1]), int(stats[i, 0] + stats[i, 2]), int(stats[i, 1] + stats[i, 3])]))
+                x, y, w, h = map(int, stats[index, :4])
+                pixels = (components[y:y + h, x:x + w] == index).ravel().astype(np.uint8)
+                starts = np.r_[0, np.flatnonzero(pixels[1:] != pixels[:-1]) + 1]
+                runs = np.column_stack((pixels[starts], np.diff(np.r_[starts, pixels.size]))).ravel().tolist()
+                example.update(box=[x, y, x + w, y + h], mask={"width": w, "height": h, "runs": runs})
+        references.append({"image": reference, "examples": examples})
+    profile = request("prepare", {"model": "yoloe-26s-seg", "workflow": args.workflow, "references": references, "imgsz": args.imgsz})
+    evidence = {"references": [f.name for f in files[:args.reference_count]], "exampleCount": profile["exampleCount"], "gpu": profile["gpu"],
+                "workflow": args.workflow, "promptType": args.prompt, "imgsz": args.imgsz, "confidence": args.confidence, "matchIou": 0.5, "images": []}
+    for file in files:
+        image, size = image_data(file)
+        labels = truth_boxes(args.dataset / "labels/test" / (file.stem + ".txt"), *size)
+        result = request("infer", {"profileId": profile["id"], "image": image, "confidence": args.confidence, "iou": 0.45})
+        assert all(detection["classId"] == (1 if args.workflow == "segmentation" else 0) for detection in result["detections"])
+        used = set()
+        for detection in sorted(result["detections"], key=lambda box: box["confidence"], reverse=True):
+            box = [detection[key] for key in ("left", "top", "right", "bottom")]
+            candidates = [(iou(box, label), index) for index, label in enumerate(labels) if index not in used]
+            if candidates:
+                score, index = max(candidates)
+                if score >= 0.5:
+                    used.add(index)
+        count = len(result["detections"])
+        evidence["images"].append({"name": file.name, "truth": len(labels), "detections": count,
+                                   "tp": len(used), "fp": count - len(used), "fn": len(labels) - len(used),
+                                   "elapsedMs": result["elapsedMs"]})
+        if args.workflow == "segmentation":
+            mask = result["mask"]
+            runs = np.array(mask["runs"], dtype=np.int64).reshape(-1, 2)
+            pixels = np.repeat(runs[:, 0], runs[:, 1]).reshape(mask["height"], mask["width"])
+            with Image.open(args.dataset / "masks/test" / file.name) as ground_truth:
+                truth_pixels = np.array(ground_truth)
+            if pixels.shape != truth_pixels.shape or set(np.unique(truth_pixels)) - {0, 1}:
+                raise ValueError("Expected a matching binary cell ground-truth mask.")
+            predicted, truth_positive = pixels > 0, truth_pixels > 0
+            tp = int(np.logical_and(predicted, truth_positive).sum())
+            fp = int(np.logical_and(predicted, ~truth_positive).sum())
+            fn = int(np.logical_and(~predicted, truth_positive).sum())
+            evidence["images"][-1]["pixels"] = {"tp": tp, "fp": fp, "fn": fn, "iou": tp / (tp + fp + fn) if tp + fp + fn else 1}
+    output = Path(__file__).resolve().parent.parent / "output/yoloe-validation"
+    output.mkdir(parents=True, exist_ok=True)
+    filename = ("cells-masks.json" if args.workflow == "segmentation" else "cells.json") if args.prompt == "box" else f"cells-mask-prompts-{args.workflow}.json"
+    if (args.imgsz, args.confidence, args.reference_count) != (640, 0.25, 1):
+        filename = f"cells-{args.workflow}-{args.prompt}-{args.imgsz}-conf{args.confidence}-refs{args.reference_count}.json"
+    (output / filename).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(evidence, indent=2))
+
+
+if __name__ == "__main__":
+    main()

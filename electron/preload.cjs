@@ -11,6 +11,9 @@ const GET_PROFILE_DIRECTORY_CHANNEL = "easy-labeling:get-profile-directory";
 const DOCUMENT_DIRTY_CHANNEL = "easy-labeling:set-document-dirty";
 
 window.easyLabelingDesktop = Object.freeze({
+  readYoloeModel: require("../package.json").name === "easy-labeling-yoloe26"
+    ? (file) => ipcRenderer.invoke("easy-labeling:read-yoloe-model", file) : undefined,
+  getGpuName: (vendor, device) => ipcRenderer.invoke("easy-labeling:get-gpu-name", vendor, device),
   setHasUnsavedChanges(hasUnsavedChanges) {
     ipcRenderer.send(DOCUMENT_DIRTY_CHANNEL, Boolean(hasUnsavedChanges));
   }
@@ -128,10 +131,16 @@ function createFileHandle(filePath) {
   };
 }
 
+const directoryPaths = new WeakMap();
+
 function createDirectoryHandle(directoryPath) {
-  return {
+  const handle = {
     kind: "directory",
     name: path.basename(directoryPath),
+    async isSameEntry(other) {
+      const otherPath = directoryPaths.get(other);
+      return Boolean(otherPath && await fs.realpath(directoryPath) === await fs.realpath(otherPath));
+    },
     async *values() {
       const entries = await fs.readdir(directoryPath, { withFileTypes: true });
       for (const entry of entries) {
@@ -185,6 +194,8 @@ function createDirectoryHandle(directoryPath) {
       }
     }
   };
+  directoryPaths.set(handle, directoryPath);
+  return handle;
 }
 
 window.showDirectoryPicker = async function showDirectoryPicker(options) {
@@ -200,6 +211,7 @@ window.showDirectoryPicker = async function showDirectoryPicker(options) {
 window.openEasyLabelingLibraryFile = function openEasyLabelingLibraryFile(kind) {
   return ipcRenderer.invoke(OPEN_LIBRARY_FILE_CHANNEL, kind);
 };
+
 
 window.listEasyLabelingLibraryFiles = function listEasyLabelingLibraryFiles(kind) {
   return ipcRenderer.invoke(LIST_LIBRARY_FILES_CHANNEL, kind);

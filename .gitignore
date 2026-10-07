@@ -1,6 +1,5 @@
 .vscode/
 .gemini/
-.yoyo/
 GEMINI.md
 # YoYo AI version control directory
 .yoyo/
@@ -11,3 +10,15 @@ test-results/
 vendor/
 release/
 .DS_Store
+# Local verification outputs, app profiles, and editor history
+/output/
+/profiles/
+/.history/
+/.presentation-build/*
+!/.presentation-build/build-easylabeling-deck.mjs
+# Local inference models and runtime state
+runtime/yoloe/.venv/
+runtime/yoloe/models/
+runtime/yoloe/__pycache__/
+runtime/yoloe/.state/
+Ultralytics/

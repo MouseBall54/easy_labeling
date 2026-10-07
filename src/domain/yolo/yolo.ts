@@ -72,3 +72,19 @@ export function serializeRectsToYolo(rects: YoloRectLike[], imgWidth: number, im
 
   return yoloString;
 }
+
+export function removeOutOfBoundsYoloRows(yoloData: string): { text: string; removedCount: number } {
+  let removedCount = 0;
+  const text = yoloData.split(/\r?\n/).filter((line) => {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length !== 5) return true;
+    const [x, y, width, height] = fields.slice(1).map(Number) as [number, number, number, number];
+    if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return true;
+    // Allow rounding at the image edge from the 15-decimal YOLO serializer.
+    const outside = x - width / 2 < -1e-12 || y - height / 2 < -1e-12
+      || x + width / 2 > 1 + 1e-12 || y + height / 2 > 1 + 1e-12;
+    if (outside) removedCount++;
+    return !outside;
+  }).join("\n");
+  return { text: removedCount ? (text.trim() ? text : "") : yoloData, removedCount };
+}

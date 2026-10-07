@@ -305,6 +305,10 @@ class FakeActiveSelection extends FakeFabricObject<"activeSelection"> implements
     return this.objects.filter((obj) => obj.type === type);
   }
 
+  removeAll(): FabricObjectLike[] {
+    return this.objects.splice(0);
+  }
+
   forEachObject(callback: (obj: FabricObjectLike) => void): void {
     this.objects.forEach((obj) => {
       callback(obj);
@@ -436,10 +440,6 @@ export class FakeCanvas implements FabricCanvasLike {
   setDimensions(dimensions: { width: number; height: number }): void {
     this.width = dimensions.width;
     this.height = dimensions.height;
-  }
-
-  getCenter(): { left: number; top: number } {
-    return { left: this.width / 2, top: this.height / 2 };
   }
 
   zoomToPoint(point: { x: number; y: number }, zoom: number): void {

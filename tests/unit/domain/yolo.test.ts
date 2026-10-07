@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { createDetectionAnnotationCodec } from "../../../src/domain/annotations/detection.js";
-import { parseYoloRows, serializeRectsToYolo, type YoloRectLike } from "../../../src/domain/yolo/yolo.js";
+import { parseYoloRows, serializeRectsToYolo, removeOutOfBoundsYoloRows, type YoloRectLike } from "../../../src/domain/yolo/yolo.js";
+
+it("explicit cleanup removes partial and complete outside boxes while preserving edge rounding and unrecognized rows", () => {
+  const retained = "0 0.5 0.5 1 1\r\n1\t0.9\t0.5\t0.200000000000001\t0.2\r\nunrecognized row\r\n";
+  const input = retained + "2 -0.1 0.5 0.1 0.2\r\n3 0.95 0.5 0.2 0.2\r\n4 0.5 1.1 0.2 0.1\r\n";
+  expect(removeOutOfBoundsYoloRows(input)).toEqual({ text: retained.replaceAll("\r\n", "\n"), removedCount: 3 });
+  expect(removeOutOfBoundsYoloRows(retained)).toEqual({ text: retained, removedCount: 0 });
+  expect(removeOutOfBoundsYoloRows("0 1.1 0.5 0.1 0.1\n")).toEqual({ text: "", removedCount: 1 });
+});
 
 class FakeRect implements YoloRectLike {
   public setCoordsCalls = 0;

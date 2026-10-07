@@ -41,10 +41,17 @@
             </div>
         </div>
 
-        <div class="image-navigation" data-ui="image-navigation">
-            <button class="app-icon-button" type="button" id="prevImageBtn" data-ui="nav-prev-image" title="Previous image (A)" aria-label="Previous image"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
-            <span id="current-image-name" class="current-image-name" data-ui="current-image-name">No image</span>
-            <button class="app-icon-button" type="button" id="nextImageBtn" data-ui="nav-next-image" title="Next image (D)" aria-label="Next image"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+        <div class="image-source-navigation">
+            <div class="image-navigation" data-ui="image-navigation">
+                <button class="app-icon-button" type="button" id="prevImageBtn" data-ui="nav-prev-image" title="Previous image (A)" aria-label="Previous image"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                <span id="current-image-name" class="current-image-name" data-ui="current-image-name">No image</span>
+                <button class="app-icon-button" type="button" id="nextImageBtn" data-ui="nav-next-image" title="Next image (D)" aria-label="Next image"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+            </div>
+            <div class="label-source-control" role="group" aria-label="Compare label folders">
+                <i class="bi bi-layers label-source-icon" title="Label folders · Ctrl+1–9 to switch" aria-hidden="true"></i>
+                <div id="detectionLabelSources" hidden><div id="labelSourceTabs" class="label-source-tabs" role="radiogroup" aria-label="Label folders"></div></div>
+                <button id="selectLabelFolderBtn" type="button" class="app-icon-button" data-ui="load-label-folder" title="Add label folder" aria-label="Add label folder" disabled><i class="bi bi-folder-plus" aria-hidden="true"></i></button>
+            </div>
         </div>
 
         <div id="info-display" class="canvas-toolbar" data-ui="canvas-toolbar">
@@ -67,12 +74,9 @@
         </div>
     </nav>
 
-    <div class="app-workspace" data-active-task="annotate">
+    <div class="app-workspace" data-active-task="annotate" data-has-image="false" data-has-dataset="false">
         <nav class="task-rail" aria-label="Workspace tasks">
             <div class="task-rail-primary">
-                <button id="taskFilesBtn" type="button" class="task-rail-button" data-task="files" title="Files workspace" aria-label="Files workspace" aria-pressed="false">
-                    <i class="bi bi-folder2-open" aria-hidden="true"></i><span>Files</span>
-                </button>
                 <button id="taskAnnotateBtn" type="button" class="task-rail-button active" data-task="annotate" title="Annotation workspace" aria-label="Annotation workspace" aria-current="page" aria-pressed="true">
                     <i class="bi bi-tag" aria-hidden="true"></i><span>Annotate</span>
                 </button>
@@ -82,7 +86,7 @@
                 <button id="taskSegmentationBtn" type="button" class="task-rail-button" data-task="segmentation" title="Mask workspace" aria-label="Mask workspace" aria-pressed="false" hidden>
                     <i class="bi bi-vector-pen" aria-hidden="true"></i><span>Mask</span>
                 </button>
-                <button id="taskSuperpixelBtn" type="button" class="task-rail-button" data-task="superpixel" title="Superpixel workspace" aria-label="Superpixel workspace" aria-pressed="false" hidden>
+                <button id="taskSuperpixelBtn" type="button" class="task-rail-button" data-task="superpixel" title="Superpixel settings. Select the canvas tool separately." aria-label="Superpixel settings" aria-pressed="false" hidden>
                     <i class="bi bi-grid-3x3" aria-hidden="true"></i><span>Superpixel</span>
                 </button>
                 <button id="taskSegmentationDisplayBtn" type="button" class="task-rail-button" data-task="segmentation-display" title="Mask display workspace" aria-label="Mask display workspace" aria-pressed="false" hidden>
@@ -90,6 +94,12 @@
                 </button>
                 <button id="taskPreprocessingBtn" type="button" class="task-rail-button" data-task="preprocessing" title="Image preprocessing workspace" aria-label="Image preprocessing workspace" aria-pressed="false">
                     <i class="bi bi-sliders2" aria-hidden="true"></i><span>Preprocess</span>
+                </button>
+                <button id="taskInferenceBtn" type="button" class="task-rail-button" data-task="inference" title="YOLO model inference" aria-label="Inference workspace" aria-pressed="false">
+                    <i class="bi bi-cpu" aria-hidden="true"></i><span>Inference</span>
+                </button>
+                <button id="taskYoloeBtn" type="button" class="task-rail-button" data-task="yoloe" title="YOLOE-26 visual prompt inference" aria-label="YOLOE-26 workspace" aria-pressed="false">
+                    <i class="bi bi-bounding-box" aria-hidden="true"></i><span>YOLOE-26</span>
                 </button>
                 <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
                     <i class="bi bi-clipboard2-check" aria-hidden="true"></i><span>Review</span>
@@ -119,14 +129,14 @@
                     <div id="segmentationLeftWorkspace" class="segmentation-left-workspace" hidden>
                         <section id="segmentationPreprocessingSection" class="segmentation-preprocessing-section" data-ui="segmentation-preprocessing-section">
                             <div class="segmentation-preprocessing-block segmentation-canvas-view-block">
-                                <div class="segmentation-preprocessing-label"><span>Canvas view</span><small>Q</small></div>
+                                <div class="segmentation-preprocessing-label"><span>Show on canvas</span><small>Q</small></div>
                                 <div class="segmented-control segmentation-preprocessing-toggle" role="group" aria-label="Image view source"><button id="segmentationViewOriginalBtn" type="button" class="btn active"><i class="bi bi-image" aria-hidden="true"></i> Original</button><button id="segmentationViewSrBtn" type="button" class="btn" aria-expanded="false" aria-controls="segmentationSrModePicker"><i class="bi bi-stars" aria-hidden="true"></i> AI</button><button id="segmentationViewProcessedBtn" type="button" class="btn"><i class="bi bi-activity" aria-hidden="true"></i> Processed</button></div>
                             </div>
                             <div id="segmentationSrSettingsGroup" class="segmentation-preprocessing-block segmentation-view-settings" data-view-settings="sr-roi" hidden>
-                                <div id="segmentationSrModePicker" class="segmentation-sr-mode-picker" role="group" aria-label="Choose AI enhancement"><span data-segmentation-sr-status>Choose AI enhancement</span><button type="button" class="btn btn-sm" data-segmentation-sr-mode="cfsr-x2">CFSR x2</button><button type="button" class="btn btn-sm" data-segmentation-sr-mode="cfsr-x4">CFSR x4</button><button type="button" class="btn btn-sm" data-segmentation-sr-mode="tk-r-em-hrsem">tk_r_em hrsem</button><button type="button" class="btn btn-sm" data-segmentation-sr-mode="tk-r-em-hrtem">tk_r_em hrtem</button><button type="button" class="btn btn-sm" data-segmentation-sr-mode="tk-r-em-lrsem">tk_r_em lrsem</button><button type="button" class="btn btn-sm" data-segmentation-sr-mode="tk-r-em-lrtem">tk_r_em lrtem</button></div>
+                                <div id="segmentationSrModePicker" class="segmentation-sr-mode-picker" role="group" aria-label="Choose AI enhancement"><span data-segmentation-sr-status>Choose AI enhancement</span><button type="button" class="btn btn-sm" data-segmentation-sr-mode="cfsr-x2">CFSR x2</button><button type="button" class="btn btn-sm" data-segmentation-sr-mode="cfsr-x4">CFSR x4</button></div>
                                 <div class="segmentation-sr-model-control">
                                     <label class="form-label small mb-1" for="segmentationSuperResolutionSelect">AI Enhancement</label>
-                                    <select id="segmentationSuperResolutionSelect" class="form-select form-select-sm"><option value="off" selected>Off</option><option value="cfsr-x2">CFSR x2</option><option value="cfsr-x4">CFSR x4</option><option value="tk-r-em-hrsem">tk_r_em hrsem</option><option value="tk-r-em-hrtem">tk_r_em hrtem</option><option value="tk-r-em-lrsem">tk_r_em lrsem</option><option value="tk-r-em-lrtem">tk_r_em lrtem</option></select>
+                                    <select id="segmentationSuperResolutionSelect" class="form-select form-select-sm"><option value="off" selected>Off</option><option value="cfsr-x2">CFSR x2</option><option value="cfsr-x4">CFSR x4</option></select>
                                 </div>
                                 <div id="segmentationAiProgress" class="segmentation-ai-progress" role="status" aria-live="polite" data-state="idle" hidden>
                                     <div class="segmentation-ai-progress-heading">
@@ -156,10 +166,10 @@
                                 <div class="segmentation-sr-preview-actions" role="group" aria-label="Enhancement ROI preview controls"><button id="segmentationFocusSrRoiBtn" type="button" class="btn btn-sm btn-outline-primary" disabled><i class="bi bi-zoom-in" aria-hidden="true"></i> Focus ROI</button><button id="segmentationCompareOriginalBtn" type="button" class="btn btn-sm btn-outline-primary" aria-describedby="segmentationSrResultStatus" aria-pressed="false" disabled><i class="bi bi-eye" aria-hidden="true"></i><span>Hold Original</span></button></div>
                             </div>
                             <div class="segmentation-preprocessing-divider"></div>
-                            <div class="segmentation-preprocessing-label"><span>Algorithm input</span><small>Independent source</small></div>
+                            <div class="segmentation-preprocessing-label"><span>Use for algorithms</span><small>Independent of canvas view</small></div>
                             <div id="segmentationPreprocessingInputs" class="segmentation-preprocessing-inputs">
-                                <label for="segmentationEdgeSamInputSelect"><span>AI Select</span><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="original-processed">Original Processed</option><option value="sr-roi">AI</option><option value="sr-roi-processed">Processed AI</option></select></label>
-                                <label for="segmentationSuperpixelInputSelect"><span>Superpixel</span><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="original-processed">Original Processed</option><option value="sr-roi">AI</option><option value="sr-roi-processed">Processed AI</option></select></label>
+                                <label for="segmentationEdgeSamInputSelect"><span>AI Select</span><select id="segmentationEdgeSamInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="original-processed">Processed original</option><option value="sr-roi">AI</option><option value="sr-roi-processed">Processed AI ROI</option></select></label>
+                                <label for="segmentationSuperpixelInputSelect"><span>Superpixel</span><select id="segmentationSuperpixelInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="original-processed">Processed original</option><option value="sr-roi">AI</option><option value="sr-roi-processed">Processed AI ROI</option></select></label>
                             </div>
                             <div id="detectionPreprocessingInputs" class="segmentation-preprocessing-inputs" hidden>
                                 <label for="detectionAutomationInputSelect"><span>Automation</span><select id="detectionAutomationInputSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="processed">Processed</option></select></label>
@@ -181,6 +191,7 @@
                                 <label class="form-check form-switch" data-ui="segmentation-edge-highlight-group"><input class="form-check-input" type="checkbox" id="segmentationEdgeHighlightToggle" data-ui="segmentation-edge-highlight-toggle" checked><span class="form-check-label">Edge highlight</span></label>
                                 <label for="segmentationEdgeGlowSlider" class="form-label small">Edge intensity <span id="segmentationEdgeGlowValue">70</span>%</label>
                                 <input type="range" class="form-range" min="0" max="100" value="70" id="segmentationEdgeGlowSlider" data-ui="segmentation-edge-glow-slider">
+                                <details class="advanced-disclosure mt-2"><summary>Display class filter</summary><div id="segmentationClassSummary" class="segmentation-class-summary mt-2" data-ui="segmentation-class-summary"></div></details>
                             </section>
                         </section>
                         <section id="segmentationSuperpixelWorkspace" class="segmentation-superpixel-workspace" hidden>
@@ -221,36 +232,45 @@
                     </section>
                     <div id="detectionLeftWorkspace">
 
-                    <section class="dataset-actions" data-ui="folder-actions">
-                        <button id="selectImageFolderBtn" type="button" class="btn btn-primary" data-ui="load-image-folder"><i class="bi bi-folder2-open" aria-hidden="true"></i> Open Dataset</button>
-                        <button id="refreshDatasetBtn" type="button" class="panel-icon-button" title="Refresh dataset" aria-label="Refresh dataset"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
-                        <button id="selectLabelFolderBtn" type="button" class="panel-icon-button" data-ui="load-label-folder" title="Connect label folder" aria-label="Connect label folder" disabled><i class="bi bi-folder-symlink" aria-hidden="true"></i></button>
+                    <section id="detectionInferenceWorkspace" class="panel-section" hidden>
+                        <div class="section-heading-row"><h3>YOLO Inference</h3><span id="inferenceBackendBadge" class="status-badge" role="status" title="Load an ONNX model to determine the inference device.">No model</span></div>
+                        <div id="onnxInferenceControls">
+                        <label class="form-label small mt-2" for="inferenceModelInput">Detection model (.onnx)</label>
+                        <input id="inferenceModelInput" type="file" accept=".onnx" hidden>
+                        <div class="input-group input-group-sm inference-model-picker">
+                            <button id="selectInferenceModelBtn" type="button" class="btn btn-outline-primary" aria-label="Load ONNX model"><i class="bi bi-folder2-open" aria-hidden="true"></i> Load</button>
+                            <span id="inferenceModelName" class="form-control" role="status" aria-live="polite">Choose .onnx model</span>
+                        </div>
+                        <p id="inferenceModelStatus" class="small text-muted mt-2" role="status" hidden></p>
+                        <label class="form-label small" for="inferenceConfidenceInput">Confidence</label><input id="inferenceConfidenceInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.25">
+                        <label class="form-label small mt-2" for="inferenceMaxDetInput">Max detections</label><input id="inferenceMaxDetInput" type="number" class="form-control form-control-sm" min="1" max="30000" step="1" value="300" aria-describedby="inferenceMaxDetHelp">
+                        <p id="inferenceMaxDetHelp" class="small text-muted mt-1 mb-0">Per image · 1–30,000. Model output may impose a lower limit.</p>
+                        <details id="inferenceAdvancedSettings" class="advanced-disclosure mt-2"><summary>Advanced settings</summary>
+                            <label class="form-label small mt-2" for="inferenceIouInput">NMS IoU</label><input id="inferenceIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.45">
+                            <label class="form-label small mt-2" for="inferenceOutputFormat">Output format</label><select id="inferenceOutputFormat" class="form-select form-select-sm"><option value="auto">Auto (raw YOLO)</option><option value="v8">YOLOv8+ · [1, 4+C, N]</option><option value="v5">YOLOv5 · [1, N, 5+C]</option><option value="nms">NMS / end-to-end · [1, N, 6]</option></select>
+                            <label class="form-label small mt-2" for="inferenceSizeInput">Dynamic input size</label><input id="inferenceSizeInput" type="number" class="form-control form-control-sm" min="32" max="4096" step="32" value="640" title="Reload the model after changing. Fixed model dimensions take priority.">
+                        </details>
+                        <div class="d-grid gap-2 mt-2"><button id="runInferenceCurrentBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Infer current image</button><button id="runInferenceAllBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Infer all images</button></div>
+                        <p id="inferenceRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
+                        </div>
+                    </section>
+                    <section id="yoloeInferenceControls" class="panel-section" hidden>
+                        <div class="section-heading-row"><h3>YOLOE-26</h3><span id="yoloeOutputBadge" class="status-badge">Detection · Boxes</span></div>
+                        <div class="mt-2"><span id="yoloeBackendBadge" class="status-badge" role="status">Disconnected</span></div>
+                        <p id="yoloeSummary" class="small text-muted mt-2 mb-0">No samples</p>
+                        <button id="openYoloeSetupBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2"><i class="bi bi-sliders" aria-hidden="true"></i> Samples &amp; settings</button>
+                        <button id="previewYoloeBtn" type="button" class="btn btn-primary btn-sm w-100 mt-2" disabled><i class="bi bi-search" aria-hidden="true"></i> Preview current image</button>
+                        <label class="form-label small mt-2" for="yoloeSaveScope">Save results</label>
+                        <div class="d-grid gap-2">
+                            <select id="yoloeSaveScope" class="form-select form-select-sm" aria-label="Images to save"><option value="current">Current image</option><option value="all">All images</option></select>
+                                <button id="saveYoloeCurrentBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Run &amp; save results</button>
+                        </div>
+                        <p id="yoloeResultFolder" class="small text-muted mt-2 mb-0 text-truncate" title=""></p><p id="yoloeInputSource" title="Canvas preprocessing does not change YOLOE input." class="small text-muted mt-1 mb-0">Input: Original image</p>
+                        <p id="yoloeRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
                     </section>
 
-                    <section class="panel-section image-library-section" data-ui="image-library-section">
-                        <div class="section-heading-row">
-                            <h3>Images</h3>
-                            <span id="imageCountBadge" class="count-badge">0</span>
-                        </div>
-                        <div class="input-group input-group-sm image-search-group" data-ui="image-search-group">
-                            <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
-                            <input type="search" id="imageSearchInput" class="form-control" data-ui="image-search-input" placeholder="Search files..." aria-label="Search image files">
-                        </div>
-                        <div id="image-filter-container" class="segmented-filter image-status-filters" data-ui="image-status-filters" role="group" aria-label="Image status filters">
-                            <input type="checkbox" class="btn-check" id="showLabeled" checked>
-                            <label class="btn" for="showLabeled" data-ui="filter-labeled-images"><i class="bi bi-check-circle" aria-hidden="true"></i> Labeled</label>
-                            <input type="checkbox" class="btn-check" id="showUnlabeled" checked>
-                            <label class="btn" for="showUnlabeled" data-ui="filter-unlabeled-images"><i class="bi bi-circle" aria-hidden="true"></i> Unlabeled</label>
-                        </div>
-                        <div id="reviewFilterControl">
-                            <label class="visually-hidden" for="reviewFilterSelect">Review filter</label>
-                            <select id="reviewFilterSelect" class="form-select form-select-sm mt-2" aria-label="Review filter">
-                                <option value="all">Review: All</option>
-                                <option value="needs-review">Review: Needs review</option>
-                                <option value="reviewed">Review: Reviewed</option>
-                                <option value="has-issues">Review: Has issues</option>
-                            </select>
-                        </div>
+                    <section id="detectionReviewWorkspace" class="panel-section review-workspace-section" hidden>
+                        <div class="section-heading-row"><h3>Review</h3><button id="rescanReviewBtn" type="button" class="btn btn-outline-primary btn-sm" title="Recheck all images, including current unsaved edits"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Rescan</button><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
                         <div id="reviewQueueControls" class="review-queue-controls mt-2" data-ui="review-queue-controls" hidden>
                             <div class="section-heading-row"><h4>Review queue</h4><span id="reviewQueueSummary" class="count-badge">0</span></div>
                             <div class="btn-group btn-group-sm w-100" role="group" aria-label="Review queue navigation">
@@ -258,27 +278,6 @@
                                 <button id="nextReviewIssueBtn" type="button" class="btn btn-primary" title="Next review item">Next <i class="bi bi-chevron-down" aria-hidden="true"></i></button>
                             </div>
                         </div>
-                        <div id="image-list" class="list-group image-list-panel" data-ui="image-list-panel" aria-live="polite"></div>
-                    </section>
-
-                    <section class="panel-section classes-panel-section">
-                        <div class="section-heading-row sticky-section-heading">
-                            <h3>Classes</h3>
-                            <button id="addClassShortcutBtn" type="button" class="panel-icon-button" title="Add class" aria-label="Add class"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
-                        </div>
-                        <label class="visually-hidden" for="classSearchInput">Search classes</label>
-                        <input id="classSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search classes...">
-                        <div id="label-filters" class="class-filter-list" data-ui="label-filter-list"></div>
-                        <p id="segmentationClassPanelHint" class="text-muted small mb-2" data-ui="segmentation-class-panel-hint" hidden>Class painting and visibility controls are in the <strong>Mask Inspector</strong> panel on the right.</p>
-                        <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-ui="load-class-info-folder"><i class="bi bi-folder-symlink" aria-hidden="true"></i> Load Class Info Folder</button>
-                        <div class="input-group input-group-sm mt-2 class-file-select-group" data-ui="class-file-select-group">
-                            <select class="form-select" id="class-file-select" aria-label="Class file"><option selected>Choose class file...</option></select>
-                            <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file" title="Edit class file" aria-label="Edit class file"><i class="bi bi-eye" aria-hidden="true"></i></button>
-                        </div>
-                    </section>
-
-                    <section id="detectionReviewWorkspace" class="panel-section review-workspace-section" hidden>
-                        <div class="section-heading-row"><h3>Review</h3><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
                         <div id="reviewIssueList" class="list-group list-group-flush small mb-2" aria-live="polite"></div>
                         <div class="d-grid gap-2 mb-2">
                             <button id="markReviewedBtn" type="button" class="btn btn-success btn-sm">Mark reviewed</button>
@@ -295,17 +294,75 @@
                             <button id="saveReviewRulesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2">Save rules and recheck</button>
                         </details>
                     </section>
+                    <section id="datasetActions" class="dataset-actions" data-ui="folder-actions">
+                        <button id="selectImageFolderBtn" type="button" class="btn btn-primary" data-ui="load-image-folder"><i class="bi bi-folder2-open" aria-hidden="true"></i> Open Dataset</button>
+                        <button id="refreshDatasetBtn" type="button" class="panel-icon-button" title="Refresh dataset" aria-label="Refresh dataset"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
+                    </section>
+
+                    <section class="panel-section image-library-section" data-ui="image-library-section">
+                        <div class="section-heading-row">
+                            <h3>Images</h3>
+                            <div id="image-filter-container" data-ui="image-status-filters">
+                                <button id="imageStatusFilterBtn" type="button" class="btn btn-outline-secondary btn-sm image-status-filter" data-filter="all" title="All images. Click for labeled images." aria-label="Image filter: All images">All</button>
+                            </div>
+                            <span id="imageCountBadge" class="count-badge">0</span>
+                        </div>
+                        <div class="input-group input-group-sm image-search-group" data-ui="image-search-group">
+                            <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                            <input type="search" id="imageSearchInput" class="form-control" data-ui="image-search-input" placeholder="Search files..." aria-label="Search image files">
+                        </div>
+                        <div id="reviewFilterControl">
+                            <label class="visually-hidden" for="reviewFilterSelect">Review filter</label>
+                            <select id="reviewFilterSelect" class="form-select form-select-sm mt-2" aria-label="Review filter">
+                                <option value="all">Review: All</option>
+                                <option value="needs-review">Review: Needs review</option>
+                                <option value="reviewed">Review: Reviewed</option>
+                                <option value="has-issues">Review: Has issues</option>
+                            </select>
+                        </div>
+                        <div id="image-list" class="list-group image-list-panel" data-ui="image-list-panel" aria-live="polite"></div>
+                    </section>
+
+                    <section class="panel-section classes-panel-section">
+                        <div class="section-heading-row sticky-section-heading">
+                            <h3>Classes</h3>
+                            <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary btn-sm" data-ui="load-class-info-folder" title="Load Class Info folder"><i class="bi bi-folder-symlink" aria-hidden="true"></i> Load Class</button>
+                            <button id="addClassShortcutBtn" type="button" class="panel-icon-button" title="Class settings" aria-label="Class settings"><i class="bi bi-gear" aria-hidden="true"></i></button>
+                        </div>
+                        <div id="classManagement" class="mb-2" role="group" aria-label="Class files">
+                        <div class="input-group input-group-sm mt-2 class-file-select-group" data-ui="class-file-select-group">
+                            <select class="form-select" id="class-file-select" aria-label="Class file"><option selected>Choose class file...</option></select>
+                            <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file" title="Create class file" aria-label="Create class file"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+                        </div>
+                        </div>
+                        <label class="visually-hidden" for="classSearchInput">Search classes</label>
+                        <input id="classSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search classes...">
+                        <div id="label-filters" class="class-filter-list" data-ui="label-filter-list"></div>
+                        <p id="segmentationClassPanelHint" class="text-muted small mb-2" data-ui="segmentation-class-panel-hint" hidden>Class painting and visibility controls are in the <strong>Mask Inspector</strong> panel on the right.</p>
+                        <button id="openClassRemapBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrow-left-right" aria-hidden="true"></i> Change label class IDs</button>
+                    </section>
+
+
                     </div>
                 </div>
                 <div id="segmentationFormatShortcut" class="px-3 pb-2" hidden>
                     <button id="openSegmentationFormatBtn" type="button" class="btn btn-outline-primary btn-sm w-100"><i class="bi bi-sliders" aria-hidden="true"></i> Format</button>
                 </div>
                 <div class="dataset-save-bar">
+                    <div class="dataset-save-controls">
                     <label class="form-check form-switch mb-0">
                         <input class="form-check-input" type="checkbox" id="autoSaveToggle" data-ui="auto-save-toggle">
                         <span class="form-check-label">Auto save</span>
                     </label>
                     <button id="saveLabelsBtn" type="button" class="btn btn-primary" data-ui="save-labels" title="Save labels (Ctrl+S)"><i class="bi bi-floppy" aria-hidden="true"></i> Save</button>
+                    </div>
+                    <div id="outsideBoxesActions" class="outside-boxes-actions">
+                        <span class="small">Remove outside boxes</span>
+                        <div class="btn-group btn-group-sm w-100" role="group" aria-label="Remove outside boxes">
+                            <button id="removeCurrentOutsideBoxesBtn" type="button" class="btn btn-outline-secondary" title="Remove boxes crossing this image's edges · Undo available" disabled>Current image</button>
+                            <button id="removeOutsideBoxesBtn" type="button" class="btn btn-outline-secondary" title="Remove boxes crossing image edges from all images in the active label folder; original files are backed up" disabled>All images</button>
+                        </div>
+                    </div>
                 </div>
             </aside>
 
@@ -356,7 +413,7 @@
                 <div id="genericModeControls" class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
                     <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
                     <label class="btn" for="drawMode" data-ui="mode-draw" title="Draw (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i><span>Draw</span></label>
-                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Automation workspace" aria-label="Automation workspace" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation</span></button>
+                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Open automation settings. Canvas tool stays unchanged." aria-label="Automation settings" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation settings</span></button>
                     <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
                     <label class="btn" for="editMode" data-ui="mode-edit" title="Select and edit (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i><span>Edit</span></label>
                 </div>
@@ -376,6 +433,7 @@
             <div id="segmentationBrushCursorPreview" class="segmentation-brush-cursor-preview" aria-hidden="true" hidden></div>
             <canvas id="canvas"></canvas>
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
+            <canvas id="yoloePreviewCanvas" class="layout-ghost-canvas" aria-label="YOLOE sample drawing canvas" tabindex="-1" aria-hidden="true" hidden></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             <button id="expand-right-panel-btn" type="button" class="panel-expand-btn" title="Expand inspector" aria-label="Expand inspector" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
         </main>
@@ -385,11 +443,11 @@
         <aside id="right-panel" class="control-panel inspector-panel" aria-label="Inspector">
             <div class="panel-header inspector-header">
                 <div><h2 id="inspectorTitle">Annotation</h2><span id="inspectorSubtitle" class="panel-subtitle">No annotation selected</span></div>
-                <button id="collapse-right-panel-btn" type="button" class="panel-icon-button" title="Collapse inspector" aria-label="Collapse inspector"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                <button id="collapse-right-panel-btn" type="button" class="panel-icon-button" title="Collapse inspector" aria-label="Collapse inspector"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             </div>
             <div class="panel-content right-panel-content" data-ui="right-panel-content">
                 <section id="sharedToolSection" class="inspector-section shared-tool-section mode-section" data-ui="mode-section">
-                    <div class="section-heading-row"><h3>Tool</h3><span id="activeToolSummary" class="section-value">Edit</span></div>
+                    <div class="section-heading-row"><h3>Canvas tool</h3><span id="activeToolSummary" class="section-value">Edit</span></div>
                     <div class="inline-switch-row">
                         <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="crosshairToggle" data-ui="crosshair-toggle"><span class="form-check-label">Crosshair</span></label>
                         <label id="segmentationAutoFillClosedRegionGroup" class="form-check form-switch mb-0 segmentation-mode-option" data-ui="segmentation-auto-fill-closed-region-group" hidden><input class="form-check-input" type="checkbox" id="segmentationAutoFillClosedRegionToggle" data-ui="segmentation-auto-fill-closed-region-toggle"><span class="form-check-label">Auto fill closed regions</span></label>
@@ -469,9 +527,10 @@
 
                     <section id="inspectorAutomationPane" class="inspector-pane" data-inspector-pane="automation" hidden>
                         <section class="inspector-section layout-panel-section" data-ui="layout-controls">
-                            <div class="section-heading-row"><h3>Layout</h3><button id="openLayoutSetupBtn" type="button" class="panel-icon-button" title="Open layout setup" aria-label="Open layout setup"><i class="bi bi-sliders" aria-hidden="true"></i></button></div>
+                            <h3>Layout</h3>
                             <select id="boxLayoutSelect" class="form-select form-select-sm mb-2" aria-label="Saved box layout"><option value="">Choose layout...</option></select>
                             <div id="layoutPlacementNotice" class="placement-notice" role="status">Choose a layout to preview its placement.</div>
+                            <button id="openLayoutSetupBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="bi bi-sliders" aria-hidden="true"></i> Layout setup</button>
                             <button id="applyBoxLayoutBtn" type="button" class="btn btn-primary btn-sm w-100"><i class="bi bi-layers" aria-hidden="true"></i> Apply layout</button>
                         </section>
                         <section class="inspector-section automation-panel-section" data-ui="automation-controls">
@@ -526,12 +585,13 @@
                         </div>
                     </section>
                     <section class="inspector-section segmentation-summary-section" data-ui="segmentation-summary-section">
-                        <div class="section-heading-row"><h3>Paint class</h3><i class="bi bi-palette" aria-hidden="true"></i></div>
+                        <div class="section-heading-row"><h3>Classes</h3><i class="bi bi-palette" aria-hidden="true"></i></div>
                         <button id="segmentationActiveClassSummary" type="button" class="active-class-summary" data-ui="segmentation-active-class-summary">No active segmentation class selected yet.</button>
+                        <label class="visually-hidden" for="segmentationClassSearchInput">Search paint classes</label><input id="segmentationClassSearchInput" type="search" class="form-control form-control-sm mt-2" placeholder="Search classes...">
                         <div id="segmentationPaintClassList" class="segmentation-paint-class-list mt-2" aria-label="Paint class choices"></div>
                         <p id="segmentationSelectedRegionSummary" class="form-text mt-2 mb-0" hidden>Select a region to inspect.</p>
                     </section>
-                    <section id="segmentationClassSection" class="inspector-section"><div class="section-heading-row"><h3>Display classes</h3></div><input id="segmentationClassSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search display classes..."><div id="segmentationClassSummary" class="segmentation-class-summary" data-ui="segmentation-class-summary">No painted classes</div></section>
+
                 </div>
             </div>
         </aside>
@@ -576,6 +636,122 @@
                     <p id="segmentationFormatGuidance" class="form-text mb-0 mt-2" data-ui="segmentation-format-guidance"></p>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="applySegmentationFormatBtn" type="button" class="btn btn-primary">Apply</button></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="yoloeSetupModal" tabindex="-1" aria-labelledby="yoloeSetupModalLabel" aria-hidden="true" data-focus-return="openYoloeSetupBtn">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable yoloe-setup-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div><h5 class="modal-title" id="yoloeSetupModalLabel"><i class="bi bi-cpu" aria-hidden="true"></i> YOLOE-26 · Samples &amp; settings</h5><div id="yoloeSetupSummary" class="small text-muted"></div></div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body yoloe-setup-body">
+                    <section class="yoloe-sample-workspace" aria-label="Sample workspace">
+                        <div class="yoloe-reference-controls mb-2">
+                            <label class="form-label small fw-semibold mb-0" for="yoloeReferenceSelect">Reference image</label>
+                            <select id="yoloeReferenceSelect" class="form-select form-select-sm"><option value="">Open a dataset first</option></select>
+                            <button id="fitYoloeSampleBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Fit the reference image">Fit image</button>
+                            <span id="yoloeSampleZoom" class="small" aria-live="polite"></span>
+                            <details class="yoloe-view-help"><summary aria-label="Image navigation help" title="Image navigation help"><i class="bi bi-question-circle" aria-hidden="true"></i></summary><p class="small mb-0">Ctrl + wheel: zoom<br>Ctrl / Space + drag or Middle drag: pan</p></details>
+                        </div>
+                        <div id="yoloeSampleStage" class="yoloe-sample-stage"><p id="yoloeSampleEmpty" class="small text-muted">Open a dataset to outline samples.</p></div>
+                    </section>
+                    <section class="yoloe-settings-column" aria-label="Inference settings">
+                        <section class="yoloe-sample-tools" aria-label="Draw samples">
+                        <h6 class="settings-subtitle mt-0">Sample settings</h6>
+                        <div class="yoloe-sample-builder">
+                            <div class="yoloe-target-fields">
+                            <div>
+                        <label class="form-label small mt-2" for="yoloeSampleName">Name the target</label>
+                        <input id="yoloeSampleName" class="form-control form-control-sm" value="sampleA" maxlength="64" autocomplete="off">
+                            </div>
+                        <div id="yoloeTargetChoice" class="mt-2" hidden>
+                            <label class="form-label small" for="yoloeExistingTarget">Existing target</label>
+                            <select id="yoloeExistingTarget" class="form-select form-select-sm"><option value="">New target</option></select>
+                        </div>
+                            </div>
+                            <div>
+                            <label class="form-label small mt-2" for="yoloePromptShape">Sample shape</label>
+                            <select id="yoloePromptShape" class="form-select form-select-sm"><option value="mask">Polygon</option><option value="brush">Brush / Eraser</option><option value="box">Box</option></select>
+                            <div id="yoloeMaskTools" class="mt-2" hidden>
+                                <div class="segmented-control" role="group" aria-label="Sample paint tool">
+                                    <button id="yoloeBrushBtn" type="button" class="btn active" aria-pressed="true"><i class="bi bi-brush" aria-hidden="true"></i> Brush</button>
+                                    <button id="yoloeEraserBtn" type="button" class="btn" aria-pressed="false"><i class="bi bi-eraser" aria-hidden="true"></i> Eraser</button>
+                                </div>
+                                <div class="section-heading-row mt-2"><label class="form-label small mb-0" for="yoloeBrushRadius">Radius (image px)</label><span id="yoloeBrushRadiusValue" class="section-value">8px</span></div>
+                                <input id="yoloeBrushRadius" type="range" class="form-range" value="8" min="1" max="128" step="1">
+                                <label class="form-check form-switch mb-0"><input id="yoloeAutoFillClosedRegionToggle" class="form-check-input" type="checkbox"><span class="form-check-label">Auto fill closed regions</span></label>
+                            </div>
+                            </div>
+                        </div>
+                        <div class="yoloe-sample-actions">
+                        <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm w-100" aria-pressed="false" disabled><i class="bi bi-vector-pen" aria-hidden="true"></i> Outline sample</button>
+                        <button id="finishYoloeSampleBtn" type="button" class="btn btn-primary btn-sm w-100" hidden disabled>Finish outline</button>
+                        <button id="undoYoloeStrokeBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden disabled>Undo stroke</button>
+                        </div>
+                        <section id="yoloeDrawingToolbar" class="yoloe-drawing-toolbar" role="status" hidden>
+                            <strong id="yoloeDrawingTitle"></strong>
+                            <span id="yoloeCanvasDrawingHint" class="small"></span>
+                        </section>
+                        </section>
+                        <div class="yoloe-settings-scroll">
+                        <div class="section-heading-row mt-3"><h6 class="settings-subtitle m-0">Samples</h6><button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear samples</button></div>
+                        <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
+                        <p id="yoloeSamplesEmpty" class="small text-muted mt-2 mb-0">Name a target, then outline it on the reference image.</p>
+                        <details class="advanced-disclosure mt-3"><summary>Use an existing class name</summary>
+                            <label class="form-label small mt-2" for="yoloeExampleClass">Existing label class</label>
+                            <select id="yoloeExampleClass" class="form-select form-select-sm" aria-label="Example class"></select>
+                        </details>
+                        <div id="yoloeExistingBoxes" class="mt-2" hidden>
+                            <div id="yoloeExistingLabelTitle" class="form-label small">Existing boxes · Reference image</div>
+                            <label class="visually-hidden" for="yoloeLabelClassFilter">Filter existing labels by class</label><select id="yoloeLabelClassFilter" class="form-select form-select-sm"><option value="">All classes</option></select>
+                            <div id="yoloeLabelChoices" class="yoloe-label-choices mt-2" aria-label="Existing label choices"></div>
+                            <div class="section-heading-row mt-2"><span id="yoloeLabelSelectionSummary" class="small" role="status"></span><button id="focusYoloeLabelsBtn" type="button" class="btn btn-outline-secondary btn-sm">View selected</button></div>
+                            <div class="d-flex mt-2">
+                                <select id="yoloeExistingBoxSelect" class="visually-hidden" multiple tabindex="-1" aria-hidden="true"><option value="">Loading labels…</option></select>
+                                <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Add selected as samples</button>
+                            </div>
+                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" hidden disabled>Add main-canvas labels</button>
+                        </div>
+                        <hr>
+                        <h6 class="settings-subtitle mt-0">Inference settings</h6>
+                        <label class="form-label small mt-2" for="yoloePresetSelect">Preset</label>
+                        <select id="yoloePresetSelect" class="form-select form-select-sm"><option value="">Choose a preset…</option></select>
+                        <div class="d-flex gap-1 mt-2" role="group" aria-label="YOLOE presets">
+                            <button id="saveYoloePresetBtn" type="button" class="btn btn-outline-primary btn-sm">Save preset</button>
+                            <button id="saveYoloePresetAsBtn" type="button" class="btn btn-outline-secondary btn-sm">Save as…</button>
+                            <button id="loadYoloePresetBtn" type="button" class="btn btn-outline-secondary btn-sm">Open…</button>
+                        </div>
+                        <input id="yoloePresetFileInput" type="file" accept=".json,application/json" hidden>
+                        <p id="yoloePresetLocation" class="small text-muted mt-1 mb-0 text-truncate"></p><p id="yoloePresetState" class="small mt-1 mb-0" role="status">Not saved</p>
+                            <div class="section-heading-row mt-2"><button id="connectYoloeBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plug" aria-hidden="true"></i> Reconnect</button></div>
+                            <p id="yoloeConnectionStatus" class="small text-muted mt-2" role="status" hidden></p>
+                            <label class="form-label small mt-2" for="yoloeModelSelect">Model</label>
+                            <select id="yoloeModelSelect" class="form-select form-select-sm" disabled><option value="">Connect first</option></select>
+                            <label class="form-label small mt-2" for="yoloeImageSize">Inference resolution</label>
+                            <select id="yoloeImageSize" class="form-select form-select-sm"><option value="640">640 · Standard</option><option value="1024">1024 · Small targets</option><option value="2048">2048 · Fine details</option></select>
+                            <label class="form-label small mt-2" for="yoloeProfileName">Result set name</label>
+                            <input id="yoloeProfileName" class="form-control form-control-sm" value="targets" maxlength="64" title="Results use this name and the model name.">
+                            <div class="row g-2 mt-1">
+                                <div class="col-6"><label class="form-label small" for="yoloeConfidenceInput">Confidence</label><input id="yoloeConfidenceInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.25"></div>
+                                <div class="col-6"><label class="form-label small" for="yoloeIouInput">NMS IoU</label><input id="yoloeIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.45"></div>
+                            </div>
+                        <div id="yoloeSampleResultToggle" class="form-check mt-2" hidden><input id="yoloeShowSampleResults" class="form-check-input" type="checkbox" checked><label class="form-check-label small" for="yoloeShowSampleResults">Show results</label></div>
+                            <details class="advanced-disclosure mt-2"><summary>Setup &amp; device details</summary><p id="yoloeDeviceInfo" class="small text-muted mt-1 mb-0" role="status"></p><div class="yoloe-setup-commands small mt-2"><code>npm run yoloe:setup</code><code>npm run yoloe:prepare</code><code>npm run yoloe:start</code></div>
+                            <a class="small" href="docs/YOLOE26_GPU_KO.md" target="_blank" rel="noopener">Setup &amp; usage guide</a></details>
+                        </div>
+                    </section>
+                </div>
+                <div class="modal-footer yoloe-footer">
+                    <div class="yoloe-preview-actions">
+                        <p id="yoloeSetupStatus" class="small mb-0" role="status"></p>
+                        <button id="stopYoloePreviewBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Stop</button>
+                        <button id="previewYoloeSampleBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Run preview</button>
+                        <button id="closeYoloeSetupBtn" type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -642,7 +818,7 @@
                         <div class="layout-preview-toolbar">
                             <div id="layoutDetails" class="small text-muted">Choose a layout to inspect its geometry.</div>
                             <div class="layout-preview-actions">
-                                <label class="editor-zoom-control">Zoom <input id="layoutPreviewZoomInput" type="range" min="1" max="400" value="100" step="1" title="Zoom preview (Ctrl + mouse wheel)"><span id="layoutPreviewZoomValue">100%</span></label>
+                                <label class="editor-zoom-control">Zoom <input id="layoutPreviewZoomInput" type="range" min="1" max="3000" value="100" step="1" title="Zoom preview (Ctrl + mouse wheel)"><span id="layoutPreviewZoomValue">100%</span></label>
                                 <button id="previewBoxLayoutBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> Refresh Preview</button>
                             </div>
                         </div>
@@ -673,8 +849,8 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body template-matching-body">
-                    <div class="template-workspace-column">
-                        <div class="template-step-heading"><span>1</span><div><strong>Reference image and ROI</strong><small>Choose a representative image, then draw the exact region to match.</small></div></div>
+                    <div class="template-workspace-column"><h6 class="settings-subtitle mt-0">Reference region</h6>
+                        <div class="template-step-heading"><div><small>Draw the region to match.</small></div></div>
                         <div class="template-workspace-toolbar">
                             <label class="d-flex align-items-center gap-2 small fw-semibold">Reference image
                                 <select id="templateSourceImageSelect" class="form-select form-select-sm" aria-label="Reference image"></select>
@@ -690,7 +866,7 @@
                                 <label class="btn btn-outline-secondary btn-sm" for="templatePointerSelectRadio" title="Select results or drag to pan"><i class="bi bi-cursor" aria-hidden="true"></i> Select results</label>
                             </div>
                             <div class="template-workspace-view-controls">
-                                <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="1000" value="100" step="1" title="Zoom workspace (mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
+                                <label class="editor-zoom-control">Zoom <input id="templateWorkspaceZoomInput" type="range" min="1" max="3000" value="100" step="1" title="Zoom workspace (mouse wheel)"><span id="templateWorkspaceZoomValue">100%</span></label>
                                 <button id="templateWorkspaceFitBtn" type="button" class="panel-icon-button" title="Fit image to workspace" aria-label="Fit image to workspace"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i></button>
                             </div>
                         </div>
@@ -702,10 +878,10 @@
                         <div class="template-preview-strip">
                             <div><div class="small text-muted mb-1">Selected template</div><canvas id="templateOriginalPreviewCanvas" width="240" height="140"></canvas></div>
                             <div><div class="small text-muted mb-1">Preprocessing preview</div><canvas id="templateProcessedPreviewCanvas" width="240" height="140"></canvas></div>
-                            <div class="template-match-result-panel"><div class="small text-muted mb-1"><span class="step-inline">4</span> Match Preview</div><strong id="templateMatchScore">No preview yet</strong><span id="templateMatchCoordinates" class="small"></span><span id="templateMatchTimings" class="small text-muted mt-1"></span><div id="templateMatchCandidates" class="template-match-candidates small mt-1"></div></div>
+                            <div class="template-match-result-panel"><div class="small text-muted mb-1">Match result</div><strong id="templateMatchScore">No preview yet</strong><span id="templateMatchCoordinates" class="small"></span><details class="advanced-disclosure mt-2"><summary>Execution details</summary><span id="templateMatchTimings" class="small text-muted mt-1"></span></details><div id="templateMatchCandidates" class="template-match-candidates small mt-1"></div></div>
                         </div>
                     </div>
-                    <div class="template-settings-column">
+                    <div class="template-settings-column"><h6 class="settings-subtitle mt-0">Find settings</h6>
                         <label class="form-label small fw-semibold" for="templatePresetSelect">Saved preset</label>
                         <div class="input-group input-group-sm mb-3">
                             <select id="templatePresetSelect" class="form-select" aria-label="Saved template matching preset"><option value="">New preset...</option></select>
@@ -719,7 +895,7 @@
                         <input id="importAutomationPresetInput" type="file" accept="application/json,.json" hidden>
                         <label class="form-label small" for="templateNameInput">Preset and template name</label>
                         <input id="templateNameInput" type="text" class="form-control form-control-sm mb-2" placeholder="Station A">
-                        <h6 class="settings-subtitle"><span class="step-inline">2</span> Output</h6>
+                        <h6 class="settings-subtitle">Output settings</h6>
                         <div class="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Template output mode">
                             <input id="templateOutputLayoutRadio" type="radio" class="btn-check" name="templateOutputMode" value="layout-best-match" checked>
                             <label class="btn btn-outline-primary" for="templateOutputLayoutRadio">Best Match + Layout</label>
@@ -774,7 +950,7 @@
                             </div>
                         </div>
                         <details class="template-advanced-settings advanced-disclosure">
-                        <summary><span class="step-inline">3</span> Matching &amp; preprocessing <span class="summary-hint">Advanced</span></summary>
+                        <summary>Advanced options</summary>
                         <div class="advanced-disclosure-body">
                         <h6 class="settings-subtitle">Preprocessing</h6>
                         <div class="form-check form-switch mb-2"><input id="templateGrayscaleToggle" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="templateGrayscaleToggle">Grayscale</label></div>
@@ -811,7 +987,7 @@
                     </div>
                 </div>
                 <div class="modal-footer" data-step="5">
-                    <span class="modal-footer-step"><span class="step-inline">5</span> Save, apply, or batch</span>
+                    <span class="modal-footer-step">Preview → Apply</span>
                     <div class="template-existing-policy">
                         <label for="templateExistingPolicySelect">Existing labels</label>
                         <select id="templateExistingPolicySelect" class="form-select form-select-sm">
@@ -820,10 +996,10 @@
                             <option value="replace">Replace</option>
                         </select>
                     </div>
-                    <button id="testTemplateMatchBtn" type="button" class="btn btn-outline-primary"><i class="bi bi-bullseye"></i> Preview Match</button>
+                    <button id="testTemplateMatchBtn" type="button" class="btn btn-primary"><i class="bi bi-bullseye"></i> Preview Match</button>
                     <button id="applyTemplateMatchBtn" type="button" class="btn btn-outline-success" disabled><i class="bi bi-check2-square"></i> Apply Result</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button id="saveAutomationPresetBtn" type="button" class="btn btn-primary"><i class="bi bi-floppy"></i> Save Preset</button>
+                    <button id="saveAutomationPresetBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-floppy"></i> Save Preset</button>
                 </div>
             </div>
         </div>
@@ -870,8 +1046,8 @@
                 </div>
                 <div class="modal-body">
                     <label for="newClassFileNameInput" class="form-label">File name</label>
-                    <input id="newClassFileNameInput" class="form-control" type="text" value="classes.yaml" autocomplete="off" aria-describedby="newClassFileNameHelp newClassFileNameError">
-                    <div id="newClassFileNameHelp" class="form-text">.yaml or .yml</div>
+                    <input id="newClassFileNameInput" class="form-control" type="text" value="classes" autocomplete="off" aria-describedby="newClassFileNameHelp newClassFileNameError">
+                    <div id="newClassFileNameHelp" class="form-text">.yaml is added automatically.</div>
                     <div id="newClassFileNameError" class="invalid-feedback" role="alert" hidden></div>
                 </div>
                 <div class="modal-footer">
@@ -882,7 +1058,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true">
+    <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true" data-focus-return="addClassShortcutBtn">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
@@ -895,6 +1071,7 @@
                             <tr>
                                 <th style="width: 15%;">ID</th>
                                 <th>Class Name</th>
+                                <th style="width: 15%;">Color</th>
                                 <th style="width: 15%;">Actions</th>
                             </tr>
                         </thead>
@@ -907,6 +1084,57 @@
                     <button type="button" class="btn btn-outline-secondary me-auto" id="addClassRowBtn"><i class="bi bi-plus-lg"></i> Add Row</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-primary" id="saveClassFileBtn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="classRemapModal" tabindex="-1" aria-labelledby="classRemapTitle" aria-hidden="true" data-focus-return="openClassRemapBtn">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="classRemapTitle">Change label class IDs</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Change Detection box IDs while keeping box positions and sizes. Class file names, colors and saved Layout presets stay unchanged.</p>
+                    <label class="form-label" for="classRemapScope">Apply to</label>
+                    <select id="classRemapScope" class="form-select form-select-sm mb-2">
+                        <option value="current">Current image · All boxes</option>
+                        <option value="folder">All images · Active label folder</option>
+                    </select>
+                    <p id="classRemapTarget" class="small text-muted class-remap-target"></p>
+                    <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Class change method">
+                        <input class="btn-check" type="radio" name="classRemapMethod" id="classRemapMappingMode" value="mapping" checked>
+                        <label class="btn btn-outline-primary" for="classRemapMappingMode">Remap IDs</label>
+                        <input class="btn-check" type="radio" name="classRemapMethod" id="classRemapOffsetMode" value="offset">
+                        <label class="btn btn-outline-primary" for="classRemapOffsetMode">Shift all IDs</label>
+                    </div>
+                    <div id="classRemapOffsetFields" hidden>
+                        <label class="form-label" for="classRemapOffset">Add to every class ID</label>
+                        <input id="classRemapOffset" type="number" step="1" value="1" class="form-control form-control-sm" aria-describedby="classRemapOffsetHint">
+                        <p id="classRemapOffsetHint" class="form-text">Use +3 to increase or -3 to decrease. Every resulting ID must be 0 or greater.</p>
+                    </div>
+                    <div id="classRemapMappingFields">
+                        <table class="table table-sm align-middle class-remap-table">
+                            <thead><tr><th scope="col">Original class</th><th scope="col"><i class="bi bi-arrow-right" aria-hidden="true"></i> New class</th><th scope="col" class="class-remap-count-cell">Boxes</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                            <tbody id="classRemapRows"></tbody>
+                        </table>
+                        <button id="addClassRemapRowBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add mapping</button>
+                        <p class="form-text">Count shows boxes in the current image, including hidden classes. Each mapping uses the original ID: 0 → 2 and 2 → 0 swap classes. Unlisted IDs stay unchanged. Multiple original IDs may share a new ID.</p>
+                    </div>
+                    <div id="classRemapError" class="alert alert-danger mt-3 mb-0" role="alert" hidden></div>
+                    <section id="classRemapPreview" class="class-remap-preview mt-3" aria-live="polite" hidden>
+                        <h6>Preview</h6>
+                        <p id="classRemapSummary" class="small mb-2"></p>
+                        <table class="table table-sm align-middle class-remap-table mb-0"><thead><tr><th scope="col">Original class</th><th scope="col"><i class="bi bi-arrow-right" aria-hidden="true"></i> New class</th><th scope="col" class="class-remap-count-cell">Boxes</th></tr></thead><tbody id="classRemapPreviewRows"></tbody></table>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary me-auto" data-bs-dismiss="modal">Close</button>
+                    <button id="stopClassRemapBtn" type="button" class="btn btn-outline-danger" hidden>Stop</button>
+                    <button id="previewClassRemapBtn" type="button" class="btn btn-outline-primary">Preview changes</button>
+                    <button id="applyClassRemapBtn" type="button" class="btn btn-primary" disabled>Apply changes</button>
                 </div>
             </div>
         </div>

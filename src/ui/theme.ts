@@ -12,7 +12,7 @@ export function applyDarkMode(input: DarkModeInput): void {
   input.storage.setItem(DARK_MODE_STORAGE_KEY, input.enabled ? "enabled" : "disabled");
 
   const buttonsToUpdate = input.documentRef.querySelectorAll(
-    'label[for="showLabeled"], label[for="showUnlabeled"], label[for="drawMode"], label[for="editMode"]'
+    'label[for="drawMode"], label[for="editMode"]'
   );
 
   if (input.enabled) {

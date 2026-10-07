@@ -18,6 +18,7 @@ function createFactorySpies() {
     session: {
       imageFolderHandle: null,
       labelFolderHandle: null,
+      labelFolders: [],
       classInfoFolderHandle: null,
       imageFiles: [],
       classFiles: [],
@@ -26,6 +27,7 @@ function createFactorySpies() {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
+      classColors: new Map<string, string>(),
       reviewState: createReviewStateDocument(),
       reviewFindings: new Map(),
       workflow: "detection",
@@ -49,6 +51,7 @@ function createFactorySpies() {
       persistFilterStateAcrossImageNavigation: true,
       resetFilterStateOnSessionReplacement: true,
       reviewFilter: "all",
+      imageStatusFilter: "all",
       labelOnlyView: false,
       labelOnlyBackground: "white"
     },

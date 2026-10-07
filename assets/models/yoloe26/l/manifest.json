@@ -1,0 +1,95 @@
+{
+  "model": "yoloe-26l-seg",
+  "format": "onnx-visual-prompt-v1",
+  "maskChannels": 32,
+  "embeddingSize": 512,
+  "resolutions": [
+    640,
+    1024,
+    2048
+  ],
+  "files": [
+    {
+      "file": "detector-0.data",
+      "bytes": 49946624,
+      "sha256": "0036848961a3de0222490a11fd211740cba7810e3b6477839d8426362bedd8b8"
+    },
+    {
+      "file": "detector-1.data",
+      "bytes": 49036360,
+      "sha256": "bd9d4794c6d8df0a1acfce3617bf8f70141297b7de0ee19883dab30e114e5472"
+    },
+    {
+      "file": "detector-2.data",
+      "bytes": 14211072,
+      "sha256": "7df22568a285bec413488075007f7fd5b8873ea58b6dd1749cdd95c51ecf3927"
+    },
+    {
+      "file": "detector.onnx",
+      "bytes": 215948,
+      "sha256": "1a4ed5b86d4f95a66a6ba5869546325fb1381d7262657ba9defb994165aa7209"
+    },
+    {
+      "file": "encoder-0.data",
+      "bytes": 49946624,
+      "sha256": "0036848961a3de0222490a11fd211740cba7810e3b6477839d8426362bedd8b8"
+    },
+    {
+      "file": "encoder-1.data",
+      "bytes": 48175616,
+      "sha256": "0eb3ae7158ce70c82c9c1ec6936e35bc00c343c08ff88e1557bac7acb7df429f"
+    },
+    {
+      "file": "encoder-2.data",
+      "bytes": 17519424,
+      "sha256": "a7257fe950b5fe068ad46e88812156b57a241ae9a620b13db0c2da5b2b60c7f1"
+    },
+    {
+      "file": "encoder.onnx",
+      "bytes": 177225,
+      "sha256": "39fc8200a7addf42e205771efee643286ab3392b717011b0d5e3736daa748094"
+    }
+  ],
+  "parity": [
+    {
+      "imgsz": 640,
+      "examples": 1,
+      "predictions": [
+        1,
+        37,
+        8400
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 640,
+      "examples": 3,
+      "predictions": [
+        1,
+        39,
+        8400
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 1024,
+      "examples": 2,
+      "predictions": [
+        1,
+        38,
+        21504
+      ],
+      "parity": "PASS"
+    },
+    {
+      "imgsz": 2048,
+      "examples": 1,
+      "predictions": [
+        1,
+        37,
+        86016
+      ],
+      "parity": "PASS"
+    }
+  ]
+}

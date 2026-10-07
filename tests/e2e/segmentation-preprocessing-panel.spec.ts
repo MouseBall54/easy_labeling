@@ -15,8 +15,8 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
   await expect(page.locator("#segmentationViewSrBtn")).toHaveText("AI");
   await expect(page.locator("#segmentationPreprocessSourceSelect option")).toHaveText(["Original", "AI"]);
-  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
-  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Original Processed", "AI", "Processed AI"]);
+  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
+  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
   await expect(srSettings).toBeHidden();
   await expect(processedSettings).toBeHidden();
   await expect(roiGroup).toBeVisible();
@@ -56,7 +56,7 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await expect(processedSettings).toBeHidden();
   await expect(roiGroup).toBeVisible();
   await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText([
-    "Off", "CFSR x2", "CFSR x4", "tk_r_em hrsem", "tk_r_em hrtem", "tk_r_em lrsem", "tk_r_em lrtem"
+    "Off", "CFSR x2", "CFSR x4"
   ]);
   await page.keyboard.press("Escape");
 

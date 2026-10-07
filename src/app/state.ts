@@ -25,6 +25,9 @@ export interface ImageDocumentStatus {
 export interface AppSessionState {
   imageFolderHandle: DirectoryHandle | null;
   labelFolderHandle: DirectoryHandle | null;
+  segmentationLabelFolderHandle?: DirectoryHandle | null;
+  segmentationLabelFolders?: DirectoryHandle[];
+  labelFolders: DirectoryHandle[];
   classInfoFolderHandle: DirectoryHandle | null;
   imageFiles: FileHandle[];
   classFiles: FileHandle[];
@@ -33,6 +36,7 @@ export interface AppSessionState {
   currentImageFile: FileHandle | null;
   currentImage: HTMLImageElement | null;
   classNames: Map<string, string>;
+  classColors: Map<string, string>;
   reviewState: ReviewStateDocument;
   reviewFindings: Map<string, ReviewFinding>;
   workflow: WorkflowType;
@@ -59,6 +63,7 @@ export interface AppViewState {
   persistFilterStateAcrossImageNavigation: boolean;
   resetFilterStateOnSessionReplacement: boolean;
   reviewFilter: "all" | "needs-review" | "reviewed" | "has-issues";
+  imageStatusFilter: "all" | "labeled" | "unlabeled";
   labelOnlyView: boolean;
   labelOnlyBackground: "black" | "white" | "gray";
 }
@@ -80,6 +85,7 @@ export function createInitialAppState(): AppState {
     session: {
       imageFolderHandle: null,
       labelFolderHandle: null,
+      labelFolders: [],
       classInfoFolderHandle: null,
       imageFiles: [],
       classFiles: [],
@@ -88,6 +94,7 @@ export function createInitialAppState(): AppState {
       currentImageFile: null,
       currentImage: null,
       classNames: new Map<string, string>(),
+      classColors: new Map<string, string>(),
       reviewState: createReviewStateDocument(),
       reviewFindings: new Map(),
       workflow: "detection",
@@ -113,6 +120,7 @@ export function createInitialAppState(): AppState {
       persistFilterStateAcrossImageNavigation: true,
       resetFilterStateOnSessionReplacement: true,
       reviewFilter: "all",
+      imageStatusFilter: "all",
       labelOnlyView: false,
       labelOnlyBackground: "white"
     },

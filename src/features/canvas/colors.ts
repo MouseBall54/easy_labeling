@@ -31,7 +31,17 @@ const colorPalette = [
   "#7f7f7f"
 ];
 
+let classColorOverrides: ReadonlyMap<string, string> = new Map();
+
+export function setClassColorOverrides(colors: ReadonlyMap<string, string>): void {
+  classColorOverrides = colors;
+}
+
 export function getColorForClass(labelClass: string | undefined): string {
+  return classColorOverrides.get(String(labelClass)) ?? getDefaultColorForClass(labelClass);
+}
+
+export function getDefaultColorForClass(labelClass: string | undefined): string {
   const classNumber = Number.parseInt(String(labelClass), 10);
   if (Number.isNaN(classNumber) || classNumber < 0) {
     return "#000000";
@@ -47,4 +57,15 @@ export function getColorForClassRgba(labelClass: string | undefined, opacity: nu
   const blue = Number.parseInt(color.slice(5, 7), 16);
   const alpha = Math.max(0, Math.min(1, opacity));
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+export function getContrastTextColor(color: string): "#000000" | "#ffffff" {
+  const channels = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!channels) return "#ffffff";
+  const linear = channels.slice(1).map((value) => {
+    const channel = Number.parseInt(value, 16) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? "#000000" : "#ffffff";
 }

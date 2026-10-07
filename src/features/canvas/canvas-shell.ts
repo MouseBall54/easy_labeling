@@ -198,17 +198,13 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
         return;
       }
 
-      const center = canvas.getCenter();
-      canvas.zoomToPoint(new deps.fabric.Point(center.left, center.top), newZoom);
+      canvas.zoomToPoint(new deps.fabric.Point(canvas.getWidth() / 2, canvas.getHeight() / 2), newZoom);
       syncCanvasOffset();
       deps.updateZoomDisplay();
     },
 
     zoom(factor: number): void {
-      const center = canvas.getCenter();
-      canvas.zoomToPoint(new deps.fabric.Point(center.left, center.top), canvas.getZoom() * factor);
-      syncCanvasOffset();
-      deps.updateZoomDisplay();
+      this.setZoomPercentage(String(Math.max(0.1, Math.min(20, canvas.getZoom() * factor)) * 100));
     },
 
     resetZoom(): void {

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { FakeDocument } from "../ui/test-dom.js";
 
 import { createInitialAppState } from "../../../src/app/state.js";
+import { markCurrentDocumentDirty } from "../../../src/app/document-status.js";
 import { createFileSystemAdapter } from "../../../src/bootstrap/file-system-adapter.js";
 import type { DirectoryEntryLike, DirectoryHandleLike, FileHandleLike, FileTextLike, WritableFileLike } from "../../../src/types/files.js";
 
@@ -96,7 +98,13 @@ class MockDirectoryHandle implements DirectoryHandleLike {
       this.entries.push(created);
       return created;
     }
-    throw new Error(`File not found: ${name}`);
+    throw Object.assign(new Error(`File not found: ${name}`), { name: "NotFoundError" });
+  }
+
+  async removeEntry(name: string): Promise<void> {
+    const index = this.entries.findIndex((entry) => entry.name === name);
+    if (index < 0) throw Object.assign(new Error(`File not found: ${name}`), { name: "NotFoundError" });
+    this.entries.splice(index, 1);
   }
 }
 
@@ -191,9 +199,7 @@ function createConnectedDeps() {
 
 function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
   const previousDocument = Reflect.get(globalThis, "document");
-  Reflect.set(globalThis, "document", {
-    createElement: () => ({ innerHTML: "" })
-  });
+  Reflect.set(globalThis, "document", new FakeDocument());
   return run().finally(() => {
     if (previousDocument === undefined) {
       Reflect.deleteProperty(globalThis, "document");
@@ -204,6 +210,381 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  const classRemapFixture = () => {
+    const first = new MockFileHandle("first.txt", " 0\t-0.1 0.5 0.2 0.2\r\n2 0.5 0.5 0.1 0.1\r\n");
+    const second = new MockFileHandle("second.txt", "1 1.1 0.5 0.2 0.2\n");
+    const orphan = new MockFileHandle("orphan.txt", "0 0.5 0.5 0.1 0.1");
+    const folder = new MockDirectoryHandle("labels").withFile(first).withFile(second).withFile(orphan).withFile(new MockFileHandle("empty.txt", ""));
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.labelFolders = [folder] as never;
+    state.session.imageFiles = ["first", "second", "missing", "empty"].map((name) => new MockFileHandle(`${name}.jpg`, "")) as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    return { first, second, orphan, folder, state, fileSystem, deps };
+  };
+  it("previews without writing, updates only matching labels, preserves exact coordinates/formatting and backs up originals", async () => {
+    const { first, second, orphan, folder, fileSystem } = classRemapFixture();
+    const original = await (await first.getFile()).text();
+    const secondOriginal = await (await second.getFile()).text();
+    const write = vi.spyOn(first, "createWritable");
+    const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+    expect(plan?.changedCount).toBe(3);
+    expect(plan?.fileNames).toHaveLength(4);
+    expect(write).not.toHaveBeenCalled();
+    const backupPath = await fileSystem.applyClassRemap(plan!);
+    expect(await (await first.getFile()).text()).toBe(" 1\t-0.1 0.5 0.2 0.2\r\n3 0.5 0.5 0.1 0.1\r\n");
+    expect(await (await second.getFile()).text()).toBe("2 1.1 0.5 0.2 0.2\n");
+    expect(await (await orphan.getFile()).text()).toBe("0 0.5 0.5 0.1 0.1");
+    await expect(folder.getFileHandle("missing.txt")).rejects.toThrow("not found");
+    const backup = await (await folder.getDirectoryHandle(".easy-labeling")).getDirectoryHandle(backupPath!.split("/")[1]!);
+    expect(await (await (await backup.getFileHandle("first.txt")).getFile()).text()).toBe(original);
+    expect(await (await (await backup.getFileHandle("second.txt")).getFile()).text()).toBe(secondOriginal);
+  });
+  it.each(["folder", "edit", "file"])("rejects stale class preview after %s changes before writing", async (change) => {
+    const { first, folder, state, fileSystem } = classRemapFixture();
+    const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+    const write = vi.spyOn(first, "createWritable");
+    if (change === "folder") state.session.labelFolderHandle = new MockDirectoryHandle("other") as never;
+    if (change === "edit") {
+      state.session.currentImageFile = state.session.imageFiles[0]!;
+      markCurrentDocumentDirty(state);
+    }
+    if (change === "file") await (await first.createWritable()).write("2 0.5 0.5 0.1 0.1");
+    write.mockClear();
+    await expect(fileSystem.applyClassRemap(plan!)).rejects.toThrow(/changed.*since preview/);
+    expect(write).not.toHaveBeenCalled();
+  });
+  it.each(["write", "cancel", "backup", "restore"])("preserves class data and reports correct recovery after %s failure", async (failure) => {
+    const { first, second, folder, fileSystem, deps } = classRemapFixture();
+    const originals = await Promise.all([first, second].map(async (file) => (await file.getFile()).text()));
+    const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+    const signal = new AbortController();
+    if (failure === "backup") vi.spyOn(folder, "getDirectoryHandle").mockRejectedValueOnce(new Error("Backup failed"));
+    if (["write", "restore"].includes(failure)) vi.spyOn(second, "createWritable").mockRejectedValueOnce(new Error("Write failed"));
+    if (failure === "restore") {
+      const createFirst = first.createWritable.bind(first);
+      vi.spyOn(first, "createWritable").mockImplementationOnce(createFirst).mockRejectedValueOnce(new Error("Restore failed"));
+    }
+    if (failure === "cancel") {
+      const create = second.createWritable.bind(second);
+      vi.spyOn(second, "createWritable").mockImplementationOnce(async () => { signal.abort(); return create(); });
+      expect(await fileSystem.applyClassRemap(plan!, signal.signal)).toBeNull();
+    } else await expect(fileSystem.applyClassRemap(plan!)).rejects.toThrow(failure === "restore" ? "Originals are in labels/.easy-labeling/class-remap-" : `${failure === "backup" ? "Backup" : "Write"} failed`);
+    if (failure !== "restore") expect(await Promise.all([first, second].map(async (file) => (await file.getFile()).text()))).toEqual(originals);
+    else {
+      const metadata = await folder.getDirectoryHandle(".easy-labeling");
+      const backups = []; for await (const entry of metadata.values()) backups.push(entry);
+      const backup = backups[0] as DirectoryHandleLike;
+      expect(await (await (await backup.getFileHandle("first.txt")).getFile()).text()).toBe(originals[0]);
+    }
+    expect(deps.operations.at(-1)?.finish).toHaveBeenCalledOnce();
+  });
+  it("rejects invalid results anywhere in the folder without creating backup or writing labels", async () => {
+    const { first, folder, fileSystem } = classRemapFixture();
+    const write = vi.spyOn(first, "createWritable");
+    await expect(fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: -1 })).rejects.toThrow("first.txt:");
+    expect(write).not.toHaveBeenCalled();
+    await expect(folder.getDirectoryHandle(".easy-labeling")).rejects.toThrow("not found");
+  });
+  it.each([false, true])("includes unsaved boxes in a missing current TXT and restores file absence on cancellation: %s", async (cancel) => {
+    vi.stubGlobal("HTMLImageElement", class {});
+    try {
+      const { first, folder, state, fileSystem, deps } = classRemapFixture();
+      const original = await (await first.getFile()).text();
+      Object.assign(deps.canvasController.raw.canvas, { viewportTransform: [1, 0, 0, 1, 0, 0], setViewportTransform: vi.fn(), requestRenderAll: vi.fn() });
+      Object.assign(deps.uiManager, { updateZoomDisplay: vi.fn() });
+      state.session.currentImageFile = state.session.imageFiles[2]!;
+      markCurrentDocumentDirty(state);
+      deps.canvasController.raw.getLabelsAsYolo.mockReturnValue("4 -0.1 0.5 0.2 0.2\n");
+      const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+      expect(plan?.changedCount).toBe(4);
+      const signal = new AbortController();
+      if (cancel) {
+        const getFile = folder.getFileHandle.bind(folder);
+        vi.spyOn(folder, "getFileHandle").mockImplementation(async (name, options) => {
+          const handle = await getFile(name, options);
+          if (name === "missing.txt" && options?.create) signal.abort();
+          return handle;
+        });
+      }
+      const backupPath = await fileSystem.applyClassRemap(plan!, signal.signal);
+      if (cancel) {
+        expect(backupPath).toBeNull();
+        await expect(folder.getFileHandle("missing.txt")).rejects.toThrow("not found");
+        expect(await (await first.getFile()).text()).toBe(original);
+      } else {
+        expect(await (await (await folder.getFileHandle("missing.txt")).getFile()).text()).toBe("5 -0.1 0.5 0.2 0.2\n");
+        const backup = await (await folder.getDirectoryHandle(".easy-labeling")).getDirectoryHandle(backupPath!.split("/")[1]!);
+        expect(JSON.parse(await (await (await backup.getFileHandle("created-labels.json")).getFile()).text())).toEqual(["missing.txt"]);
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  for (const action of ["save", "edit"] as const) it(`does not start an outdated review after ${action} while saving review settings`, async () => {
+    const folder = new MockDirectoryHandle("labels").withFile(new MockFileHandle("first.txt", ""));
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.imageFiles = [new MockFileHandle("first.jpg", "")] as never;
+    state.session.currentImageFile = state.session.imageFiles[0]!;
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const getDirectory = folder.getDirectoryHandle.bind(folder);
+    const reading = vi.spyOn(folder, "getDirectoryHandle").mockImplementationOnce(async (...args) => { await gate; return getDirectory(...args); });
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const settings = { ...state.session.reviewState.settings, minimumBoxSizePx: 123 };
+    const updating = fileSystem.updateReviewSettings(settings);
+    await vi.waitFor(() => expect(reading).toHaveBeenCalledOnce());
+    const saving = action === "save" ? fileSystem.saveLabels() : Promise.resolve(markCurrentDocumentDirty(state));
+    release();
+    await Promise.all([updating, saving]);
+    expect(state.session.reviewFindings.size).toBe(0);
+    expect(state.session.reviewState.settings).toEqual(settings);
+    const record = await (await (await getDirectory(".easy-labeling")).getFileHandle("review-state.json")).getFile();
+    expect(JSON.parse(await record.text()).settings).toEqual(settings);
+  });
+  for (const cancelWith of ["stop", "save", "edit", "workflow"] as const) it(`discards pending worker results after ${cancelWith} and keeps current labels usable`, async () => {
+    const posted = vi.fn();
+    const terminated = vi.fn();
+    let worker: TestWorker;
+    class TestWorker {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: ((event: { message: string }) => void) | null = null;
+      constructor() { worker = this; }
+      postMessage = posted;
+      terminate = terminated;
+    }
+    vi.stubGlobal("Worker", TestWorker);
+    try {
+      const first = new MockFileHandle("first.txt", "");
+      const folder = new MockDirectoryHandle("labels").withFile(first).withFile(new MockFileHandle("second.txt", ""));
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [new MockFileHandle("first.jpg", ""), new MockFileHandle("second.jpg", "")] as never;
+      state.session.currentImageFile = state.session.imageFiles[0]!;
+      state.session.currentImage = { width: 200, height: 100 } as HTMLImageElement;
+      state.session.reviewFindings.set("first.jpg", { issues: [], highestSeverity: null });
+      const events = new EventTarget();
+      const fileSystem = createFileSystemAdapter({ state, windowRef: { ...createWindowRef(folder), addEventListener: events.addEventListener.bind(events), removeEventListener: events.removeEventListener.bind(events) } as never, tiffRef: null });
+      const deps = createConnectedDeps();
+      deps.canvasController.raw.getLabelsAsYolo.mockReturnValue("");
+      fileSystem.connect(deps as never);
+      const scan = fileSystem.refreshReviewFindings();
+      await vi.waitFor(() => expect(posted).toHaveBeenCalledOnce());
+      const deliverLate = worker!.onmessage!;
+      if (cancelWith === "stop") deps.operations[0]!.cancel();
+      else if (cancelWith === "save") await fileSystem.saveLabels();
+      else events.dispatchEvent(new Event(`easy-labeling:${cancelWith === "edit" ? "document-status-change" : "workflow-change"}`));
+      await scan;
+      const current = state.session.reviewFindings;
+      deliverLate({ data: { id: 0, result: { issues: [{ type: "missing-class" }], highestSeverity: "warning" } } });
+      expect(state.session.reviewFindings).toBe(current);
+      expect(state.session.reviewFindings.has("second.jpg")).toBe(false);
+      expect(terminated).toHaveBeenCalled();
+      expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+      await expect((await first.getFile()).text()).resolves.toBe("");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("reports a worker failure without publishing a partial full review", async () => {
+    const posted = vi.fn();
+    const terminated = vi.fn();
+    let fail: (event: { message: string }) => void;
+    class TestWorker {
+      onmessage = null;
+      set onerror(value: (event: { message: string }) => void) { fail = value; }
+      postMessage = posted;
+      terminate = terminated;
+    }
+    vi.stubGlobal("Worker", TestWorker);
+    try {
+      const folder = new MockDirectoryHandle("labels").withFile(new MockFileHandle("first.txt", ""));
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [new MockFileHandle("first.jpg", "")] as never;
+      const previous = state.session.reviewFindings;
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+      const deps = createConnectedDeps();
+      fileSystem.connect(deps as never);
+      const failed = expect(fileSystem.refreshReviewFindings()).rejects.toThrow("Worker unavailable");
+      await vi.waitFor(() => expect(posted).toHaveBeenCalledOnce());
+      fail!({ message: "Worker unavailable" });
+      await failed;
+      expect(state.session.reviewFindings).toBe(previous);
+      expect(terminated).toHaveBeenCalledOnce();
+      expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("reuses review image dimensions only while file metadata is unchanged", async () => {
+    let width = 100;
+    let modified = 1;
+    let size = 10;
+    const decode = vi.fn();
+    class TestImage {
+      width = 0;
+      height = 100;
+      naturalWidth = 0;
+      naturalHeight = 100;
+      src = "";
+      async decode() { decode(); this.width = this.naturalWidth = width; }
+    }
+    vi.stubGlobal("Image", TestImage);
+    try {
+      const image = new MockFileHandle("image.png", "");
+      vi.spyOn(image, "getFile").mockImplementation(async () => ({ name: image.name, size, lastModified: modified, text: async () => "" }));
+      const label = new MockFileHandle("image.txt", "0 0.5 0.5 0.01 0.1");
+      const folder = new MockDirectoryHandle("label").withFile(label);
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [image as never];
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+      await fileSystem.refreshReviewFindings();
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(1);
+      width = 200;
+      modified += 1;
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(2);
+      size += 1;
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(3);
+      await (await label.createWritable()).write("");
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(3);
+      expect(state.session.reviewFindings.get(image.name)?.issues[0]?.type).toBe("empty-label");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("rejects cleanup when a queued label-folder switch changed the confirmed target", async () => {
+    const state = createInitialAppState();
+    const confirmed = new MockDirectoryHandle("confirmed");
+    const active = new MockDirectoryHandle("active");
+    state.session.labelFolderHandle = active as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(active) as never, tiffRef: null });
+    await expect(fileSystem.removeOutOfBoundsLabels(confirmed as never)).rejects.toThrow("active label folder changed");
+    expect(state.session.labelFolderHandle).toBe(active);
+  });
+
+  it("reports backup recovery instead of claiming restoration when cancellation rollback fails", async () => {
+    const original = "0 1.1 0.5 0.2 0.2\n";
+    const first = new MockFileHandle("first.txt", original);
+    const second = new MockFileHandle("second.txt", original);
+    const folder = new MockDirectoryHandle("labels").withFile(first).withFile(second);
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.imageFiles = [new MockFileHandle("first.jpg", ""), new MockFileHandle("second.jpg", "")] as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    const createFirst = first.createWritable.bind(first);
+    vi.spyOn(first, "createWritable").mockImplementationOnce(createFirst).mockRejectedValueOnce(new Error("Restore failed"));
+    const createSecond = second.createWritable.bind(second);
+    vi.spyOn(second, "createWritable").mockImplementationOnce(async () => { deps.operations[0]!.cancel(); return createSecond(); });
+    await expect(fileSystem.removeOutOfBoundsLabels(folder as never)).rejects.toThrow("Originals are in labels/.easy-labeling/outside-boxes-");
+    const metadata = await folder.getDirectoryHandle(".easy-labeling");
+    const backups = [];
+    for await (const entry of metadata.values()) backups.push(entry);
+    const backup = backups[0] as DirectoryHandleLike;
+    expect(await (await (await backup.getFileHandle("first.txt")).getFile()).text()).toBe(original);
+    expect(await (await (await backup.getFileHandle("second.txt")).getFile()).text()).toBe(original);
+    expect(deps.uiManager.notify).not.toHaveBeenCalledWith("Cleanup stopped; original label files restored.");
+  });
+
+  for (const failure of ["write", "cancel", "backup"]) it(`preserves all original labels when explicit cleanup fails during ${failure}`, async () => {
+    const original = "0 0.5 0.5 0.2 0.2\n1 1.1 0.5 0.2 0.2\n";
+    const first = new MockFileHandle("first.txt", original);
+    const second = new MockFileHandle("second.txt", original);
+    const folder = new MockDirectoryHandle("labels").withFile(first).withFile(second);
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.labelFolders = [folder] as never;
+    state.session.imageFiles = [new MockFileHandle("first.jpg", ""), new MockFileHandle("second.jpg", "")] as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    if (failure === "write") vi.spyOn(second, "createWritable").mockRejectedValueOnce(new Error("Write failed"));
+    if (failure === "backup") vi.spyOn(folder, "getDirectoryHandle").mockRejectedValueOnce(new Error("Backup failed"));
+    if (failure === "cancel") {
+      const createWritable = second.createWritable.bind(second);
+      vi.spyOn(second, "createWritable").mockImplementationOnce(async () => {
+        deps.operations[0]!.cancel();
+        return createWritable();
+      });
+      await fileSystem.removeOutOfBoundsLabels(folder as never);
+    } else {
+      await expect(fileSystem.removeOutOfBoundsLabels(folder as never)).rejects.toThrow(`${failure === "write" ? "Write" : "Backup"} failed`);
+    }
+    expect(await (await first.getFile()).text()).toBe(original);
+    expect(await (await second.getFile()).text()).toBe(original);
+    expect(state.session.labelFolderHandle).toBe(folder);
+    expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the active folder when saving edited labels before switching fails", async () => {
+    const currentLabel = new MockFileHandle("image.txt", "0 0.5 0.5 1 1");
+    vi.spyOn(currentLabel, "createWritable").mockRejectedValue(new Error("Disk is read-only"));
+    const source = new MockDirectoryHandle("source").withFile(currentLabel);
+    const target = new MockDirectoryHandle("comparison");
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = source as never;
+    state.session.labelFolders = [source, target] as never;
+    state.session.currentImageFile = new MockFileHandle("image.png", new Uint8Array([1])) as never;
+    markCurrentDocumentDirty(state);
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(target) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    await expect(fileSystem.switchLabelFolder(1)).rejects.toThrow("Disk is read-only");
+    expect(state.session.labelFolderHandle).toBe(source);
+    expect(state.session.labelFolders).toEqual([source, target]);
+    expect(deps.canvasController.raw.clear).not.toHaveBeenCalled();
+    expect(await (await currentLabel.getFile()).text()).toBe("0 0.5 0.5 1 1");
+  });
+
+  it("cancels inference without activating partial results or changing the original label source", async () => {
+    class TestImage {
+      width = 32;
+      height = 32;
+      naturalWidth = 32;
+      naturalHeight = 32;
+      src = "";
+      async decode() {}
+    }
+    vi.stubGlobal("Image", TestImage);
+    vi.stubGlobal("HTMLImageElement", TestImage);
+    try {
+      const label = new MockDirectoryHandle("label");
+      const image = new MockFileHandle("image.png", new Uint8Array([1]));
+      const dataset = new MockDirectoryHandle("dataset").withFile(image).withDirectory(label);
+      const state = createInitialAppState();
+      state.session.imageFolderHandle = dataset as never;
+      state.session.labelFolderHandle = label as never;
+      state.session.labelFolders = [label as never];
+      state.session.imageFiles = [image as never];
+      state.session.currentImageFile = image as never;
+      state.session.currentImage = new TestImage() as never;
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(dataset) as never, tiffRef: null });
+      const deps = createConnectedDeps();
+      fileSystem.connect(deps as never);
+      let finish!: () => void;
+      const inference = vi.fn(async () => {
+        await new Promise<void>((resolve) => { finish = resolve; });
+        return [];
+      });
+      const running = fileSystem.runDetectionInference({ allImages: true, modelName: "test.onnx", infer: inference });
+      await vi.waitFor(() => expect(inference).toHaveBeenCalledTimes(1));
+      deps.operations[0].cancel();
+      finish();
+      expect(await running).toBeNull();
+      expect(state.session.labelFolderHandle).toBe(label);
+      expect(state.session.labelFolders).toEqual([label]);
+      expect(deps.operations[0].finish).toHaveBeenCalledTimes(1);
+      expect(deps.uiManager.notify).toHaveBeenCalledWith(expect.stringContaining("Partial results remain"));
+      const entries = [];
+      for await (const entry of dataset.values()) entries.push(entry.name);
+      expect(entries).toContain("inference-test");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("stops a pending sample load and restores the previous session", async () => {
     const oldFolder = new MockDirectoryHandle("old-dataset");
     const sampleFolder = new MockDirectoryHandle("sample-dataset");
@@ -328,6 +709,28 @@ describe("bootstrap/file-system-adapter", () => {
 
     expect(deps.uiManager.notify).toHaveBeenCalledWith("Please select a class file first.");
     expect(deps.uiManager.showClassFileContentModal).not.toHaveBeenCalled();
+  });
+
+  it("queues class colors without losing names and keeps saved colors on write failure", async () => {
+    const file = new MockFileHandle("classes.yaml", "0: person\n1: car");
+    const state = createInitialAppState();
+    const fileSystem = createFileSystemAdapter({
+      state,
+      windowRef: createWindowRef(new MockDirectoryHandle("classes")) as never,
+      tiffRef: null
+    });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    await fileSystem.loadClassNamesFromFile(file);
+    await Promise.all([fileSystem.setClassColor("0", "#112233"), fileSystem.setClassColor("1", "#abcdef")]);
+    expect(state.session.classColors).toEqual(new Map([["0", "#112233"], ["1", "#abcdef"]]));
+    expect(state.session.classNames).toEqual(new Map([["0", "person"], ["1", "car"]]));
+    const saved = await (await file.getFile()).text();
+    vi.spyOn(file, "createWritable").mockRejectedValueOnce(new Error("Write denied"));
+    await expect(fileSystem.setClassColor("0", "#ffffff")).rejects.toThrow("Write denied");
+    expect(await (await file.getFile()).text()).toBe(saved);
+    expect(state.session.classColors.get("0")).toBe("#112233");
+    expect(deps.uiManager.updateLabelList).toHaveBeenCalled();
   });
 
   it("loads class files from the default Class Info profile before dataset-local files", async () => {

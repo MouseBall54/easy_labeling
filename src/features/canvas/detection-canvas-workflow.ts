@@ -1,9 +1,10 @@
 import { parseYoloRows, serializeRectsToYolo } from "../../domain/yolo/yolo.js";
+import { summarizeClassRemap, type ClassRemapRule } from "../../domain/class-remap.js";
 import { createBoxLayout, isPixelRectInsideImageBounds, placeBoxLayout } from "../automation/layout.js";
 import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
-import { getColorForClass as defaultGetColorForClass } from "./colors.js";
+import { getContrastTextColor, getColorForClass as defaultGetColorForClass } from "./colors.js";
 import type { CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
 import {
   createAnnotationId,
@@ -392,8 +393,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       const isEditMode = state.currentMode === "edit";
         const rect = new deps.fabric.Rect({
-          left: snapshot.left,
-          top: snapshot.top,
+          left: snapshot.boundsLeft,
+          top: snapshot.boundsTop,
           originX: "left",
           originY: "top",
           width: snapshot.width,
@@ -441,7 +442,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     canvas,
 
     getObjects(type?: string): FabricObjectLike[] {
-      return canvas.getObjects(type);
+      return canvas.getObjects(type).filter((object) => !object._isSrRoiOverlay);
     },
 
     setActiveSelection(objects: readonly FabricObjectLike[], primaryObject: FabricObjectLike | null = null): void {
@@ -484,13 +485,13 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       shell.renderAll();
     },
 
-    addLabelsFromYolo(yoloData: string): void {
+    addLabelsFromYolo(yoloData: string, replaceExisting = false): void {
       const image = state.currentImage;
       if (!image) {
         return;
       }
 
-      parseYoloRows(yoloData, image.width, image.height).forEach((row) => {
+      const rects = parseYoloRows(yoloData, image.width, image.height).map((row) => {
         const color = colorForClass(row.labelClass);
         const rect = new deps.fabric.Rect({
           left: row.rectLeft,
@@ -507,14 +508,29 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           hoverCursor: state.currentMode === "draw" ? "crosshair" : "move",
           annotationId: createAnnotationId(),
           labelClass: String(row.labelClass),
+          // Simple boxes do not need Fabric's minimum 256px object cache.
+          objectCaching: false,
           originalYolo: buildOriginalYolo(row)
         });
 
         rect.setControlVisible("mtr", false);
-        canvas.add(rect);
-        this.drawLabelText(rect);
+        return rect;
       });
+      const batchCanvas = canvas as typeof canvas & { renderOnAddRemove?: boolean };
+      const previousRendering = batchCanvas.renderOnAddRemove;
+      batchCanvas.renderOnAddRemove = false;
+      try {
+        if (replaceExisting) {
+          canvas.discardActiveObject();
+          this.getObjects("rect").filter(isRectObject).forEach((rect) => {
+            if (rect._labelText) canvas.remove(rect._labelText);
+            canvas.remove(rect);
+          });
+        }
+        for (let start = 0; start < rects.length; start += 1024) canvas.add(...rects.slice(start, start + 1024));
+      } finally { batchCanvas.renderOnAddRemove = previousRendering; }
       this.updateAllLabelTexts();
+      scheduleLabelLayout();
     },
 
     getLabelsAsYolo(): string {
@@ -601,7 +617,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       if (!image) {
         throw new Error("Load an image before applying a layout");
       }
-      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height });
+      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height }, options);
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
       const instanceId = typeof globalThis.crypto?.randomUUID === "function"
@@ -615,16 +631,18 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       const createdRects = placedBoxes.map((box) => {
         const color = colorForClass(box.classId);
+        // Layouts store the outer bounds, including the visible stroke.
+        const strokeWidth = Math.min(2, box.width / 2, box.height / 2);
         const rect = new deps.fabric.Rect({
           left: box.x,
           top: box.y,
           originX: "left",
           originY: "top",
-          width: box.width,
-          height: box.height,
+          width: box.width - strokeWidth,
+          height: box.height - strokeWidth,
           fill: `${color}33`,
           stroke: color,
-          strokeWidth: 2,
+          strokeWidth,
           strokeUniform: true,
           selectable: state.currentMode === "edit",
           hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -668,7 +686,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       if (!image) {
         throw new Error("Load an image before applying a layout");
       }
-      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height });
+      const placedBoxes = placeBoxLayout(layout, anchor, { width: image.width, height: image.height }, options);
       const before = captureRectSnapshots();
       const selectionBefore = captureSelectionSnapshot();
       const instanceId = typeof globalThis.crypto?.randomUUID === "function"
@@ -689,16 +707,17 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           const chunk = placedBoxes.slice(start, start + chunkSize);
           chunk.forEach((box) => {
             const color = colorForClass(box.classId);
+            const strokeWidth = Math.min(2, box.width / 2, box.height / 2);
             const rect = new deps.fabric.Rect({
               left: box.x,
               top: box.y,
               originX: "left",
               originY: "top",
-              width: box.width,
-              height: box.height,
+              width: box.width - strokeWidth,
+              height: box.height - strokeWidth,
               fill: `${color}33`,
               stroke: color,
-              strokeWidth: 2,
+              strokeWidth,
               strokeUniform: true,
               selectable: state.currentMode === "edit",
               hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -1032,6 +1051,13 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       this.renderAll();
     },
 
+    refreshClassColors(): void {
+      this.getObjects("rect").filter(isRectObject).forEach((rect) => {
+        rect.set({ fill: `${colorForClass(rect.labelClass)}33` });
+      });
+      this.highlightSelection();
+    },
+
     startDrawing(pointer: CanvasPoint): void {
       if (state.currentMode !== "draw" || !state.currentImage) {
         return;
@@ -1261,7 +1287,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         fontSize: state.labelFontSize,
         fontFamily: "'Segoe UI', sans-serif",
         fontWeight: "600",
-        fill: "#ffffff",
+        fill: getContrastTextColor(String(rect.stroke)),
         backgroundColor: rect.stroke,
         padding: 3,
         selectable: false,
@@ -1292,7 +1318,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         originY: "bottom",
         fontSize: state.labelFontSize,
         backgroundColor: rect.stroke,
-        fill: "#ffffff",
+        fill: getContrastTextColor(String(rect.stroke)),
         visible: workflowActive && state.showLabelsOnCanvas && rect.visible !== false
       });
       rect._labelText._labelLayoutVisible = true;
@@ -1343,6 +1369,10 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         const layoutVisible = Boolean(placement?.visible);
         text._labelLayoutVisible = layoutVisible;
         text._labelRepresentation = placement?.representation ?? "hidden";
+        if (!layoutVisible) {
+          text.set("visible", false);
+          return;
+        }
         text.set({
           text: placement?.text ?? "",
           left: placement?.left ?? 0,
@@ -1353,7 +1383,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           fontFamily: "'Segoe UI', sans-serif",
           fontWeight: placement?.representation === "full" ? "600" : "700",
           padding: 3,
-          fill: "#ffffff",
+          fill: getContrastTextColor(String(rect.stroke)),
           backgroundColor: rect.stroke,
           visible: workflowActive && rect.visible !== false && layoutVisible
         });
@@ -1486,6 +1516,28 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
 
       deleteRects(rectsToDelete);
+    },
+
+    remapLabelClasses(rule: ClassRemapRule) {
+      const rects = canvas.getObjects("rect").filter(isRectObject);
+      // Validate every resulting ID before mutating any box; swaps use the original IDs.
+      const summary = summarizeClassRemap(rects.map((rect) => rect.labelClass ?? "0"), rule);
+      if (!summary.changedCount) return summary;
+      const mapping = new Map(summary.changes.map(({ from, to }) => [from, to]));
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      for (const rect of rects) {
+        const to = mapping.get(String(Number(rect.labelClass ?? "0")));
+        if (to === undefined) continue;
+        rect.set("labelClass", to);
+        const color = colorForClass(to);
+        rect.set({ fill: `${color}33`, stroke: color });
+        this.updateLabelText(rect);
+      }
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({ before, after: captureRectSnapshots(), selectionBefore, selectionAfter: captureSelectionSnapshot() });
+      return summary;
     },
 
     setSelectedLabelClass(classId: string): boolean {

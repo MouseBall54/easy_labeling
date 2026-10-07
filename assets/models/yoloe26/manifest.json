@@ -1,0 +1,25 @@
+{
+  "format": "onnx-visual-prompt-v1",
+  "models": [
+    {
+      "model": "yoloe-26n-seg",
+      "size": "n",
+      "bytes": 23390696
+    },
+    {
+      "model": "yoloe-26s-seg",
+      "size": "s",
+      "bytes": 85929737
+    },
+    {
+      "model": "yoloe-26m-seg",
+      "size": "m",
+      "bytes": 193953143
+    },
+    {
+      "model": "yoloe-26l-seg",
+      "size": "l",
+      "bytes": 229228893
+    }
+  ]
+}

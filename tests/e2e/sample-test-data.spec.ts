@@ -27,10 +27,10 @@ test("bundled sample test loads labeled cars and applies the prepared template l
       image: api?.getCurrentImageName?.() ?? "",
       boxes: api?.getRectCount?.() ?? -1
     };
-  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 52 });
+  }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 207 });
 
   await expect(page.locator("#image-list [data-file-name]")).toHaveCount(17);
-  await expect(page.locator("#class-file-select option")).toContainText(["classes.yaml"]);
+  await expect(page.locator('#class-file-select option[value="classes.yaml"]')).toHaveText("classes");
   await expect(page.locator("#boxLayoutSelect option")).toHaveCount(2);
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(3);
   await expect(page.locator("#boxLayoutSelect")).toHaveValue("sample-color-grid-layout");
@@ -47,6 +47,8 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#detectionAutomationInputSelect").selectOption("original");
   await page.locator("#taskAnnotateBtn").click();
   await page.locator("#inspectorAnnotationTabBtn").click();
+  // Large annotation sets start collapsed; expand the class containing box #1.
+  await page.locator('[data-ui="label-group-header"][data-group-class="2"]').click();
   const firstAnnotation = page.locator('[data-ui="label-list-item"]').first();
   await expect(firstAnnotation).toContainText("#1");
   await firstAnnotation.focus();
@@ -82,11 +84,11 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   };
 
   await page.locator('#image-list [data-file-name="sample_2.jpg"]').click();
-  await expectSampleImage("sample_2.jpg", 92);
+  await expectSampleImage("sample_2.jpg", 100);
   await page.locator('#image-list [data-file-name="sample_3.jpg"]').click();
-  await expectSampleImage("sample_3.jpg", 59);
+  await expectSampleImage("sample_3.jpg", 157);
   await page.locator('#image-list [data-file-name="sample_1.jpg"]').click();
-  await expectSampleImage("sample_1.jpg", 52);
+  await expectSampleImage("sample_1.jpg", 207);
 
   const inspectorTracks = await page.locator("#detectionWorkflowPanel .inspector-tabs").evaluate((element) => {
     return getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat);
@@ -113,7 +115,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#templatePresetSelect").selectOption("sample-layout-preset");
   await expect(page.locator("#templateNameInput")).toHaveValue("Sample Pink Anchor + Layout");
   await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("min", "1");
-  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("max", "1000");
+  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("max", "3000");
   await expect(page.locator("#templateWorkspaceFitBtn")).toBeVisible();
   await expect.poll(async () => Number(await page.locator("#templateWorkspaceZoomInput").inputValue()))
     .toBeLessThan(100);
@@ -159,13 +161,13 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(56);
+  })).toBe(211);
   await page.locator('[data-ui="history-undo"]').click();
-  await expectSampleImage("sample_1.jpg", 52);
+  await expectSampleImage("sample_1.jpg", 207);
   await page.locator('[data-ui="history-redo"]').click();
-  await expectSampleImage("sample_1.jpg", 56);
+  await expectSampleImage("sample_1.jpg", 211);
   await page.locator('[data-ui="history-undo"]').click();
-  await expectSampleImage("sample_1.jpg", 52);
+  await expectSampleImage("sample_1.jpg", 207);
 
   await page.locator("#taskAutomateBtn").click();
   await page.locator("#openTemplateMatchingBtn").click();
@@ -202,7 +204,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(56);
+  })).toBe(211);
 
   await page.locator('label[for="templateOutputMultipleRadio"]').click();
   await page.locator("#testTemplateMatchBtn").click();
@@ -213,9 +215,9 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#assignTemplateMatchClassBtn").click();
   await expect(page.locator("#templateSettingsError")).toContainText("0 or a positive whole number");
   await expect(page.locator("#templateMultipleClassIdInput")).toHaveClass(/is-invalid/);
-  await page.locator("#templateMultipleClassIdInput").fill("7");
+  await page.locator("#templateMultipleClassIdInput").fill("14");
   await page.locator("#assignTemplateMatchClassBtn").click();
-  await expect(page.locator('[data-testid="template-match-candidate-0"] .template-match-class-badge')).toHaveText("Class 7");
+  await expect(page.locator('[data-testid="template-match-candidate-0"] .template-match-class-badge')).toHaveText("Class 14");
   await expect(page.locator("#templateSettingsError")).toBeHidden();
   await page.locator("#templateWorkspaceZoomInput").evaluate((element) => {
     const input = element as HTMLInputElement;
@@ -294,34 +296,34 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await expect(page.locator("#selectedAnnotationCount")).toHaveText("4");
   await expect(page.locator('[data-ui="history-undo"]')).toBeEnabled();
   await page.locator('[data-ui="history-undo"]').click();
-  await expectSampleImage("sample_1.jpg", 52);
+  await expectSampleImage("sample_1.jpg", 207);
   await page.locator("#taskAutomateBtn").click();
   await page.locator("#runAutomationCurrentBtn").click();
-  await expectSampleImage("sample_1.jpg", 56);
+  await expectSampleImage("sample_1.jpg", 211);
   await page.locator("#appBrand").click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(56);
+  })).toBe(211);
   await expect(page.locator('[data-ui="history-undo"]')).toBeEnabled();
 
   await page.locator('[data-ui="history-undo"]').click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(52);
+  })).toBe(207);
   await page.locator('[data-ui="history-redo"]').click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(56);
+  })).toBe(211);
   await page.locator('[data-ui="history-undo"]').click();
   await expect.poll(async () => page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi") as { getRectCount?: () => number } | undefined;
     return api?.getRectCount?.() ?? -1;
-  })).toBe(52);
+  })).toBe(207);
   await expect(page.locator("#documentStatus")).toContainText("Unsaved changes");
-  await page.locator("#taskFilesBtn").click();
+  await page.locator("#taskAnnotateBtn").click();
   await page.locator("#saveLabelsBtn").click();
   await expect(page.locator("#documentStatus")).toContainText("Saved");
 

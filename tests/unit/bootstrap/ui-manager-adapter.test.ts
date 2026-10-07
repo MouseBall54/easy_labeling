@@ -141,6 +141,10 @@ class FakeElement {
     return child;
   }
 
+  contains(node: FakeElement | null | undefined): boolean {
+    return this === node || this.children.some((child) => child.contains(node));
+  }
+
   append(...children: FakeElement[]): void {
     children.forEach((child) => {
       this.appendChild(child);
@@ -233,10 +237,6 @@ function createElements() {
   imageSearchInput.value = "";
   const classSearchInput = new FakeElement("input");
   classSearchInput.value = "";
-  const showLabeledCheckbox = new FakeElement("input");
-  showLabeledCheckbox.checked = true;
-  const showUnlabeledCheckbox = new FakeElement("input");
-  showUnlabeledCheckbox.checked = true;
   const segmentationMaskVisibilityToggle = new FakeElement("input");
   segmentationMaskVisibilityToggle.checked = true;
   const segmentationMaskOpacitySlider = new FakeElement("input");
@@ -247,8 +247,6 @@ function createElements() {
   segmentationEdgeGlowSlider.value = "70";
   const segmentationToolSizeSlider = new FakeElement("input");
   segmentationToolSizeSlider.value = "6";
-  const taskFilesBtn = new FakeElement("button");
-  taskFilesBtn.dataset.task = "files";
   const taskAnnotateBtn = new FakeElement("button");
   taskAnnotateBtn.dataset.task = "annotate";
   const taskSegmentationBtn = new FakeElement("button");
@@ -281,8 +279,7 @@ function createElements() {
     imageList: new FakeElement("div"),
     imageSearchInput,
     classSearchInput,
-    showLabeledCheckbox,
-    showUnlabeledCheckbox,
+    imageStatusFilterBtn: new FakeElement("button"),
     reviewFilterSelect: new FakeElement("select"),
     reviewQueueControls: new FakeElement("div"),
     reviewIssueList: new FakeElement("div"),
@@ -311,6 +308,8 @@ function createElements() {
     imageCountBadge: new FakeElement("span"),
     datasetConnectionStatus: new FakeElement("span"),
     refreshDatasetBtn: new FakeElement("button"),
+    selectImageFolderBtn: new FakeElement("button"),
+    segmentationPaintClassList: new FakeElement("div"),
     selectLabelFolderBtn: new FakeElement("button"),
     prevImageBtn: new FakeElement("button"),
     nextImageBtn: new FakeElement("button"),
@@ -343,7 +342,6 @@ function createElements() {
     duplicateSelectionBtn: new FakeElement("button"),
     hideSelectionBtn: new FakeElement("button"),
     deleteSelectionBtn: new FakeElement("button"),
-    taskFilesBtn,
     taskAnnotateBtn,
     taskSegmentationBtn,
     taskSuperpixelBtn,
@@ -781,6 +779,10 @@ describe("bootstrap/ui-manager-adapter operation status", () => {
     manager.hideWorkspaceStandby();
     expect(elements.workspaceStandbyPanel.hidden).toBe(true);
     expect(documentRef.body.classList.contains("workspace-standby-active")).toBe(false);
+    manager.startWorkspaceStandby("Preparing dataset", "Checking required features");
+    manager.finishWorkspaceStandby("ready", "Ready");
+    expect(elements.workspaceStandbyPanel.hidden).toBe(true);
+    expect(elements.loadingOverlay.classList.contains("show")).toBe(false);
   });
 
   it("shows progress and aborts the active operation from the stop button", () => {
@@ -830,19 +832,37 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     renderWorkflowPanelsMock.mockClear();
   });
 
+  it("builds quality issue rows only when Review is visible while retaining the findings", () => {
+    const { manager, state, elements } = createManagerWithRects({ rects: [] });
+    for (const name of ["reviewStatusBadge", "markReviewedBtn", "markNeedsReviewBtn", "reviewMinimumBoxSizeInput", "reviewDuplicateIouInput", "reviewRequiredClassesInput", "saveReviewRulesBtn", "reviewQueueSummary", "previousReviewIssueBtn", "nextReviewIssueBtn"]) Reflect.set(elements, name, new FakeElement("div"));
+    state.session.currentImageFile = { name: "image.jpg" } as FileSystemFileHandle;
+    const finding = { issues: [{ type: "empty-label" as const, severity: "warning" as const, message: "No detection labels", rectIndexes: [] }], highestSeverity: "warning" as const };
+    state.session.reviewFindings.set("image.jpg", finding);
+    manager.setActiveTask("annotate");
+    manager.renderReviewPanel();
+    expect(elements.reviewIssueList.children).toHaveLength(0);
+    manager.setActiveTask("review");
+    manager.renderReviewPanel();
+    expect(elements.reviewIssueList.children).toHaveLength(1);
+    manager.setActiveTask("annotate");
+    manager.renderReviewPanel();
+    expect(elements.reviewIssueList.children).toHaveLength(0);
+    expect(state.session.reviewFindings.get("image.jpg")).toBe(finding);
+  });
+
   it("keeps the left workspace selected while tools change the detection inspector", () => {
     const { manager, elements } = createManagerWithRects({ rects: [] });
 
-    manager.setActiveTask("files");
+    manager.setActiveTask("annotate");
     expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
-    expect(elements.leftPanel.classList.contains("task-focus")).toBe(true);
-    expect(elements.taskFilesBtn.classList.contains("active")).toBe(true);
+    expect(elements.leftPanel.classList.contains("task-focus")).toBe(false);
+    expect(elements.taskAnnotateBtn.classList.contains("active")).toBe(true);
 
     manager.setActiveTask("automate");
     expect(elements.leftPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("collapsed")).toBe(false);
     expect(elements.rightPanel.classList.contains("task-focus")).toBe(true);
-    expect(elements.taskFilesBtn.classList.contains("active")).toBe(true);
+    expect(elements.taskAnnotateBtn.classList.contains("active")).toBe(true);
     expect(elements.inspectorAutomationPane.hidden).toBe(false);
     expect(elements.taskAutomateBtn.classList.contains("active")).toBe(true);
     expect(elements.inspectorTitle.textContent).toBe("Automation Workspace");
@@ -850,7 +870,7 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
 
     manager.setActiveTask("detection-display");
     manager.setInspectorTab("transform");
-    expect(elements.taskFilesBtn.classList.contains("active")).toBe(false);
+    expect(elements.taskAnnotateBtn.classList.contains("active")).toBe(false);
     expect(elements.inspectorTransformPane.hidden).toBe(false);
     expect(elements.taskAutomateBtn.classList.contains("active")).toBe(false);
     expect(elements.inspectorTitle.textContent).toBe("Annotation Inspector");
@@ -861,7 +881,7 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     const { manager, elements } = createManagerWithRects({ rects: [] });
 
     elements.editModeBtn.checked = true;
-    manager.setActiveTask("files");
+    manager.setActiveTask("annotate");
     manager.setInspectorTab("automation");
     manager.setActiveTask("preprocessing");
     manager.setActiveTask("review");

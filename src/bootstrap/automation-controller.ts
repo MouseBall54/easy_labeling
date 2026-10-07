@@ -384,6 +384,8 @@ export function createAutomationController(input: {
     elements.layoutEditorModeBadge.textContent = layout ? "Editing" : "New";
     elements.layoutEditorModeBadge.dataset.state = layout ? "editing" : "new";
     elements.layoutCaptureSummary.textContent = `Selected: ${counts.selected} / Total: ${counts.all} · Capturing: ${captureCount}`;
+    elements.updateBoxLayoutBtn.textContent = layout ? `Recapture ${layout.boxes.length} → ${captureCount} boxes` : "Recapture boxes";
+    elements.updateBoxLayoutBtn.title = "Replace this layout's saved boxes with labels from the capture scope. Use Rename to change only its name.";
     elements.saveBoxLayoutBtn.disabled = layout !== null || !hasName || captureCount === 0;
     elements.updateBoxLayoutBtn.disabled = layout === null || !hasName || captureCount === 0;
     elements.duplicateBoxLayoutBtn.disabled = layout === null;
@@ -579,7 +581,8 @@ export function createAutomationController(input: {
       });
       try {
         await yieldToUi();
-        result = await applyInBatches(layout, { ...layout.sourceAnchor }, {
+        result = await applyInBatches.call(input.canvasController.raw, layout, { ...layout.sourceAnchor }, {
+          preserveOutOfBounds: true,
           signal: operation.signal,
           onProgress: (update) => operation.update(update)
         });
@@ -588,7 +591,7 @@ export function createAutomationController(input: {
         operation.finish();
       }
     } else {
-      result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor });
+      result = input.canvasController.raw.applyBoxLayout(layout, { ...layout.sourceAnchor }, { preserveOutOfBounds: true });
     }
     layoutGhostVisible = false;
     clearLayoutGhostPreview();
@@ -1031,8 +1034,8 @@ export function createAutomationController(input: {
     }
     elements.templateMatchScore.textContent = outputMode === "multiple-detection-boxes"
       ? `${result.matches.length} match${result.matches.length === 1 ? "" : "es"}`
-      : `${(result.score * 100).toFixed(2)}%`;
-    elements.templateMatchCoordinates.textContent = `Best ${(result.score * 100).toFixed(2)}% at X ${result.x}, Y ${result.y}`;
+      : `${accepted ? "1 match" : "No target"} · ${(result.score * 100).toFixed(2)}%`;
+    elements.templateMatchCoordinates.textContent = `X ${result.x} · Y ${result.y} · ${result.width} × ${result.height}`;
     elements.templateMatchTimings.textContent = `OpenCV init ${result.timings.engineInitializationMs.toFixed(1)} ms | Match ${result.timings.matchingMs.toFixed(1)} ms | Worker ${result.timings.workerTotalMs.toFixed(1)} ms | Round trip ${result.timings.roundTripMs.toFixed(1)} ms${result.templateCacheHit ? " | Template cache hit" : ""}`;
     elements.templateMatchScore.classList.toggle("text-danger", !accepted || (outputMode === "multiple-detection-boxes" && result.matches.length === 0));
     elements.templateMatchScore.classList.toggle("text-success", accepted && (outputMode !== "multiple-detection-boxes" || result.matches.length > 0));

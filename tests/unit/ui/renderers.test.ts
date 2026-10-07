@@ -54,6 +54,7 @@ describe("ui/renderers", () => {
     expect(selectElement.children[1]?.disabled).toBe(true);
     expect(selectElement.children[1]?.textContent).toBe("──────────");
     expect(selectElement.children.slice(2).map((child) => child.value)).toEqual(["2.yaml", "10.yaml"]);
+    expect(selectElement.children.slice(2).map((child) => child.textContent)).toEqual(["2", "10"]);
     expect(selectElement.selectedIndex).toBe(-1);
   });
 
@@ -122,6 +123,20 @@ describe("ui/renderers", () => {
     expect(segmentationListElement.children[0]?.children).toHaveLength(3);
     expect(segmentationListElement.children[0]?.dataset.reviewSeverity).toBe("none");
   });
+
+  it("shows unchecked labels as pending rather than zero or missing, including issue filters", () => {
+    const element = new FakeElement("div");
+    const rendered = renderImageList({ imageListElement: element as unknown as HTMLElement,
+      imageFiles: [fileHandle("unknown.jpg"), fileHandle("empty.jpg")],
+      imageWorkflowStatus: new Map([["empty.jpg", workflowStatus()]]),
+      reviewFindings: new Map([["empty.jpg", { issues: [], highestSeverity: null }]]),
+      activeWorkflow: "detection", currentImageFile: null, searchTerm: "", showLabeled: true, showUnlabeled: false, reviewFilter: "has-issues" });
+    expect(rendered.map(file => file.name)).toEqual(["unknown.jpg"]);
+    expect(element.children[0]?.dataset.status).toBe("detection-pending");
+    expect(element.children[0]?.dataset.reviewSeverity).toBe("pending");
+    expect(element.children[0]?.children[3]?.textContent).toBe("…");
+    expect(element.children[0]?.children[3]?.getAttribute("aria-label")).toBe("Labels not checked yet");
+  });
   it("toggles loading overlay show class", () => {
     const loadingOverlayElement = new FakeElement("div");
 
@@ -148,7 +163,7 @@ describe("ui/renderers", () => {
     });
 
     const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
-    const classButtons = labelFiltersElement.children.filter((child) => child.dataset.ui === "filter-class");
+    const classButtons = labelFiltersElement.querySelectorAll('[data-ui="filter-class"]');
 
     expect(allButton?.dataset.testid).toBe("filter-all");
     expect(classButtons).toHaveLength(2);
@@ -200,7 +215,7 @@ describe("ui/renderers", () => {
     });
 
     const allButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-all");
-    const classButton = labelFiltersElement.children.find((child) => child.dataset.ui === "filter-class" && child.dataset.labelClass === "2");
+    const classButton = labelFiltersElement.querySelectorAll('[data-ui="filter-class"]').find((child) => child.dataset.labelClass === "2");
 
     allButton?.dispatch("click");
     classButton?.dispatch("click");
@@ -221,7 +236,7 @@ describe("ui/renderers", () => {
       getDisplayNameForClass: (labelClass) => `Class ${labelClass}`
     });
 
-    const unlabeledButton = labelFiltersElement.children.find(
+    const unlabeledButton = labelFiltersElement.querySelectorAll('[data-ui="filter-class"]').find(
       (child) => child.dataset.ui === "filter-class" && child.dataset.filterKey === UNLABELED_FILTER_KEY
     );
 

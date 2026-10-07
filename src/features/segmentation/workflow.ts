@@ -375,7 +375,7 @@ export function createSegmentationCanvasWorkflow(
   const renderSrRoiPreview = (input: SegmentationImageInput): boolean => {
     removeSrRoiPreview();
     const rect = input.descriptor.originalRoi;
-    if (!workflowActive || !rect) return false;
+    if (!rect) return false;
     const preview = new deps.fabric.Image(input.source, {
       left: rect.x,
       top: rect.y,
@@ -405,7 +405,7 @@ export function createSegmentationCanvasWorkflow(
 
   const renderSrRoiOverlay = (): void => {
     removeSrRoiOverlay();
-    if (!workflowActive || !srRoi) return;
+    if (!srRoi) return;
     const zoom = Math.max(0.01, canvas.getZoom());
     srRoiOverlayObject = new deps.fabric.Rect({
       left: srRoi.x,
@@ -422,6 +422,7 @@ export function createSegmentationCanvasWorkflow(
       evented: false,
       hoverCursor: "crosshair"
     });
+    srRoiOverlayObject._isSrRoiOverlay = true;
     canvas.add(srRoiOverlayObject);
     canvas.requestRenderAll();
   };
@@ -1367,6 +1368,11 @@ export function createSegmentationCanvasWorkflow(
     },
 
     updateAllLabelTexts(): void {
+      renderAiPromptOverlay();
+    },
+
+    refreshClassColors(): void {
+      requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
       renderAiPromptOverlay();
     },
 

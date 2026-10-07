@@ -8,6 +8,8 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 
 > 기본 문서 언어는 한국어입니다.
 
+UI·UX 개선을 이어서 작업할 때는 [진행 기록](docs/UI_UX_PROGRESS_KO.md)과 [점검 보고서](docs/UI_UX_AUDIT_20261006_KO.md)를 먼저 확인하세요. 항목별 상태·검증·다음 단계와 변경 이력을 기록합니다.
+
 ## 바로 사용하기
 
 - 서비스 URL: **https://mouseball54.github.io/easy_labeling/**
@@ -16,6 +18,8 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 
 ## 로컬 실행
 
+YOLOE-26 ONNX 버전의 사용법과 모델 갱신 방법은 [YOLOE-26 GPU/CPU 안내](docs/YOLOE26_GPU_KO.md)를 참고하세요. 일반 실행과 설치형 앱은 Python 서비스 없이 동작합니다.
+
 - 의존성 설치: `npm install`
 - 일반 실행: `npm start`
 - 개발 모드(빌드 watch + 로컬 서버): `npm run dev`
@@ -23,10 +27,23 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 
 ## Windows 설치형 앱(Electron)
 
+개발 PC에 Node.js 22.12 이상을 준비하고, 프로젝트 루트에서 `npm ci`로 빌드 의존성을 설치합니다. 만들 설치 버전에 맞춰 아래 명령을 선택하세요.
+
+| 설치 버전 | 설치파일 빌드 명령 | 출력 위치 | YOLOE-26 모델 |
+| --- | --- | --- | --- |
+| 일반 버전 (2.1.1) | `npm run electron:dist:win` | `release/` | 제외 |
+| YOLOE-26 버전 (2.2.1) | `npm run electron:dist:yoloe:win` | `release/yoloe26/` | N/S/M/L ONNX 모델 모두 포함 |
+
+현재 설정으로 빌드하면 YOLOE-26 설치파일 이름은 `Easy-Labeling-YOLOE26-Setup-2.2.1-x64.exe`입니다. 빌드 명령은 Git에 포함된 ONNX 모델을 검증하고 설치파일에 넣습니다. 모델 다운로드나 Python을 통한 변환은 필요하지 않습니다.
+
+이번 소스 버전에는 Detection 다중 붙여넣기 위치·선택 묶음 수정, 클래스 색 편집·저장, 팝업 헤더 드래그 이동이 포함됩니다. 소스 검증과 새 설치파일 제작·검증은 별개이며 [진행 기록의 U24~U26](docs/UI_UX_PROGRESS_KO.md#추가-결함-u24--detection-다중-선택-붙여넣기)에 완료 기준과 결과를 기록했습니다.
+
+2.1.1 / YOLOE 2.2.1에서는 두 Layout Apply 버튼이 이미지 밖 박스도 보존합니다. 저장 후에도 유지하며 기존 Remove outside boxes 버튼으로 정리할 수 있습니다. [U38 검증 기록](docs/UI_UX_PROGRESS_KO.md#추가-요구-u38--layout-적용-시-경계-밖-박스-보존)을 참고하세요.
+
+설치 후에는 별도 Python, PyTorch, npm, CUDA Toolkit 설치나 모델 다운로드 없이 실행합니다. YOLOE-26은 GPU를 사용할 수 있으면 WebGPU로 실행하고, 사용할 수 없으면 CPU/WASM으로 실행합니다. 모델을 교체하기 위한 개발자용 내보내기 절차는 [YOLOE-26 안내](docs/YOLOE26_GPU_KO.md#모델을-교체하는-개발자만-필요한-내보내기)를 참고하세요.
+
 - Electron 개발 실행: `npm run electron:dev`
-- Windows 실행 파일 디렉터리(설치 없이): `npm run electron:pack`
-- Windows 설치파일(NSIS `.exe`): `npm run electron:dist:win`
-- 설치파일 출력 경로: `release/`
+- 일반 버전 Windows 실행 파일 디렉터리(설치 없이): `npm run electron:pack`
 
 > 현재 설정은 `x64` 타깃, 무서명(Unsigned) 빌드입니다.
 > 브라우저 `showDirectoryPicker`는 Electron preload 폴리필로 동작합니다.
@@ -44,6 +61,7 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 ### 2) 2개 워크플로우 탭
 
 - 상단 탭에서 `Detection / Segmentation` 전환
+- 왼쪽 `Annotate`(Detection) / `Mask`(Segmentation)에서 데이터셋 열기, 라벨 폴더 연결, 클래스 파일 관리와 편집을 함께 진행합니다. 별도 Files 탭은 통합했습니다. `Labeled / Unlabeled`는 함께 켜거나 끌 수 있는 이미지 상태 필터입니다.
 
 ### 3) 공통 편의 기능
 
@@ -101,6 +119,8 @@ Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 �
 - 클래스 정보 폴더 로드(`.yaml`/`.yml`)
 - 클래스 파일 선택 전환
 - 클래스 파일 생성 / 편집 모달 지원
+- Detection의 `Classes → Change label class IDs`에서 현재 이미지 전체 또는 활성 라벨 폴더의 전체 이미지에 `+3` / `-3` 같은 정수 이동과 `0 → 2`, `2 → 0` 같은 번호별 교환·병합을 적용합니다. `Preview changes`로 변경 개수를 확인한 뒤 `Apply changes`를 누릅니다. 현재 이미지는 Undo 후 Save가 가능하며, 폴더 전체는 원본 TXT를 `.easy-labeling/class-remap-*`에 백업하고 저장합니다. [U39 검증 기록](docs/UI_UX_PROGRESS_KO.md#추가-요구-u39--라벨-클래스-번호-일괄-변경)을 참고하세요.
+- 기본 `Remap IDs` 목록은 현재 이미지의 클래스 번호를 숫자 순으로 채우며 `Original ID = New ID`로 시작합니다. `Count`는 숨긴 클래스와 경계 밖 박스를 포함한 현재 이미지의 개수입니다. 바꿀 `New ID`만 수정하면 됩니다.
 
 ---
 

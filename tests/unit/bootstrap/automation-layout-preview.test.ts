@@ -94,6 +94,19 @@ describe("automation layout preview", () => {
     preview.renderGhost();
     expect(ghostCanvas.context.strokeRect).not.toHaveBeenCalled();
     expect(elements.layoutPlacementNotice.textContent).toContain("preview hidden");
+
+    preview.bind();
+    const wheel = previewCanvas.canvas.addEventListener.mock.calls.find(([type]) => type === "wheel")![1] as (event: WheelEvent) => void;
+    elements.layoutPreviewZoomInput.value = "2999";
+    wheel({ ctrlKey: true, deltaY: -100, preventDefault: vi.fn() } as unknown as WheelEvent);
+    preview.renderLibraryPreview();
+    expect(elements.layoutPreviewZoomInput.value).toBe("3000");
+    expect(elements.layoutPreviewZoomValue.textContent).toBe("3000%");
+    expect(previewCanvas.context.strokeRect.mock.lastCall![2]).toBeCloseTo(width! * 30);
+    wheel({ ctrlKey: true, deltaY: -100, preventDefault: vi.fn() } as unknown as WheelEvent);
+    expect(elements.layoutPreviewZoomInput.value).toBe("3000");
+    wheel({ ctrlKey: true, deltaY: 100, preventDefault: vi.fn() } as unknown as WheelEvent);
+    expect(Number(elements.layoutPreviewZoomInput.value)).toBeLessThan(3000);
   });
 
   it("renders dense collision warnings without comparing every box pair", () => {

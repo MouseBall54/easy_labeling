@@ -1,6 +1,6 @@
 import type { AutomationPreset, ExistingLabelsPolicy } from "./types.js";
 
-export type BatchItemState = "success" | "failed" | "skipped";
+export type BatchItemState = "success" | "failed" | "skipped" | "no-match";
 
 export interface BatchProcessOutcome {
   state: BatchItemState;
@@ -28,6 +28,7 @@ export interface BatchSummary {
   success: number;
   failed: number;
   skipped: number;
+  noMatch: number;
   cancelled: boolean;
   items: BatchItemResult[];
 }
@@ -54,6 +55,7 @@ function createSummary(total: number): BatchSummary {
     success: 0,
     failed: 0,
     skipped: 0,
+    noMatch: 0,
     cancelled: false,
     items: []
   };
@@ -62,7 +64,8 @@ function createSummary(total: number): BatchSummary {
 function appendResult(summary: BatchSummary, result: BatchItemResult): void {
   summary.items.push(result);
   summary.processed += 1;
-  summary[result.state] += 1;
+  if (result.state === "no-match") summary.noMatch += 1;
+  else summary[result.state] += 1;
 }
 
 export async function runSequentialBatch<TFile>(input: {

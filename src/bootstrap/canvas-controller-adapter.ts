@@ -92,12 +92,15 @@ class LiveCanvasControllerState implements CanvasControllerState {
 
 export interface RuntimeCanvasController extends AppCanvasController {
   raw: FeatureCanvasController;
+  preprocessing?: FeatureCanvasController;
+  refreshClassColors(): void;
   getSuperResolutionStatus(): import("../features/super-resolution/types.js").SuperResolutionStatus;
   subscribeSuperResolutionStatus(listener: import("../features/super-resolution/types.js").SuperResolutionStatusListener): () => void;
   loadImageSession(input: {
     image: HTMLImageElement;
     detectionYolo: string;
     segmentationSnapshot: SegmentationDocumentSnapshot | null;
+    labelsOnly?: boolean;
   }): void;
 }
 
@@ -170,6 +173,8 @@ export function createCanvasControllerAdapter(input: {
   const syncWorkflowVisibility = (workflow: WorkflowType): void => {
     workflowControllers.detection.setWorkflowActive?.(workflow === "detection");
     workflowControllers.segmentation.setWorkflowActive?.(workflow === "segmentation");
+    workflowControllers.segmentation.cancelSegmentationSrRoiSelection?.();
+    workflowControllers.segmentation.setSegmentationViewSource?.(workflowControllers.segmentation.getSegmentationViewSource?.() ?? "original");
   };
   syncWorkflowVisibility(input.state.session.workflow);
 
@@ -180,6 +185,14 @@ export function createCanvasControllerAdapter(input: {
   return {
     get raw() {
       return getActiveController();
+    },
+
+    get preprocessing() {
+      return workflowControllers.segmentation;
+    },
+
+    refreshClassColors(): void {
+      Object.values(workflowControllers).forEach((controller) => controller.refreshClassColors?.());
     },
 
     getSuperResolutionStatus() {
@@ -206,18 +219,22 @@ export function createCanvasControllerAdapter(input: {
       getActiveController().setMode(input.state.view.currentMode);
     },
 
-    loadImageSession({ image, detectionYolo, segmentationSnapshot }): void {
+    loadImageSession({ image, detectionYolo, segmentationSnapshot, labelsOnly }): void {
       selectedSegmentationTool = workflowControllers.segmentation.getSegmentationSummary?.().activeTool ?? selectedSegmentationTool;
       workflowControllers.detection.clearHistory();
-      workflowControllers.segmentation.clear();
-      workflowControllers.segmentation.setBackgroundImage(image);
-      if (detectionYolo.trim()) {
-        workflowControllers.detection.addLabelsFromYolo(detectionYolo);
+      const keepImage = labelsOnly && input.state.session.workflow === "detection";
+      if (!keepImage) {
+        workflowControllers.segmentation.clear();
+        workflowControllers.segmentation.setBackgroundImage(image);
+      }
+      if (detectionYolo.trim() || keepImage) {
+        workflowControllers.detection.addLabelsFromYolo(detectionYolo, Boolean(keepImage));
       }
       workflowControllers.segmentation.loadSegmentationDocumentSnapshot?.(segmentationSnapshot);
       workflowControllers.segmentation.setSegmentationTool?.(selectedSegmentationTool);
       syncWorkflowVisibility(input.state.session.workflow);
-      getActiveController().resetZoom();
+      if (!keepImage) getActiveController().resetZoom();
+      sharedShell.canvas.requestRenderAll();
     }
   };
 }

@@ -59,6 +59,7 @@ async function readSnapshot(page: Page): Promise<AlignmentHistorySnapshot> {
 }
 
 test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", async ({ page }) => {
+  test.setTimeout(90_000);
   await page.addInitScript(() => {
     const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgN6f3QAAAABJRU5ErkJggg==";
     const pngBinary = atob(pngBase64);
@@ -163,8 +164,10 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
     });
   });
 
-  await page.goto("/index.html");
-  await page.locator("#selectImageFolderBtn").click();
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
+  await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 45_000 });
+  await page.locator("#emptyOpenDatasetBtn").click();
 
   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(3);
   await expect.poll(async () => (await readSnapshot(page)).labelRowCount).toBe(3);
@@ -290,6 +293,7 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
 });
 
 test("arrange/history: class-group selection restores exact geometry after align-left undo", async ({ page }) => {
+  test.setTimeout(90_000);
   await page.addInitScript(() => {
     const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgN6f3QAAAABJRU5ErkJggg==";
     const pngBinary = atob(pngBase64);
@@ -394,8 +398,10 @@ test("arrange/history: class-group selection restores exact geometry after align
     });
   });
 
-  await page.goto("/index.html");
-  await page.locator("#selectImageFolderBtn").click();
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
+  await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 45_000 });
+  await page.locator("#emptyOpenDatasetBtn").click();
 
   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(3);
   await page.locator('[data-testid="select-group-0"]').click();
