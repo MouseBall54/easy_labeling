@@ -41,7 +41,7 @@ export function createInferenceService(onStatus?: (status: InferenceBackendStatu
     load(model: ArrayBuffer, size: number): Promise<ModelInput> {
       return request({ operation: "LOAD", model, size }, [model]);
     },
-    infer(image: HTMLImageElement, options: { confidence: number; iou: number; format: OutputFormat }): Promise<Detection[]> {
+    infer(image: HTMLImageElement, options: { confidence: number; iou: number; format: OutputFormat; maxDet?: number }): Promise<Detection[]> {
       const width = image.naturalWidth || image.width;
       const height = image.naturalHeight || image.height;
       const canvas = document.createElement("canvas");

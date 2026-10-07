@@ -247,6 +247,15 @@
 - 검증 서버는 종료했습니다. `output/label-fast-baseline` 및 비교 압축 파일·임시 서버 설정·응답 파일 삭제는 실행 정책에서 `blocked by policy`로 거절되어 남겨두었습니다. 최종 `dist`는 현재 소스로 복원한 빌드이며, 검증 자료/임시 파일은 커밋 대상에서 제외합니다.
 - [전후 요약](../output/label-fast-summary.json) · [이전 소스 비교](../output/label-fast-native-baseline.log) · [현재 소스 계측](../output/label-fast-native-measured-final.log) · [최종 회귀](../output/label-fast-regressions-final.log) · [추가 Electron](../output/label-fast-native-accepted.log) · [라이트](../output/label-fast-pending-light.png) · [다크](../output/label-fast-pending-dark.png) · [단위](../output/label-fast-unit.log) · [타입](../output/label-fast-typecheck.log) · [빌드](../output/label-fast-build.log).
 
+## 추가 요구 U37 · YOLO Inference 최대 검출 수
+
+- 2026-10-07 · **완료**. 일반 Detection YOLO ONNX 후처리의 고정 300개 제한을 확인했습니다. Inference의 Confidence 아래에 `Max detections`를 추가하고 현재/전체 이미지 실행에 같은 값을 전달합니다. 기본값 300, 이미지당 정수 1~30,000이며 설정 변경 뒤 모델을 다시 로드할 필요가 없습니다. 실행 시작 시 값을 읽어 전체 배치에 적용합니다. 기존 Confidence/NMS/출력 포맷과 원본 라벨 보호를 유지합니다.
+- 완료 기준: 기본 300개 보존, 5,000개 현재 이미지와 이미지당 4,000개 일괄 추론의 실제 ONNX/저장 결과, 낮은 제한 1개, 빈 값/0/음수/소수/상한 초과 시 파일 쓰기 없음, v5/v8/NMS 출력 포맷별 후처리, 라이트/다크 배치, 기존 추론 CPU fallback/파일 선택/채널/모드/원본 보존 회귀, 타입·빌드·단위 통과.
+- 검증: 타입·빌드·단위 **67파일·426개**, 관련 E2E **7/7 · 1.5분** 통과. 실제 Windows Electron production preload/file://와 5,010개 후보를 출력하는 검증용 ONNX Identity 그래프(1ch/NCHW/32×32)에서 현재 300/5,000개, 두 이미지 각각 4,000개·총 8,000개, 제한 1개의 캔버스/실제 TXT를 확인했습니다. 기본 300행이 5,000행의 앞부분과 같고 원본 두 TXT는 바이트 단위로 보존됐습니다. 빈 값/0/음수/소수/30,000 초과는 현재/전체 실행 모두 결과 폴더 생성 전에 차단됐습니다. 이는 저장/설정 연결 검증이며 학습 모델의 검출 정확도 평가가 아닙니다.
+- v5/v8/NMS의 기본 300·5,000·1·상한 30,000과 부적합 입력은 단위 검사로 확인했습니다. 기존 GPU 초기화/실행 실패 후 실제 CPU fallback, 파일 선택 취소/같은 파일 재선택, 1/3ch·NCHW/NHWC, 일괄 실행/원본 폴더 전환/잘못된 모델·중복 파일명/모드 회귀도 통과했습니다. 입력 오류 토스트가 사라진 뒤 라이트/다크 화면을 다시 확인한 추가 Electron 검사는 **1/1 · 11.6초** 통과했습니다. 서버를 빌드 후 새로 시작하고 제공된 JS의 `maxDet` 전달/검증을 확인했습니다.
+- 모델 자체가 출력 개수를 제한한 경우 UI 상한을 높여도 이미 모델에서 제외된 결과는 복구할 수 없습니다. 기존 NMS 후보 30,000개 제한과 비교 순서는 유지합니다. YOLOE-26은 별도 추론 경로이며 이번 일반 YOLO Inference 설정의 대상은 아닙니다.
+- [라이트](../output/inference-max-det-light.png) · [다크](../output/inference-max-det-dark.png) · [E2E 7개](../output/inference-max-det-e2e.log) · [화면/저장 재검증](../output/inference-max-det-ui-accepted.log) · [단위](../output/inference-max-det-unit.log) · [타입](../output/inference-max-det-typecheck.log) · [빌드](../output/inference-max-det-build.log). 소스와 실행 빌드에 반영했으며 새 설치 파일·버전 변경은 이번 단계에 포함하지 않습니다. 사용자 요청에 따라 검증된 소스·문서·테스트를 U37 단계로 별도 커밋하고 빌드 산출물·검증 로그/화면·임시 설정·프로필·복사 데이터셋은 제외합니다.
+
 ## 이어서 확인할 때
 
 1. 이 문서의 상태표와 실제 커밋을 먼저 대조합니다. 완료 항목을 다시 구현하지 않습니다.

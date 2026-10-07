@@ -73,10 +73,14 @@ export function intersectionOverUnion(a: Detection, b: Detection): number {
 export function decodeYoloOutput(
   data: ArrayLike<number>, dims: readonly number[],
   letterbox: ReturnType<typeof getLetterbox>,
-  options: { confidence: number; iou: number; format: OutputFormat }
+  options: { confidence: number; iou: number; format: OutputFormat; maxDet?: number }
 ): Detection[] {
   if (![options.confidence, options.iou].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
     throw new Error("Confidence and IoU must be between 0 and 1.");
+  }
+  const maxDet = options.maxDet ?? 300;
+  if (!Number.isInteger(maxDet) || maxDet < 1 || maxDet > 30000) {
+    throw new Error("Max detections must be a whole number between 1 and 30,000.");
   }
   const shape = dims.length === 3 && dims[0] === 1 ? dims.slice(1) : dims;
   if (shape.length !== 2 || !shape.every((value) => Number.isInteger(value) && value >= 0) || data.length !== shape[0] * shape[1]) {
@@ -125,10 +129,10 @@ export function decodeYoloOutput(
   }
   candidates.sort((a, b) => b.confidence - a.confidence);
   const selected: Detection[] = [];
-  // ponytail: capped candidates keep class-aware NMS bounded; use indexed NMS if dense scenes require more than 300 labels.
+  // ponytail: cap NMS candidates at 30,000; use indexed NMS if large maxDet values become slow.
   for (const box of candidates.slice(0, 30000)) {
     if (format === "nms" || !selected.some((other) => other.classId === box.classId && intersectionOverUnion(box, other) > options.iou)) selected.push(box);
-    if (selected.length === 300) break;
+    if (selected.length === maxDet) break;
   }
   return selected;
 }

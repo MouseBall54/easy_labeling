@@ -106,8 +106,13 @@ export function bindInferenceControls(input: {
     if (!ready || !service || busy) return;
     const confidence = element<HTMLInputElement>("inferenceConfidenceInput").valueAsNumber;
     const iou = element<HTMLInputElement>("inferenceIouInput").valueAsNumber;
+    const maxDet = element<HTMLInputElement>("inferenceMaxDetInput").valueAsNumber;
     if (![confidence, iou].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
       reportError(runStatus, new Error("Confidence and IoU must be between 0 and 1."));
+      return;
+    }
+    if (!Number.isInteger(maxDet) || maxDet < 1 || maxDet > 30000) {
+      reportError(runStatus, new Error("Max detections must be a whole number between 1 and 30,000."));
       return;
     }
     const format = element<HTMLSelectElement>("inferenceOutputFormat").value as OutputFormat;
@@ -120,7 +125,7 @@ export function bindInferenceControls(input: {
         allImages, modelName,
         infer: async (image, signal) => {
           signal?.addEventListener("abort", stop, { once: true });
-          try { return await service!.infer(image, { confidence, iou, format }); }
+          try { return await service!.infer(image, { confidence, iou, format, maxDet }); }
           finally { signal?.removeEventListener("abort", stop); }
         }
       });

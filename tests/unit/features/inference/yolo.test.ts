@@ -60,4 +60,27 @@ describe("YOLO Detection inference", () => {
     expect(decodeYoloOutput([], [1, 0, 6], letterbox, { ...options, format: "nms" })).toEqual([]);
     expect(decodeYoloOutput([], [1, 5, 0], letterbox, { ...options, format: "auto" })).toEqual([]);
   });
+
+  it("keeps the default 300 and applies max detections after scoring and NMS in every output format", () => {
+    const letterbox = getLetterbox(32, 32, resolveModelInput([1, 3, 32, 32], "float32"));
+    const rows = Array.from({ length: 5010 }, (_, index) => [.2 + index % 100 * .31, .2 + Math.floor(index / 100) * .31, .1, .1, .99 - index * .0001]);
+    for (const format of ["v8", "v5", "nms"] as const) {
+      const predictions = format === "v8" ? rows[0]!.flatMap((_, column) => rows.map(row => row[column]!))
+        : rows.flatMap(([x, y, w, h, confidence]) => format === "v5" ? [x!, y!, w!, h!, 1, confidence!] : [x! - w! / 2, y! - h! / 2, x! + w! / 2, y! + h! / 2, confidence!, 0]);
+      const dims = format === "v8" ? [1, 5, rows.length] : [1, rows.length, 6];
+      const options = { confidence: .25, iou: .45, format };
+      const expanded = decodeYoloOutput(predictions, dims, letterbox, { ...options, maxDet: 5000 });
+      expect(expanded).toHaveLength(5000);
+      expect(decodeYoloOutput(predictions, dims, letterbox, options)).toEqual(expanded.slice(0, 300));
+      expect(decodeYoloOutput(predictions, dims, letterbox, { ...options, maxDet: 1 })).toEqual(expanded.slice(0, 1));
+      expect(decodeYoloOutput(predictions, dims, letterbox, { ...options, maxDet: 30000 })).toHaveLength(rows.length);
+    }
+  });
+
+  it("rejects invalid max detections before decoding", () => {
+    const letterbox = getLetterbox(32, 32, resolveModelInput([1, 3, 32, 32], "float32"));
+    for (const maxDet of [NaN, Infinity, 0, -1, 1.5, 30001]) {
+      expect(() => decodeYoloOutput([], [1, 5, 0], letterbox, { confidence: .25, iou: .45, format: "v8", maxDet })).toThrow(/Max detections/);
+    }
+  });
 });

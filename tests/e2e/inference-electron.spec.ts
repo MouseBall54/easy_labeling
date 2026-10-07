@@ -95,3 +95,84 @@ test("Electron file:// ONNX runtime saves real result files and preserves the so
     await rm(dataset, { recursive: true, force: true });
   }
 });
+
+test("Electron max detections controls current and batch ONNX results, rejects invalid values, and preserves source files", async () => {
+  test.setTimeout(180_000);
+  const root = path.resolve(".");
+  const dataset = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-max-det-"));
+  const original = "0 0.25 0.25 0.1 0.1\n0 0.75 0.75 0.1 0.1\n";
+  await mkdir(path.join(dataset, "label"));
+  for (const name of ["image-0", "image-1"]) {
+    await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `${name}.jpg`));
+    await writeFile(path.join(dataset, "label", `${name}.txt`), original);
+  }
+  const electron = await _electron.launch({
+    args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
+    env: { ...process.env, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_OFFSCREEN: "1" }
+  });
+  try {
+    const page = await electron.firstWindow();
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect(page.locator("#activeOperationPanel")).toBeHidden();
+    const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount());
+    await expect.poll(count).toBe(2);
+    await page.locator("#taskInferenceBtn").click();
+    const maximum = page.getByLabel("Max detections", { exact: true });
+    await expect(maximum).toBeVisible();
+    await expect(maximum).toHaveValue("300");
+    const rows = Array.from({ length: 5010 }, (_, index) => [.2 + index % 100 * .316, 7.25 + Math.floor(index / 100) * .27, .15, .13, .99 - index * .0001]);
+    await page.locator("#inferenceModelInput").setInputFiles({ name: "dense.onnx", mimeType: "application/octet-stream", buffer: inferenceModel(1, "nchw", false, rows) });
+    const current = page.locator("#runInferenceCurrentBtn");
+    const all = page.locator("#runInferenceAllBtn");
+    await expect(current).toBeEnabled({ timeout: 30_000 });
+    for (const invalid of ["0", "-1", "1.5", "30001", ""]) {
+      await maximum.fill(invalid);
+      await current.click();
+      await expect(page.locator("#inferenceRunStatus")).toHaveText("Max detections must be a whole number between 1 and 30,000.");
+      await all.click();
+      await expect.poll(count).toBe(2);
+      expect((await readdir(dataset)).filter(name => name.startsWith("inference-"))).toEqual([]);
+    }
+    const label = async (name: string) => (await readFile(path.join(dataset, "inference-dense", `${name}.txt`), "utf8")).trim().split("\n");
+    await maximum.fill("300");
+    await current.click();
+    await expect(page.locator("#inferenceRunStatus")).toContainText("1 image(s) · 300 detection(s)", { timeout: 30_000 });
+    await expect.poll(count).toBe(300);
+    const first300 = await label("image-0");
+    await maximum.fill("5000");
+    await current.click();
+    await expect(page.locator("#inferenceRunStatus")).toContainText("1 image(s) · 5000 detection(s)", { timeout: 30_000 });
+    await expect.poll(count).toBe(5000);
+    expect((await label("image-0")).slice(0, 300)).toEqual(first300);
+    await maximum.fill("4000");
+    await all.click();
+    await expect(page.locator("#inferenceRunStatus")).toContainText("2 image(s) · 8000 detection(s)", { timeout: 60_000 });
+    await expect(all).toBeEnabled();
+    await expect.poll(count).toBe(4000);
+    for (const name of ["image-0", "image-1"]) {
+      expect(await label(name)).toHaveLength(4000);
+      expect(await readFile(path.join(dataset, "label", `${name}.txt`), "utf8")).toBe(original);
+    }
+    await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(2);
+    await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
+    const wasDark = await page.locator("#darkModeToggle").isChecked();
+    if (wasDark) await page.locator('label[for="darkModeToggle"]').click();
+    await page.screenshot({ path: "output/inference-max-det-light.png", animations: "disabled" });
+    await page.locator('label[for="darkModeToggle"]').click();
+    await page.screenshot({ path: "output/inference-max-det-dark.png", animations: "disabled" });
+    await maximum.fill("1");
+    await current.click();
+    await expect(page.locator("#inferenceRunStatus")).toContainText("1 image(s) · 1 detection(s)");
+    await expect.poll(count).toBe(1);
+    expect(await label("image-0")).toEqual(first300.slice(0, 1));
+    expect(errors).toEqual([]);
+  } finally {
+    await electron.close();
+    expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
+    expect(path.basename(dataset)).toMatch(/^easy-labeling-max-det-/);
+    await rm(dataset, { recursive: true, force: true });
+  }
+});

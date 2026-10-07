@@ -16,23 +16,24 @@ const valueInfo = (name: string, dims: (number | string)[]): number[] => [
   ]))
 ];
 
-export function inferenceModel(channels: 1 | 3, layout: "nchw" | "nhwc", dynamic = false): Buffer {
+export function inferenceModel(channels: 1 | 3, layout: "nchw" | "nhwc", dynamic = false, rows?: number[][]): Buffer {
   const inputShape = layout === "nchw" ? [1, channels, 32, 32] : [1, 32, 32, channels];
   const shape: (number | string)[] = inputShape.map((dim, index) => dynamic && (layout === "nchw" ? index > 1 : index === 1 || index === 2) ? `spatial${index}` : dim);
-  const predictions = new Float32Array(5 * 8);
-  predictions[0] = 16;
-  predictions[8] = 16;
-  predictions[16] = 16;
-  predictions[24] = 16;
-  predictions[32] = 0.9;
+  const count = rows?.length ?? 8;
+  const predictions = new Float32Array(5 * count);
+  if (rows) rows.forEach((row, index) => row.forEach((value, column) => { predictions[column * count + index] = value; }));
+  else {
+    [0, 1, 2, 3].forEach(column => { predictions[column * count] = 16; });
+    predictions[4 * count] = .9;
+  }
   const tensor = [
-    ...[1, 5, 8].flatMap((dim) => integer(1, dim)),
+    ...[1, 5, count].flatMap((dim) => integer(1, dim)),
     ...integer(2, 1), ...string(8, "predictions"), ...bytes(9, new Uint8Array(predictions.buffer))
   ];
   const node = [...string(1, "predictions"), ...string(2, "output"), ...string(4, "Identity")];
   const graph = [
     ...bytes(1, node), ...string(2, "YOLO smoke fixture"), ...bytes(5, tensor),
-    ...bytes(11, valueInfo("images", shape)), ...bytes(12, valueInfo("output", [1, 5, 8]))
+    ...bytes(11, valueInfo("images", shape)), ...bytes(12, valueInfo("output", [1, 5, count]))
   ];
   return Buffer.from([...integer(1, 8), ...bytes(7, graph), ...bytes(8, integer(2, 13))]);
 }
