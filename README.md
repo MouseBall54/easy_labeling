@@ -119,6 +119,8 @@ YOLOE-26 ONNX 버전의 사용법과 모델 갱신 방법은 [YOLOE-26 GPU/CPU �
 - 클래스 정보 폴더 로드(`.yaml`/`.yml`)
 - 클래스 파일 선택 전환
 - 클래스 파일 생성 / 편집 모달 지원
+- Detection의 `Classes → Change label class IDs`에서 현재 이미지 전체 또는 활성 라벨 폴더의 전체 이미지에 `+3` / `-3` 같은 정수 이동과 `0 → 2`, `2 → 0` 같은 번호별 교환·병합을 적용합니다. `Preview changes`로 변경 개수를 확인한 뒤 `Apply changes`를 누릅니다. 현재 이미지는 Undo 후 Save가 가능하며, 폴더 전체는 원본 TXT를 `.easy-labeling/class-remap-*`에 백업하고 저장합니다. [U39 검증 기록](docs/UI_UX_PROGRESS_KO.md#추가-요구-u39--라벨-클래스-번호-일괄-변경)을 참고하세요.
+- 기본 `Remap IDs` 목록은 현재 이미지의 클래스 번호를 숫자 순으로 채우며 `Original ID = New ID`로 시작합니다. `Count`는 숨긴 클래스와 경계 밖 박스를 포함한 현재 이미지의 개수입니다. 바꿀 `New ID`만 수정하면 됩니다.
 
 ---
 

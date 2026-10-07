@@ -270,7 +270,8 @@ export function renderClassFileSelect(
   for (const file of [...classFiles].sort(compareFileNames)) {
     const option = document.createElement("option");
     option.value = file.name;
-    option.textContent = file.name;
+    option.textContent = file.name.replace(/\.ya?ml$/i, "");
+    option.title = file.name;
     classFileSelectElement.appendChild(option);
   }
 

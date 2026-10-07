@@ -1,4 +1,5 @@
 import { parseYoloRows, serializeRectsToYolo } from "../../domain/yolo/yolo.js";
+import { summarizeClassRemap, type ClassRemapRule } from "../../domain/class-remap.js";
 import { createBoxLayout, isPixelRectInsideImageBounds, placeBoxLayout } from "../automation/layout.js";
 import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
@@ -1515,6 +1516,28 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
 
       deleteRects(rectsToDelete);
+    },
+
+    remapLabelClasses(rule: ClassRemapRule) {
+      const rects = canvas.getObjects("rect").filter(isRectObject);
+      // Validate every resulting ID before mutating any box; swaps use the original IDs.
+      const summary = summarizeClassRemap(rects.map((rect) => rect.labelClass ?? "0"), rule);
+      if (!summary.changedCount) return summary;
+      const mapping = new Map(summary.changes.map(({ from, to }) => [from, to]));
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      for (const rect of rects) {
+        const to = mapping.get(String(Number(rect.labelClass ?? "0")));
+        if (to === undefined) continue;
+        rect.set("labelClass", to);
+        const color = colorForClass(to);
+        rect.set({ fill: `${color}33`, stroke: color });
+        this.updateLabelText(rect);
+      }
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({ before, after: captureRectSnapshots(), selectionBefore, selectionAfter: captureSelectionSnapshot() });
+      return summary;
     },
 
     setSelectedLabelClass(classId: string): boolean {

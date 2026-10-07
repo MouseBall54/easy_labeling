@@ -170,6 +170,7 @@ export function createUiManagerAdapter(input: {
     "segmentationFormatModal",
     "createClassFileModal",
     "classFileViewerModal",
+    "classRemapModal",
     "labelClassModal",
     "missingLabelFolderModal"
   ]);
@@ -929,7 +930,9 @@ export function createUiManagerAdapter(input: {
       datasetButton.title = folderName ? `${folderName} · Open another dataset` : "Open Dataset";
       datasetButton.setAttribute("aria-label", folderName ? `Open another dataset · ${folderName}` : "Open Dataset");
       datasetButton.classList.toggle("btn-primary", !folderName);
-      datasetButton.classList.toggle("btn-outline-secondary", Boolean(folderName));
+      datasetButton.classList.toggle("btn-outline-secondary", false);
+      datasetButton.classList.toggle("btn-outline-success", Boolean(folderName));
+      datasetButton.dataset.connected = String(Boolean(folderName));
       input.documentRef.getElementById("datasetActions")?.classList.toggle("dataset-connected", Boolean(folderName));
       elements.selectLabelFolderBtn.toggleAttribute("disabled", !directoryPickerAvailable || !folderName);
       (elements.prevImageBtn as HTMLButtonElement).disabled = imageCount < 2;
@@ -938,6 +941,12 @@ export function createUiManagerAdapter(input: {
       input.documentRef.getElementById("outsideBoxesActions")?.toggleAttribute("hidden", segmentation);
       const cleanupButton = input.documentRef.getElementById("removeOutsideBoxesBtn") as HTMLButtonElement | null;
       if (cleanupButton) cleanupButton.disabled = !hasImage || !input.state.session.labelFolderHandle || cleanupButton.getAttribute("aria-busy") === "true";
+      const currentCleanupButton = input.documentRef.getElementById("removeCurrentOutsideBoxesBtn") as HTMLButtonElement | null;
+      if (currentCleanupButton) currentCleanupButton.disabled = !hasImage;
+      const rescanButton = input.documentRef.getElementById("rescanReviewBtn") as HTMLButtonElement | null;
+      if (rescanButton) rescanButton.disabled = segmentation || !imageCount || rescanButton.getAttribute("aria-busy") === "true";
+      const classRemapButton = input.documentRef.getElementById("openClassRemapBtn") as HTMLButtonElement | null;
+      if (classRemapButton) { classRemapButton.hidden = segmentation; classRemapButton.disabled = !hasImage; }
       elements.headerDocumentStatus.dataset.state = phase;
       elements.documentStatus.dataset.state = phase;
       elements.headerDocumentStatus.title = documentStatus?.errorMessage ?? statusText;
@@ -1237,6 +1246,13 @@ export function createUiManagerAdapter(input: {
 
     renderImageList(): void {
       const fileSystem = getFileSystem();
+      const filter = input.state.view.imageStatusFilter;
+      const filterLabel = filter === "labeled" ? "Labeled" : filter === "unlabeled" ? "Unlabeled" : "All";
+      elements.imageStatusFilterBtn.textContent = filterLabel;
+      elements.imageStatusFilterBtn.dataset.filter = filter;
+      elements.imageStatusFilterBtn.setAttribute("aria-label", `Image filter: ${filterLabel} images`);
+      elements.imageStatusFilterBtn.title = `${filterLabel} images. Click for ${filter === "all" ? "labeled" : filter === "labeled" ? "unlabeled" : "all"} images.`;
+      elements.imageStatusFilterBtn.classList.toggle("active", filter !== "all");
       renderImageList({
         imageListElement: elements.imageList,
         imageFiles: input.state.session.imageFiles,
@@ -1244,8 +1260,8 @@ export function createUiManagerAdapter(input: {
         activeWorkflow: input.state.session.workflow,
         currentImageFile: input.state.session.currentImageFile,
         searchTerm: elements.imageSearchInput.value,
-        showLabeled: elements.showLabeledCheckbox.checked,
-        showUnlabeled: elements.showUnlabeledCheckbox.checked,
+        showLabeled: filter !== "unlabeled",
+        showUnlabeled: filter !== "labeled",
         reviewFilter: input.state.view.reviewFilter,
         reviewState: input.state.session.reviewState,
         reviewFindings: input.state.session.reviewFindings,

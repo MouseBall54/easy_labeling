@@ -272,6 +272,74 @@
 - 버전 증가 후 패키지/lock/YOLOE 메타데이터 일치, 타입·빌드·단위 **67파일·428개**를 다시 확인해 통과했습니다. U38의 E2E **9/9** 결과는 위 기록과 같습니다. [타입](../output/layout-outside-version-typecheck.log) · [빌드](../output/layout-outside-version-build.log) · [단위](../output/layout-outside-version-unit.log).
 - 빌드 산출물·검증 로그/화면·임시 설정·앱 프로필·복사 데이터셋은 제외하며 새 설치 파일 제작과 원격 푸시는 포함하지 않습니다.
 
+## 추가 요구 U39 · 라벨 클래스 번호 일괄 변경
+
+- 2026-10-07 · **완료**. Classes 설정 아래에 Change label class IDs를 배치하고 현재 이미지 전체 박스 / 활성 라벨 폴더의 전체 이미지를 선택합니다. 정수 오프셋 증가·감소와 여러 원본 → 대상 ID 매핑을 지원하며 교환/병합을 원래 ID 기준으로 동시에 적용합니다. 미리보기에서 번호별 변경 개수를 확인합니다.
+- 현재 이미지는 숨긴 클래스와 경계 밖 박스도 포함해 좌표·Layout 묶음·선택을 유지하고 한 번의 Undo로 복원합니다. 폴더 전체는 명시적 Preview에서만 TXT를 읽고 현재 편집을 포함합니다. 변경 파일 원문을 백업하고 취소·쓰기 실패 시 복원합니다. 기존 경계 정리의 파일 백업/복원 경로를 재사용합니다.
+- 완료 기준: 양/음 오프셋·교환·병합·미지정 ID 보존, 음수/소수/중복 원본/범위 초과/부적합 TXT 행의 쓰기 전 차단, 미리보기 후 파일/편집/폴더 변경 보호, 실제 TXT의 좌표·공백·개행 보존 및 현재 편집 저장·없던 파일 처리·백업/취소/실패 복원, 5,000개 현재 이미지 Undo/Redo·Layout 묶음, 두 테마·좁은 화면·팝업 드래그/키보드, Segmentation·기존 클래스 색/파일·폴더 전환·명시적 경계 정리·Layout 회귀, 타입·빌드·단위 통과.
+- 클래스 파일의 이름·색 및 저장된 Layout/Automation 프리셋은 수정 대상이 아닙니다. 폴더 범위는 현재 데이터셋 이미지 목록과 매칭되는 활성 Detection 폴더 TXT입니다. 등록된 다른 폴더·매칭되지 않는 TXT·Segmentation 마스크는 변경하지 않습니다.
+- 검증: 타입·빌드, 전체 단위 **68파일·453개**, 마지막 포커스 관리 연결 후 UI 어댑터 단위 **16개**를 통과했습니다. 실제 Electron **2/2 · 50.4초**에서 6개 박스의 Layout 묶음 및 5,000개 박스의 현재 이미지/폴더 변경·Undo/Redo·선택·좌표 보존, 현재 편집과 없던 TXT 저장, 원본 백업·미리보기 이후 외부 파일 변경 차단을 확인했습니다. 기존 클래스 색/프로필 파일, 폴더 전환, Automation Ctrl+Q와 YOLOE 양 워크플로·테마, Layout 관리와 두 Apply의 6·5,000개 경계 밖 보존, Save/Auto save 및 폴더 전체 경계 정리 회귀 **11/11 · 2.5분**도 통과했습니다.
+- 밝은/어두운 테마와 1,280·900px 화면에서 팝업·동작 버튼의 범위를 확인하고 헤더 드래그 및 캔버스 단축키 차단을 검증했습니다. 초기 키보드 검사는 Chromium의 폼 입력 Ctrl+Z까지 미리보기 유지로 기대해 실패했습니다. 실제 입력값 변경 시 미리보기 해제가 맞으므로, 캔버스 데이터 보존과 수정된 입력의 재미리보기로 검증을 보완했습니다. 테마 변경 시 문서 상태 이벤트만으로 미리보기를 해제하지 않도록 실제 이미지·폴더·revision 변화로 제한했습니다. 어두운 테마의 표와 닫기 버튼도 보완했습니다.
+- 폴더의 저장된 TXT는 클래스 토큰만 바꾸며 좌표·공백·개행을 그대로 보존합니다. 현재 이미지의 미저장 편집은 기존 Save 직렬화 방식으로 저장합니다. 취소·쓰기/백업 실패·복원 실패 안내와 잘못된 ID/TXT의 쓰기 전 차단은 단위 검증을 포함합니다. 남은 소스 작업은 없으며 새 설치 파일 제작은 이번 범위에 포함하지 않습니다.
+- 증거: [타입](../output/class-remap-final-typecheck.log) · [빌드](../output/class-remap-final-build.log) · [단위](../output/class-remap-unit.log) · [UI 단위](../output/class-remap-ui-unit.log) · [Electron](../output/class-remap-native-final.log) · [회귀](../output/class-remap-regression.log) · [밝은 화면](../output/class-remap-light-1280.png) · [어두운 좁은 화면](../output/class-remap-dark-900.png). 로그·화면·임시 설정·앱 프로필·데이터셋·빌드 산출물은 Git에서 제외합니다.
+
+## 추가 요구 U40 · 이미지 팝업 최대 확대 3,000%
+
+- 2026-10-07 · **완료**. Template의 1,000%, Layout의 400% 제한을 3,000%로 올립니다. YOLOE의 맞춤 배율 배수 제한을 실제 표시 배율 3,000%로 바꾸고 휠·기존 라벨 확대·팝업 크기 변화에 같은 상한을 적용합니다. 메인 캔버스의 배율과 원본 데이터·프리셋 형식은 그대로 둡니다.
+- Template는 표시 크기와 렌더링 비트맵 크기를 분리해 긴 변 4,096px 이내로 그립니다. 3,000% 표시를 유지하며 브라우저 캔버스 크기 한도와 과도한 메모리 할당을 피합니다. 원본 이미지/ROI/매칭 좌표는 유지하고 포인터 변환·팬·Fit은 표시 크기를 사용합니다.
+- 완료 기준: Template·Layout 입력과 휠의 3,000% 도달/상한/축소, Template 고배율 ROI 원본 좌표·이미지 렌더링·메모리 상한, YOLOE 두 워크플로의 실제 3,000% 도달/축소/Fit·팬·샘플 좌표·원본 라벨 보존, 기존 샘플 Template 흐름과 타입·빌드·단위 통과.
+- 검증: 타입·빌드, 단위 **68파일·453개**, 새 고배율 E2E **2/2 · 17.5초**, 기존 Template 샘플 매칭·Layout 적용 **1/1 · 14.8초**, YOLOE Detection/Segmentation 팝업 드래그·줌·팬·샘플 좌표·미리보기 **2/2 · 27.1초** 통과. Template는 실제 3,000% 표시에서 비트맵 긴 변 ≤4,096px와 불투명 이미지 픽셀을 확인했고, 단위에서는 30배 확대 중 그린 ROI의 원본 좌표를 확인했습니다. 두 모드의 원본 라벨 및 실행 오류 0건도 확인했습니다.
+- 초기 새 E2E는 비동기 팝업 열림 전에 보이지 않는 캔버스에 이벤트를 보내거나 `shown.bs.modal`의 자동 Fit 전에 배율을 설정해 실패했습니다. 팝업 초기 Fit 및 YOLOE 캔버스의 샘플 영역 이동·참조 이미지 로드 완료를 기다리도록 보완했고 실패 로그는 보존합니다. 남은 소스 작업 없음; 설치 파일 제작은 별도입니다.
+- 증거: [타입](../output/popup-zoom-final-typecheck.log) · [빌드](../output/popup-zoom-build.log) · [단위](../output/popup-zoom-unit.log) · [3,000% 검사](../output/popup-zoom-ready.log) · [Template 회귀](../output/popup-zoom-template.log) · [YOLOE 회귀](../output/popup-zoom-yoloe.log) · [Detection 화면](../output/popup-zoom-detection-3000.png) · [Segmentation 화면](../output/popup-zoom-segmentation-3000.png). 생성 증거·빌드 산출물·프로필·데이터는 Git에서 제외합니다.
+
+## 추가 요구 U41 · 클래스 번호 매핑 기본값과 현재 이미지 Count
+
+- 2026-10-07 · **완료**. Remap IDs를 첫 번째 기본 옵션으로 배치합니다. 팝업을 열 때 현재 이미지의 모든 Detection 박스(숨김·경계 밖·미저장 편집 포함)를 클래스별로 세어 ID 숫자 순으로 행을 만들고 Original ID와 New ID를 동일하게 채웁니다. Count는 현재 이미지 기준이며 Original ID를 바꾸면 해당 번호의 개수를 갱신합니다. 번호 증가·감소와 기존 미리보기/폴더 적용은 유지합니다.
+- 완료 기준: 기본 순서·자동 목록·클래스별 Count·변경 없는 초기 매핑의 적용 비활성, 새 행/번호 입력의 Count 갱신, 매핑 적용/Undo 후 재열기 및 다른 이미지/빈 이미지/활성 폴더의 새 목록, 5,000개 박스·기존 폴더 저장/백업 회귀, 타입·빌드 통과.
+- 타입·빌드, 관련 단위 **3파일·107개**와 실제 Electron **2/2 · 58.0초** 통과. 6개 박스의 Layout 적용 후 0·1·2 각 4개, 5,000개 박스의 0·1·2 각 1,667·1,667·1,666개 초기 목록을 확인했습니다. 초기 항등 매핑의 변경 0개/Apply 비활성, Original ID 변경의 Count 갱신, 새 행 추가·삭제, 실제 현재 이미지 매핑/Undo/재열기, 변경된 3·4·5 목록 재생성 및 빈 이미지의 0행, 폴더 변경·쓰기·백업·외부 변경 차단도 통과했습니다. [타입](../output/class-remap-default-final-typecheck.log) · [빌드](../output/class-remap-default-build.log) · [단위](../output/class-remap-default-unit.log) · [Electron](../output/class-remap-default-native.log) · [기본 매핑/Count 화면](../output/class-remap-default-counts.png). 남은 소스 작업 없음.
+
+### U40 후속 · 실제 마우스 휠과 실행 서버의 이전 코드 문제
+
+- 2026-10-07 · **완료**. 이전 3,000% 검사는 DOM 휠 이벤트를 직접 보내 실제 입력 타깃을 충분히 검증하지 못했습니다. 회귀를 실제 `mouse.move`/키보드 Ctrl/`mouse.wheel`로 바꿔 Fit에서 일반 휠(Template), Ctrl+휠(Layout·YOLOE)을 반복해 최대 배율까지 올리고 상한·축소·Fit·원본 보존을 확인했습니다. 최신 4188 코드의 두 워크플로 **2/2 · 28.5초** 통과. [실제 휠 검사](../output/popup-real-wheel-ready.log).
+- 실제 4173 서버는 HTML만 최신이고 `dist` JS는 이전 확대 제한을 반환했습니다. Vite가 기본 빌드 출력 폴더 `dist`를 감시에서 제외하는 것이 원인입니다. `tsc`가 관리하는 `dist`를 삭제하거나 감시 제외하지 않도록 `vite.config.ts`에 `build.emptyOutDir: false`를 지정했습니다. 검증 출력과 테스트 결과는 감시 대상에서 제외합니다.
+- 사용자 Chrome의 실제 4173 탭이 No image / Ready 상태임을 확인한 후 해당 Vite 서버를 재시작했습니다. 최신 클래스 Count와 YOLOE 30배 JS 응답 및 초기 화면 갱신을 확인했습니다. `dist` 검사 모듈을 HTTP로 캐시한 뒤 파일 내용만 바꾸어 서버 재시작 없이 새 내용이 반환되는 것도 통과했고 검사 파일은 제거했습니다. [캐시 갱신 증거](../output/live-vite-cache-check.log). 사용자 데이터셋/라벨 편집·저장 없이 실행 코드만 갱신했습니다.
+
+## 추가 요구 U42 · 클래스 매핑 행의 식별성과 개수·삭제 표시
+
+- 2026-10-07 · **완료**. Original/New ID 입력을 작은 번호 필드와 현재 클래스 파일의 색·명칭으로 함께 표시합니다. 입력 변경 시 클래스 정보를 즉시 갱신하며 미리보기에도 같은 정보를 제공합니다. Count는 숫자와 boxes 단위를 분리한 배지로, 작은 ×는 휴지통 아이콘과 Remove 문구로 교체합니다. 미등록 ID는 Unnamed class로 표시하며 클래스 파일과 매핑 처리 규칙은 변경하지 않습니다.
+- 완료 기준: 설정된 명칭·색과 번호의 연결, Original/New ID 편집 시 갱신·미등록/빈 ID 구분·개수/행 삭제·미리보기 확인, 밝은/어두운 1,280·900·480px 표시와 가로 넘침 없음, 실제 Electron 6/5,000개 박스의 적용·Undo·폴더 백업 회귀, 타입·빌드 통과.
+- 타입·빌드 및 실제 Electron **2/2 · 42.6초** 통과. 테스트 전용 클래스 파일의 Zero/One/Two와 지정색을 원본·대상 양쪽에서 확인했고 입력에 따른 색·명칭 갱신, 빈 ID/미등록 ID, 개수 배지, Remove, 미리보기를 검증했습니다. 두 테마의 1,280·900·480px 캡처를 확인했으며 좁은 화면은 행을 두 열로 표시하고 내용만 스크롤해 동작 버튼을 유지합니다. 기존 6/5,000개 박스의 위치·선택·매핑·Undo·폴더 파일/백업 보존 검증도 통과했습니다. [타입](../output/class-remap-identity-final-typecheck.log) · [빌드](../output/class-remap-identity-build.log) · [Electron](../output/class-remap-identity-native.log) · [어두운 화면](../output/class-remap-identity-dark-900.png) · [밝은 좁은 화면](../output/class-remap-identity-light-480.png). 남은 소스 작업 없음.
+
+## 추가 요구 U43 · 클래스 설정 위치·아이콘과 새 파일 이름
+
+- 2026-10-07 · **완료**. Classes의 편집 바로가기 아이콘을 +에서 설정 톱니바퀴로 바꾸고 Class settings로 안내합니다. 기존 클래스 파일 편집 동작은 유지합니다. Class files & editing의 접기를 없애고 검색창 위에 항상 표시합니다. 새 파일 기본 이름은 classes이며 기존 검증기가 확장자를 자동으로 붙입니다. 생성 팝업에도 .yaml 자동 적용을 안내합니다.
+- 완료 기준: 설정 아이콘으로 편집 열기, 검색창 위의 펼쳐진 설정, Detection/Segmentation과 두 테마·좁은 화면, 확장자 없는 기본값·자동 .yaml 생성·중복 파일 차단·기존 사용자 이름 생성 및 저장/탭 공유, 타입·빌드와 관련 회귀 통과.
+- 타입·빌드, 관련 단위 **2파일·54개**, 브라우저 회귀 **13개** 통과. Annotate/Inference에서 기본 classes → classes.yaml 생성·중복 차단·사용자 이름 자동 확장·설정 바로가기 편집·저장·탭 공유를 검증했습니다. 두 모드의 클래스 색상/원본 라벨 보존과 검색/설정 위치, 밝은·어두운 1,332px 및 어두운 900px 캡처도 확인했습니다. 초기 회귀의 팝업 2건은 이전 검사값 9개와 현재 10개가 달라 실패해 개수를 갱신했습니다. 재검사 **2/2 · 52.8초**에서 전체 팝업의 드래그·닫기·재열기·입력 보존을 확인했습니다.
+- 증거: [타입](../output/class-settings-typecheck.log) · [빌드](../output/class-settings-build.log) · [단위](../output/class-settings-unit.log) · [브라우저 11개 통과/초기 팝업 실패](../output/class-settings-e2e.log) · [팝업 재검사](../output/class-settings-modal-retest.log) · [밝은 화면](../output/class-settings-light-1332.png) · [어두운 좁은 화면](../output/class-settings-dark-900.png) · [실행 서버 최신 응답](../output/class-settings-live.log). 남은 소스 작업 없음.
+
+## 추가 요구 U44 · 헤더 압축·이미지 상태 순환·정리 범위와 Review 재검사
+
+- 2026-10-07 시작 / 2026-10-08 · **완료**. Classes 제목과 설정 사이에 Load Class를 두고 Class files & editing 설명을 제거합니다. 기존 눈 아이콘은 새 클래스 파일 생성 +로 전환하며 편집은 설정 아이콘으로 엽니다. 파일 목록의 .yaml/.yml은 표시에서만 제거합니다. Images 헤더의 한 버튼이 All → Labeled → Unlabeled로 순환하며 기본은 전체 표시입니다. 연결된 이미지 폴더는 초록색 테두리/배경과 상태 점으로 구분합니다.
+- 경계 정리는 Current image/All images 두 버튼으로 구분하고 아래 범위 설명은 제거합니다. 현재 이미지는 기존 캔버스 정리/Undo를 사용하고 Save로 저장하며, 전체 이미지는 기존 활성 폴더 정리/원본 백업을 유지합니다. Review에 Rescan을 추가해 전체 파일을 다시 읽고 현재 이미지의 미저장 Detection 수정도 검사합니다. 재검사 자체는 파일 저장·캔버스 변경·수동 Reviewed 상태 변경을 하지 않습니다.
+- 완료 기준: 두 모드·테마·좁은 화면의 헤더 배치와 상태 순환/탭 유지, 새 파일 생성·확장자 없는 목록·기존 편집/색 보존, 폴더 연결 표시, 현재 이미지 정리/Undo/Redo·미저장 파일 보존·전체 정리 백업, Rescan의 미저장 수정·외부 TXT 갱신·원본/팬·줌 보존, 타입·빌드·관련 단위/브라우저/Electron 회귀 통과.
+- 타입·빌드, 관련 단위 **6파일·162개**, 브라우저/Electron **11개** 통과. 실제 Electron에서 현재 정리 후 3→1개·Undo 3개·Redo 1개와 다른 파일/현재 미저장 TXT 보존을 확인했습니다. 미저장 수정의 Rescan, Undo 후 문제 재등장, 외부 TXT 수정 후 문제 해제, 캔버스 개수/팬·줌 보존 및 전체 정리 원본 백업을 검증했습니다. 기존 Review 상태/큐, 6/5,000개 Layout, 두 모드 색상 저장, 클래스 생성/편집, 상태 순환의 합계/기본 복귀/탭 유지도 통과했습니다.
+- 초기 팝업 검사에서 설정 바로가기를 비동기 처리 중 비활성화하면 닫은 뒤 초점이 복귀하지 않았습니다. 편집 팝업에 설정 버튼 복귀 대상을 지정해 해결했습니다. 헤더 안의 버튼은 브라우저에서 inline-flex가 flex로 계산되므로 위치 이동에 맞게 검증값을 보완했습니다. 관련 재검사 **4/4 · 1.2분** 통과, 밝은 1,332px와 어두운 900px 캡처를 확인했습니다. 기존 감사의 생성 스크린샷은 원본으로 복구하고 최신 증거는 output에 보관합니다.
+- 증거: [타입](../output/compact-controls-typecheck.log) · [빌드](../output/compact-controls-build.log) · [단위](../output/compact-controls-unit.log) · [초기 회귀/9개 통과](../output/compact-controls-e2e.log) · [수정 후 재검사](../output/compact-controls-retest.log) · [밝은 배치](../output/class-settings-light-1332.png) · [어두운 좁은 배치](../output/class-settings-dark-900.png) · [실행 서버 응답](../output/compact-controls-live.log). 남은 소스 작업 없음.
+
+## 추가 요구 U45 · 버튼 간격과 YOLOE 선택 출처 구분
+
+- 2026-10-08 · **완료**. 이미지 폴더/새로고침은 8px 간격의 독립 버튼으로, Load Class/설정은 6px 간격으로 배치합니다. 라벨 탭 컨테이너의 남는 공간 확장을 없애 추가 버튼을 탭 바로 오른쪽 6px에 두고 여러 폴더의 가로 스크롤을 유지합니다.
+- Use selected boxes는 실제로 메인 캔버스의 선택을 샘플로 가져오는 기능이며 팝업 체크박스 선택과 별개입니다. 메인에서 선택한 박스·마스크 가져오기를 유지하되 Add main-canvas boxes/mask로 출처를 표시하고 같은 참조 이미지에 실제 선택이 있을 때만 표시합니다. 팝업 목록의 Add selected as samples는 유지합니다.
+- 완료 기준: 두 모드의 버튼 간격, 1개/10개 폴더·두 테마·640–1,920px에서 추가 버튼 위치/가시성과 스크롤·전환 회귀, 메인 박스/마스크 샘플의 좌표·픽셀·클래스/원본 보존 및 다른 참조 이미지/무선택에서 바로가기 숨김, 타입·빌드·관련 브라우저/Electron 통과.
+- 타입·빌드와 최종 브라우저/Electron **7/7 · 2.1분** 통과. Detection 10개 폴더와 Segmentation 정상/손상 마스크 폴더의 등록·중복·단축키·저장·원본/팬·줌 보존, 두 테마 640·900·1,280·1,920px에서 버튼 바로 옆 6px 및 활성 탭 전체 가시성을 확인했습니다. 두 모드의 새로고침 8px/Classes 설정 6px도 확인했습니다. YOLOE 메인 박스 가져오기, 선택한 마스크의 픽셀 보존, 팝업의 다른 이미지 박스 좌표/클래스 보존, 메인 선택이 있어도 다른 참조 이미지에서는 바로가기 숨김과 복귀를 검증했습니다. YOLOE 테스트의 추론 응답은 기존 테스트 서버 모킹을 사용하며 이 단계는 모델 정확도 검증을 추가하지 않습니다.
+- 초기 간격 검사는 모드 전환과 별개로 긴 이름의 퍼센트 기반 최대 너비가 컨테이너에 빈 폭을 남기는 문제를 발견했습니다. 탭 전체를 160px로 제한하면 좁은 영역에서 활성 탭이 잘리므로, 최종 구현은 이름만 최대 120px로 제한하고 탭 자체는 현재 영역에 맞춰 줄입니다. 마지막 탭의 간격을 같은 프레임에서 측정하며 모든 기존 가시성 검사를 유지했습니다. 초기 실패 로그는 보존합니다. 최신 4173의 JS/CSS 응답도 확인했습니다. 남은 소스 작업 없음.
+- 증거: [타입](../output/header-spacing-final-typecheck.log) · [빌드](../output/header-spacing-build.log) · [최종 7개 회귀](../output/header-spacing-final-e2e.log) · [초기 회귀](../output/header-spacing-e2e.log) · [긴 이름/좁은 영역 실패](../output/header-spacing-labels-final.log) · [밝은 배치](../output/class-settings-light-1332.png) · [어두운 900px](../output/label-tabs-detection-dark-900.png) · [YOLOE 메인 선택](../output/yoloe-main-selection.png) · [실행 서버 최신 응답](../output/header-spacing-live.log). 생성 증거는 output에 두며 사용자 데이터셋과 실행 서버는 유지합니다.
+
+### 2026-10-08 · PR 제출 전 통합 검사
+
+- U39–U45 작업 트리의 전체 단위 검사에서 새 이미지 상태 필터 버튼으로 교체되지 않은 DOM 계약 테스트 fixture 한 곳을 발견해 갱신했습니다. 최종 전체 단위 **68파일·453/453**, 타입·빌드 통과. [전체 단위](../output/pr-final-unit.log) · [타입](../output/pr-final-typecheck.log) · [빌드](../output/pr-final-build.log).
+- 팝업 확대·compiled preview 갱신은 `347c507`로 분리 커밋했습니다. 클래스 번호 변경과 설정/Review·헤더 개선은 관련 UI·파일 백업 회귀 및 위 통합 검사로 검증한 묶음으로 커밋합니다. 생성 출력·앱 프로필·임시 데이터는 제외합니다. PR은 기존 브랜치의 YOLOE/라벨링 개선을 포함해 main을 대상으로 합니다.
+
 ## 이어서 확인할 때
 
 1. 이 문서의 상태표와 실제 커밋을 먼저 대조합니다. 완료 항목을 다시 구현하지 않습니다.

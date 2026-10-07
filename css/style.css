@@ -1200,7 +1200,7 @@ canvas {
 #image-filter-container {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    margin-left: auto;
     align-items: center;
     position: relative;
     z-index: 1;
@@ -1209,17 +1209,8 @@ canvas {
 #image-filter-container .image-status-filter {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    min-height: 24px;
-    color: var(--workbench-text-muted);
+    min-width: 4.5rem;
     font-size: var(--fs-caption);
-    cursor: pointer;
-}
-
-#image-filter-container .form-check-input {
-    width: 12px;
-    height: 12px;
-    margin: 0;
     cursor: pointer;
 }
 
@@ -1863,8 +1854,8 @@ body {
 
 .dataset-actions {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 34px 34px;
-    gap: 0;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--workbench-border);
 }
@@ -1872,18 +1863,10 @@ body {
 .dataset-actions .btn-primary {
     min-width: 0;
     font-size: var(--fs-body);
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
 }
 
 .dataset-actions .panel-icon-button {
-    border-radius: 0;
-    border-left: none;
-}
-
-.dataset-actions .panel-icon-button:last-child {
-    border-top-right-radius: var(--radius-sm);
-    border-bottom-right-radius: var(--radius-sm);
+    border-radius: var(--radius-sm);
 }
 
 .compatibility-notice {
@@ -2391,11 +2374,11 @@ body {
 .image-source-navigation .app-icon-button { width: 26px; min-width: 26px; height: 26px; }
 .label-source-control { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; font-size: var(--fs-body); }
 .label-source-icon { flex-shrink: 0; color: #aeb7bf; }
-#detectionLabelSources { min-width: 0; flex: 1; }
+#detectionLabelSources { min-width: 0; flex: 0 1 auto; }
 .label-source-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .label-source-tabs::-webkit-scrollbar { display: none; }
-.label-source-tab { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: min(160px, 100%); height: 28px; margin: 0; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-sm); color: #cbd3da; background: rgba(255, 255, 255, 0.05); cursor: pointer; white-space: nowrap; }
-.label-source-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.label-source-tab { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 100%; height: 28px; margin: 0; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-sm); color: #cbd3da; background: rgba(255, 255, 255, 0.05); cursor: pointer; white-space: nowrap; }
+.label-source-name { max-width: 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .label-source-key { flex-shrink: 0; padding: 0 3px; color: inherit; background: rgba(255, 255, 255, 0.08); border-radius: 3px; font: inherit; font-size: var(--fs-badge); }
 .label-source-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
 .label-source-tabs .btn-check:checked + .label-source-tab { color: #e2efff; background: #203a5b; border-color: #528bc9; }
@@ -2403,6 +2386,9 @@ body {
 .app-navbar .label-source-control .app-icon-button { color: #cbd3da; background: transparent; border-color: transparent; }
 .label-source-control .app-icon-button.btn-danger { color: #ff9aa5; }
 .label-source-control .app-icon-button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.12); border-color: #53606a; }
+
+.classes-panel-section .sticky-section-heading { gap: 6px; }
+#loadClassInfoFolderBtn { margin-left: auto; }
 
 .class-color-input {
     width: 30px;
@@ -2513,7 +2499,6 @@ body {
 .dataset-save-controls .btn { min-width: 70px; font-size: var(--fs-body); }
 .outside-boxes-actions { display: grid; gap: 4px; }
 .outside-boxes-actions[hidden] { display: none; }
-.outside-boxes-actions small { color: var(--workbench-text-muted); font-size: var(--fs-caption); text-align: center; }
 
 .panel-splitter {
     width: 4px;
@@ -3726,6 +3711,8 @@ body.dark-mode .placement-notice[data-state="busy"] {
 #segmentationSuperpixelWorkspace .input-group select { flex-basis: 100%; border-radius: var(--radius-sm); }
 
 .dataset-connected #selectImageFolderBtn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-caption); }
+.dataset-connected #selectImageFolderBtn { color: var(--workbench-text); background-color: rgba(25, 135, 84, 0.12); border-color: var(--workbench-success); }
+.dataset-connected #selectImageFolderBtn::before { content: ""; width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--workbench-success); }
 .yoloe-label-choices { max-height: 11rem; overflow-y: auto; }
 .yoloe-label-choice { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem; border-bottom: 1px solid var(--workbench-border); cursor: pointer; }
 .yoloe-label-choice:has(input:checked) { background: var(--workbench-surface-muted); }
@@ -3792,6 +3779,34 @@ body.dark-mode .automation-batch-result-row[data-state="skipped"] .automation-re
 .segmentation-region-action-buttons .btn {
     text-transform: none;
     letter-spacing: 0;
+}
+
+.class-remap-target {
+    overflow-wrap: anywhere;
+}
+
+.class-remap-preview {
+    padding: 1rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+}
+
+body.dark-mode #classRemapModal .table {
+    --bs-table-bg: transparent;
+    --bs-table-color: #e9ecef;
+    --bs-table-border-color: #495057;
+}
+
+body.dark-mode #classRemapModal .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+#classRemapModal .modal-body {
+    scrollbar-gutter: stable;
+}
+
+#classRemapRows td:last-child {
+    width: 2.5rem;
 }
 
 .create-class-file-modal-content .form-label {
@@ -4225,6 +4240,122 @@ summary {
 .modal .text-muted,
 .modal small {
     line-height: 1.35;
+}
+
+#classRemapModal .modal-dialog {
+    max-width: min(880px, calc(100vw - 2rem));
+    margin-inline: auto;
+}
+
+.class-remap-table {
+    table-layout: fixed;
+}
+
+.class-remap-table td {
+    padding-block: 0.65rem;
+}
+
+.class-remap-class {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.class-remap-id {
+    flex: 0 0 4.25rem;
+    width: 4.25rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.class-remap-swatch {
+    flex: 0 0 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 1px solid var(--workbench-border);
+    border-radius: 4px;
+}
+
+.class-remap-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
+
+.class-remap-count-cell {
+    width: 5.5rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.class-remap-count {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.25rem 0.65rem;
+    border: 1px solid var(--workbench-border);
+    border-radius: 8px;
+    background: var(--workbench-surface);
+    line-height: 1.25;
+}
+
+.class-remap-count span {
+    color: var(--workbench-text-muted);
+    font-size: 0.7rem;
+}
+
+#classRemapMappingFields th:last-child,
+.class-remap-action {
+    width: 6rem;
+    text-align: right;
+    white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+    .class-remap-table thead {
+        position: absolute;
+        clip-path: inset(50%);
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+    }
+
+    .class-remap-table tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        border-bottom: 1px solid var(--workbench-border);
+    }
+
+    .class-remap-table td {
+        width: auto;
+        border: 0;
+    }
+
+    .class-remap-table td:nth-child(-n+2)::before {
+        display: block;
+        margin-bottom: 0.35rem;
+        color: var(--workbench-text-muted);
+        font-size: 0.75rem;
+        content: "Original class";
+    }
+
+    .class-remap-table td:nth-child(2)::before {
+        content: "→ New class";
+    }
+
+    .class-remap-class {
+        flex-wrap: wrap;
+    }
+
+    .class-remap-name {
+        flex-basis: 100%;
+    }
+
+    .class-remap-count-cell {
+        text-align: left;
+    }
 }
 
 :where(button, .btn, input, select, textarea, summary, [tabindex]):focus-visible {

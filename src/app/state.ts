@@ -63,6 +63,7 @@ export interface AppViewState {
   persistFilterStateAcrossImageNavigation: boolean;
   resetFilterStateOnSessionReplacement: boolean;
   reviewFilter: "all" | "needs-review" | "reviewed" | "has-issues";
+  imageStatusFilter: "all" | "labeled" | "unlabeled";
   labelOnlyView: boolean;
   labelOnlyBackground: "black" | "white" | "gray";
 }
@@ -119,6 +120,7 @@ export function createInitialAppState(): AppState {
       persistFilterStateAcrossImageNavigation: true,
       resetFilterStateOnSessionReplacement: true,
       reviewFilter: "all",
+      imageStatusFilter: "all",
       labelOnlyView: false,
       labelOnlyBackground: "white"
     },

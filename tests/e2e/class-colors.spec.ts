@@ -59,14 +59,13 @@ test("class colors persist per file and repaint both workflows without changing 
   await page.locator("#classSearchInput").fill(`${classId}:`);
   await expect(page.locator("#label-filters .class-filter-entry:visible .class-color-input")).toHaveCount(1);
   await page.locator("#classSearchInput").fill("");
-  if (!await page.locator("#viewClassFileBtn").isVisible()) await page.locator("#classManagement > summary").click();
-  await page.locator("#viewClassFileBtn").click();
+  await page.locator("#addClassShortcutBtn").click();
   const editorColor = page.locator(`#classFileEditorBody .class-color-input[data-class-id="${classId}"]`);
   await expect(editorColor).toHaveValue("#123456");
   await changeColor(editorColor, "#abcdef");
   await page.locator("#classFileViewerModal .modal-header .btn-close").click();
   await expect(detectionColor).toHaveValue("#123456");
-  await page.locator("#viewClassFileBtn").click();
+  await page.locator("#addClassShortcutBtn").click();
   await expect(editorColor).toHaveValue("#123456");
   await changeColor(editorColor, "#abcdef");
   await page.locator("#saveClassFileBtn").click();
@@ -119,7 +118,6 @@ test("class colors persist per file and repaint both workflows without changing 
   await page.screenshot({ path: "output/class-colors-segmentation-dark.png" });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#class-file-select")).toHaveValue("colors.yaml");
-  if (!await page.locator("#viewClassFileBtn").isVisible()) await page.locator("#classManagement > summary").click();
-  await page.locator("#viewClassFileBtn").click();
+  await page.locator("#addClassShortcutBtn").click();
   await expect(page.locator(`#classFileEditorBody .class-color-input[data-class-id="${mask.id}"]`)).toHaveValue("#fedcba");
 });

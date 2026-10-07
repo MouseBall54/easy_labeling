@@ -54,6 +54,7 @@ describe("ui/renderers", () => {
     expect(selectElement.children[1]?.disabled).toBe(true);
     expect(selectElement.children[1]?.textContent).toBe("──────────");
     expect(selectElement.children.slice(2).map((child) => child.value)).toEqual(["2.yaml", "10.yaml"]);
+    expect(selectElement.children.slice(2).map((child) => child.textContent)).toEqual(["2", "10"]);
     expect(selectElement.selectedIndex).toBe(-1);
   });
 

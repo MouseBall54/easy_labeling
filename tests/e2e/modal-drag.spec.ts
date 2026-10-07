@@ -35,7 +35,7 @@ for (const scenario of ["detection-light", "segmentation-dark"]) {
       return { rects: api.getRectGeometries(), mask: api.getSegmentationMaskBounds() };
     });
     const ids = await page.locator(".modal").evaluateAll((modals) => modals.map((modal) => modal.id));
-    expect(ids).toHaveLength(9);
+    expect(ids).toHaveLength(10);
     for (const id of ids) {
       await test.step(id, async () => {
         await showModal(page, id);
@@ -79,8 +79,7 @@ for (const scenario of ["detection-light", "segmentation-dark"]) {
 
     // Use the real class editor trigger for controls, scrolling and viewport bounds.
     if (scenario === "detection-light") {
-      await page.locator("#classManagement > summary").click();
-      await page.locator("#viewClassFileBtn").click();
+      await page.locator("#addClassShortcutBtn").click();
       await expect(page.locator("#classFileViewerModal")).toBeVisible();
       const header = page.locator("#classFileViewerModal .modal-header");
       const content = page.locator("#classFileViewerModal .modal-content");
@@ -119,7 +118,7 @@ for (const scenario of ["detection-light", "segmentation-dark"]) {
       await page.keyboard.press("Escape");
       await expect(page.locator("#classFileViewerModal")).toBeHidden();
       await page.setViewportSize({ width: 1280, height: 720 });
-      await page.locator("#viewClassFileBtn").click();
+      await page.locator("#addClassShortcutBtn").click();
       await expect(input).toHaveValue(originalName);
       await expect(content).toBeVisible();
       const reopened = (await content.boundingBox())!;
@@ -134,7 +133,7 @@ for (const scenario of ["detection-light", "segmentation-dark"]) {
       await expect(header).not.toHaveClass(/is-dragging/);
       await page.mouse.up();
       await expect(page.locator("#classFileViewerModal")).toBeHidden();
-      await expect(page.locator("#viewClassFileBtn")).toBeFocused();
+      await expect(page.locator("#addClassShortcutBtn")).toBeFocused();
     }
   });
 }

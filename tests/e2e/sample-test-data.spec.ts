@@ -30,7 +30,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   }), { timeout: 30_000 }).toEqual({ image: "sample_1.jpg", boxes: 207 });
 
   await expect(page.locator("#image-list [data-file-name]")).toHaveCount(17);
-  await expect(page.locator("#class-file-select option")).toContainText(["classes.yaml"]);
+  await expect(page.locator('#class-file-select option[value="classes.yaml"]')).toHaveText("classes");
   await expect(page.locator("#boxLayoutSelect option")).toHaveCount(2);
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(3);
   await expect(page.locator("#boxLayoutSelect")).toHaveValue("sample-color-grid-layout");
@@ -115,7 +115,7 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#templatePresetSelect").selectOption("sample-layout-preset");
   await expect(page.locator("#templateNameInput")).toHaveValue("Sample Pink Anchor + Layout");
   await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("min", "1");
-  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("max", "1000");
+  await expect(page.locator("#templateWorkspaceZoomInput")).toHaveAttribute("max", "3000");
   await expect(page.locator("#templateWorkspaceFitBtn")).toBeVisible();
   await expect.poll(async () => Number(await page.locator("#templateWorkspaceZoomInput").inputValue()))
     .toBeLessThan(100);

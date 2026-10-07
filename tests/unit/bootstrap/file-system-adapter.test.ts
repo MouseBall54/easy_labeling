@@ -98,7 +98,13 @@ class MockDirectoryHandle implements DirectoryHandleLike {
       this.entries.push(created);
       return created;
     }
-    throw new Error(`File not found: ${name}`);
+    throw Object.assign(new Error(`File not found: ${name}`), { name: "NotFoundError" });
+  }
+
+  async removeEntry(name: string): Promise<void> {
+    const index = this.entries.findIndex((entry) => entry.name === name);
+    if (index < 0) throw Object.assign(new Error(`File not found: ${name}`), { name: "NotFoundError" });
+    this.entries.splice(index, 1);
   }
 }
 
@@ -204,6 +210,118 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  const classRemapFixture = () => {
+    const first = new MockFileHandle("first.txt", " 0\t-0.1 0.5 0.2 0.2\r\n2 0.5 0.5 0.1 0.1\r\n");
+    const second = new MockFileHandle("second.txt", "1 1.1 0.5 0.2 0.2\n");
+    const orphan = new MockFileHandle("orphan.txt", "0 0.5 0.5 0.1 0.1");
+    const folder = new MockDirectoryHandle("labels").withFile(first).withFile(second).withFile(orphan).withFile(new MockFileHandle("empty.txt", ""));
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.labelFolders = [folder] as never;
+    state.session.imageFiles = ["first", "second", "missing", "empty"].map((name) => new MockFileHandle(`${name}.jpg`, "")) as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    return { first, second, orphan, folder, state, fileSystem, deps };
+  };
+  it("previews without writing, updates only matching labels, preserves exact coordinates/formatting and backs up originals", async () => {
+    const { first, second, orphan, folder, fileSystem } = classRemapFixture();
+    const original = await (await first.getFile()).text();
+    const secondOriginal = await (await second.getFile()).text();
+    const write = vi.spyOn(first, "createWritable");
+    const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+    expect(plan?.changedCount).toBe(3);
+    expect(plan?.fileNames).toHaveLength(4);
+    expect(write).not.toHaveBeenCalled();
+    const backupPath = await fileSystem.applyClassRemap(plan!);
+    expect(await (await first.getFile()).text()).toBe(" 1\t-0.1 0.5 0.2 0.2\r\n3 0.5 0.5 0.1 0.1\r\n");
+    expect(await (await second.getFile()).text()).toBe("2 1.1 0.5 0.2 0.2\n");
+    expect(await (await orphan.getFile()).text()).toBe("0 0.5 0.5 0.1 0.1");
+    await expect(folder.getFileHandle("missing.txt")).rejects.toThrow("not found");
+    const backup = await (await folder.getDirectoryHandle(".easy-labeling")).getDirectoryHandle(backupPath!.split("/")[1]!);
+    expect(await (await (await backup.getFileHandle("first.txt")).getFile()).text()).toBe(original);
+    expect(await (await (await backup.getFileHandle("second.txt")).getFile()).text()).toBe(secondOriginal);
+  });
+  it.each(["folder", "edit", "file"])("rejects stale class preview after %s changes before writing", async (change) => {
+    const { first, folder, state, fileSystem } = classRemapFixture();
+    const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+    const write = vi.spyOn(first, "createWritable");
+    if (change === "folder") state.session.labelFolderHandle = new MockDirectoryHandle("other") as never;
+    if (change === "edit") {
+      state.session.currentImageFile = state.session.imageFiles[0]!;
+      markCurrentDocumentDirty(state);
+    }
+    if (change === "file") await (await first.createWritable()).write("2 0.5 0.5 0.1 0.1");
+    write.mockClear();
+    await expect(fileSystem.applyClassRemap(plan!)).rejects.toThrow(/changed.*since preview/);
+    expect(write).not.toHaveBeenCalled();
+  });
+  it.each(["write", "cancel", "backup", "restore"])("preserves class data and reports correct recovery after %s failure", async (failure) => {
+    const { first, second, folder, fileSystem, deps } = classRemapFixture();
+    const originals = await Promise.all([first, second].map(async (file) => (await file.getFile()).text()));
+    const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+    const signal = new AbortController();
+    if (failure === "backup") vi.spyOn(folder, "getDirectoryHandle").mockRejectedValueOnce(new Error("Backup failed"));
+    if (["write", "restore"].includes(failure)) vi.spyOn(second, "createWritable").mockRejectedValueOnce(new Error("Write failed"));
+    if (failure === "restore") {
+      const createFirst = first.createWritable.bind(first);
+      vi.spyOn(first, "createWritable").mockImplementationOnce(createFirst).mockRejectedValueOnce(new Error("Restore failed"));
+    }
+    if (failure === "cancel") {
+      const create = second.createWritable.bind(second);
+      vi.spyOn(second, "createWritable").mockImplementationOnce(async () => { signal.abort(); return create(); });
+      expect(await fileSystem.applyClassRemap(plan!, signal.signal)).toBeNull();
+    } else await expect(fileSystem.applyClassRemap(plan!)).rejects.toThrow(failure === "restore" ? "Originals are in labels/.easy-labeling/class-remap-" : `${failure === "backup" ? "Backup" : "Write"} failed`);
+    if (failure !== "restore") expect(await Promise.all([first, second].map(async (file) => (await file.getFile()).text()))).toEqual(originals);
+    else {
+      const metadata = await folder.getDirectoryHandle(".easy-labeling");
+      const backups = []; for await (const entry of metadata.values()) backups.push(entry);
+      const backup = backups[0] as DirectoryHandleLike;
+      expect(await (await (await backup.getFileHandle("first.txt")).getFile()).text()).toBe(originals[0]);
+    }
+    expect(deps.operations.at(-1)?.finish).toHaveBeenCalledOnce();
+  });
+  it("rejects invalid results anywhere in the folder without creating backup or writing labels", async () => {
+    const { first, folder, fileSystem } = classRemapFixture();
+    const write = vi.spyOn(first, "createWritable");
+    await expect(fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: -1 })).rejects.toThrow("first.txt:");
+    expect(write).not.toHaveBeenCalled();
+    await expect(folder.getDirectoryHandle(".easy-labeling")).rejects.toThrow("not found");
+  });
+  it.each([false, true])("includes unsaved boxes in a missing current TXT and restores file absence on cancellation: %s", async (cancel) => {
+    vi.stubGlobal("HTMLImageElement", class {});
+    try {
+      const { first, folder, state, fileSystem, deps } = classRemapFixture();
+      const original = await (await first.getFile()).text();
+      Object.assign(deps.canvasController.raw.canvas, { viewportTransform: [1, 0, 0, 1, 0, 0], setViewportTransform: vi.fn(), requestRenderAll: vi.fn() });
+      Object.assign(deps.uiManager, { updateZoomDisplay: vi.fn() });
+      state.session.currentImageFile = state.session.imageFiles[2]!;
+      markCurrentDocumentDirty(state);
+      deps.canvasController.raw.getLabelsAsYolo.mockReturnValue("4 -0.1 0.5 0.2 0.2\n");
+      const plan = await fileSystem.previewClassRemap(folder as never, { mode: "offset", offset: 1 });
+      expect(plan?.changedCount).toBe(4);
+      const signal = new AbortController();
+      if (cancel) {
+        const getFile = folder.getFileHandle.bind(folder);
+        vi.spyOn(folder, "getFileHandle").mockImplementation(async (name, options) => {
+          const handle = await getFile(name, options);
+          if (name === "missing.txt" && options?.create) signal.abort();
+          return handle;
+        });
+      }
+      const backupPath = await fileSystem.applyClassRemap(plan!, signal.signal);
+      if (cancel) {
+        expect(backupPath).toBeNull();
+        await expect(folder.getFileHandle("missing.txt")).rejects.toThrow("not found");
+        expect(await (await first.getFile()).text()).toBe(original);
+      } else {
+        expect(await (await (await folder.getFileHandle("missing.txt")).getFile()).text()).toBe("5 -0.1 0.5 0.2 0.2\n");
+        const backup = await (await folder.getDirectoryHandle(".easy-labeling")).getDirectoryHandle(backupPath!.split("/")[1]!);
+        expect(JSON.parse(await (await (await backup.getFileHandle("created-labels.json")).getFile()).text())).toEqual(["missing.txt"]);
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   for (const action of ["save", "edit"] as const) it(`does not start an outdated review after ${action} while saving review settings`, async () => {
     const folder = new MockDirectoryHandle("labels").withFile(new MockFileHandle("first.txt", ""));
     const state = createInitialAppState();

@@ -51,6 +51,7 @@ function createFactorySpies() {
       persistFilterStateAcrossImageNavigation: true,
       resetFilterStateOnSessionReplacement: true,
       reviewFilter: "all",
+      imageStatusFilter: "all",
       labelOnlyView: false,
       labelOnlyBackground: "white"
     },

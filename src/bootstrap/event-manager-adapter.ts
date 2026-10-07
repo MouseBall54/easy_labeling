@@ -16,6 +16,7 @@ import type { SuperResolutionMode, SuperResolutionStatus } from "../features/sup
 import { bindInferenceControls } from "./inference-controller.js";
 import { bindYoloeControls } from "./yoloe-controller.js";
 import { getDefaultColorForClass } from "../features/canvas/colors.js";
+import { bindClassRemapControls } from "./class-remap-controller.js";
 
 type CanvasPointLike = { x: number; y: number };
 type ViewportTransform = [number, number, number, number, number, number];
@@ -124,6 +125,7 @@ export function createEventManagerAdapter(input: {
       const { elements } = input.uiManager;
       const disposeInference = input.documentRef ? bindInferenceControls({ ...input, documentRef: input.documentRef }) : () => {};
       const disposeYoloe = input.documentRef ? bindYoloeControls({ ...input, documentRef: input.documentRef }) : () => {};
+      const disposeClassRemap = input.documentRef ? bindClassRemapControls({ ...input, documentRef: input.documentRef }) : () => {};
       const segmentationFormatStorageKey = "easy-labeling:segmentation-format-settings";
       const settingsStorage = input.documentRef?.defaultView?.localStorage;
       try {
@@ -641,7 +643,7 @@ export function createEventManagerAdapter(input: {
       };
       const checkLabelFilters = (): void => {
         renderLists();
-        if (!elements.showLabeledCheckbox.checked || !elements.showUnlabeledCheckbox.checked) runAsync(() => input.fileSystem.refreshReviewFindings());
+        if (input.state.view.imageStatusFilter !== "all") runAsync(() => input.fileSystem.refreshReviewFindings());
       };
 
       elements.appBrand.addEventListener("click", (event) => {
@@ -970,6 +972,13 @@ export function createEventManagerAdapter(input: {
         runExclusive("save-labels", () => input.fileSystem.saveLabels(false), elements.saveLabelsBtn as HTMLButtonElement);
       });
       const cleanOutsideBoxes = input.documentRef?.getElementById("removeOutsideBoxesBtn") as HTMLButtonElement | null;
+      input.documentRef?.getElementById("removeCurrentOutsideBoxesBtn")?.addEventListener("click", () => {
+        if (input.state.session.workflow !== "detection" || !input.state.session.currentImage) return;
+        const count = input.canvasController.raw.removeBoxesOutsideImageBounds?.() ?? 0;
+        input.windowRef.dispatchEvent?.(new Event("easy-labeling:history-change"));
+        input.uiManager.syncWorkspaceState();
+        input.uiManager.notify(count ? `${count.toLocaleString()} outside boxes removed from this image. Undo is available; use Save to write the result.` : "No outside boxes in this image.");
+      });
       cleanOutsideBoxes?.addEventListener("click", () => {
         const { session } = input.state;
         const folder = session.labelFolderHandle;
@@ -989,7 +998,9 @@ export function createEventManagerAdapter(input: {
       });
 
       elements.viewClassFileBtn.addEventListener("click", () => {
-        runAsync(() => input.fileSystem.showClassFileContent());
+        runExclusive("create-class-file", async () => {
+          if (await input.fileSystem.createNewClassFile()) await input.fileSystem.showClassFileContent();
+        }, elements.viewClassFileBtn as HTMLButtonElement);
       });
 
       elements.saveClassFileBtn.addEventListener("click", () => {
@@ -1068,8 +1079,19 @@ export function createEventManagerAdapter(input: {
       });
 
       elements.imageSearchInput.addEventListener("input", renderLists);
-      elements.showLabeledCheckbox.addEventListener("change", checkLabelFilters);
-      elements.showUnlabeledCheckbox.addEventListener("change", checkLabelFilters);
+      elements.imageStatusFilterBtn.addEventListener("click", () => {
+        input.state.view.imageStatusFilter = input.state.view.imageStatusFilter === "all" ? "labeled" : input.state.view.imageStatusFilter === "labeled" ? "unlabeled" : "all";
+        checkLabelFilters();
+      });
+      const rescanReviewButton = input.documentRef?.getElementById("rescanReviewBtn") as HTMLButtonElement | null;
+      rescanReviewButton?.addEventListener("click", () => {
+        if (input.state.session.workflow !== "detection" || !input.state.session.imageFiles.length) return;
+        runExclusive("rescan-review", async () => {
+          const findings = input.state.session.reviewFindings;
+          await input.fileSystem.refreshReviewFindings();
+          if (findings !== input.state.session.reviewFindings) input.uiManager.notify("Review rechecked. Current unsaved edits are included.");
+        }, rescanReviewButton);
+      });
       if (elements.reviewFilterSelect) {
         elements.reviewFilterSelect.addEventListener("change", () => {
           input.state.view.reviewFilter = elements.reviewFilterSelect.value as typeof input.state.view.reviewFilter;
@@ -2388,7 +2410,8 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
-        if (input.documentRef?.getElementById("yoloeSetupModal")?.classList.contains("show")) return;
+        if (input.documentRef?.getElementById("yoloeSetupModal")?.classList.contains("show")
+          || input.documentRef?.getElementById("classRemapModal")?.classList.contains("show")) return;
 
         const templateModalElement = input.documentRef?.getElementById("templateMatchingModal");
         const templateModalVisible = elements.templateMatchingModal?._isShown
@@ -2780,6 +2803,7 @@ export function createEventManagerAdapter(input: {
       input.windowRef.addEventListener("unload", () => {
         disposeInference();
         disposeYoloe();
+        disposeClassRemap();
         unsubscribeSuperResolutionStatus();
         if (elapsedTimer !== undefined) elapsedWindow?.clearInterval(elapsedTimer);
         automationController?.dispose();

@@ -62,13 +62,29 @@ for (const task of ["Annotate", "Inference"]) {
     await page.goto("/index.html");
     await page.locator(`#task${task}Btn`).click();
     await expect(page.locator(".classes-panel-section")).toBeVisible();
-    if (!await page.locator("#loadClassInfoFolderBtn").isVisible()) await page.locator("#classManagement > summary").click();
     await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
     await expect(page.locator("#addClassShortcutBtn")).toBeVisible();
+    await expect(page.locator("#addClassShortcutBtn")).toHaveAttribute("aria-label", "Class settings");
+    await expect(page.locator("#addClassShortcutBtn .bi-gear")).toHaveCount(1);
+    await expect(page.locator("#classManagement summary")).toHaveCount(0);
+    expect(await page.locator("#classManagement").evaluate((settings) => Boolean(settings.compareDocumentPosition(document.getElementById("classSearchInput")!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     await expect(page.locator('#class-file-select option[value="__CREATE_NEW__"]')).toHaveCount(1);
 
-    await page.locator("#class-file-select").selectOption("__CREATE_NEW__");
+    await expect(page.locator("#viewClassFileBtn")).toHaveAttribute("aria-label", "Create class file");
+    await expect(page.locator("#viewClassFileBtn .bi-plus-lg")).toHaveCount(1);
+    await page.locator("#viewClassFileBtn").click();
     await expect(page.locator("#createClassFileModal")).toBeVisible();
+    await expect(page.locator("#newClassFileNameInput")).toHaveValue("classes");
+    await expect(page.locator("#newClassFileNameHelp")).toHaveText(".yaml is added automatically.");
+    await page.locator("#confirmCreateClassFileBtn").click();
+    await expect(page.locator("#class-file-select")).toHaveValue("classes.yaml");
+    await expect(page.locator('#class-file-select option[value="classes.yaml"]')).toHaveText("classes");
+    await page.locator("#classFileViewerModal .modal-header .btn-close").click();
+    await expect(page.locator("#classFileViewerModal")).toBeHidden();
+    await page.locator("#class-file-select").selectOption("__CREATE_NEW__");
+    await expect(page.locator("#newClassFileNameInput")).toHaveValue("classes");
+    await page.locator("#confirmCreateClassFileBtn").click();
+    await expect(page.locator("#newClassFileNameError")).toContainText("already exists");
     await page.locator("#newClassFileNameInput").fill("custom-labels");
     await page.locator("#confirmCreateClassFileBtn").click();
 
@@ -83,7 +99,7 @@ for (const task of ["Annotate", "Inference"]) {
     await expect(page.locator("#classFileViewerModal")).toBeHidden();
     await page.locator(`#task${task === "Annotate" ? "Inference" : "Annotate"}Btn`).click();
     await expect(page.locator("#class-file-select")).toHaveValue("custom-labels.yaml");
-    await page.locator("#viewClassFileBtn").click();
+    await page.locator("#addClassShortcutBtn").click();
     await expect(page.locator("#classFileEditorBody .class-name-input").first()).toHaveValue("cell");
   });
 }

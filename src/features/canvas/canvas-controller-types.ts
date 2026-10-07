@@ -1,4 +1,5 @@
 import type { AppMode, CanvasPoint, LabelDisplayMode } from "../../types/labels.js";
+import type { ClassRemapRule, ClassRemapSummary } from "../../domain/class-remap.js";
 import type {
   CanvasImageLike,
   FabricActiveSelectionLike,
@@ -150,6 +151,7 @@ export interface CanvasController {
   getClipboardItemCount(): number;
   deleteSelection(options?: CanvasBulkOperationOptions): void;
   setSelectedLabelClass?(classId: string): boolean;
+  remapLabelClasses?(rule: ClassRemapRule): ClassRemapSummary;
   alignSelectionLeft(): void;
   alignSelectionRight(): void;
   alignSelectionTop(): void;

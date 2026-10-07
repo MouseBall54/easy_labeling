@@ -270,7 +270,7 @@
                     </section>
 
                     <section id="detectionReviewWorkspace" class="panel-section review-workspace-section" hidden>
-                        <div class="section-heading-row"><h3>Review</h3><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
+                        <div class="section-heading-row"><h3>Review</h3><button id="rescanReviewBtn" type="button" class="btn btn-outline-primary btn-sm" title="Recheck all images, including current unsaved edits"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Rescan</button><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
                         <div id="reviewQueueControls" class="review-queue-controls mt-2" data-ui="review-queue-controls" hidden>
                             <div class="section-heading-row"><h4>Review queue</h4><span id="reviewQueueSummary" class="count-badge">0</span></div>
                             <div class="btn-group btn-group-sm w-100" role="group" aria-label="Review queue navigation">
@@ -302,15 +302,14 @@
                     <section class="panel-section image-library-section" data-ui="image-library-section">
                         <div class="section-heading-row">
                             <h3>Images</h3>
+                            <div id="image-filter-container" data-ui="image-status-filters">
+                                <button id="imageStatusFilterBtn" type="button" class="btn btn-outline-secondary btn-sm image-status-filter" data-filter="all" title="All images. Click for labeled images." aria-label="Image filter: All images">All</button>
+                            </div>
                             <span id="imageCountBadge" class="count-badge">0</span>
                         </div>
                         <div class="input-group input-group-sm image-search-group" data-ui="image-search-group">
                             <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                             <input type="search" id="imageSearchInput" class="form-control" data-ui="image-search-input" placeholder="Search files..." aria-label="Search image files">
-                        </div>
-                        <div id="image-filter-container" class="image-status-filters" data-ui="image-status-filters" role="group" aria-label="Image status filters">
-                            <label class="image-status-filter" for="showLabeled" data-ui="filter-labeled-images"><input type="checkbox" class="form-check-input" id="showLabeled" checked><span>Labeled</span></label>
-                            <label class="image-status-filter" for="showUnlabeled" data-ui="filter-unlabeled-images"><input type="checkbox" class="form-check-input" id="showUnlabeled" checked><span>Unlabeled</span></label>
                         </div>
                         <div id="reviewFilterControl">
                             <label class="visually-hidden" for="reviewFilterSelect">Review filter</label>
@@ -327,19 +326,20 @@
                     <section class="panel-section classes-panel-section">
                         <div class="section-heading-row sticky-section-heading">
                             <h3>Classes</h3>
-                            <button id="addClassShortcutBtn" type="button" class="panel-icon-button" title="Add class" aria-label="Add class"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+                            <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary btn-sm" data-ui="load-class-info-folder" title="Load Class Info folder"><i class="bi bi-folder-symlink" aria-hidden="true"></i> Load Class</button>
+                            <button id="addClassShortcutBtn" type="button" class="panel-icon-button" title="Class settings" aria-label="Class settings"><i class="bi bi-gear" aria-hidden="true"></i></button>
+                        </div>
+                        <div id="classManagement" class="mb-2" role="group" aria-label="Class files">
+                        <div class="input-group input-group-sm mt-2 class-file-select-group" data-ui="class-file-select-group">
+                            <select class="form-select" id="class-file-select" aria-label="Class file"><option selected>Choose class file...</option></select>
+                            <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file" title="Create class file" aria-label="Create class file"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+                        </div>
                         </div>
                         <label class="visually-hidden" for="classSearchInput">Search classes</label>
                         <input id="classSearchInput" type="search" class="form-control form-control-sm mb-2" placeholder="Search classes...">
                         <div id="label-filters" class="class-filter-list" data-ui="label-filter-list"></div>
                         <p id="segmentationClassPanelHint" class="text-muted small mb-2" data-ui="segmentation-class-panel-hint" hidden>Class painting and visibility controls are in the <strong>Mask Inspector</strong> panel on the right.</p>
-                        <details id="classManagement" class="advanced-disclosure mt-2"><summary><i class="bi bi-gear" aria-hidden="true"></i> Class files &amp; editing</summary>
-                        <button id="loadClassInfoFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-ui="load-class-info-folder"><i class="bi bi-folder-symlink" aria-hidden="true"></i> Load Class Info Folder</button>
-                        <div class="input-group input-group-sm mt-2 class-file-select-group" data-ui="class-file-select-group">
-                            <select class="form-select" id="class-file-select" aria-label="Class file"><option selected>Choose class file...</option></select>
-                            <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file" title="Edit class file" aria-label="Edit class file"><i class="bi bi-eye" aria-hidden="true"></i></button>
-                        </div>
-                        </details>
+                        <button id="openClassRemapBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrow-left-right" aria-hidden="true"></i> Change label class IDs</button>
                     </section>
 
 
@@ -357,8 +357,11 @@
                     <button id="saveLabelsBtn" type="button" class="btn btn-primary" data-ui="save-labels" title="Save labels (Ctrl+S)"><i class="bi bi-floppy" aria-hidden="true"></i> Save</button>
                     </div>
                     <div id="outsideBoxesActions" class="outside-boxes-actions">
-                        <button id="removeOutsideBoxesBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" aria-describedby="outsideBoxesScope" title="Remove boxes crossing image edges from all images in the active label folder; original files are backed up" disabled><i class="bi bi-eraser" aria-hidden="true"></i> Remove outside boxes</button>
-                        <small id="outsideBoxesScope">All images · Active label folder</small>
+                        <span class="small">Remove outside boxes</span>
+                        <div class="btn-group btn-group-sm w-100" role="group" aria-label="Remove outside boxes">
+                            <button id="removeCurrentOutsideBoxesBtn" type="button" class="btn btn-outline-secondary" title="Remove boxes crossing this image's edges · Undo available" disabled>Current image</button>
+                            <button id="removeOutsideBoxesBtn" type="button" class="btn btn-outline-secondary" title="Remove boxes crossing image edges from all images in the active label folder; original files are backed up" disabled>All images</button>
+                        </div>
                     </div>
                 </div>
             </aside>
@@ -710,7 +713,7 @@
                                 <select id="yoloeExistingBoxSelect" class="visually-hidden" multiple tabindex="-1" aria-hidden="true"><option value="">Loading labels…</option></select>
                                 <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Add selected as samples</button>
                             </div>
-                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" disabled>Use selected labels</button>
+                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" hidden disabled>Add main-canvas labels</button>
                         </div>
                         <hr>
                         <h6 class="settings-subtitle mt-0">Inference settings</h6>
@@ -1043,8 +1046,8 @@
                 </div>
                 <div class="modal-body">
                     <label for="newClassFileNameInput" class="form-label">File name</label>
-                    <input id="newClassFileNameInput" class="form-control" type="text" value="classes.yaml" autocomplete="off" aria-describedby="newClassFileNameHelp newClassFileNameError">
-                    <div id="newClassFileNameHelp" class="form-text">.yaml or .yml</div>
+                    <input id="newClassFileNameInput" class="form-control" type="text" value="classes" autocomplete="off" aria-describedby="newClassFileNameHelp newClassFileNameError">
+                    <div id="newClassFileNameHelp" class="form-text">.yaml is added automatically.</div>
                     <div id="newClassFileNameError" class="invalid-feedback" role="alert" hidden></div>
                 </div>
                 <div class="modal-footer">
@@ -1055,7 +1058,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true">
+    <div class="modal fade" id="classFileViewerModal" tabindex="-1" aria-labelledby="classFileViewerModalLabel" aria-hidden="true" data-focus-return="addClassShortcutBtn">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
@@ -1081,6 +1084,57 @@
                     <button type="button" class="btn btn-outline-secondary me-auto" id="addClassRowBtn"><i class="bi bi-plus-lg"></i> Add Row</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-primary" id="saveClassFileBtn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="classRemapModal" tabindex="-1" aria-labelledby="classRemapTitle" aria-hidden="true" data-focus-return="openClassRemapBtn">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="classRemapTitle">Change label class IDs</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Change Detection box IDs while keeping box positions and sizes. Class file names, colors and saved Layout presets stay unchanged.</p>
+                    <label class="form-label" for="classRemapScope">Apply to</label>
+                    <select id="classRemapScope" class="form-select form-select-sm mb-2">
+                        <option value="current">Current image · All boxes</option>
+                        <option value="folder">All images · Active label folder</option>
+                    </select>
+                    <p id="classRemapTarget" class="small text-muted class-remap-target"></p>
+                    <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Class change method">
+                        <input class="btn-check" type="radio" name="classRemapMethod" id="classRemapMappingMode" value="mapping" checked>
+                        <label class="btn btn-outline-primary" for="classRemapMappingMode">Remap IDs</label>
+                        <input class="btn-check" type="radio" name="classRemapMethod" id="classRemapOffsetMode" value="offset">
+                        <label class="btn btn-outline-primary" for="classRemapOffsetMode">Shift all IDs</label>
+                    </div>
+                    <div id="classRemapOffsetFields" hidden>
+                        <label class="form-label" for="classRemapOffset">Add to every class ID</label>
+                        <input id="classRemapOffset" type="number" step="1" value="1" class="form-control form-control-sm" aria-describedby="classRemapOffsetHint">
+                        <p id="classRemapOffsetHint" class="form-text">Use +3 to increase or -3 to decrease. Every resulting ID must be 0 or greater.</p>
+                    </div>
+                    <div id="classRemapMappingFields">
+                        <table class="table table-sm align-middle class-remap-table">
+                            <thead><tr><th scope="col">Original class</th><th scope="col"><i class="bi bi-arrow-right" aria-hidden="true"></i> New class</th><th scope="col" class="class-remap-count-cell">Boxes</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                            <tbody id="classRemapRows"></tbody>
+                        </table>
+                        <button id="addClassRemapRowBtn" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add mapping</button>
+                        <p class="form-text">Count shows boxes in the current image, including hidden classes. Each mapping uses the original ID: 0 → 2 and 2 → 0 swap classes. Unlisted IDs stay unchanged. Multiple original IDs may share a new ID.</p>
+                    </div>
+                    <div id="classRemapError" class="alert alert-danger mt-3 mb-0" role="alert" hidden></div>
+                    <section id="classRemapPreview" class="class-remap-preview mt-3" aria-live="polite" hidden>
+                        <h6>Preview</h6>
+                        <p id="classRemapSummary" class="small mb-2"></p>
+                        <table class="table table-sm align-middle class-remap-table mb-0"><thead><tr><th scope="col">Original class</th><th scope="col"><i class="bi bi-arrow-right" aria-hidden="true"></i> New class</th><th scope="col" class="class-remap-count-cell">Boxes</th></tr></thead><tbody id="classRemapPreviewRows"></tbody></table>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary me-auto" data-bs-dismiss="modal">Close</button>
+                    <button id="stopClassRemapBtn" type="button" class="btn btn-outline-danger" hidden>Stop</button>
+                    <button id="previewClassRemapBtn" type="button" class="btn btn-outline-primary">Preview changes</button>
+                    <button id="applyClassRemapBtn" type="button" class="btn btn-primary" disabled>Apply changes</button>
                 </div>
             </div>
         </div>

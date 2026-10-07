@@ -566,7 +566,7 @@ test("existing mask labels become pixel-accurate samples without modifying the s
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds())).not.toBeNull();
   await page.locator("#saveLabelsBtn").click();
   await page.locator("#taskYoloeBtn").click(); await openSetup(page);
-  await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeHidden();
   await closeSetup(page);
   const source = await page.evaluate(() => {
     const api = Reflect.get(window, "__easyLabelingTestApi"), bounds = api.getSegmentationMaskBounds();
@@ -583,7 +583,7 @@ test("existing mask labels become pixel-accurate samples without modifying the s
   await page.locator("#segmentationEditModeBtn").click();
   await page.mouse.click(source.screenX, source.screenY);
   await openSetup(page);
-  await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Use selected mask (1)");
+  await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Add main-canvas mask (1)");
   await page.locator("#addYoloeSelectedBtn").click();
   await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(1);
   await page.locator("#previewYoloeSampleBtn").click();
@@ -621,7 +621,17 @@ test("existing box prompts and settings remain available, with cancellation pres
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").selectRectsByIndex([0]));
   await openSetup(page);
-  await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Use selected boxes (1)");
+  await expect(page.locator("#addYoloeSelectedBtn")).toHaveText("Add main-canvas boxes (1)");
+  await expect(page.locator("#yoloeLabelSelectionSummary")).toHaveText("0 selected / 207");
+  await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
+  await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
+  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(100);
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeHidden();
+  await page.locator("#yoloeReferenceSelect").selectOption("sample_1.jpg");
+  await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(207);
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeVisible();
+  await page.locator("#addYoloeSelectedBtn").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "output/yoloe-main-selection.png" });
   await page.locator("#addYoloeSelectedBtn").click();
   await closeSetup(page);
   await page.locator("#previewYoloeBtn").click();
@@ -662,7 +672,7 @@ test("existing Detection boxes can be imported inside the popup from different i
   await page.locator("#taskYoloeBtn").click();
   await expect(page.locator("#yoloeBackendBadge")).toHaveText("GPU · CUDA");
   await openSetup(page);
-  await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeHidden();
   await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(207);
   await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
   const pixels = () => page.locator("#yoloePreviewCanvas").evaluate((element) => (element as HTMLCanvasElement).toDataURL());
@@ -673,7 +683,7 @@ test("existing Detection boxes can be imported inside the popup from different i
   await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(1);
   await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
   await expect(page.locator("#yoloeExistingBoxSelect option")).toHaveCount(100);
-  await expect(page.locator("#addYoloeSelectedBtn")).toBeDisabled();
+  await expect(page.locator("#addYoloeSelectedBtn")).toBeHidden();
   await expect(page.locator("#addYoloeExistingBtn")).toBeDisabled();
   await page.locator("#yoloeExistingBoxSelect").selectOption("0");
   await page.locator("#addYoloeExistingBtn").click();

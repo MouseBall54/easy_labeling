@@ -43,6 +43,10 @@ for (const workflow of ["detection", "segmentation"] as const) test(`label folde
     const sources = page.locator("#labelSourceTabs");
     await expect(sources).toHaveAttribute("data-active-index", "0");
     await expect(page.locator(".app-navbar #labelSourceTabs")).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const tabs = document.querySelectorAll("#labelSourceTabs .label-source-tab");
+      return document.getElementById("selectLabelFolderBtn")!.getBoundingClientRect().left - tabs[tabs.length - 1]!.getBoundingClientRect().right;
+    })).toBeCloseTo(6, 1);
     await page.locator("#zoom-input").fill("130");
     await page.locator("#zoom-input").press("Enter");
     // A translated, enlarged view must survive every label switch.
@@ -171,6 +175,9 @@ for (const workflow of ["detection", "segmentation"] as const) test(`label folde
       await expect(page.locator("#selectLabelFolderBtn")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       for (const size of [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }, { width: 900, height: 720 }, { width: 640, height: 480 }]) {
         await page.setViewportSize(size);
+        const tabsBounds = (await sources.boundingBox())!;
+        const addBounds = (await page.locator("#selectLabelFolderBtn").boundingBox())!;
+        expect(addBounds.x - tabsBounds.x - tabsBounds.width).toBeCloseTo(6, 1);
         for (const selector of ["#labelSourceTabs", "#selectLabelFolderBtn", "#resetZoomBtn"]) {
           await expect(page.locator(selector)).toBeVisible();
           const bounds = (await page.locator(selector).boundingBox())!;

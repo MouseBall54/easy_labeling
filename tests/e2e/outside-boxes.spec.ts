@@ -55,7 +55,46 @@ test("Save and Auto save preserve outside boxes; explicit cleanup covers all ima
     const beforeCleanup = await readFile(path.join(comparison, "image.txt"), "utf8");
     expect(beforeCleanup).not.toBe(original);
     expect(beforeCleanup.trim().split("\n")).toHaveLength(3);
+    await page.locator("#autoSaveToggle").uncheck();
+    await page.locator("#taskReviewBtn").click();
+    await expect(page.locator("#activeOperationPanel")).toBeHidden();
+    await page.locator("#reviewFilterSelect").selectOption("all");
+    const currentView = await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform());
+    await page.locator("#removeCurrentOutsideBoxesBtn").click();
+    await expect.poll(count).toBe(1);
+    await expect(page.locator("#headerDocumentStatus")).toHaveAttribute("data-state", "dirty");
+    expect(await readFile(path.join(comparison, "image.txt"), "utf8")).toBe(beforeCleanup);
+    expect(await readFile(path.join(comparison, "second.txt"), "utf8")).toBe(secondBeforeCleanup);
+    expect(await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform())).toEqual(currentView);
+    await page.locator('[data-ui="history-undo"]').click();
+    await expect.poll(count).toBe(3);
+    await page.locator('[data-ui="history-redo"]').click();
+    await expect.poll(count).toBe(1);
+    await page.locator("#rescanReviewBtn").click();
+    await expect(page.locator("#rescanReviewBtn")).toBeEnabled();
+    await expect(page.locator("#reviewIssueList")).toContainText("No quality issues found.");
+    expect(await readFile(path.join(comparison, "image.txt"), "utf8")).toBe(beforeCleanup);
+    // Undo reveals the same on-disk outside boxes again; rescan must use current edits.
+    await page.locator('[data-ui="history-undo"]').click();
+    await expect.poll(count).toBe(3);
+    await page.locator("#rescanReviewBtn").click();
+    await expect(page.locator("#rescanReviewBtn")).toBeEnabled();
+    await expect(page.locator("#reviewIssueList")).toContainText("Outside image");
+    // A clean current document must pick up external TXT changes without writing them.
+    await page.locator("#saveLabelsBtn").click();
+    await expect(page.locator("#headerDocumentStatus")).toHaveAttribute("data-state", "saved");
+    const cleanBeforeExternal = await readFile(path.join(comparison, "image.txt"), "utf8");
+    await writeFile(path.join(comparison, "image.txt"), cleanBeforeExternal.split("\n")[0] + "\n");
+    await page.locator("#rescanReviewBtn").click();
+    await expect(page.locator("#rescanReviewBtn")).toBeEnabled();
+    await expect(page.locator("#reviewIssueList")).toContainText("No quality issues found.");
+    expect(await count()).toBe(3);
+    await writeFile(path.join(comparison, "image.txt"), beforeCleanup);
+    await page.locator("#taskAnnotateBtn").click();
     const cleanup = page.locator("#removeOutsideBoxesBtn");
+    await expect(cleanup).toHaveText("All images");
+    await expect(page.locator("#removeCurrentOutsideBoxesBtn")).toHaveText("Current image");
+    await expect(page.locator("#outsideBoxesScope")).toHaveCount(0);
     for (const theme of ["light", "dark"]) {
       if (await page.locator("#darkModeToggle").isChecked() !== (theme === "dark")) await page.locator('label[for="darkModeToggle"]').click();
       for (const width of [1280, 900]) {

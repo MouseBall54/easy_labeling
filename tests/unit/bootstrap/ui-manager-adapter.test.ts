@@ -237,10 +237,6 @@ function createElements() {
   imageSearchInput.value = "";
   const classSearchInput = new FakeElement("input");
   classSearchInput.value = "";
-  const showLabeledCheckbox = new FakeElement("input");
-  showLabeledCheckbox.checked = true;
-  const showUnlabeledCheckbox = new FakeElement("input");
-  showUnlabeledCheckbox.checked = true;
   const segmentationMaskVisibilityToggle = new FakeElement("input");
   segmentationMaskVisibilityToggle.checked = true;
   const segmentationMaskOpacitySlider = new FakeElement("input");
@@ -283,8 +279,7 @@ function createElements() {
     imageList: new FakeElement("div"),
     imageSearchInput,
     classSearchInput,
-    showLabeledCheckbox,
-    showUnlabeledCheckbox,
+    imageStatusFilterBtn: new FakeElement("button"),
     reviewFilterSelect: new FakeElement("select"),
     reviewQueueControls: new FakeElement("div"),
     reviewIssueList: new FakeElement("div"),

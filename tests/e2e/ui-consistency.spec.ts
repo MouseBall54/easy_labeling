@@ -13,16 +13,33 @@ test("merged editing workspaces retain dataset controls and compact status filte
     await page.locator(editTab).click();
     await expect(page.locator("#selectImageFolderBtn")).toBeVisible();
     await expect(page.locator("#selectLabelFolderBtn")).toBeVisible();
-    if (!await page.locator("#loadClassInfoFolderBtn").isVisible()) await page.locator("#classManagement > summary").click();
     await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
+    const gaps = await page.evaluate(() => {
+      const bounds = (id: string) => document.getElementById(id)!.getBoundingClientRect();
+      return {
+        dataset: bounds("refreshDatasetBtn").left - bounds("selectImageFolderBtn").right,
+        classes: bounds("addClassShortcutBtn").left - bounds("loadClassInfoFolderBtn").right,
+        labels: bounds("selectLabelFolderBtn").left - bounds("labelSourceTabs").right
+      };
+    });
+    expect(gaps.dataset).toBe(8);
+    expect(gaps.classes).toBe(6);
+    expect(gaps.labels).toBe(6);
     const before = await page.locator("#image-list [data-file-name]").count();
     expect(before).toBeGreaterThan(0);
-    await page.locator('label[for="showLabeled"]').click();
-    await page.locator('label[for="showUnlabeled"]').click();
-    await expect(page.locator("#image-list [data-file-name]")).toHaveCount(0);
-    await expect(page.locator("#image-list")).toBeHidden();
-    await page.locator('label[for="showLabeled"]').click();
-    await page.locator('label[for="showUnlabeled"]').click();
+    const filter = page.locator("#imageStatusFilterBtn");
+    await expect(filter).toHaveText("All");
+    await filter.click();
+    await expect(filter).toHaveText("Labeled");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden();
+    const labeled = await page.locator("#image-list [data-file-name]").count();
+    await filter.click();
+    await expect(filter).toHaveText("Unlabeled");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden();
+    const unlabeled = await page.locator("#image-list [data-file-name]").count();
+    expect(labeled + unlabeled).toBe(before);
+    await filter.click();
+    await expect(filter).toHaveText("All");
     await expect(page.locator("#image-list [data-file-name]")).toHaveCount(before);
     for (const tab of [editTab, ...(workflow === "detection" ? ["#taskInferenceBtn"] : []), "#taskYoloeBtn"]) {
       await page.locator(tab).click();
@@ -30,14 +47,13 @@ test("merged editing workspaces retain dataset controls and compact status filte
         const rect = button.getBoundingClientRect();
         return { height: rect.height, width: rect.width };
       }));
-      expect(sizes).toHaveLength(2);
+      expect(sizes).toHaveLength(1);
       for (const size of sizes) {
-        expect(size.height).toBeGreaterThanOrEqual(24);
-        expect(size.height).toBeLessThanOrEqual(28);
+        expect(size.height).toBeGreaterThanOrEqual(30);
+        expect(size.height).toBeLessThanOrEqual(38);
         expect(size.width).toBeLessThan(110);
       }
-      await expect(page.locator("#showLabeled")).toBeChecked();
-      await expect(page.locator("#showUnlabeled")).toBeChecked();
+      await expect(filter).toHaveAttribute("data-filter", "all");
     }
     await page.locator('label[for="darkModeToggle"]').click();
   }
@@ -48,7 +64,7 @@ test("workbench controls keep a consistent rhythm across themes and compact view
   await expect(page.locator('[data-standby-step="interface"]')).toHaveAttribute("data-state", "ready");
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
-  await page.locator("#classManagement > summary").click();
+  await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
 
   const lightMetrics = await page.evaluate(() => {
     const compactButton = document.querySelector<HTMLElement>("#loadClassInfoFolderBtn");
@@ -74,11 +90,28 @@ test("workbench controls keep a consistent rhythm across themes and compact view
   expect(lightMetrics.inputHeight).toBeGreaterThanOrEqual(34);
   expect(lightMetrics.buttonFontSize).toBeGreaterThanOrEqual(12);
   expect(lightMetrics.subtitleFontSize).toBeGreaterThanOrEqual(11.5);
-  expect(lightMetrics.buttonDisplay).toBe("inline-flex");
+  expect(lightMetrics.buttonDisplay).toBe("flex");
   expect(lightMetrics.toolbarAlign).toBe("center");
+
+  await page.setViewportSize({ width: 1332, height: 1244 });
+  await page.locator("#classManagement").scrollIntoViewIfNeeded();
+  const classSettings = (await page.locator("#classManagement").boundingBox())!;
+  const classSearch = (await page.locator("#classSearchInput").boundingBox())!;
+  expect(classSettings.y + classSettings.height).toBeLessThanOrEqual(classSearch.y);
+  await expect(page.locator("#loadClassInfoFolderBtn")).toHaveText("Load Class");
+  expect(await page.locator("#loadClassInfoFolderBtn").evaluate((button) => Boolean(button.closest(".sticky-section-heading")))).toBe(true);
+  expect(await page.locator("#imageStatusFilterBtn").evaluate((button) => Boolean(button.closest(".section-heading-row")))).toBe(true);
+  await expect(page.locator("#classManagementTitle")).toHaveCount(0);
+  await expect(page.locator("#selectImageFolderBtn")).toHaveAttribute("data-connected", "true");
+  await expect(page.locator("#selectImageFolderBtn")).toHaveClass(/btn-outline-success/);
+  await page.screenshot({ path: "output/class-settings-light-1332.png" });
 
   await page.locator('label[for="darkModeToggle"]').click();
   await expect(page.locator("body")).toHaveClass(/\bdark-mode\b/);
+  await page.screenshot({ path: "output/class-settings-dark-1332.png" });
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.locator("#classManagement").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "output/class-settings-dark-900.png" });
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await page.locator("#openSegmentationFormatBtn").click();
   await expect(page.locator("#segmentationFormatModal")).toBeVisible();

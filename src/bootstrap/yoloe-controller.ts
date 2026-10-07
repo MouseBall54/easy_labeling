@@ -183,7 +183,8 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       : canvasController.raw.canvas.getActiveObjects().filter(isRectObject).length;
     const selectedButton = el<HTMLButtonElement>("addYoloeSelectedBtn");
     const sameImage = sampleImageName === state.session.currentImageFile?.name;
-    selectedButton.textContent = `Use selected ${workflow === "segmentation" ? "mask" : "boxes"} (${selectedCount})`;
+    selectedButton.hidden = !sameImage || !selectedCount;
+    selectedButton.textContent = `Add main-canvas ${workflow === "segmentation" ? "mask" : "boxes"} (${selectedCount})`;
     selectedButton.disabled = busy || drawing || !hasImage || !sameImage || !selectedCount;
     selectedButton.title = !sameImage ? "Choose the current main image to use its selected labels."
       : !selectedCount ? "Select existing labels in Edit mode on the main canvas, then open Samples & settings."

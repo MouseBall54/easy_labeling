@@ -1323,6 +1323,37 @@ describe("features/canvas/canvas-controller", () => {
     expect((shell.canvas as FakeCanvas).selection).toBe(true);
   });
 
+  it("remaps all 5,000 boxes including hidden classes without moving boxes or breaking Layout selection; undo and validation are atomic", () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const rects = Array.from({ length: 5000 }, (_, index) => {
+      const rect = createRect({ left: index - 5, top: 20, width: 10, height: 20, labelClass: String(index % 3),
+        originalYolo: { x_center: "-0.1", y_center: "0.2", width: "0.1", height: "0.2" } });
+      rect.set({ annotationId: `box-${index}`, layoutInstanceId: "layout-instance", layoutBoxId: String(index), visible: index < 2 || index % 2 === 0 });
+      return rect;
+    });
+    controller.canvas.add(...rects);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection(rects.slice(0, 2), { canvas: controller.canvas }));
+    const geometry = () => controller.getObjects("rect").map(({ annotationId, left, top, width, height, layoutInstanceId, layoutBoxId, originalYolo }) =>
+      ({ annotationId, left, top, width, height, layoutInstanceId, layoutBoxId, originalYolo })).sort((a, b) => a.annotationId!.localeCompare(b.annotationId!));
+    const before = geometry();
+    const summary = controller.remapLabelClasses!({ mode: "mapping", mapping: [{ from: "0", to: "2" }, { from: "2", to: "0" }] });
+    expect(summary.changedCount).toBe(3333);
+    expect(rects.map((rect) => rect.labelClass)).toEqual(rects.map((_, index) => ["2", "1", "0"][index % 3]));
+    expect(geometry()).toEqual(before);
+    expect(controller.getSelectedBoxCount()).toBe(2);
+    expect(history.getPastEntries()).toHaveLength(1);
+    expect(() => controller.remapLabelClasses!({ mode: "offset", offset: -3 })).toThrow();
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(geometry()).toEqual(before);
+    expect(controller.getObjects("rect").every((rect) => rect.labelClass === String(Number(rect.layoutBoxId) % 3))).toBe(true);
+    controller.redo();
+    expect(geometry()).toEqual(before);
+    expect(controller.getObjects("rect").every((rect) => rect.labelClass === ["2", "1", "0"][Number(rect.layoutBoxId) % 3])).toBe(true);
+  });
+
   it("captures selected boxes and applies a class-preserving layout as one history entry", () => {
     const fabric = createFakeFabricRuntime();
     const history = createCanvasHistoryService();

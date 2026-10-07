@@ -68,8 +68,6 @@ test("empty startup, compact dataset management and panel/tool navigation remain
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#datasetActions")).toHaveClass(/dataset-connected/);
-  await expect(page.locator("#loadClassInfoFolderBtn")).toBeHidden();
-  await page.locator("#classManagement > summary").click();
   await expect(page.locator("#loadClassInfoFolderBtn")).toBeVisible();
   await page.locator("#collapse-left-panel-btn").click();
   await expect(page.locator("#left-panel")).toHaveAttribute("inert", "");
