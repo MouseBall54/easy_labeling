@@ -43,6 +43,7 @@ import { loadSegmentationToolPresets } from "../features/segmentation/preset-ser
 import { encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
 import { writeBinaryFileByName } from "../platform/file-system-access.js";
 import type { YoloeResult } from "../features/inference/yoloe.js";
+import { removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 
 class LiveImageSessionState implements ImageSessionServiceState {
   constructor(private readonly appState: AppState) {}
@@ -201,6 +202,7 @@ export interface RuntimeFileSystem extends FileSystem {
   setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void>;
   updateReviewSettings(settings: ReviewSettings): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
+  removeOutOfBoundsLabels(folder: FileSystemDirectoryHandle): Promise<void>;
   navigateImage(direction: number): Promise<void>;
   loadImage(fileHandle: FileHandleLike): Promise<void>;
   decodeImageForAutomation(fileHandle: FileHandleLike): Promise<HTMLImageElement>;
@@ -333,7 +335,7 @@ export function createFileSystemAdapter(input: {
       await task(operation);
       throwIfOperationCancelled(operation?.signal);
     } catch (error: unknown) {
-      if (!operation?.signal.aborted) {
+      if (!operation?.signal.aborted || error instanceof AggregateError) {
         throw error;
       }
       restoreSessionSnapshot(snapshot);
@@ -349,7 +351,25 @@ export function createFileSystemAdapter(input: {
     urlRuntime: input.windowRef.URL
   });
 
-  const applyCurrentImageToCanvas = (): void => {
+  const imageDimensions = new WeakMap<FileHandleLike, { size: number; lastModified: number; width: number; height: number }>();
+  const readImageDimensions = async (fileHandle: FileHandleLike): Promise<{ width: number; height: number }> => {
+    const file = await fileHandle.getFile();
+    const cached = imageDimensions.get(fileHandle);
+    if (cached && cached.size === file.size && cached.lastModified === file.lastModified) return cached;
+    const image = await decodeImage({
+      kind: "file",
+      name: fileHandle.name,
+      getFile: async () => file,
+      createWritable: () => fileHandle.createWritable()
+    });
+    const dimensions = { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height };
+    if (typeof file.size === "number" && typeof file.lastModified === "number") {
+      imageDimensions.set(fileHandle, { size: file.size, lastModified: file.lastModified, ...dimensions });
+    }
+    return dimensions;
+  };
+
+  const applyCurrentImageToCanvas = (labelsOnly = false): void => {
     if (!connectedDeps) {
       return;
     }
@@ -365,7 +385,8 @@ export function createFileSystemAdapter(input: {
     canvasController.loadImageSession({
       image: currentImage,
       detectionYolo: pendingLoadedYolo ?? "",
-      segmentationSnapshot: pendingLoadedSegmentationSnapshot
+      segmentationSnapshot: pendingLoadedSegmentationSnapshot,
+      labelsOnly
     });
     pendingLoadedYolo = null;
     pendingLoadedSegmentationSnapshot = null;
@@ -400,7 +421,8 @@ export function createFileSystemAdapter(input: {
   };
 
   const refreshClassFileStateFromAvailableFolder = async (
-    operation: RuntimeOperationHandle | null = null
+    operation: RuntimeOperationHandle | null = null,
+    refreshCanvas = true
   ): Promise<void> => {
     const session = input.state.session;
     const annotationFolder = session.workflow === "segmentation" && session.segmentationLabelFolderHandle !== session.imageFolderHandle
@@ -416,9 +438,9 @@ export function createFileSystemAdapter(input: {
       setClassColorOverrides(input.state.session.classColors);
       if (connectedDeps) {
         const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-        (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
+        if (refreshCanvas) (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
         uiManager.renderClassFileSelect();
-        uiManager.updateLabelList();
+        if (refreshCanvas) uiManager.updateLabelList();
       }
       return;
     }
@@ -445,27 +467,14 @@ export function createFileSystemAdapter(input: {
 
     if (connectedDeps) {
       const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-      (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
+      if (refreshCanvas) (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
       uiManager.renderClassFileSelect();
-      uiManager.updateLabelList();
+      if (refreshCanvas) uiManager.updateLabelList();
     }
   };
 
   const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
     decodeImage: async ({ fileHandle }) => decodeImage(fileHandle),
-    removeCurrentLabelsOutsideImageBounds: () => {
-      if (!connectedDeps) {
-        return 0;
-      }
-      const count = (connectedDeps.canvasController as RuntimeCanvasController).raw.removeBoxesOutsideImageBounds?.() ?? 0;
-      if (count > 0) {
-        (connectedDeps.uiManager as RuntimeUiManager).notify(
-          `${count} box${count === 1 ? "" : "es"} outside the image ${count === 1 ? "was" : "were"} removed before saving.`,
-          5000
-        );
-      }
-      return count;
-    },
     readCurrentLabelsAsYolo: () => {
       if (!connectedDeps) {
         return "";
@@ -540,7 +549,7 @@ export function createFileSystemAdapter(input: {
       await imageSessionService.refreshImageWorkflowStatus();
       await loadReviewState();
       await refreshReviewFindings();
-      await refreshClassFileStateFromAvailableFolder(operation);
+      await refreshClassFileStateFromAvailableFolder(operation, false);
       throwIfOperationCancelled(operation?.signal);
       if (input.state.session.currentImageFile) {
         pendingLoadedYolo = null;
@@ -550,7 +559,7 @@ export function createFileSystemAdapter(input: {
         throwIfOperationCancelled(operation?.signal);
         const canvasController = connectedDeps?.canvasController as RuntimeCanvasController | undefined;
         const viewport = canvasController ? [...canvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number] : null;
-        applyCurrentImageToCanvas();
+        applyCurrentImageToCanvas(true);
         if (viewport && canvasController) {
           canvasController.raw.canvas.setViewportTransform(viewport);
           canvasController.raw.canvas.requestRenderAll();
@@ -605,9 +614,8 @@ export function createFileSystemAdapter(input: {
           }
         }
       }
-      const decodedImage = await decodeImage(imageFile as unknown as FileHandleLike);
-      const width = decodedImage.naturalWidth || decodedImage.width;
-      const height = decodedImage.naturalHeight || decodedImage.height;
+      const { width, height } = yoloText.trim()
+        ? await readImageDimensions(imageFile as unknown as FileHandleLike) : { width: 1, height: 1 };
       findings.set(imageFile.name, inspectDetectionLabels({
         yoloText,
         imageWidth: width,
@@ -1017,6 +1025,63 @@ export function createFileSystemAdapter(input: {
           } finally {
             input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
           }
+        });
+      },
+
+      async removeOutOfBoundsLabels(folder: FileSystemDirectoryHandle): Promise<void> {
+        await enqueueOperation(async () => {
+          const { session } = input.state;
+          if (session.workflow !== "detection" || !folder) throw new Error("Connect a Detection label folder before cleaning boxes.");
+          if (session.labelFolderHandle !== folder) throw new Error("The active label folder changed. Check the selected folder and retry cleanup.");
+          const directory = folder as unknown as DirectoryHandleLike;
+          const names = session.imageFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
+          if (new Set(names).size !== names.length) throw new Error("Images with the same label filename cannot be cleaned together.");
+          await runTrackedOperation({ title: "Cleaning outside boxes", detail: `All images · ${folder.name}`, stoppedMessage: "Cleanup stopped; original label files restored." }, async (operation) => {
+            await saveBeforeLabelSwitch();
+            const edits: { name: string; original: string; text: string }[] = [];
+            let removedCount = 0;
+            for (const [index, name] of names.entries()) {
+              throwIfOperationCancelled(operation?.signal);
+              operation?.update({ detail: `Checking ${name}`, current: index, total: names.length });
+              let original: string;
+              try { original = await readTextFileByName(directory, name); }
+              catch (error) { if (isNotFoundError(error)) continue; throw error; }
+              const result = removeOutOfBoundsYoloRows(original);
+              if (result.removedCount) edits.push({ name, original, text: result.text });
+              removedCount += result.removedCount;
+            }
+            if (!removedCount) {
+              (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify("No boxes cross the image edges.");
+              return;
+            }
+            const backupPath = `.easy-labeling/outside-boxes-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+            const metadata = await getSubdirectoryHandle(directory, ".easy-labeling", { create: true });
+            const backup = await getSubdirectoryHandle(metadata, backupPath.split("/")[1]!, { create: true });
+            for (const edit of edits) {
+              throwIfOperationCancelled(operation?.signal);
+              await writeTextFileByName(backup, edit.name, edit.original);
+            }
+            const written: typeof edits = [];
+            try {
+              for (const [index, edit] of edits.entries()) {
+                throwIfOperationCancelled(operation?.signal);
+                operation?.update({ detail: `Cleaning ${edit.name}`, current: index, total: edits.length });
+                written.push(edit);
+                await writeTextFileByName(directory, edit.name, edit.text);
+              }
+              throwIfOperationCancelled(operation?.signal);
+              await activateLabelFolder(folder, operation);
+            } catch (error) {
+              const failures: unknown[] = [];
+              for (const edit of written) {
+                try { await writeTextFileByName(directory, edit.name, edit.original); }
+                catch (restoreError) { failures.push(restoreError); }
+              }
+              if (failures.length) throw new AggregateError([error, ...failures], `Cleanup could not restore all files. Originals are in ${folder.name}/${backupPath}.`);
+              throw error;
+            }
+            (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(`${removedCount} outside boxes removed from ${edits.length} images. Originals: ${folder.name}/${backupPath}`, 8000);
+          });
         });
       },
 

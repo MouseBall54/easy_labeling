@@ -55,6 +55,33 @@ function getSelectionAnnotationIds(activeObject: unknown): string[] {
 
 describe("features/canvas/canvas-controller", () => {
 
+  it("loads 5,000 tiny boxes without hidden text objects and creates a badge when selected", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo(Array.from({ length: 5000 }, () => "0 0.5 0.5 0.001 0.001").join("\n"));
+    const labels = controller.getLabelsAsYolo();
+    expect(controller.getObjects("rect")).toHaveLength(5000);
+    expect(controller.getObjects("text")).toHaveLength(0);
+    const first = controller.getObjects("rect")[0]!;
+    controller.canvas.setActiveObject(first);
+    controller.updateAllLabelTexts();
+    expect(first._labelText?.visible).toBe(true);
+    expect(controller.getObjects("text")).toHaveLength(1);
+    expect(controller.getLabelsAsYolo()).toBe(labels);
+  });
+
+  it("lays out loaded labels after the image's final fit changes the zoom", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    try {
+      const controller = createCanvasController(createState(), createDeps());
+      controller.addLabelsFromYolo("0 0.5 0.5 0.05 0.1");
+      expect(controller.getObjects("text")).toHaveLength(0);
+      controller.canvas.setZoom(2);
+      frames.shift()!(0);
+      expect(controller.getObjects("rect")[0]?._labelText?.visible).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("keeps enhancement ROI overlays out of detection labels and exports", () => {
     const controller = createCanvasController(createState(), createDeps());
     controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5");

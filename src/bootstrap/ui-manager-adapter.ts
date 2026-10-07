@@ -935,7 +935,10 @@ export function createUiManagerAdapter(input: {
       elements.selectLabelFolderBtn.toggleAttribute("disabled", !directoryPickerAvailable || !folderName);
       (elements.prevImageBtn as HTMLButtonElement).disabled = imageCount < 2;
       (elements.nextImageBtn as HTMLButtonElement).disabled = imageCount < 2;
-      (elements.saveLabelsBtn as HTMLButtonElement).disabled = !hasImage;
+      (elements.saveLabelsBtn as HTMLButtonElement).disabled = !hasImage || phase === "saving" || elements.saveLabelsBtn.getAttribute("aria-busy") === "true";
+      input.documentRef.getElementById("outsideBoxesActions")?.toggleAttribute("hidden", segmentation);
+      const cleanupButton = input.documentRef.getElementById("removeOutsideBoxesBtn") as HTMLButtonElement | null;
+      if (cleanupButton) cleanupButton.disabled = !hasImage || !input.state.session.labelFolderHandle || cleanupButton.getAttribute("aria-busy") === "true";
       elements.headerDocumentStatus.dataset.state = phase;
       elements.documentStatus.dataset.state = phase;
       elements.headerDocumentStatus.title = documentStatus?.errorMessage ?? statusText;

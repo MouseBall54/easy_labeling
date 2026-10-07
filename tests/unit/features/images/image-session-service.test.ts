@@ -290,11 +290,9 @@ describe("features/images/image-session-service", () => {
       .withFile(new MockFileHandle("1.jpg"));
 
     const state = createState();
-    let currentYolo = "0 0.5 0.5 0.2 0.2";
-    const removeCurrentLabelsOutsideImageBounds = vi.fn(() => 1);
+    let currentYolo = "0 0.5 0.5 0.2 0.2\n1 1.1 0.5 0.2 0.2";
     const service = createImageSessionService(state, {
       decodeImage: vi.fn(async () => "decoded"),
-      removeCurrentLabelsOutsideImageBounds,
       readCurrentLabelsAsYolo: () => currentYolo,
       readCurrentSegmentationSnapshot: () => null,
       applyLoadedYolo: vi.fn(),
@@ -311,12 +309,13 @@ describe("features/images/image-session-service", () => {
     const saved = await (await labelDir.getFileHandle(fileName)).getFile();
 
     expect(result.saved).toBe(true);
-    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(1);
+    expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(2);
     expect(result.primaryFilePath).toBe(detectionPath);
-    expect(await saved.text()).toBe("0 0.5 0.5 0.2 0.2");
+    expect(await saved.text()).toBe(currentYolo);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
-    expect(removeCurrentLabelsOutsideImageBounds).toHaveBeenCalledOnce();
-    expect(result.removedOutOfBoundsCount).toBe(1);
+    expect(result.removedOutOfBoundsCount).toBe(0);
+    await service.saveLabels(true);
+    expect(await (await (await labelDir.getFileHandle(fileName)).getFile()).text()).toBe(currentYolo);
 
     currentYolo = "";
     await service.saveLabels(false);

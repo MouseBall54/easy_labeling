@@ -347,11 +347,17 @@
                     <button id="openSegmentationFormatBtn" type="button" class="btn btn-outline-primary btn-sm w-100"><i class="bi bi-sliders" aria-hidden="true"></i> Format</button>
                 </div>
                 <div class="dataset-save-bar">
+                    <div class="dataset-save-controls">
                     <label class="form-check form-switch mb-0">
                         <input class="form-check-input" type="checkbox" id="autoSaveToggle" data-ui="auto-save-toggle">
                         <span class="form-check-label">Auto save</span>
                     </label>
                     <button id="saveLabelsBtn" type="button" class="btn btn-primary" data-ui="save-labels" title="Save labels (Ctrl+S)"><i class="bi bi-floppy" aria-hidden="true"></i> Save</button>
+                    </div>
+                    <div id="outsideBoxesActions" class="outside-boxes-actions">
+                        <button id="removeOutsideBoxesBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" aria-describedby="outsideBoxesScope" title="Remove boxes crossing image edges from all images in the active label folder; original files are backed up" disabled><i class="bi bi-eraser" aria-hidden="true"></i> Remove outside boxes</button>
+                        <small id="outsideBoxesScope">All images · Active label folder</small>
+                    </div>
                 </div>
             </aside>
 

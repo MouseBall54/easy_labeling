@@ -59,7 +59,6 @@ export interface DecodeImageInput {
 
 export interface ImageSessionServiceDeps {
   decodeImage(input: DecodeImageInput): Promise<unknown>;
-  removeCurrentLabelsOutsideImageBounds?(): number;
   readCurrentLabelsAsYolo(): string;
   readCurrentSegmentationSnapshot(): SegmentationDocumentSnapshot | null;
   applyLoadedYolo(yoloData: string): Promise<void> | void;
@@ -457,7 +456,6 @@ export function createImageSessionService(
           };
         }
 
-        const removedOutOfBoundsCount = deps.removeCurrentLabelsOutsideImageBounds?.() ?? 0;
         const yoloString = deps.readCurrentLabelsAsYolo();
         const trimmedYolo = yoloString.trim();
         const primaryFilePath = resolveAnnotationAssetPaths("detection", imageFileNameToBaseName(state.currentImageFile.name)).primaryFilePath;
@@ -475,7 +473,7 @@ export function createImageSessionService(
           saved: true,
           primaryFilePath,
           hasLabels,
-          removedOutOfBoundsCount
+          removedOutOfBoundsCount: 0
         };
       }
 

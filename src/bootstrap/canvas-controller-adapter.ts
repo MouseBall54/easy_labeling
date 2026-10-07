@@ -7,7 +7,7 @@ import {
   type CanvasController as FeatureCanvasController,
   type CanvasControllerState
 } from "../features/canvas/canvas-controller.js";
-import type { FabricRuntimeLike } from "../features/canvas/fabric-types.js";
+import { isRectObject, type FabricRuntimeLike } from "../features/canvas/fabric-types.js";
 import type { WorkflowType } from "../types/labels.js";
 import type { SegmentationDocumentSnapshot, SegmentationTool } from "../features/segmentation/types.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
@@ -100,6 +100,7 @@ export interface RuntimeCanvasController extends AppCanvasController {
     image: HTMLImageElement;
     detectionYolo: string;
     segmentationSnapshot: SegmentationDocumentSnapshot | null;
+    labelsOnly?: boolean;
   }): void;
 }
 
@@ -218,18 +219,28 @@ export function createCanvasControllerAdapter(input: {
       getActiveController().setMode(input.state.view.currentMode);
     },
 
-    loadImageSession({ image, detectionYolo, segmentationSnapshot }): void {
+    loadImageSession({ image, detectionYolo, segmentationSnapshot, labelsOnly }): void {
       selectedSegmentationTool = workflowControllers.segmentation.getSegmentationSummary?.().activeTool ?? selectedSegmentationTool;
       workflowControllers.detection.clearHistory();
-      workflowControllers.segmentation.clear();
-      workflowControllers.segmentation.setBackgroundImage(image);
+      const keepImage = labelsOnly && input.state.session.workflow === "detection";
+      if (keepImage) {
+        sharedShell.canvas.discardActiveObject();
+        workflowControllers.detection.getObjects("rect").filter(isRectObject).forEach((rect) => {
+          if (rect._labelText) sharedShell.canvas.remove(rect._labelText);
+          sharedShell.canvas.remove(rect);
+        });
+      } else {
+        workflowControllers.segmentation.clear();
+        workflowControllers.segmentation.setBackgroundImage(image);
+      }
       if (detectionYolo.trim()) {
         workflowControllers.detection.addLabelsFromYolo(detectionYolo);
       }
       workflowControllers.segmentation.loadSegmentationDocumentSnapshot?.(segmentationSnapshot);
       workflowControllers.segmentation.setSegmentationTool?.(selectedSegmentationTool);
       syncWorkflowVisibility(input.state.session.workflow);
-      getActiveController().resetZoom();
+      if (!keepImage) getActiveController().resetZoom();
+      sharedShell.canvas.requestRenderAll();
     }
   };
 }

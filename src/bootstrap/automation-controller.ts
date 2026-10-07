@@ -581,7 +581,7 @@ export function createAutomationController(input: {
       });
       try {
         await yieldToUi();
-        result = await applyInBatches(layout, { ...layout.sourceAnchor }, {
+        result = await applyInBatches.call(input.canvasController.raw, layout, { ...layout.sourceAnchor }, {
           signal: operation.signal,
           onProgress: (update) => operation.update(update)
         });

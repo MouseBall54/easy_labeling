@@ -177,14 +177,11 @@ for (const workflow of ["detection", "segmentation"] as const) test(`label folde
           expect(bounds.x).toBeGreaterThanOrEqual(0);
           expect(bounds.x + bounds.width).toBeLessThanOrEqual(size.width);
         }
-        const activeTab = await sources.evaluate((tabs) => {
+        await expect.poll(() => sources.evaluate((tabs) => {
           const bounds = tabs.getBoundingClientRect();
           const active = tabs.querySelector("input:checked + label")!.getBoundingClientRect();
-          return { left: active.left - bounds.left, right: bounds.right - active.right,
-            scrollbar: tabs.scrollWidth > tabs.clientWidth };
-        });
-        expect(activeTab.left).toBeGreaterThanOrEqual(-1);
-        expect(activeTab.right).toBeGreaterThanOrEqual(-1);
+          return { left: active.left >= bounds.left - 1, right: active.right <= bounds.right + 1 };
+        })).toEqual({ left: true, right: true });
         await page.screenshot({ path: `output/label-tabs-${workflow}-${theme}-${size.width}.png` });
       }
     }

@@ -955,6 +955,14 @@ export function createEventManagerAdapter(input: {
       elements.saveLabelsBtn.addEventListener("click", () => {
         runExclusive("save-labels", () => input.fileSystem.saveLabels(false), elements.saveLabelsBtn as HTMLButtonElement);
       });
+      const cleanOutsideBoxes = input.documentRef?.getElementById("removeOutsideBoxesBtn") as HTMLButtonElement | null;
+      cleanOutsideBoxes?.addEventListener("click", () => {
+        const { session } = input.state;
+        const folder = session.labelFolderHandle;
+        if (!folder) return;
+        if (!input.windowRef.confirm?.(`Remove boxes that cross image edges from all ${session.imageFiles.length} images in "${session.labelFolderHandle?.name}"?\n\nCurrent edits will be saved first. Original label files will be backed up before removal.`)) return;
+        runExclusive("clean-outside-boxes", () => input.fileSystem.removeOutOfBoundsLabels(folder), cleanOutsideBoxes);
+      });
 
       elements.sortLabelsAscBtn.addEventListener("click", () => {
         input.canvasController.raw.sortObjectsByLabel("asc");

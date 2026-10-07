@@ -8,6 +8,8 @@ export interface NamedFileEntry {
 
 export interface FileTextLike {
   readonly name: string;
+  readonly size?: number;
+  readonly lastModified?: number;
   text(): Promise<string>;
   arrayBuffer?(): Promise<ArrayBuffer>;
 }

@@ -2497,9 +2497,9 @@ body {
 
 .dataset-save-bar {
     display: flex;
+    flex-direction: column;
     flex: 0 0 auto;
-    align-items: center;
-    justify-content: space-between;
+    align-items: stretch;
     gap: 8px;
     min-height: 58px;
     padding: 10px 14px;
@@ -2507,9 +2507,13 @@ body {
     background: var(--workbench-surface);
 }
 
-.dataset-save-bar .btn {
-    min-width: 88px;
-}
+.dataset-save-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dataset-save-controls .form-switch { display: flex; align-items: center; gap: 6px; padding: 0; font-size: var(--fs-body); white-space: nowrap; }
+.dataset-save-controls .form-check-input { float: none; flex-shrink: 0; width: 28px; margin: 0; }
+.dataset-save-controls .btn { min-width: 70px; font-size: var(--fs-body); }
+.outside-boxes-actions { display: grid; gap: 4px; }
+.outside-boxes-actions[hidden] { display: none; }
+.outside-boxes-actions small { color: var(--workbench-text-muted); font-size: var(--fs-caption); text-align: center; }
 
 .panel-splitter {
     width: 4px;

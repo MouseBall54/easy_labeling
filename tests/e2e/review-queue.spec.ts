@@ -63,6 +63,10 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await page.locator("#selectionGeometryHeight").press("Tab");
   await page.locator("#saveLabelsBtn").click();
   await expect(page.locator("#documentStatus")).toContainText("Saved");
+  await expect(page.locator("#reviewIssueList")).toContainText("Outside image");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#removeOutsideBoxesBtn").click();
+  await expect(page.locator("#activeOperationPanel")).toBeHidden();
   await expect(page.locator("#reviewIssueList")).toContainText("No quality issues found.");
 
   await page.locator("#markReviewedBtn").click();

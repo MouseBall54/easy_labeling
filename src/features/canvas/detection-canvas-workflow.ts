@@ -507,14 +507,16 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           hoverCursor: state.currentMode === "draw" ? "crosshair" : "move",
           annotationId: createAnnotationId(),
           labelClass: String(row.labelClass),
+          // Simple boxes do not need Fabric's minimum 256px object cache.
+          objectCaching: false,
           originalYolo: buildOriginalYolo(row)
         });
 
         rect.setControlVisible("mtr", false);
         canvas.add(rect);
-        this.drawLabelText(rect);
       });
       this.updateAllLabelTexts();
+      scheduleLabelLayout();
     },
 
     getLabelsAsYolo(): string {
@@ -615,16 +617,18 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       const createdRects = placedBoxes.map((box) => {
         const color = colorForClass(box.classId);
+        // Layouts store the outer bounds, including the visible stroke.
+        const strokeWidth = Math.min(2, box.width / 2, box.height / 2);
         const rect = new deps.fabric.Rect({
           left: box.x,
           top: box.y,
           originX: "left",
           originY: "top",
-          width: box.width,
-          height: box.height,
+          width: box.width - strokeWidth,
+          height: box.height - strokeWidth,
           fill: `${color}33`,
           stroke: color,
-          strokeWidth: 2,
+          strokeWidth,
           strokeUniform: true,
           selectable: state.currentMode === "edit",
           hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -689,16 +693,17 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           const chunk = placedBoxes.slice(start, start + chunkSize);
           chunk.forEach((box) => {
             const color = colorForClass(box.classId);
+            const strokeWidth = Math.min(2, box.width / 2, box.height / 2);
             const rect = new deps.fabric.Rect({
               left: box.x,
               top: box.y,
               originX: "left",
               originY: "top",
-              width: box.width,
-              height: box.height,
+              width: box.width - strokeWidth,
+              height: box.height - strokeWidth,
               fill: `${color}33`,
               stroke: color,
-              strokeWidth: 2,
+              strokeWidth,
               strokeUniform: true,
               selectable: state.currentMode === "edit",
               hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -1350,6 +1355,10 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         const layoutVisible = Boolean(placement?.visible);
         text._labelLayoutVisible = layoutVisible;
         text._labelRepresentation = placement?.representation ?? "hidden";
+        if (!layoutVisible) {
+          text.set("visible", false);
+          return;
+        }
         text.set({
           text: placement?.text ?? "",
           left: placement?.left ?? 0,

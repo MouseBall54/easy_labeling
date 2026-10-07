@@ -204,6 +204,110 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  it("reuses review image dimensions only while file metadata is unchanged", async () => {
+    let width = 100;
+    let modified = 1;
+    let size = 10;
+    const decode = vi.fn();
+    class TestImage {
+      width = 0;
+      height = 100;
+      naturalWidth = 0;
+      naturalHeight = 100;
+      src = "";
+      async decode() { decode(); this.width = this.naturalWidth = width; }
+    }
+    vi.stubGlobal("Image", TestImage);
+    try {
+      const image = new MockFileHandle("image.png", "");
+      vi.spyOn(image, "getFile").mockImplementation(async () => ({ name: image.name, size, lastModified: modified, text: async () => "" }));
+      const label = new MockFileHandle("image.txt", "0 0.5 0.5 0.01 0.1");
+      const folder = new MockDirectoryHandle("label").withFile(label);
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [image as never];
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+      await fileSystem.refreshReviewFindings();
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(1);
+      width = 200;
+      modified += 1;
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(2);
+      size += 1;
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(3);
+      await (await label.createWritable()).write("");
+      await fileSystem.refreshReviewFindings();
+      expect(decode).toHaveBeenCalledTimes(3);
+      expect(state.session.reviewFindings.get(image.name)?.issues[0]?.type).toBe("empty-label");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("rejects cleanup when a queued label-folder switch changed the confirmed target", async () => {
+    const state = createInitialAppState();
+    const confirmed = new MockDirectoryHandle("confirmed");
+    const active = new MockDirectoryHandle("active");
+    state.session.labelFolderHandle = active as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(active) as never, tiffRef: null });
+    await expect(fileSystem.removeOutOfBoundsLabels(confirmed as never)).rejects.toThrow("active label folder changed");
+    expect(state.session.labelFolderHandle).toBe(active);
+  });
+
+  it("reports backup recovery instead of claiming restoration when cancellation rollback fails", async () => {
+    const original = "0 1.1 0.5 0.2 0.2\n";
+    const first = new MockFileHandle("first.txt", original);
+    const second = new MockFileHandle("second.txt", original);
+    const folder = new MockDirectoryHandle("labels").withFile(first).withFile(second);
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.imageFiles = [new MockFileHandle("first.jpg", ""), new MockFileHandle("second.jpg", "")] as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    const createFirst = first.createWritable.bind(first);
+    vi.spyOn(first, "createWritable").mockImplementationOnce(createFirst).mockRejectedValueOnce(new Error("Restore failed"));
+    const createSecond = second.createWritable.bind(second);
+    vi.spyOn(second, "createWritable").mockImplementationOnce(async () => { deps.operations[0]!.cancel(); return createSecond(); });
+    await expect(fileSystem.removeOutOfBoundsLabels(folder as never)).rejects.toThrow("Originals are in labels/.easy-labeling/outside-boxes-");
+    const metadata = await folder.getDirectoryHandle(".easy-labeling");
+    const backups = [];
+    for await (const entry of metadata.values()) backups.push(entry);
+    const backup = backups[0] as DirectoryHandleLike;
+    expect(await (await (await backup.getFileHandle("first.txt")).getFile()).text()).toBe(original);
+    expect(await (await (await backup.getFileHandle("second.txt")).getFile()).text()).toBe(original);
+    expect(deps.uiManager.notify).not.toHaveBeenCalledWith("Cleanup stopped; original label files restored.");
+  });
+
+  for (const failure of ["write", "cancel", "backup"]) it(`preserves all original labels when explicit cleanup fails during ${failure}`, async () => {
+    const original = "0 0.5 0.5 0.2 0.2\n1 1.1 0.5 0.2 0.2\n";
+    const first = new MockFileHandle("first.txt", original);
+    const second = new MockFileHandle("second.txt", original);
+    const folder = new MockDirectoryHandle("labels").withFile(first).withFile(second);
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.labelFolders = [folder] as never;
+    state.session.imageFiles = [new MockFileHandle("first.jpg", ""), new MockFileHandle("second.jpg", "")] as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    if (failure === "write") vi.spyOn(second, "createWritable").mockRejectedValueOnce(new Error("Write failed"));
+    if (failure === "backup") vi.spyOn(folder, "getDirectoryHandle").mockRejectedValueOnce(new Error("Backup failed"));
+    if (failure === "cancel") {
+      const createWritable = second.createWritable.bind(second);
+      vi.spyOn(second, "createWritable").mockImplementationOnce(async () => {
+        deps.operations[0]!.cancel();
+        return createWritable();
+      });
+      await fileSystem.removeOutOfBoundsLabels(folder as never);
+    } else {
+      await expect(fileSystem.removeOutOfBoundsLabels(folder as never)).rejects.toThrow(`${failure === "write" ? "Write" : "Backup"} failed`);
+    }
+    expect(await (await first.getFile()).text()).toBe(original);
+    expect(await (await second.getFile()).text()).toBe(original);
+    expect(state.session.labelFolderHandle).toBe(folder);
+    expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+  });
+
   it("keeps the active folder when saving edited labels before switching fails", async () => {
     const currentLabel = new MockFileHandle("image.txt", "0 0.5 0.5 1 1");
     vi.spyOn(currentLabel, "createWritable").mockRejectedValue(new Error("Disk is read-only"));
