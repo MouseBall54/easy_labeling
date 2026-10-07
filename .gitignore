@@ -1,6 +1,5 @@
 .vscode/
 .gemini/
-.yoyo/
 GEMINI.md
 # YoYo AI version control directory
 .yoyo/
@@ -11,24 +10,15 @@ test-results/
 vendor/
 release/
 .DS_Store
-# Local inference models and copied verification datasets
-output/ym-yolo-inference-20261003/models/
-output/ym-yolo-inference-20261003/workspaces/
-output/gpu-inference-20261004/workspaces/
+# Local verification outputs, app profiles, and editor history
+/output/
+/profiles/
+/.history/
+/.presentation-build/*
+!/.presentation-build/build-easylabeling-deck.mjs
+# Local inference models and runtime state
 runtime/yoloe/.venv/
 runtime/yoloe/models/
 runtime/yoloe/__pycache__/
 runtime/yoloe/.state/
-output/yoloe-validation/workspace/
-output/yoloe-bundle/
-output/yoloe-bundle-check-state/
-output/yoloe-onnx-validation/**/app-profile/
-output/yoloe-onnx-validation/**/documents/
-output/yoloe-onnx-validation/**/workspace/
-output/yoloe-onnx-validation/probe-profile/
-output/yoloe-onnx-validation/probe-cpu-profile/
-output/yoloe-onnx-validation/models-profile/
-output/yoloe-installer-validation/
-output/yoloe-standalone-validation/
 Ultralytics/
-output/yoloe-onnx-validation/**/failure.png
