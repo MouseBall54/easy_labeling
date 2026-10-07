@@ -42,7 +42,9 @@ class FakeCanvas {
   readonly dataset: Record<string, string> = {};
   readonly style = {
     left: "",
-    top: ""
+    top: "",
+    width: "",
+    height: ""
   };
   readonly attributes = new Map<string, string>();
   private readonly listeners = new Map<string, PointerListener[]>();
@@ -78,7 +80,7 @@ class FakeCanvas {
   }
 
   getBoundingClientRect(): DOMRect {
-    return { left: 0, top: 0, width: this.width, height: this.height } as DOMRect;
+    return { left: 0, top: 0, width: Number.parseFloat(this.style.width) || this.width, height: Number.parseFloat(this.style.height) || this.height } as DOMRect;
   }
 
   addEventListener(type: string, listener: EventListener): void {
@@ -356,10 +358,23 @@ describe("template workspace interaction modes", () => {
     }]);
     expect(canvas.dataset.focusedMatchIndex).toBe("0");
 
-    zoomInput.value = "999";
+    zoomInput.value = "2999";
     scroller.dispatchWheel(-100);
-    expect(zoomInput.value).toBe("1000");
-    expect(zoomValue.textContent).toBe("1000%");
+    expect(zoomInput.value).toBe("3000");
+    expect(zoomValue.textContent).toBe("3000%");
+    expect(canvas.width).toBe(4096);
+    expect(canvas.height).toBeLessThanOrEqual(4096);
+    expect(canvas.style.width).toBe("30000px");
+    expect(canvas.style.height).toBe("24000px");
+    workspace.setInteractionMode("template-roi");
+    canvas.dispatch("pointerdown", 12000, 6000);
+    canvas.dispatch("pointermove", 15000, 9000);
+    canvas.dispatch("pointerup", 15000, 9000);
+    expect(workspace.getRoi()).toEqual({ x: 400, y: 200, width: 100, height: 100 });
+    scroller.dispatchWheel(-100);
+    expect(zoomInput.value).toBe("3000");
+    scroller.dispatchWheel(100);
+    expect(Number(zoomInput.value)).toBeLessThan(3000);
   });
 
   it("renders and clears a translucent layout preview at the calculated anchor", () => {

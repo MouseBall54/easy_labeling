@@ -49,7 +49,8 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-const MAX_WORKSPACE_ZOOM_PERCENT = 1000;
+const MAX_WORKSPACE_ZOOM_PERCENT = 3000;
+const MAX_WORKSPACE_RASTER_SIZE = 4096;
 const MIN_ROI_SIZE = 2;
 const ROI_HANDLE_SIZE_PX = 10;
 
@@ -139,11 +140,9 @@ export function createTemplateWorkspace(input: {
 
   const eventToImagePoint = (event: Pick<PointerEvent, "clientX" | "clientY">): { x: number; y: number } => {
     const bounds = input.canvas.getBoundingClientRect();
-    const canvasX = (event.clientX - bounds.left) * (input.canvas.width / bounds.width);
-    const canvasY = (event.clientY - bounds.top) * (input.canvas.height / bounds.height);
     return {
-      x: clamp(canvasX / zoom(), 0, imageWidth()),
-      y: clamp(canvasY / zoom(), 0, imageHeight())
+      x: clamp((event.clientX - bounds.left) * imageWidth() / bounds.width, 0, imageWidth()),
+      y: clamp((event.clientY - bounds.top) * imageHeight() / bounds.height, 0, imageHeight())
     };
   };
 
@@ -267,8 +266,8 @@ export function createTemplateWorkspace(input: {
     const viewport = viewportSize();
     stagePaddingX = viewport.width;
     stagePaddingY = viewport.height;
-    input.stage.style.width = `${input.canvas.width + stagePaddingX * 2}px`;
-    input.stage.style.height = `${input.canvas.height + stagePaddingY * 2}px`;
+    input.stage.style.width = `${Number.parseFloat(input.canvas.style.width) + stagePaddingX * 2}px`;
+    input.stage.style.height = `${Number.parseFloat(input.canvas.style.height) + stagePaddingY * 2}px`;
     input.canvas.style.left = `${stagePaddingX}px`;
     input.canvas.style.top = `${stagePaddingY}px`;
   };
@@ -278,8 +277,8 @@ export function createTemplateWorkspace(input: {
     if (viewport.width <= 0 || viewport.height <= 0) {
       return;
     }
-    input.scroller.scrollLeft = stagePaddingX + input.canvas.width / 2 - viewport.width / 2;
-    input.scroller.scrollTop = stagePaddingY + input.canvas.height / 2 - viewport.height / 2;
+    input.scroller.scrollLeft = stagePaddingX + Number.parseFloat(input.canvas.style.width) / 2 - viewport.width / 2;
+    input.scroller.scrollTop = stagePaddingY + Number.parseFloat(input.canvas.style.height) / 2 - viewport.height / 2;
   };
 
   const render = (): void => {
@@ -295,12 +294,18 @@ export function createTemplateWorkspace(input: {
     }
     if (!image) {
       context.clearRect(0, 0, input.canvas.width, input.canvas.height);
+      input.canvas.style.width = `${input.canvas.width}px`;
+      input.canvas.style.height = `${input.canvas.height}px`;
       syncStage();
       return;
     }
 
-    const nextCanvasWidth = Math.max(1, Math.round(imageWidth() * currentZoom));
-    const nextCanvasHeight = Math.max(1, Math.round(imageHeight() * currentZoom));
+    // Bound the bitmap allocation; CSS carries the full zoom beyond the raster size.
+    const rasterZoom = Math.min(currentZoom, MAX_WORKSPACE_RASTER_SIZE / Math.max(imageWidth(), imageHeight()));
+    const nextCanvasWidth = Math.max(1, Math.round(imageWidth() * rasterZoom));
+    const nextCanvasHeight = Math.max(1, Math.round(imageHeight() * rasterZoom));
+    input.canvas.style.width = `${Math.max(1, Math.round(imageWidth() * currentZoom))}px`;
+    input.canvas.style.height = `${Math.max(1, Math.round(imageHeight() * currentZoom))}px`;
     if (input.canvas.width !== nextCanvasWidth) {
       input.canvas.width = nextCanvasWidth;
     }
@@ -308,9 +313,10 @@ export function createTemplateWorkspace(input: {
       input.canvas.height = nextCanvasHeight;
     }
     syncStage();
+    context.clearRect(0, 0, input.canvas.width, input.canvas.height);
     context.drawImage(image, 0, 0, input.canvas.width, input.canvas.height);
     context.save();
-    context.scale(currentZoom, currentZoom);
+    context.scale(input.canvas.width / imageWidth(), input.canvas.height / imageHeight());
 
     const selection = roiEditSession?.draftRoi ?? (dragStart && draftEnd
       ? normalizeRect(dragStart.x, dragStart.y, draftEnd.x, draftEnd.y)

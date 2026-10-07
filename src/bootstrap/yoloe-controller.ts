@@ -246,7 +246,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
       if (!sampleImage) { el("yoloeSampleZoom").textContent = ""; return; }
       overlay.dataset.referenceWidth = String(sampleImage.naturalWidth);
       overlay.dataset.referenceHeight = String(sampleImage.naturalHeight);
-      zoom = Math.min(overlay.width / sampleImage.naturalWidth, overlay.height / sampleImage.naturalHeight) * sampleZoom;
+      zoom = Math.min(30, Math.min(overlay.width / sampleImage.naturalWidth, overlay.height / sampleImage.naturalHeight) * sampleZoom);
       sampleTransform = [zoom, 0, 0, zoom, (overlay.width - sampleImage.naturalWidth * zoom) / 2 + samplePanX, (overlay.height - sampleImage.naturalHeight * zoom) / 2 + samplePanY];
       el("yoloeSampleZoom").textContent = `${Math.round(zoom * 100)}%`;
       context.setTransform(...sampleTransform);
@@ -401,7 +401,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     const right = Math.max(...selected.map((e) => e.box[2])), bottom = Math.max(...selected.map((e) => e.box[3]));
     const base = Math.min(overlay.width / sampleImage.naturalWidth, overlay.height / sampleImage.naturalHeight);
     const zoom = Math.min(overlay.width * 0.8 / (right - left), overlay.height * 0.8 / (bottom - top));
-    sampleZoom = Math.max(1, Math.min(20, zoom / base));
+    sampleZoom = Math.min(30, Math.max(base, zoom)) / base;
     samplePanX = (sampleImage.naturalWidth / 2 - (left + right) / 2) * base * sampleZoom;
     samplePanY = (sampleImage.naturalHeight / 2 - (top + bottom) / 2) * base * sampleZoom;
     drawPreview();
@@ -607,11 +607,12 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
     const x = (event.clientX - bounds.left) * overlay.width / bounds.width;
     const y = (event.clientY - bounds.top) * overlay.height / bounds.height;
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? overlay.height : 1);
-    const next = Math.max(0.25, Math.min(16, sampleZoom * Math.exp(-delta * 0.0015)));
-    const ratio = next / sampleZoom;
+    const base = Math.min(overlay.width / sampleImage.naturalWidth, overlay.height / sampleImage.naturalHeight);
+    const next = Math.max(Math.min(base * 0.25, 30), Math.min(30, sampleTransform[0] * Math.exp(-delta * 0.0015)));
+    const ratio = next / sampleTransform[0];
     samplePanX = (x - overlay.width / 2) * (1 - ratio) + samplePanX * ratio;
     samplePanY = (y - overlay.height / 2) * (1 - ratio) + samplePanY * ratio;
-    sampleZoom = next; drawPreview();
+    sampleZoom = next / base; drawPreview();
   }, { passive: false });
   overlay.addEventListener("pointerdown", (event) => {
     if (setupOpen && sampleImage && (event.button === 1 || event.button === 0 && (event.ctrlKey || spaceHeld || !drawing))) {
