@@ -180,9 +180,11 @@ describe("features/images/image-session-service", () => {
   });
 
   it("loads image folder and initializes detection/segmentation annotation status", async () => {
+    const unopenedLabel = new MockFileHandle("2.txt", "\n");
+    const unopenedReads = vi.spyOn(unopenedLabel, "getFile");
     const labelDir = new MockDirectoryHandle("label")
       .withFile(new MockFileHandle("1.txt", "0 0.5 0.5 0.1 0.1\n2 0.25 0.25 0.2 0.2\n"))
-      .withFile(new MockFileHandle("2.txt", "\n"));
+      .withFile(unopenedLabel);
     const maskDir = new MockDirectoryHandle("mask").withFile(new MockFileHandle("2.png", new Uint8Array([1, 2, 3])));
     const imageDir = new MockDirectoryHandle("images")
       .withDirectory(labelDir)
@@ -208,10 +210,29 @@ describe("features/images/image-session-service", () => {
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.hasAnnotation).toBe(true);
     expect(state.imageWorkflowStatus.get("1.jpg")?.detection.boxCount).toBe(2);
     expect(state.imageWorkflowStatus.get("1.jpg")?.segmentation.hasAnnotation).toBe(false);
+    expect(state.imageWorkflowStatus.has("2.jpg")).toBe(false);
+    expect(unopenedReads).not.toHaveBeenCalled();
+    await service.refreshImageWorkflowStatus();
+    expect(unopenedReads).toHaveBeenCalledOnce();
     expect(state.imageWorkflowStatus.get("2.jpg")?.detection.hasAnnotation).toBe(false);
     expect(state.imageWorkflowStatus.get("2.jpg")?.detection.boxCount).toBe(0);
     expect(state.imageWorkflowStatus.get("2.jpg")?.segmentation.hasAnnotation).toBe(true);
     expect(decodeImage).toHaveBeenCalled();
+  });
+
+  it("keeps known statuses when a requested full scan is cancelled during file reading", async () => {
+    const state = createState();
+    const controller = new AbortController();
+    const file = new MockFileHandle("1.txt", "0 0.5 0.5 0.1 0.1");
+    const read = file.getFile.bind(file);
+    vi.spyOn(file, "getFile").mockImplementation(async () => { controller.abort(); return read(); });
+    state.labelFolderHandle = new MockDirectoryHandle("labels").withFile(file);
+    state.imageFiles = [new MockFileHandle("1.jpg")];
+    const previous = state.imageWorkflowStatus;
+    const service = createImageSessionService(state, { decodeImage: vi.fn(), readCurrentLabelsAsYolo: () => "", readCurrentSegmentationSnapshot: () => null, applyLoadedYolo: vi.fn(), applyLoadedSegmentationSnapshot: vi.fn(), clearPendingSaveTimeout: vi.fn() });
+    await expect(service.refreshImageWorkflowStatus(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(state.imageWorkflowStatus).toBe(previous);
+    expect(previous.size).toBe(0);
   });
 
   it("loads detection labels when workflow is detection", async () => {

@@ -7,7 +7,7 @@ import {
   type CanvasController as FeatureCanvasController,
   type CanvasControllerState
 } from "../features/canvas/canvas-controller.js";
-import { isRectObject, type FabricRuntimeLike } from "../features/canvas/fabric-types.js";
+import type { FabricRuntimeLike } from "../features/canvas/fabric-types.js";
 import type { WorkflowType } from "../types/labels.js";
 import type { SegmentationDocumentSnapshot, SegmentationTool } from "../features/segmentation/types.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
@@ -223,18 +223,12 @@ export function createCanvasControllerAdapter(input: {
       selectedSegmentationTool = workflowControllers.segmentation.getSegmentationSummary?.().activeTool ?? selectedSegmentationTool;
       workflowControllers.detection.clearHistory();
       const keepImage = labelsOnly && input.state.session.workflow === "detection";
-      if (keepImage) {
-        sharedShell.canvas.discardActiveObject();
-        workflowControllers.detection.getObjects("rect").filter(isRectObject).forEach((rect) => {
-          if (rect._labelText) sharedShell.canvas.remove(rect._labelText);
-          sharedShell.canvas.remove(rect);
-        });
-      } else {
+      if (!keepImage) {
         workflowControllers.segmentation.clear();
         workflowControllers.segmentation.setBackgroundImage(image);
       }
-      if (detectionYolo.trim()) {
-        workflowControllers.detection.addLabelsFromYolo(detectionYolo);
+      if (detectionYolo.trim() || keepImage) {
+        workflowControllers.detection.addLabelsFromYolo(detectionYolo, Boolean(keepImage));
       }
       workflowControllers.segmentation.loadSegmentationDocumentSnapshot?.(segmentationSnapshot);
       workflowControllers.segmentation.setSegmentationTool?.(selectedSegmentationTool);

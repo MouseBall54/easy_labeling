@@ -116,18 +116,8 @@ function compareFileNames(a: FileHandle, b: FileHandle): number {
   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function getDefaultWorkflowStatus(): ImageWorkflowStatus {
-  return {
-    detection: {
-      hasAnnotation: false,
-      boxCount: 0
-    },
-    segmentation: {
-      hasAnnotation: false
-    }
-  };
-}
-function deriveWorkflowBadge(status: ImageWorkflowStatus, workflow: WorkflowType): WorkflowBadgeDescriptor {
+function deriveWorkflowBadge(status: ImageWorkflowStatus | undefined, workflow: WorkflowType): WorkflowBadgeDescriptor {
+  if (!status) return { iconClassName: "bi bi-clock text-muted", isPositive: false, statusKey: `${workflow}-pending`, label: "Labels not checked yet" };
   const workflowStatus = workflow === "segmentation" ? status.segmentation : status.detection;
   if (workflowStatus.hasAnnotation) {
     return {
@@ -154,11 +144,12 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const filteredFiles = [...input.imageFiles]
     .sort(compareFileNames)
     .filter((file) => {
-      const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
-      if (!input.showLabeled && badge.isPositive) {
+      const status = input.imageWorkflowStatus.get(file.name);
+      const badge = deriveWorkflowBadge(status, input.activeWorkflow);
+      if (status && !input.showLabeled && badge.isPositive) {
         return false;
       }
-      if (!input.showUnlabeled && !badge.isPositive) {
+      if ((!input.showLabeled && !input.showUnlabeled) || (status && !input.showUnlabeled && !badge.isPositive)) {
         return false;
       }
       const reviewStatus = reviewImages[file.name]?.status ?? "needs-review";
@@ -169,7 +160,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
       if (reviewFilter === "reviewed" && reviewStatus !== "reviewed") {
         return false;
       }
-      if (reviewFilter === "has-issues" && !finding?.issues.length) {
+      if (reviewFilter === "has-issues" && finding && !finding.issues.length) {
         return false;
       }
 
@@ -180,7 +171,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
   const fragment = document.createDocumentFragment();
 
   for (const file of filteredFiles) {
-    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name) ?? getDefaultWorkflowStatus(), input.activeWorkflow);
+    const badge = deriveWorkflowBadge(input.imageWorkflowStatus.get(file.name), input.activeWorkflow);
     const item = document.createElement("a");
     item.href = "#";
     item.className = "list-group-item list-group-item-action d-flex align-items-center image-list-item";
@@ -191,7 +182,7 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
     const finding = input.activeWorkflow === "detection" ? reviewFindings.get(file.name) : undefined;
     const reviewStatus = input.activeWorkflow === "detection" ? reviewImages[file.name]?.status ?? "needs-review" : "none";
     item.dataset.reviewStatus = reviewStatus;
-    item.dataset.reviewSeverity = finding?.highestSeverity ?? "none";
+    item.dataset.reviewSeverity = finding?.highestSeverity ?? (input.activeWorkflow === "detection" && !finding ? "pending" : "none");
 
     if (isThumbnailableFileName(file.name)) {
       const thumb = document.createElement("canvas");
@@ -221,13 +212,13 @@ export function renderImageList(input: ImageListRenderInput): FileHandle[] {
 
     item.appendChild(name);
     if (input.activeWorkflow === "detection") {
-      const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount ?? 0;
+      const boxCount = input.imageWorkflowStatus.get(file.name)?.detection.boxCount;
       const count = document.createElement("span");
       count.className = "badge rounded-pill image-box-count";
       count.dataset.ui = "image-box-count";
-      count.setAttribute("aria-label", `${boxCount} detection boxes`);
-      count.title = `${boxCount} detection boxes`;
-      count.textContent = String(boxCount);
+      count.setAttribute("aria-label", boxCount === undefined ? "Labels not checked yet" : `${boxCount} detection boxes`);
+      count.title = boxCount === undefined ? "Labels not checked yet" : `${boxCount} detection boxes`;
+      count.textContent = boxCount === undefined ? "…" : String(boxCount);
       item.appendChild(count);
     }
 

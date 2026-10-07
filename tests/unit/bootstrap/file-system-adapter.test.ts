@@ -204,6 +204,100 @@ function withDocumentMock<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe("bootstrap/file-system-adapter", () => {
+  for (const action of ["save", "edit"] as const) it(`does not start an outdated review after ${action} while saving review settings`, async () => {
+    const folder = new MockDirectoryHandle("labels").withFile(new MockFileHandle("first.txt", ""));
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.imageFiles = [new MockFileHandle("first.jpg", "")] as never;
+    state.session.currentImageFile = state.session.imageFiles[0]!;
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const getDirectory = folder.getDirectoryHandle.bind(folder);
+    const reading = vi.spyOn(folder, "getDirectoryHandle").mockImplementationOnce(async (...args) => { await gate; return getDirectory(...args); });
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const settings = { ...state.session.reviewState.settings, minimumBoxSizePx: 123 };
+    const updating = fileSystem.updateReviewSettings(settings);
+    await vi.waitFor(() => expect(reading).toHaveBeenCalledOnce());
+    const saving = action === "save" ? fileSystem.saveLabels() : Promise.resolve(markCurrentDocumentDirty(state));
+    release();
+    await Promise.all([updating, saving]);
+    expect(state.session.reviewFindings.size).toBe(0);
+    expect(state.session.reviewState.settings).toEqual(settings);
+    const record = await (await (await getDirectory(".easy-labeling")).getFileHandle("review-state.json")).getFile();
+    expect(JSON.parse(await record.text()).settings).toEqual(settings);
+  });
+  for (const cancelWith of ["stop", "save", "edit", "workflow"] as const) it(`discards pending worker results after ${cancelWith} and keeps current labels usable`, async () => {
+    const posted = vi.fn();
+    const terminated = vi.fn();
+    let worker: TestWorker;
+    class TestWorker {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: ((event: { message: string }) => void) | null = null;
+      constructor() { worker = this; }
+      postMessage = posted;
+      terminate = terminated;
+    }
+    vi.stubGlobal("Worker", TestWorker);
+    try {
+      const first = new MockFileHandle("first.txt", "");
+      const folder = new MockDirectoryHandle("labels").withFile(first).withFile(new MockFileHandle("second.txt", ""));
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [new MockFileHandle("first.jpg", ""), new MockFileHandle("second.jpg", "")] as never;
+      state.session.currentImageFile = state.session.imageFiles[0]!;
+      state.session.currentImage = { width: 200, height: 100 } as HTMLImageElement;
+      state.session.reviewFindings.set("first.jpg", { issues: [], highestSeverity: null });
+      const events = new EventTarget();
+      const fileSystem = createFileSystemAdapter({ state, windowRef: { ...createWindowRef(folder), addEventListener: events.addEventListener.bind(events), removeEventListener: events.removeEventListener.bind(events) } as never, tiffRef: null });
+      const deps = createConnectedDeps();
+      deps.canvasController.raw.getLabelsAsYolo.mockReturnValue("");
+      fileSystem.connect(deps as never);
+      const scan = fileSystem.refreshReviewFindings();
+      await vi.waitFor(() => expect(posted).toHaveBeenCalledOnce());
+      const deliverLate = worker!.onmessage!;
+      if (cancelWith === "stop") deps.operations[0]!.cancel();
+      else if (cancelWith === "save") await fileSystem.saveLabels();
+      else events.dispatchEvent(new Event(`easy-labeling:${cancelWith === "edit" ? "document-status-change" : "workflow-change"}`));
+      await scan;
+      const current = state.session.reviewFindings;
+      deliverLate({ data: { id: 0, result: { issues: [{ type: "missing-class" }], highestSeverity: "warning" } } });
+      expect(state.session.reviewFindings).toBe(current);
+      expect(state.session.reviewFindings.has("second.jpg")).toBe(false);
+      expect(terminated).toHaveBeenCalled();
+      expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+      await expect((await first.getFile()).text()).resolves.toBe("");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("reports a worker failure without publishing a partial full review", async () => {
+    const posted = vi.fn();
+    const terminated = vi.fn();
+    let fail: (event: { message: string }) => void;
+    class TestWorker {
+      onmessage = null;
+      set onerror(value: (event: { message: string }) => void) { fail = value; }
+      postMessage = posted;
+      terminate = terminated;
+    }
+    vi.stubGlobal("Worker", TestWorker);
+    try {
+      const folder = new MockDirectoryHandle("labels").withFile(new MockFileHandle("first.txt", ""));
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [new MockFileHandle("first.jpg", "")] as never;
+      const previous = state.session.reviewFindings;
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+      const deps = createConnectedDeps();
+      fileSystem.connect(deps as never);
+      const failed = expect(fileSystem.refreshReviewFindings()).rejects.toThrow("Worker unavailable");
+      await vi.waitFor(() => expect(posted).toHaveBeenCalledOnce());
+      fail!({ message: "Worker unavailable" });
+      await failed;
+      expect(state.session.reviewFindings).toBe(previous);
+      expect(terminated).toHaveBeenCalledOnce();
+      expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("reuses review image dimensions only while file metadata is unchanged", async () => {
     let width = 100;
     let modified = 1;

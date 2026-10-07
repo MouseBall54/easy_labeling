@@ -784,6 +784,10 @@ describe("bootstrap/ui-manager-adapter operation status", () => {
     manager.hideWorkspaceStandby();
     expect(elements.workspaceStandbyPanel.hidden).toBe(true);
     expect(documentRef.body.classList.contains("workspace-standby-active")).toBe(false);
+    manager.startWorkspaceStandby("Preparing dataset", "Checking required features");
+    manager.finishWorkspaceStandby("ready", "Ready");
+    expect(elements.workspaceStandbyPanel.hidden).toBe(true);
+    expect(elements.loadingOverlay.classList.contains("show")).toBe(false);
   });
 
   it("shows progress and aborts the active operation from the stop button", () => {
@@ -831,6 +835,24 @@ describe("bootstrap/ui-manager-adapter task workspaces", () => {
     getDOMElementsMock.mockReset();
     renderImageListMock.mockClear();
     renderWorkflowPanelsMock.mockClear();
+  });
+
+  it("builds quality issue rows only when Review is visible while retaining the findings", () => {
+    const { manager, state, elements } = createManagerWithRects({ rects: [] });
+    for (const name of ["reviewStatusBadge", "markReviewedBtn", "markNeedsReviewBtn", "reviewMinimumBoxSizeInput", "reviewDuplicateIouInput", "reviewRequiredClassesInput", "saveReviewRulesBtn", "reviewQueueSummary", "previousReviewIssueBtn", "nextReviewIssueBtn"]) Reflect.set(elements, name, new FakeElement("div"));
+    state.session.currentImageFile = { name: "image.jpg" } as FileSystemFileHandle;
+    const finding = { issues: [{ type: "empty-label" as const, severity: "warning" as const, message: "No detection labels", rectIndexes: [] }], highestSeverity: "warning" as const };
+    state.session.reviewFindings.set("image.jpg", finding);
+    manager.setActiveTask("annotate");
+    manager.renderReviewPanel();
+    expect(elements.reviewIssueList.children).toHaveLength(0);
+    manager.setActiveTask("review");
+    manager.renderReviewPanel();
+    expect(elements.reviewIssueList.children).toHaveLength(1);
+    manager.setActiveTask("annotate");
+    manager.renderReviewPanel();
+    expect(elements.reviewIssueList.children).toHaveLength(0);
+    expect(state.session.reviewFindings.get("image.jpg")).toBe(finding);
   });
 
   it("keeps the left workspace selected while tools change the detection inspector", () => {

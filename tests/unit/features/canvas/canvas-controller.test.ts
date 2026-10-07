@@ -55,6 +55,24 @@ function getSelectionAnnotationIds(activeObject: unknown): string[] {
 
 describe("features/canvas/canvas-controller", () => {
 
+  it("replaces selected labels in one batch and clears an empty source without changing the view", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5");
+    controller.canvas.setActiveObject(controller.getObjects("rect")[0]!);
+    controller.canvas.viewportTransform = [2, 0, 0, 2, -100, 25];
+    const batchCanvas = controller.canvas as typeof controller.canvas & { renderOnAddRemove?: boolean };
+    const renderFlag = batchCanvas.renderOnAddRemove;
+    controller.addLabelsFromYolo("2 0.5 0.5 0.1 0.2\n1 0.3 0.3 0.2 0.2", true);
+    expect(controller.getObjects("rect").map(rect => rect.labelClass)).toEqual(["2", "1"]);
+    expect(controller.canvas.getActiveObject()).toBeNull();
+    expect(batchCanvas.renderOnAddRemove).toBe(renderFlag);
+    expect(controller.canvas.viewportTransform).toEqual([2, 0, 0, 2, -100, 25]);
+    controller.addLabelsFromYolo("", true);
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    expect(controller.getObjects("text")).toHaveLength(0);
+    expect(batchCanvas.renderOnAddRemove).toBe(renderFlag);
+  });
+
   it("loads 5,000 tiny boxes without hidden text objects and creates a badge when selected", () => {
     const controller = createCanvasController(createState(), createDeps());
     controller.addLabelsFromYolo(Array.from({ length: 5000 }, () => "0 0.5 0.5 0.001 0.001").join("\n"));

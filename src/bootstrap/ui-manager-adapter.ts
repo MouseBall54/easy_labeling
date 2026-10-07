@@ -176,7 +176,6 @@ export function createUiManagerAdapter(input: {
   let deps: UIManagerDeps | null = null;
   let loadingDepth = 0;
   let workspaceStandbyActive = false;
-  let workspaceStandbyHideTimer: ReturnType<typeof setTimeout> | null = null;
   let nextOperationId = 0;
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
@@ -1283,20 +1282,23 @@ export function createUiManagerAdapter(input: {
       elements.reviewRequiredClassesInput.value = input.state.session.reviewState.settings.requiredClassIds.join(", ");
       elements.saveReviewRulesBtn.disabled = !input.state.session.imageFolderHandle;
       const queueItems = [...elements.imageList.querySelectorAll<HTMLElement>("[data-file-name]")];
+      const checkedCount = input.state.session.imageFiles.filter((file) => input.state.session.reviewFindings.has(file.name)).length;
+      const pending = checkedCount < input.state.session.imageFiles.length;
       const currentImageName = input.state.session.currentImageFile?.name;
       const currentQueueIndex = queueItems.findIndex((item) => item.dataset.fileName === currentImageName);
-      elements.reviewQueueSummary.textContent = queueItems.length === 0
+      elements.reviewQueueSummary.textContent = pending ? `Not checked · ${checkedCount} / ${input.state.session.imageFiles.length}` : queueItems.length === 0
         ? "0"
         : currentQueueIndex >= 0
           ? `${currentQueueIndex + 1} / ${queueItems.length}`
           : String(queueItems.length);
-      elements.previousReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex <= 0;
-      elements.nextReviewIssueBtn.disabled = queueItems.length < 2 || currentQueueIndex < 0 || currentQueueIndex >= queueItems.length - 1;
+      elements.previousReviewIssueBtn.disabled = pending || queueItems.length < 2 || currentQueueIndex <= 0;
+      elements.nextReviewIssueBtn.disabled = pending || queueItems.length < 2 || currentQueueIndex < 0 || currentQueueIndex >= queueItems.length - 1;
       elements.reviewIssueList.replaceChildren();
+      if (activeTask !== "review") return;
       const issues = finding?.issues ?? [];
       const empty = input.documentRef.createElement("div");
       empty.className = "list-group-item text-muted py-2";
-      empty.textContent = imageName ? (issues.length ? "" : "No quality issues found.") : "Open an image to review it.";
+      empty.textContent = imageName ? (!finding ? "Labels not checked yet." : issues.length ? "" : "No quality issues found.") : "Open an image to review it.";
       if (!issues.length) {
         elements.reviewIssueList.appendChild(empty);
         return;
@@ -1713,10 +1715,6 @@ export function createUiManagerAdapter(input: {
     },
 
     startWorkspaceStandby(title: string, summary: string): void {
-      if (workspaceStandbyHideTimer) {
-        globalThis.clearTimeout(workspaceStandbyHideTimer);
-        workspaceStandbyHideTimer = null;
-      }
       workspaceStandbyActive = true;
       elements.workspaceStandbyPanel.dataset.state = "loading";
       elements.workspaceStandbyTitle.textContent = title;
@@ -1756,17 +1754,10 @@ export function createUiManagerAdapter(input: {
         syncLoadingOverlay();
         return;
       }
-      workspaceStandbyHideTimer = globalThis.setTimeout(() => {
-        workspaceStandbyHideTimer = null;
-        manager.hideWorkspaceStandby();
-      }, 650);
+      manager.hideWorkspaceStandby();
     },
 
     hideWorkspaceStandby(): void {
-      if (workspaceStandbyHideTimer) {
-        globalThis.clearTimeout(workspaceStandbyHideTimer);
-        workspaceStandbyHideTimer = null;
-      }
       workspaceStandbyActive = false;
       syncLoadingOverlay();
     },

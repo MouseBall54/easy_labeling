@@ -104,7 +104,7 @@ export interface CanvasController {
   setBackgroundImage(image: unknown): void;
   setLabelOnlyView?(enabled: boolean, background: "black" | "white" | "gray"): void;
   setMode(mode: AppMode): void;
-  addLabelsFromYolo(yoloData: string): void;
+  addLabelsFromYolo(yoloData: string, replaceExisting?: boolean): void;
   getLabelsAsYolo(): string;
   removeBoxesOutsideImageBounds?(): number;
   captureBoxLayout(name: string, sourceImageName: string, scope: "selected" | "all"): BoxLayout;

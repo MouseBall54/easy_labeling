@@ -484,13 +484,13 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       shell.renderAll();
     },
 
-    addLabelsFromYolo(yoloData: string): void {
+    addLabelsFromYolo(yoloData: string, replaceExisting = false): void {
       const image = state.currentImage;
       if (!image) {
         return;
       }
 
-      parseYoloRows(yoloData, image.width, image.height).forEach((row) => {
+      const rects = parseYoloRows(yoloData, image.width, image.height).map((row) => {
         const color = colorForClass(row.labelClass);
         const rect = new deps.fabric.Rect({
           left: row.rectLeft,
@@ -513,8 +513,21 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         });
 
         rect.setControlVisible("mtr", false);
-        canvas.add(rect);
+        return rect;
       });
+      const batchCanvas = canvas as typeof canvas & { renderOnAddRemove?: boolean };
+      const previousRendering = batchCanvas.renderOnAddRemove;
+      batchCanvas.renderOnAddRemove = false;
+      try {
+        if (replaceExisting) {
+          canvas.discardActiveObject();
+          this.getObjects("rect").filter(isRectObject).forEach((rect) => {
+            if (rect._labelText) canvas.remove(rect._labelText);
+            canvas.remove(rect);
+          });
+        }
+        for (let start = 0; start < rects.length; start += 1024) canvas.add(...rects.slice(start, start + 1024));
+      } finally { batchCanvas.renderOnAddRemove = previousRendering; }
       this.updateAllLabelTexts();
       scheduleLabelLayout();
     },

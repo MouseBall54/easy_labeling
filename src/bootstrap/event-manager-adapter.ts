@@ -639,6 +639,10 @@ export function createEventManagerAdapter(input: {
         input.uiManager.renderImageList();
         input.uiManager.updateLabelList();
       };
+      const checkLabelFilters = (): void => {
+        renderLists();
+        if (!elements.showLabeledCheckbox.checked || !elements.showUnlabeledCheckbox.checked) runAsync(() => input.fileSystem.refreshReviewFindings());
+      };
 
       elements.appBrand.addEventListener("click", (event) => {
         event.preventDefault();
@@ -808,7 +812,17 @@ export function createEventManagerAdapter(input: {
       elements.taskReviewBtn?.addEventListener("click", () => {
         hideAutomationLayoutGhost();
         input.uiManager.setActiveTask?.("review");
-        ensureCurrentReviewQueueItem();
+        const folder = input.state.session.labelFolderHandle;
+        const filter = input.state.view.reviewFilter;
+        runAsync(async () => {
+          const previousFindings = input.state.session.reviewFindings;
+          await input.fileSystem.refreshReviewFindings();
+          if (previousFindings === input.state.session.reviewFindings) return;
+          if (folder !== input.state.session.labelFolderHandle || input.state.session.workflow !== "detection" || input.documentRef?.querySelector(".app-workspace")?.getAttribute("data-active-task") !== "review") return;
+          if (input.state.session.imageFiles.some(file => !input.state.session.reviewFindings.has(file.name))) return;
+          if (filter === input.state.view.reviewFilter) input.uiManager.setActiveTask?.("review");
+          ensureCurrentReviewQueueItem();
+        });
       });
       input.documentRef?.getElementById("taskInferenceBtn")?.addEventListener("click", () => {
         hideAutomationLayoutGhost();
@@ -1054,12 +1068,13 @@ export function createEventManagerAdapter(input: {
       });
 
       elements.imageSearchInput.addEventListener("input", renderLists);
-      elements.showLabeledCheckbox.addEventListener("change", renderLists);
-      elements.showUnlabeledCheckbox.addEventListener("change", renderLists);
+      elements.showLabeledCheckbox.addEventListener("change", checkLabelFilters);
+      elements.showUnlabeledCheckbox.addEventListener("change", checkLabelFilters);
       if (elements.reviewFilterSelect) {
         elements.reviewFilterSelect.addEventListener("change", () => {
           input.state.view.reviewFilter = elements.reviewFilterSelect.value as typeof input.state.view.reviewFilter;
           input.uiManager.renderImageList();
+          if (input.state.view.reviewFilter !== "all") runAsync(() => input.fileSystem.refreshReviewFindings());
         });
         elements.markReviewedBtn.addEventListener("click", () => {
           const imageName = input.state.session.currentImageFile?.name;
