@@ -2031,7 +2031,7 @@ export function createSegmentationCanvasWorkflow(
 
     setSegmentationPreprocessingConfig(config: Partial<SegmentationPreprocessingConfig>): boolean {
       const next = normalizeSegmentationPreprocessingConfig({ ...preprocessingConfig, ...config });
-      if (next.mode === preprocessingConfig.mode && next.blurStrength === preprocessingConfig.blurStrength && next.edgeWeight === preprocessingConfig.edgeWeight) return false;
+      if (getSegmentationPreprocessingKey(next) === getSegmentationPreprocessingKey(preprocessingConfig)) return false;
       preprocessingConfig = next;
       clearProcessedImageCache();
       if (viewSource === "processed") refreshViewSource();

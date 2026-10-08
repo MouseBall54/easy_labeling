@@ -1270,6 +1270,10 @@ export function createEventManagerAdapter(input: {
       const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
       const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
+      const preprocessContrastInput = segmentationDocument?.getElementById("segmentationPreprocessContrastInput");
+      const preprocessContrastValue = segmentationDocument?.getElementById("segmentationPreprocessContrastValue");
+      const preprocessGammaInput = segmentationDocument?.getElementById("segmentationPreprocessGammaInput");
+      const preprocessGammaValue = segmentationDocument?.getElementById("segmentationPreprocessGammaValue");
       const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
       const focusSrRoiButton = segmentationDocument?.getElementById("segmentationFocusSrRoiBtn");
@@ -1595,6 +1599,10 @@ export function createEventManagerAdapter(input: {
         event.preventDefault();
         setOriginalComparison(false);
       });
+      const syncToneLabels = (): void => {
+        if (preprocessContrastInput instanceof HTMLInputElement && preprocessContrastValue) preprocessContrastValue.textContent = `${preprocessContrastInput.value}%`;
+        if (preprocessGammaInput instanceof HTMLInputElement && preprocessGammaValue) preprocessGammaValue.textContent = (Number(preprocessGammaInput.value) / 100).toFixed(2);
+      };
       const applyPreprocessing = (): void => {
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
           || !(preprocessBlurInput instanceof HTMLInputElement)
@@ -1602,8 +1610,11 @@ export function createEventManagerAdapter(input: {
         const changed = preprocessingController().setSegmentationPreprocessingConfig?.({
           mode: preprocessModeSelect.value as import("../features/segmentation/preprocessing.js").SegmentationPreprocessMode,
           blurStrength: Number.parseInt(preprocessBlurInput.value, 10),
-          edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100
+          edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100,
+          ...(preprocessContrastInput instanceof HTMLInputElement ? { contrast: Number.parseInt(preprocessContrastInput.value, 10) / 100 } : {}),
+          ...(preprocessGammaInput instanceof HTMLInputElement ? { gamma: Number.parseInt(preprocessGammaInput.value, 10) / 100 } : {})
         });
+        syncToneLabels();
         if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
         if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
       };
@@ -1613,6 +1624,11 @@ export function createEventManagerAdapter(input: {
         if (preprocessEdgeWeightInput instanceof HTMLInputElement && preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
       });
       preprocessEdgeWeightInput?.addEventListener("change", applyPreprocessing);
+      // Tone sliders: labels follow while dragging, the (whole-image) reprocess runs on release.
+      [preprocessContrastInput, preprocessGammaInput].forEach((slider) => {
+        slider?.addEventListener("input", syncToneLabels);
+        slider?.addEventListener("change", applyPreprocessing);
+      });
       preprocessSourceSelect?.addEventListener("change", () => {
         if (!(preprocessSourceSelect instanceof HTMLSelectElement)) return;
         const changed = preprocessingController().setSegmentationPreprocessingSource?.(

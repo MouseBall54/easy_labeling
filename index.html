@@ -158,6 +158,8 @@
                                 <div class="segmentation-preprocessing-controls">
                                     <div><label class="form-label small mb-1" for="segmentationPreprocessBlurInput">Blur strength</label><input id="segmentationPreprocessBlurInput" type="range" class="form-range" min="0" max="4" step="1" value="2"></div>
                                     <div><label class="form-label small mb-1" for="segmentationPreprocessEdgeWeightInput">Edge weight <span id="segmentationPreprocessEdgeWeightValue">65%</span></label><input id="segmentationPreprocessEdgeWeightInput" type="range" class="form-range" min="0" max="100" step="1" value="65"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessContrastInput" title="Contrast around mid grey, applied before edge processing">Contrast <span id="segmentationPreprocessContrastValue">100%</span></label><input id="segmentationPreprocessContrastInput" type="range" class="form-range" min="20" max="300" step="5" value="100"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessGammaInput" title="Above 1 brightens mid-tones, below 1 darkens them">Gamma <span id="segmentationPreprocessGammaValue">1.00</span></label><input id="segmentationPreprocessGammaInput" type="range" class="form-range" min="20" max="300" step="5" value="100"></div>
                                 </div>
                             </div>
                             <div id="segmentationSrRoiGroup" class="segmentation-preprocessing-block segmentation-sr-roi-group">

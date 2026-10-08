@@ -265,3 +265,30 @@ test("refine: per-side edge rules, use-for-all-sides, and remembered search rang
   await page.locator("#openRefineLabBtn").click();
   await expect(page.locator("#refineLabBandOpacity")).toHaveValue("80");
 });
+
+test("refine: processed image follows the Preprocess panel's contrast and gamma", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page);
+  const setPreprocess = (id: string, value: string) => page.evaluate(([elementId, next]) => {
+    const element = document.getElementById(elementId) as HTMLInputElement | HTMLSelectElement;
+    element.value = next;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }, [id, value] as const);
+  await setPreprocess("segmentationPreprocessModeSelect", "original");
+  await setPreprocess("segmentationPreprocessContrastInput", "200");
+  await expect(page.locator("#segmentationPreprocessContrastValue")).toHaveText("200%");
+  await page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { selectRectsByIndex(i: number[]): void }).selectRectsByIndex([0]));
+  await page.keyboard.press("r");
+  await page.locator('#inspectorRefinePane [data-image-source="processed"]').click();
+  await page.locator("#openRefineLabBtn").click();
+  // 180 -> (180 - 127.5) * 2 + 127.5 = 232.5; 40 -> clipped to 0.
+  await expect(page.locator("#refineLabReadout")).toContainText("Inside 233 → outside 0");
+  await page.locator("#refineLabModal .btn-close").click();
+  await setPreprocess("segmentationPreprocessContrastInput", "100");
+  await setPreprocess("segmentationPreprocessGammaInput", "200");
+  await expect(page.locator("#segmentationPreprocessGammaValue")).toHaveText("2.00");
+  await page.locator("#openRefineLabBtn").click();
+  // 40 -> 255 * (40 / 255) ^ 0.5 = 101; 180 -> 214.
+  await expect(page.locator("#refineLabReadout")).toContainText("Inside 214 → outside 101");
+});
