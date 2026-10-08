@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createCanvasController, createCanvasControllerForWorkflow, createCanvasShell, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
 import { createCanvasHistoryService } from "../../../../src/features/canvas/history.js";
 import { createBoxLayout } from "../../../../src/features/automation/layout.js";
+import type { FabricRectLike } from "../../../../src/features/canvas/fabric-types.js";
 import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
@@ -215,6 +216,36 @@ describe("features/canvas/canvas-controller", () => {
     controller.highlightSelection();
     expect(rect.stroke).toBe("color-5");
     expect(rect.strokeDashArray).toEqual([]);
+  });
+
+  it("restyles only boxes whose selection changed and creates no tags while highlighting", () => {
+    const controller = createCanvasController(createState(), createDeps({ getColorForClass: () => "#00ff00" }));
+    controller.addLabelsFromYolo(Array.from({ length: 1000 }, () => "0 0.5 0.5 0.001 0.001").join("\n"));
+    const rects = controller.getObjects("rect");
+    controller.highlightSelection();
+    const untouched = vi.spyOn(rects[1]!, "set");
+    controller.canvas.setActiveObject(rects[0]!);
+    controller.highlightSelection();
+    expect(rects[0]!.stroke).toBe("#ff0000");
+    expect(untouched).not.toHaveBeenCalled();
+    expect(controller.getObjects("text")).toHaveLength(0);
+  });
+
+  it("suspends many visible tags during a gesture and leaves a few alone", () => {
+    const controller = createCanvasController(createState(), createDeps());
+    controller.addLabelsFromYolo(Array.from({ length: 200 }, () => "0 0.5 0.5 0.001 0.001").join("\n"));
+    const rects = controller.getObjects("rect") as FabricRectLike[];
+    rects.slice(0, 10).forEach((rect) => controller.drawLabelText(rect));
+    expect(controller.suspendLabelTags?.()).toBe(false);
+    expect(rects[0]!._labelText?.visible).toBe(true);
+
+    rects.forEach((rect) => controller.drawLabelText(rect));
+    expect(controller.suspendLabelTags?.()).toBe(true);
+    expect(rects.every((rect) => rect._labelText?.visible === false)).toBe(true);
+    controller.updateAllLabelTexts();
+    expect(rects.every((rect) => rect._labelText?.visible === false)).toBe(true);
+    expect(controller.resumeLabelTags?.()).toBe(true);
+    expect(controller.resumeLabelTags?.()).toBe(false);
   });
 
   it("recolors loaded boxes without changing geometry, selection or history", () => {

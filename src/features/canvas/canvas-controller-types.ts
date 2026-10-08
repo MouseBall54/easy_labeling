@@ -147,6 +147,10 @@ export interface CanvasController {
   drawLabelText(rect: FabricRectLike): void;
   updateLabelText(rect: FabricRectLike): void;
   updateAllLabelTexts(): void;
+  /** Hides class tags during a gesture when many are shown; true while suspended. Layout is skipped until resumed. */
+  suspendLabelTags?(): boolean;
+  /** Ends a suspension; true if one was active (the caller then runs updateAllLabelTexts). */
+  resumeLabelTags?(): boolean;
   toggleAllLabelTexts(visible: boolean): void;
   setLabelDisplayMode?(mode: LabelDisplayMode): void;
   setHoveredAnnotation?(rect: FabricRectLike | null): void;

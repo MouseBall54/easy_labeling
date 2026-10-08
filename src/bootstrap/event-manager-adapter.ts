@@ -160,6 +160,29 @@ export function createEventManagerAdapter(input: {
       }
       const rawCanvas = input.canvasController.raw.canvas;
       const preprocessingController = () => input.canvasController.preprocessing ?? input.canvasController.raw;
+      // Class tags hide while many boxes move or the view zooms, and are laid out once afterwards.
+      let labelTagResumeTimer: ReturnType<typeof setTimeout> | null = null;
+      const resumeLabelTags = (): boolean => {
+        if (labelTagResumeTimer !== null) {
+          clearTimeout(labelTagResumeTimer);
+          labelTagResumeTimer = null;
+        }
+        return input.canvasController.raw.resumeLabelTags?.() ?? false;
+      };
+      const relayoutLabelTagsWhenIdle = (): void => {
+        if (!input.canvasController.raw.suspendLabelTags?.()) {
+          input.canvasController.raw.updateAllLabelTexts();
+          return;
+        }
+        if (labelTagResumeTimer !== null) {
+          clearTimeout(labelTagResumeTimer);
+        }
+        labelTagResumeTimer = setTimeout(() => {
+          if (resumeLabelTags()) {
+            input.canvasController.raw.updateAllLabelTexts();
+          }
+        }, 200);
+      };
       const syncLabelOnlyControls = (): void => {
         const enabled = input.state.view.labelOnlyView;
         const background = input.state.view.labelOnlyBackground;
@@ -2156,6 +2179,7 @@ export function createEventManagerAdapter(input: {
 
         const mouseEvent = event.e as MouseEvent;
         if (mouseEvent.altKey || (mouseEvent.ctrlKey && !mouseEvent.shiftKey)) {
+          input.canvasController.raw.suspendLabelTags?.();
           rawCanvas.isDragging = true;
           rawCanvas.selection = false;
           rawCanvas.lastPosX = mouseEvent.clientX;
@@ -2285,6 +2309,7 @@ export function createEventManagerAdapter(input: {
           rawCanvas.selection = shouldEnableCanvasSelection();
           rawCanvas.setViewportTransform([...rawCanvas.viewportTransform]);
           rawCanvas.calcOffset?.();
+          resumeLabelTags();
           input.canvasController.raw.updateAllLabelTexts();
           rawCanvas.requestRenderAll();
           input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
@@ -2326,6 +2351,9 @@ export function createEventManagerAdapter(input: {
           return;
         }
         clearTemporarySelectionSuppression();
+        if (resumeLabelTags()) {
+          input.canvasController.raw.updateAllLabelTexts();
+        }
         runAsync(() => input.canvasController.raw.finishDrawing().then(() => {
           input.uiManager.updateLabelList();
           syncToolbarActionState();
@@ -2380,7 +2408,7 @@ export function createEventManagerAdapter(input: {
         wheelEvent.preventDefault();
         wheelEvent.stopPropagation();
         input.uiManager.updateZoomDisplay(rawCanvas.getZoom());
-        input.canvasController.raw.updateAllLabelTexts();
+        relayoutLabelTagsWhenIdle();
         input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
       });
 
@@ -2398,14 +2426,22 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.setHoveredAnnotation?.(null);
       });
 
+      const suspendLabelTagsDuringTransform = (): void => {
+        input.canvasController.raw.suspendLabelTags?.();
+      };
+      rawCanvas.on?.("object:moving", suspendLabelTagsDuringTransform);
+      rawCanvas.on?.("object:scaling", suspendLabelTagsDuringTransform);
+      rawCanvas.on?.("object:rotating", suspendLabelTagsDuringTransform);
       rawCanvas.on?.("object:modified", () => {
         finalizeGestureBaseline();
+        resumeLabelTags();
         input.canvasController.raw.updateAllLabelTexts();
         input.uiManager.updateLabelList();
         syncToolbarActionState();
       });
       rawCanvas.on?.("object:scaled", () => {
         finalizeGestureBaseline();
+        resumeLabelTags();
         input.canvasController.raw.updateAllLabelTexts();
         input.uiManager.updateLabelList();
         syncToolbarActionState();
@@ -2861,15 +2897,12 @@ export function createEventManagerAdapter(input: {
           if (isActiveSelectionObject(activeObject)) {
             activeObject.getObjects().forEach((object) => {
               object.originalYolo = null;
-              if (isRectObject(object)) {
-                input.canvasController.raw.updateLabelText(object);
-              }
             });
           } else if (isRectObject(activeObject)) {
             activeObject.originalYolo = null;
-            input.canvasController.raw.updateLabelText(activeObject);
           }
-          input.canvasController.raw.renderAll();
+          relayoutLabelTagsWhenIdle();
+          rawCanvas.requestRenderAll();
           input.uiManager.updateLabelList();
           input.canvasController.raw.commitHistoryFromBaseline(baseline);
           syncToolbarActionState();

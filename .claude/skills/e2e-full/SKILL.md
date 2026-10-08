@@ -25,10 +25,10 @@ npm run build
 ## 2. Run
 
 ```bash
-npx playwright test --project=chromium --reporter=list > test-results/e2e-full.log 2>&1
+npx playwright test --project=chromium --reporter=list > "<scratchpad>/e2e-full.log" 2>&1
 ```
 
-Run with `run_in_background` (timeout 2 h). `workers: 1` is set in `playwright.config.ts`; do not raise it.
+Run with `run_in_background` (timeout 2 h). Write the log outside `test-results/`: Playwright empties that folder when it starts, deleting a log redirected there. `workers: 1` is set in `playwright.config.ts`; do not raise it.
 
 ## 3. Triage
 
