@@ -2569,8 +2569,8 @@ main.canvas-container > .canvas-container {
 }
 
 .detection-canvas-toolbar .segmented-control {
-    width: min(100%, 576px);
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: min(100%, 720px);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .segmentation-preprocessing-toggle {
@@ -2663,14 +2663,16 @@ main.canvas-container > .canvas-container {
     border-color: #92400e;
 }
 
-.detection-canvas-toolbar #taskAutomateBtn.active {
+.detection-canvas-toolbar #taskAutomateBtn.active,
+.detection-canvas-toolbar #taskRefineBtn.active {
     color: var(--workbench-text);
     background: var(--workbench-surface);
     border-color: var(--workbench-border);
     box-shadow: inset 0 -3px var(--workbench-primary);
 }
 
-.detection-canvas-toolbar #taskAutomateBtn.active i {
+.detection-canvas-toolbar #taskAutomateBtn.active i,
+.detection-canvas-toolbar #taskRefineBtn.active i {
     padding: 2px;
     border: 1px solid currentColor;
     border-radius: var(--radius-sm);
@@ -2691,7 +2693,14 @@ main.canvas-container > .canvas-container {
 
 @container (max-width: 820px) {
     .detection-canvas-toolbar .segmented-control {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        width: min(100%, 720px);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@container (max-width: 440px) {
+    .detection-canvas-toolbar .segmented-control {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -4440,4 +4449,446 @@ body.dark-mode .loading-overlay {
         flex-wrap: wrap;
         justify-content: center;
     }
+}
+
+/* Refine workspace (detection, right inspector) */
+.refine-hint {
+    margin: 6px 0 0;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+    font-variant-numeric: tabular-nums;
+}
+
+.refine-hint:empty {
+    display: none;
+}
+
+.refine-class-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.refine-class-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 26px;
+    padding: 2px 8px;
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm);
+    background: var(--workbench-surface);
+    color: var(--workbench-text);
+    font-size: var(--fs-caption);
+}
+
+.refine-class-chip:hover {
+    border-color: var(--workbench-border-strong);
+}
+
+.refine-class-chip[aria-pressed="true"] {
+    border-color: var(--workbench-primary);
+    background: var(--workbench-primary-soft);
+    box-shadow: inset 0 0 0 1px var(--workbench-primary);
+}
+
+.refine-class-chip.is-off {
+    color: var(--workbench-text-muted);
+    text-decoration: line-through;
+}
+
+.refine-class-chip.has-override::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--workbench-primary);
+}
+
+.refine-class-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.refine-side-editor {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    gap: 4px 10px;
+}
+
+.refine-side-slot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+
+.refine-side-slot {
+    grid-column: 2;
+}
+
+.refine-side-label {
+    flex: 0 0 48px;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.refine-side-slot .form-select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Overridden-value resets only show when the edited class actually overrides that value. */
+.refine-field-reset {
+    visibility: hidden;
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 0;
+}
+
+.refine-field.is-overridden .refine-field-reset,
+.refine-side-slot.is-overridden .refine-field-reset {
+    visibility: visible;
+}
+
+.refine-side-box {
+    grid-column: 1;
+    grid-row: 1 / 5;
+    height: 64px;
+    border: 3px solid var(--workbench-primary);
+    border-radius: 2px;
+    background: var(--workbench-primary-soft);
+    cursor: pointer;
+}
+
+.refine-side-box[data-side-l="off"] { border-left-style: dashed; border-left-color: var(--workbench-border-strong); }
+.refine-side-box[data-side-r="off"] { border-right-style: dashed; border-right-color: var(--workbench-border-strong); }
+.refine-side-box[data-side-t="off"] { border-top-style: dashed; border-top-color: var(--workbench-border-strong); }
+.refine-side-box[data-side-b="off"] { border-bottom-style: dashed; border-bottom-color: var(--workbench-border-strong); }
+.refine-side-box[data-side-l="mixed"] { border-left-style: dotted; }
+.refine-side-box[data-side-r="mixed"] { border-right-style: dotted; }
+.refine-side-box[data-side-t="mixed"] { border-top-style: dotted; }
+.refine-side-box[data-side-b="mixed"] { border-bottom-style: dotted; }
+
+.refine-fields {
+    display: grid;
+    gap: 6px;
+}
+
+.refine-details .refine-fields {
+    margin-top: 8px;
+}
+
+.refine-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 132px 24px;
+    align-items: center;
+    gap: 6px;
+}
+
+.refine-field label {
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.refine-field.is-overridden label {
+    color: var(--workbench-text);
+    font-weight: 600;
+}
+
+.refine-field .form-check-input {
+    justify-self: end;
+    margin: 0;
+}
+
+.refine-field input[type="number"] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.refine-run-section {
+    position: sticky;
+    /* Cover the scroll container's bottom padding so fields do not show through below the bar. */
+    bottom: -12px;
+    padding-bottom: 26px;
+    z-index: 1;
+    background: var(--workbench-surface);
+    box-shadow: 0 -1px 0 var(--workbench-border);
+}
+
+.refine-run-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.refine-run-section kbd,
+.refine-review-row kbd {
+    padding: 0 4px;
+    font-size: var(--fs-badge);
+    background: transparent;
+    color: inherit;
+    border: 1px solid currentColor;
+    opacity: 0.7;
+}
+
+.refine-review-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.refine-review-counter {
+    flex: 1;
+    white-space: nowrap;
+    text-align: center;
+    font-size: var(--fs-caption);
+    font-variant-numeric: tabular-nums;
+}
+
+.refine-side-box[data-polarity="brightInside"] {
+    background: #f4f6f8;
+    box-shadow: 0 0 0 5px #3a4048;
+}
+
+.refine-side-box[data-polarity="darkInside"] {
+    background: #3a4048;
+    box-shadow: 0 0 0 5px #f4f6f8, 0 0 0 6px var(--workbench-border-strong);
+}
+
+/* Refine Lab */
+.refine-lab-dialog {
+    max-width: min(1320px, 96vw);
+}
+
+.refine-lab-body {
+    display: grid;
+    grid-template-columns: 196px minmax(0, 1fr) 364px;
+    gap: 16px;
+    height: min(78vh, 820px);
+    overflow: hidden;
+}
+
+.refine-lab-cases-column,
+.refine-lab-settings-column {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.refine-lab-view-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.refine-lab-cases {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.refine-lab-case {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm);
+    background: var(--workbench-surface);
+    color: var(--workbench-text);
+    font-size: var(--fs-badge);
+    text-align: left;
+}
+
+.refine-lab-case canvas {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 2px;
+}
+
+.refine-lab-case span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.refine-lab-case[aria-pressed="true"] {
+    border-color: var(--workbench-primary);
+    box-shadow: inset 0 0 0 1px var(--workbench-primary);
+}
+
+.refine-lab-case.is-flagged {
+    border-color: #f0ad4e;
+}
+
+.refine-lab-case.is-off {
+    opacity: 0.6;
+}
+
+.refine-lab-view-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.refine-lab-view-toolbar .btn[aria-pressed="true"] {
+    color: #fff;
+    background: var(--workbench-primary);
+    border-color: var(--workbench-primary);
+}
+
+.refine-lab-legend {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.refine-lab-legend i {
+    display: inline-block;
+    width: 16px;
+    height: 10px;
+    margin-right: 4px;
+    vertical-align: -1px;
+}
+
+.refine-lab-legend .is-original { border: 1px dashed var(--workbench-text); }
+.refine-lab-legend .is-result { border: 2px solid var(--workbench-primary); }
+.refine-lab-legend .is-band { background: rgba(23, 105, 224, 0.3); }
+.refine-lab-legend .is-weak { border: 2px solid #f0ad4e; }
+
+.refine-lab-zoom {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 220px;
+    border-radius: var(--radius-sm);
+    background: #111417;
+    cursor: crosshair;
+}
+
+.refine-lab-profile {
+    flex: 0 0 170px;
+    width: 100%;
+    height: 170px;
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm);
+    background: var(--workbench-surface);
+}
+
+.refine-lab-readout {
+    color: var(--workbench-text);
+    font-size: var(--fs-caption);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+}
+
+@media (max-width: 991.98px) {
+    .refine-lab-body {
+        grid-template-columns: minmax(0, 1fr);
+        height: auto;
+        overflow: visible;
+    }
+
+    .refine-lab-zoom {
+        height: 320px;
+    }
+
+    .refine-lab-cases {
+        grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    }
+}
+
+/* hidden must win over the grid/flex/btn display rules used by the refine editor */
+.refine-field[hidden],
+.refine-details[hidden],
+.refine-scope-hint [hidden] {
+    display: none !important;
+}
+
+.refine-scope {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-bottom: 6px;
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.refine-scope button {
+    position: relative;
+    min-width: 0;
+    padding: 4px 2px;
+    border: 0;
+    border-right: 1px solid var(--workbench-border);
+    background: var(--workbench-surface);
+    color: var(--workbench-text);
+    font-size: var(--fs-caption);
+    white-space: nowrap;
+}
+
+.refine-scope button:last-child {
+    border-right: 0;
+}
+
+.refine-scope button[aria-pressed="true"] {
+    color: #fff;
+    background: var(--workbench-primary);
+}
+
+/* A side with its own rule gets a dot, like overridden class chips. */
+.refine-scope button.has-override::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.refine-scope-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 8px;
+    margin-bottom: 8px;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.refine-scope-hint .btn-link {
+    padding: 0;
+    font-size: var(--fs-caption);
+    text-decoration: none;
+}
+
+/* The side being edited alone is drawn thicker in the diagram. */
+.refine-side-box[data-scope="L"] { border-left-width: 7px; border-left-color: var(--workbench-primary); }
+.refine-side-box[data-scope="R"] { border-right-width: 7px; border-right-color: var(--workbench-primary); }
+.refine-side-box[data-scope="T"] { border-top-width: 7px; border-top-color: var(--workbench-primary); }
+.refine-side-box[data-scope="B"] { border-bottom-width: 7px; border-bottom-color: var(--workbench-primary); }
+
+.refine-lab-opacity {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.refine-lab-opacity .form-range {
+    width: 96px;
 }

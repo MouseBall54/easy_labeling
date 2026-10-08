@@ -15,6 +15,7 @@ const PROFILE_DIRECTORY_NAMES = {
   preset: "Template Presets",
   layout: "Layouts",
   yoloe: "YOLOE Presets",
+  refine: "Refine Presets",
   "class-info": "Class Info"
 };
 

@@ -103,7 +103,7 @@ export interface RuntimeUiManager extends UIManager {
   hideWorkspaceStandby(): void;
   setDirectoryPickerSupport(available: boolean): void;
   setActiveTask(task: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe"): void;
-  setInspectorTab(tab: "annotation" | "transform" | "automation"): void;
+  setInspectorTab(tab: "annotation" | "transform" | "automation" | "refine"): void;
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
   setLabelDisplayMode(mode: LabelDisplayMode, persist?: boolean): void;
@@ -181,7 +181,7 @@ export function createUiManagerAdapter(input: {
   const activeOperations = new Map<number, ActiveRuntimeOperation>();
   let directoryPickerAvailable = true;
   let activeTask: "annotate" | "detection-display" | "segmentation" | "superpixel" | "segmentation-display" | "preprocessing" | "automate" | "review" | "inference" | "yoloe" = "annotate";
-  let activeInspectorTab: "annotation" | "transform" | "automation" = "annotation";
+  let activeInspectorTab: "annotation" | "transform" | "automation" | "refine" = "annotation";
   let displayedWorkflow: WorkflowType = input.state.session.workflow;
   let missingLabelFolderModal: BootstrapModalLike | null = null;
   const initializedDenseLabelGroups = new Set<string>();
@@ -524,7 +524,7 @@ export function createUiManagerAdapter(input: {
       .forEach((button) => {
       button.hidden = !showSegmentationControls;
     });
-    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn")]
+    [elements.taskAnnotateBtn, detectionDisplayTaskButton, elements.taskAutomateBtn, input.documentRef.getElementById("taskRefineBtn"), elements.taskReviewBtn, input.documentRef.getElementById("taskInferenceBtn")]
       .filter((button): button is HTMLButtonElement => Boolean(button))
       .forEach((button) => {
       button.hidden = showSegmentationControls;
@@ -694,12 +694,15 @@ export function createUiManagerAdapter(input: {
       if (changedTask) elements.leftPanel.querySelector<HTMLElement>(".panel-content")?.scrollTo?.(0, 0);
     },
 
-    setInspectorTab(tab: "annotation" | "transform" | "automation"): void {
+    setInspectorTab(tab: "annotation" | "transform" | "automation" | "refine"): void {
       const changedTab = activeInspectorTab !== tab;
       activeInspectorTab = tab;
       const automationActive = tab === "automation";
       elements.taskAutomateBtn.classList.toggle("active", automationActive);
       elements.taskAutomateBtn.setAttribute("aria-pressed", String(automationActive));
+      const refineButton = input.documentRef.getElementById("taskRefineBtn");
+      refineButton?.classList.toggle("active", tab === "refine");
+      refineButton?.setAttribute("aria-pressed", String(tab === "refine"));
       const appWorkspace = input.documentRef.querySelector<HTMLElement>(".app-workspace");
       if (automationActive) {
         appWorkspace?.setAttribute("data-active-tool", "automation");
@@ -709,9 +712,11 @@ export function createUiManagerAdapter(input: {
       const controls = [
         { id: "annotation", button: elements.inspectorAnnotationTabBtn, pane: elements.inspectorAnnotationPane },
         { id: "transform", button: elements.inspectorTransformTabBtn, pane: elements.inspectorTransformPane },
-        { id: "automation", button: elements.inspectorAutomationTabBtn, pane: elements.inspectorAutomationPane }
+        { id: "automation", button: elements.inspectorAutomationTabBtn, pane: elements.inspectorAutomationPane },
+        { id: "refine", button: input.documentRef.getElementById("inspectorRefineTabBtn"), pane: input.documentRef.getElementById("inspectorRefinePane") }
       ] as const;
       controls.forEach((control) => {
+        if (!control.button || !control.pane) return;
         const active = control.id === tab;
         control.button.classList.toggle("active", active);
         control.button.setAttribute("aria-selected", String(active));
@@ -733,6 +738,9 @@ export function createUiManagerAdapter(input: {
               ? "Matching engine requires retry"
               : "Matching engine loading";
           elements.automationPresetSelect.focus({ preventScroll: true });
+        } else if (tab === "refine") {
+          elements.inspectorTitle.textContent = "Refine Workspace";
+          elements.inspectorSubtitle.textContent = "Snap box edges to image boundaries";
         } else {
           elements.inspectorTitle.textContent = "Annotation Inspector";
           elements.inspectorSubtitle.textContent = tab === "transform" ? "Adjust selected annotation geometry" : "Select a box to inspect or edit";
@@ -971,6 +979,9 @@ export function createUiManagerAdapter(input: {
           : engineState === "error"
             ? "Matching engine requires retry"
             : "Matching engine loading";
+      } else if (activeInspectorTab === "refine") {
+        elements.inspectorTitle.textContent = "Refine Workspace";
+        elements.inspectorSubtitle.textContent = "Snap box edges to image boundaries";
       } else {
         elements.inspectorTitle.textContent = "Annotation Inspector";
       }
@@ -1026,6 +1037,7 @@ export function createUiManagerAdapter(input: {
       syncSegmentationPanelState();
       syncWorkflowPanels();
       elements.taskAutomateBtn.disabled = workflow !== "detection";
+      input.documentRef.getElementById("taskRefineBtn")?.toggleAttribute("disabled", workflow !== "detection");
       if (elements.taskReviewBtn) {
         elements.taskReviewBtn.disabled = workflow !== "detection";
       }

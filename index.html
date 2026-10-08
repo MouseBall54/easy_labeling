@@ -413,9 +413,10 @@
                 <div id="genericModeControls" class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
                     <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
                     <label class="btn" for="drawMode" data-ui="mode-draw" title="Draw (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i><span>Draw</span></label>
-                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Open automation settings. Canvas tool stays unchanged." aria-label="Automation settings" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation settings</span></button>
                     <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
                     <label class="btn" for="editMode" data-ui="mode-edit" title="Select and edit (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i><span>Edit</span></label>
+                    <button id="taskRefineBtn" type="button" class="btn" data-task="refine" title="Refine box edges (R). Canvas tool stays unchanged." aria-label="Refine settings" aria-pressed="false"><i class="bi bi-bounding-box-circles" aria-hidden="true"></i><span>Refine</span></button>
+                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Open automation settings. Canvas tool stays unchanged." aria-label="Automation settings" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation settings</span></button>
                 </div>
             </section>
             <section id="segmentationCanvasToolbar" class="segmentation-canvas-toolbar" aria-label="Segmentation tools" hidden>
@@ -433,6 +434,7 @@
             <div id="segmentationBrushCursorPreview" class="segmentation-brush-cursor-preview" aria-hidden="true" hidden></div>
             <canvas id="canvas"></canvas>
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
+            <canvas id="refineOverlayCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
             <canvas id="yoloePreviewCanvas" class="layout-ghost-canvas" aria-label="YOLOE sample drawing canvas" tabindex="-1" aria-hidden="true" hidden></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             <button id="expand-right-panel-btn" type="button" class="panel-expand-btn" title="Expand inspector" aria-label="Expand inspector" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
@@ -465,6 +467,7 @@
                         <button id="inspectorAnnotationTabBtn" type="button" class="inspector-tab active" data-inspector-tab="annotation" aria-current="page">Annotation</button>
                         <button id="inspectorTransformTabBtn" type="button" class="inspector-tab" data-inspector-tab="transform">Transform</button>
                         <button id="inspectorAutomationTabBtn" type="button" class="inspector-tab" data-inspector-tab="automation" hidden>Automation</button>
+                        <button id="inspectorRefineTabBtn" type="button" class="inspector-tab" data-inspector-tab="refine" hidden>Refine</button>
                     </nav>
 
                     <section id="inspectorAnnotationPane" class="inspector-pane active" data-inspector-pane="annotation">
@@ -522,6 +525,29 @@
                                 </div>
                                 <button id="moveSelectedBoxesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrows-move" aria-hidden="true"></i> Move selection</button>
                             </div>
+                        </section>
+                    </section>
+
+                    <section id="inspectorRefinePane" class="inspector-pane refine-pane" data-inspector-pane="refine" hidden>
+                        <section class="inspector-section">
+                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Try settings on sample boxes with live results before saving"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
+                            <p class="refine-hint">Selected boxes on the canvas show a live preview of the result.</p>
+                        </section>
+                        <div id="refineEditor"></div>
+                        <section class="inspector-section refine-run-section">
+                            <div class="refine-run-grid">
+                                <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected <kbd>E</kbd></button>
+                                <button id="refineClassesBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine boxes of the edited classes">Classes</button>
+                                <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all boxes (Shift+E)">All <kbd>⇧E</kbd></button>
+                            </div>
+                            <label class="form-check form-switch small mt-2"><input id="refineSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep hand-edited boxes in Classes/All</span></label>
+                            <div class="refine-review-row">
+                                <button id="refinePrevReviewBtn" type="button" class="panel-icon-button" title="Previous box to review (Shift+N)" aria-label="Previous box to review"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                                <span id="refineReviewCounter" class="refine-review-counter">0 to review</span>
+                                <button id="refineNextReviewBtn" type="button" class="panel-icon-button" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                                <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve <kbd>F</kbd></button>
+                            </div>
+                            <div id="refineStatus" class="refine-hint" role="status" aria-live="polite"></div>
                         </section>
                     </section>
 
@@ -751,6 +777,55 @@
                         <button id="previewYoloeSampleBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Run preview</button>
                         <button id="closeYoloeSetupBtn" type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="refineLabModal" tabindex="-1" aria-labelledby="refineLabModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable refine-lab-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="refineLabModalLabel"><i class="bi bi-sliders" aria-hidden="true"></i> Refine Lab</h5>
+                        <div class="small text-muted" id="refineLabSummary"></div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body refine-lab-body">
+                    <section class="refine-lab-cases-column" aria-label="Cases">
+                        <div class="section-heading-row"><h3>Cases</h3></div>
+                        <select id="refineLabSource" class="form-select form-select-sm mb-2" aria-label="Case source">
+                            <option value="selection">Selected boxes</option>
+                            <option value="classes">Boxes of edited classes</option>
+                            <option value="all">All boxes</option>
+                        </select>
+                        <div id="refineLabCases" class="refine-lab-cases"></div>
+                    </section>
+                    <section class="refine-lab-view-column" aria-label="Result">
+                        <div class="refine-lab-view-toolbar">
+                            <div id="refineLabSideTabs" class="btn-group btn-group-sm" role="group" aria-label="Profile side">
+                                <button type="button" class="btn btn-outline-secondary" data-side="T">Top</button>
+                                <button type="button" class="btn btn-outline-secondary" data-side="L">Left</button>
+                                <button type="button" class="btn btn-outline-secondary" data-side="R">Right</button>
+                                <button type="button" class="btn btn-outline-secondary" data-side="B">Bottom</button>
+                            </div>
+                            <label class="refine-lab-opacity" title="Search range fill opacity"><span>Range opacity</span><input id="refineLabBandOpacity" type="range" class="form-range" min="0" max="100" step="5" value="35"></label>
+                            <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review</span>
+                        </div>
+                        <canvas id="refineLabZoom" class="refine-lab-zoom" aria-label="Zoomed case with original and refined box"></canvas>
+                        <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Brightness profile across the chosen edge"></canvas>
+                        <div id="refineLabReadout" class="refine-lab-readout" role="status" aria-live="polite"></div>
+                    </section>
+                    <section class="refine-lab-settings-column" aria-label="Settings">
+                        <div id="refineLabEditor"></div>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <span id="refineLabStatus" class="me-auto small text-muted" role="status"></span>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button id="refineLabSaveBtn" type="button" class="btn btn-outline-primary">Save settings</button>
+                    <button id="refineLabApplyBtn" type="button" class="btn btn-primary">Save &amp; refine these boxes</button>
                 </div>
             </div>
         </div>

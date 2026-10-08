@@ -22,6 +22,14 @@ export interface AppliedBoxLayout {
   discardedOutOfBoundsCount: number;
 }
 
+export interface BoxGeometryUpdate {
+  annotationId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DetectionBoxInput {
   classId: string;
   x: number;
@@ -116,6 +124,9 @@ export interface CanvasController {
   translateSelectedBoxes(delta: PixelPoint): void;
   getSelectedBoxCount(): number;
   updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
+  /** Sets bounding-rect geometry (image px) for many boxes as one undo step; returns the count updated. */
+  updateBoxGeometries?(updates: readonly BoxGeometryUpdate[]): number;
+  subscribeHistory?(listener: (entry: import("./history.js").CanvasHistoryEntry) => void): () => void;
   setSelectedBoxesVisibility?(visible: boolean): boolean;
   highlightSelection(): void;
   refreshClassColors?(): void;

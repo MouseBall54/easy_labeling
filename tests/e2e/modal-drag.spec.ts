@@ -35,7 +35,7 @@ for (const scenario of ["detection-light", "segmentation-dark"]) {
       return { rects: api.getRectGeometries(), mask: api.getSegmentationMaskBounds() };
     });
     const ids = await page.locator(".modal").evaluateAll((modals) => modals.map((modal) => modal.id));
-    expect(ids).toHaveLength(10);
+    expect(ids).toHaveLength(11);
     for (const id of ids) {
       await test.step(id, async () => {
         await showModal(page, id);

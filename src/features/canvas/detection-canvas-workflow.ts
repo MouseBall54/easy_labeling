@@ -5,7 +5,7 @@ import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
 import { getContrastTextColor, getColorForClass as defaultGetColorForClass } from "./colors.js";
-import type { CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
+import type { BoxGeometryUpdate, CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
 import {
   createAnnotationId,
   ensureAnnotationId,
@@ -1000,6 +1000,48 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         selectionAfter: captureSelectionSnapshot()
       });
       return true;
+    },
+
+    updateBoxGeometries(updates: readonly BoxGeometryUpdate[]): number {
+      const byId = new Map(updates.map((update) => [update.annotationId, update]));
+      const rects = canvas.getObjects("rect").filter(isRectObject).filter((rect) => byId.has(ensureAnnotationId(rect)));
+      if (!state.currentImage || rects.length === 0) {
+        return 0;
+      }
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      // Group members use group-relative left/top; edit them ungrouped, then restore the selection.
+      canvas.discardActiveObject();
+      const epsilon = 1e-8;
+      rects.forEach((rect) => {
+        const geometry = byId.get(ensureAnnotationId(rect));
+        if (!geometry) return;
+        // Saved geometry is the bounding rect, which includes the (uniform) stroke: scale only the fill part.
+        const scaled = rect as FabricRectLike & { scaleX?: number; scaleY?: number };
+        rect.setCoords();
+        let bounds = rect.getBoundingRect();
+        const strokeX = bounds.width - rect.width * (scaled.scaleX ?? 1);
+        const strokeY = bounds.height - rect.height * (scaled.scaleY ?? 1);
+        rect.set({
+          scaleX: Math.max(geometry.width - strokeX, epsilon) / Math.max(rect.width, epsilon),
+          scaleY: Math.max(geometry.height - strokeY, epsilon) / Math.max(rect.height, epsilon)
+        });
+        rect.setCoords();
+        bounds = rect.getBoundingRect();
+        rect.set({ left: rect.left + geometry.x - bounds.left, top: rect.top + geometry.y - bounds.top });
+        rect.setCoords();
+        rect.originalYolo = null;
+        this.updateLabelText(rect);
+      });
+      restoreSelectionFromPayload(selectionBefore);
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({ before, after: captureRectSnapshots(), selectionBefore, selectionAfter: captureSelectionSnapshot() });
+      return rects.length;
+    },
+
+    subscribeHistory(listener: (entry: CanvasHistoryEntry) => void): () => void {
+      return history.subscribe(listener);
     },
 
     setSelectedBoxesVisibility(visible: boolean): boolean {

@@ -44,6 +44,8 @@ export interface CanvasHistoryService {
   isReplayMuted(): boolean;
   getPastEntries(): readonly CanvasHistoryEntry[];
   getFutureEntries(): readonly CanvasHistoryEntry[];
+  /** Called after every recorded (non-replay) entry. */
+  subscribe(listener: (entry: CanvasHistoryEntry) => void): () => void;
 }
 
 export function createRectSnapshot(rect: FabricRectLike): CanvasHistoryRectSnapshot {
@@ -174,6 +176,7 @@ export function createCanvasHistoryService(): CanvasHistoryService {
   const past: CanvasHistoryEntry[] = [];
   const future: CanvasHistoryEntry[] = [];
   let replayMuteDepth = 0;
+  const listeners = new Set<(entry: CanvasHistoryEntry) => void>();
 
   return {
     push(entry: CanvasHistoryEntry): void {
@@ -182,6 +185,7 @@ export function createCanvasHistoryService(): CanvasHistoryService {
       }
       past.push(entry);
       future.length = 0;
+      listeners.forEach((listener) => listener(entry));
     },
 
     undo(): CanvasHistoryEntry | null {
@@ -236,6 +240,11 @@ export function createCanvasHistoryService(): CanvasHistoryService {
 
     getFutureEntries(): readonly CanvasHistoryEntry[] {
       return future;
+    },
+
+    subscribe(listener: (entry: CanvasHistoryEntry) => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     }
   };
 }

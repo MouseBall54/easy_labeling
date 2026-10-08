@@ -8,6 +8,7 @@ import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
+import { createRefineController, resolveRefineShortcut } from "./refine-controller.js";
 import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
 import { saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
@@ -205,6 +206,15 @@ export function createEventManagerAdapter(input: {
         })
         : null;
       automationController?.bind();
+      const refineController = input.documentRef
+        ? createRefineController({
+          state: input.state,
+          uiManager: input.uiManager,
+          canvasController: input.canvasController,
+          documentRef: input.documentRef
+        })
+        : null;
+      refineController?.bind();
 
 
       const runAsync = (action: () => Promise<void>): void => {
@@ -2426,6 +2436,14 @@ export function createEventManagerAdapter(input: {
           return;
         }
         if (elements.classFileViewerModal._element?.classList.contains("show")) {
+          return;
+        }
+
+        const refineShortcut = resolveRefineShortcut(event);
+        if (refineShortcut && refineController && input.state.session.workflow === "detection"
+          && input.documentRef?.querySelector(".modal.show, .modal[aria-modal='true']") == null) {
+          event.preventDefault();
+          if (!event.repeat) refineController.runShortcut(refineShortcut);
           return;
         }
 
