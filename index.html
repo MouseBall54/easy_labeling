@@ -151,6 +151,15 @@
                                 </div>
                             </div>
                             <div id="segmentationPreprocessSettingsGroup" class="segmentation-preprocessing-block segmentation-view-settings" data-view-settings="processed" hidden>
+                                <label class="form-label small mb-1" for="segmentationPreprocessPresetSelect">Preset</label>
+                                <div class="input-group input-group-sm">
+                                    <select id="segmentationPreprocessPresetSelect" class="form-select" aria-label="Preprocessing preset"><option value="">No presets yet</option></select>
+                                    <button id="segmentationPreprocessPresetDeleteBtn" type="button" class="btn btn-outline-danger" title="Delete the chosen preset" aria-label="Delete the chosen preprocessing preset"><i class="bi bi-trash" aria-hidden="true"></i></button>
+                                </div>
+                                <div class="input-group input-group-sm mt-1 mb-2">
+                                    <input id="segmentationPreprocessPresetName" type="text" class="form-control" placeholder="Preset name" aria-label="New preprocessing preset name" maxlength="60">
+                                    <button id="segmentationPreprocessPresetSaveBtn" type="button" class="btn btn-outline-secondary" title="Save the current settings as a preset">Save</button>
+                                </div>
                                 <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Processing mode</label>
                                 <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
                                 <label class="form-label small mb-1 segmentation-preprocess-source-label" for="segmentationPreprocessSourceSelect">Processing input</label>
@@ -552,9 +561,11 @@
                         </section>
                         <section class="inspector-section">
                             <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Selection previews live</span></div>
+                            <label class="form-label small mb-1" for="refineRunPresetSelect">Run with</label>
+                            <select id="refineRunPresetSelect" class="form-select form-select-sm mb-2" aria-label="Settings used when refining"><option value="">Class settings</option></select>
                             <div class="refine-run-grid">
-                                <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected <kbd>E</kbd></button>
-                                <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all visible boxes (Shift+E)">All boxes <kbd>⇧E</kbd></button>
+                                <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected</button>
+                                <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all visible boxes (Shift+E)">All boxes</button>
                             </div>
                             <div class="input-group input-group-sm mt-2">
                                 <select id="refineClassSelect" class="form-select" aria-label="Class to refine"></select>
@@ -567,7 +578,7 @@
                             <div class="refine-review-row">
                                 <button id="refinePrevReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Previous box to review (Shift+N)" aria-label="Previous box to review"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
                                 <button id="refineNextReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
-                                <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve <kbd>F</kbd></button>
+                                <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve</button>
                             </div>
                         </section>
                         <div id="refineStatus" class="refine-hint" role="status" aria-live="polite"></div>
@@ -836,7 +847,13 @@
                             <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review</span>
                         </div>
                         <canvas id="refineLabZoom" class="refine-lab-zoom" aria-label="Zoomed case with original and refined box"></canvas>
-                        <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Brightness profile across the chosen edge"></canvas>
+                        <div class="refine-lab-profile-toolbar">
+                            <label for="refineLabDeltaStep" title="Distance between the two samples compared in the change plot">Change over</label>
+                            <select id="refineLabDeltaStep" class="form-select form-select-sm" aria-label="Change plot step">
+                                <option value="1" selected>1 px</option><option value="2">2 px</option><option value="3">3 px</option><option value="4">4 px</option>
+                            </select>
+                        </div>
+                        <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Mean brightness and its change across the chosen edge"></canvas>
                         <div id="refineLabReadout" class="refine-lab-readout" role="status" aria-live="polite"></div>
                     </section>
                     <section class="refine-lab-settings-column" aria-label="Settings">

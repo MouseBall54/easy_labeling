@@ -13,7 +13,7 @@ import {
   type RefineSide,
   type RefineSideDiagnostics
 } from "../domain/refine/edge-refine.js";
-import { resolveRefineParams, type RefineImageSource, type RefineSettingsDocument } from "../domain/refine/settings.js";
+import { resolveRefineParams, type RefineImageSource, type RefineProcessing, type RefineSettingsDocument } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
 
@@ -29,8 +29,8 @@ interface LabCase {
   /** The box in image coordinates and the crop margin around it. */
   box: RefineBoxInput;
   margin: number;
-  /** Image source the crop was taken from. */
-  source: RefineImageSource;
+  /** Image source and processing the crop was taken from (see imageKey). */
+  source: string;
   /** Box and neighbours in crop coordinates. */
   local: RefineRect;
   neighbours: RefineRect[];
@@ -50,6 +50,7 @@ const MAX_CASES = 24;
 const CROP_MARGIN = 128;
 const WARN = "#f0ad4e";
 const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
+const DELTA_STEP_KEY = "easy-labeling:refine-lab-delta-step";
 const SIDE_NAMES: Record<RefineSide, string> = { L: "Left", R: "Right", T: "Top", B: "Bottom" };
 const POLARITY_TEXT = { 1: "bright → dark", [-1]: "dark → bright", 0: "unclear" } as const;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
@@ -63,7 +64,8 @@ export function createRefineLab(input: {
   refineOnCanvas(ids: string[]): void;
   collectCases(source: RefineLabCaseSource, classIds: readonly string[]): RefineBoxInput[];
   /** Gray pixels refinement reads for rect (clamped), from the original or the processed image. */
-  cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource): Promise<GrayImage & { x0: number; y0: number }>;
+  cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource, processing: RefineProcessing | null): Promise<GrayImage & { x0: number; y0: number }>;
+  loadPreprocessingPresets(): Promise<{ name: string; config: Record<string, unknown> }[]>;
   allBoxes(): RefineBoxInput[];
   classIds(): string[];
   className(classId: string): string | undefined;
@@ -81,12 +83,21 @@ export function createRefineLab(input: {
   const source = byId<HTMLSelectElement>("refineLabSource");
   const sideTabs = byId<HTMLElement>("refineLabSideTabs");
   const bandOpacity = byId<HTMLInputElement>("refineLabBandOpacity");
+  const deltaStepSelect = byId<HTMLSelectElement>("refineLabDeltaStep");
+  try {
+    const stored = input.windowRef.localStorage.getItem(DELTA_STEP_KEY);
+    if (stored && [...deltaStepSelect.options].some((option) => option.value === stored)) deltaStepSelect.value = stored;
+  } catch { /* storage unavailable: keep the default */ }
   try {
     const stored = input.windowRef.localStorage.getItem(BAND_OPACITY_KEY);
     if (stored !== null && Number.isFinite(Number(stored))) bandOpacity.value = stored;
   } catch { /* storage unavailable: keep the default */ }
 
   let draft: RefineSettingsDocument = input.getSettings();
+  let preprocessingPresets: { name: string; config: Record<string, unknown> }[] = [];
+  /** Identifies the pixels a crop shows: the image source plus the processing pinned for it. */
+  const imageKey = (doc: RefineSettingsDocument): string =>
+    doc.imageSource === "processed" ? `processed:${JSON.stringify(doc.processing?.config ?? "live")}` : "original";
   let cases: LabCase[] = [];
   let results: LabResult[] = [];
   let active = 0;
@@ -103,7 +114,8 @@ export function createRefineLab(input: {
       setDoc: (next) => { draft = next; editor.render(); schedule(); },
       classIds: input.classIds,
       className: input.className,
-      notify: (message) => { status.textContent = message; }
+      notify: (message) => { status.textContent = message; },
+      preprocessingPresets: () => preprocessingPresets
     }
   });
   editor.onTargetsChange(() => {
@@ -117,8 +129,8 @@ export function createRefineLab(input: {
   // ---------------------------------------------------------------- cases
   // Crops come from the refine worker, so the lab shows exactly the gray pixels refinement reads.
   const prepare = async (image: HTMLImageElement, box: RefineBoxInput, everyBox: readonly RefineBoxInput[], margin = CROP_MARGIN): Promise<LabCase> => {
-    const imageSource = draft.imageSource;
-    const crop = await input.cropImage(image, { x0: box.x0 - margin, y0: box.y0 - margin, x1: box.x1 + margin, y1: box.y1 + margin }, imageSource);
+    const source = imageKey(draft);
+    const crop = await input.cropImage(image, { x0: box.x0 - margin, y0: box.y0 - margin, x1: box.x1 + margin, y1: box.y1 + margin }, draft.imageSource, draft.processing);
     const { x0, y0, width, height } = crop;
     const pixels = doc.createElement("canvas");
     pixels.width = width;
@@ -137,7 +149,7 @@ export function createRefineLab(input: {
       classId: box.classId,
       box,
       margin,
-      source: imageSource,
+      source,
       local: shift(box),
       neighbours: everyBox.filter((n) => n.id !== box.id && n.x1 > x0 && n.x0 < x1 && n.y1 > y0 && n.y0 < y1).map(shift),
       img: { gray: crop.gray, width, height },
@@ -177,7 +189,7 @@ export function createRefineLab(input: {
   /** Re-crops cases whose image source changed or whose extensions outgrew the crop; renders again when done. */
   const recropStale = (): void => {
     const image = input.getImage();
-    const stale = (c: LabCase): boolean => c.source !== draft.imageSource || neededMargin(c) > c.margin;
+    const stale = (c: LabCase): boolean => c.source !== imageKey(draft) || neededMargin(c) > c.margin;
     if (recropping || !image || !cases.some(stale)) return;
     recropping = true;
     const token = caseToken;
@@ -305,6 +317,11 @@ export function createRefineLab(input: {
     return { X, Y, s };
   };
 
+  /**
+   * Two stacked plots sharing an inside -> outside axis: the mean brightness across the side (raw and
+   * smoothed) and its change over `deltaStep` pixels, Δ(x) = P(x + k/2) - P(x - k/2). A positive change
+   * means the image gets brighter going outward.
+   */
   const drawProfile = (c: LabCase, r: LabResult): void => {
     const context = fitCanvas(profile);
     const width = profile.clientWidth;
@@ -313,73 +330,92 @@ export function createRefineLab(input: {
     const off = r.params.sides[activeSide] === "off";
     if (!d) return;
     const n = d.raw.length;
-    const pad = { l: 34, r: 10, t: 18, b: 20 };
-    const plotW = width - pad.l - pad.r;
-    const plotH = height - pad.t - pad.b;
-    let lo = Infinity;
-    let hi = -Infinity;
-    d.raw.forEach((v) => { lo = Math.min(lo, v); hi = Math.max(hi, v); });
-    if (hi - lo < 1) { hi += 1; lo -= 1; }
-    // Inside is always on the left, outside on the right, whatever the side.
+    const k = Math.max(1, Math.min(n - 1, Number(deltaStepSelect.value) || 1));
     const flip = d.out < 0;
-    const PX = (u: number): number => pad.l + ((flip ? n - u : u) / n) * plotW;
-    const PY = (v: number): number => pad.t + (1 - (v - lo) / (hi - lo)) * plotH;
+    // Samples ordered inside -> outside; sample j covers [j, j + 1) on that axis.
+    const oriented = (values: Float32Array): Float32Array => (flip ? Float32Array.from(values).reverse() : values);
+    const raw = oriented(d.raw);
+    const smoothed = oriented(d.smoothed);
+    const delta = (values: Float32Array): Float32Array => Float32Array.from({ length: Math.max(0, n - k) }, (_, j) => values[j + k] - values[j]);
+    const rawDelta = delta(raw);
+    const smoothDelta = delta(smoothed);
+
     const styles = getComputedStyle(profile);
     const text = styles.getPropertyValue("--workbench-text").trim() || "#1f2933";
     const muted = styles.getPropertyValue("--workbench-text-muted").trim() || "#64707d";
     const border = styles.getPropertyValue("--workbench-border").trim() || "#d7dde3";
+    const primary = styles.getPropertyValue("--workbench-primary").trim() || "#1769e0";
+    const pad = { l: 38, r: 10 };
+    const plotW = width - pad.l - pad.r;
+    const X = (u: number): number => pad.l + (u / n) * plotW;
+    const imageToAxis = (coordinate: number): number => { const u = coordinate - d.start; return flip ? n - u : u; };
+    const originalAxis = imageToAxis(c.local[SIDE_KEY[activeSide]]);
+    const resultAxis = r.result && !off ? imageToAxis(r.result.box[SIDE_KEY[activeSide]]) : null;
+    const resultColor = r.result?.weakSides.includes(activeSide) ? WARN : getColorForClass(c.classId);
 
-    context.strokeStyle = border;
-    context.lineWidth = 1;
-    context.strokeRect(pad.l, pad.t, plotW, plotH);
-    context.fillStyle = muted;
-    context.font = "11px system-ui, sans-serif";
-    context.fillText(String(Math.round(hi)), 4, pad.t + 8);
-    context.fillText(String(Math.round(lo)), 4, pad.t + plotH);
-    context.fillText("◀ inside", pad.l, height - 5);
-    const outsideLabel = "outside ▶";
-    context.fillText(outsideLabel, pad.l + plotW - context.measureText(outsideLabel).width, height - 5);
-
-    const edgeAt = (coordinate: number): number => PX(coordinate - d.start);
-    const originalCoordinate = c.local[SIDE_KEY[activeSide]];
-    context.setLineDash([4, 3]);
-    context.strokeStyle = muted;
-    context.beginPath();
-    context.moveTo(edgeAt(originalCoordinate), pad.t);
-    context.lineTo(edgeAt(originalCoordinate), pad.t + plotH);
-    context.stroke();
-    context.setLineDash([]);
-    if (d.inside !== null && d.outside !== null) {
+    const panel = (top: number, plotH: number, title: string, series: { values: Float32Array; offset: number; color: string; lineWidth: number }[], levels: number[], zero: boolean): void => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const { values } of series) values.forEach((v) => { lo = Math.min(lo, v); hi = Math.max(hi, v); });
+      if (zero) { const m = Math.max(Math.abs(lo), Math.abs(hi), 1); lo = -m; hi = m; }
+      if (!Number.isFinite(lo) || hi - lo < 1) { lo = (Number.isFinite(lo) ? lo : 0) - 1; hi = lo + 2; }
+      const Y = (v: number): number => top + (1 - (v - lo) / (hi - lo)) * plotH;
       context.strokeStyle = border;
-      for (const level of [d.inside, d.outside]) {
+      context.lineWidth = 1;
+      context.strokeRect(pad.l, top, plotW, plotH);
+      context.fillStyle = muted;
+      context.font = "11px system-ui, sans-serif";
+      context.fillText(String(Math.round(hi)), 4, top + 9);
+      context.fillText(String(Math.round(lo)), 4, top + plotH);
+      for (const level of zero ? [0] : levels) {
         if (level < lo || level > hi) continue;
         context.beginPath();
-        context.moveTo(pad.l, PY(level));
-        context.lineTo(pad.l + plotW, PY(level));
+        context.moveTo(pad.l, Y(level));
+        context.lineTo(pad.l + plotW, Y(level));
         context.stroke();
       }
-    }
-    const series = (values: Float32Array, color: string, lineWidth: number): void => {
-      context.strokeStyle = color;
-      context.lineWidth = lineWidth;
-      context.beginPath();
-      values.forEach((v, i) => { const x = PX(i + 0.5); const y = PY(v); if (i) context.lineTo(x, y); else context.moveTo(x, y); });
-      context.stroke();
+      const vertical = (axis: number, color: string, dashed: boolean, lineWidth: number): void => {
+        context.setLineDash(dashed ? [4, 3] : []);
+        context.strokeStyle = color;
+        context.lineWidth = lineWidth;
+        context.beginPath();
+        context.moveTo(X(axis), top);
+        context.lineTo(X(axis), top + plotH);
+        context.stroke();
+        context.setLineDash([]);
+      };
+      vertical(originalAxis, muted, true, 1);
+      for (const { values, offset, color, lineWidth } of series) {
+        context.strokeStyle = color;
+        context.lineWidth = lineWidth;
+        context.beginPath();
+        values.forEach((v, j) => { const x = X(j + offset); if (j) context.lineTo(x, Y(v)); else context.moveTo(x, Y(v)); });
+        context.stroke();
+      }
+      if (resultAxis !== null) vertical(resultAxis, resultColor, false, 2);
+      context.fillStyle = text;
+      context.font = "600 11px system-ui, sans-serif";
+      context.fillText(title, pad.l, top - 5);
     };
-    series(d.raw, muted, 1);
-    series(d.smoothed, styles.getPropertyValue("--workbench-primary").trim() || "#1769e0", 2);
-    if (r.result && !off) {
-      const x = edgeAt(r.result.box[SIDE_KEY[activeSide]]);
-      context.strokeStyle = r.result.weakSides.includes(activeSide) ? WARN : getColorForClass(c.classId);
-      context.lineWidth = 2;
-      context.beginPath();
-      context.moveTo(x, pad.t);
-      context.lineTo(x, pad.t + plotH);
-      context.stroke();
-    }
-    context.fillStyle = text;
-    context.font = "600 11px system-ui, sans-serif";
-    context.fillText(`${SIDE_NAMES[activeSide]} edge profile`, pad.l, 12);
+
+    const gap = 18;
+    const bottom = 18;
+    const plotH = Math.max(30, (height - gap * 2 - bottom) / 2);
+    const levels = d.inside !== null && d.outside !== null ? [d.inside, d.outside] : [];
+    panel(gap, plotH, `${SIDE_NAMES[activeSide]} edge · mean brightness`, [
+      { values: raw, offset: 0.5, color: muted, lineWidth: 1 },
+      { values: smoothed, offset: 0.5, color: primary, lineWidth: 2 }
+    ], levels, false);
+    panel(gap * 2 + plotH, plotH, `Change over ${k} px (outward, + = brighter)`, [
+      { values: rawDelta, offset: 0.5 + k / 2, color: muted, lineWidth: 1 },
+      { values: smoothDelta, offset: 0.5 + k / 2, color: primary, lineWidth: 2 }
+    ], [], true);
+    context.fillStyle = muted;
+    context.font = "11px system-ui, sans-serif";
+    context.fillText("◀ inside", pad.l, height - 4);
+    const outsideLabel = "outside ▶";
+    context.fillText(outsideLabel, pad.l + plotW - context.measureText(outsideLabel).width, height - 4);
+    const originalCoordinate = c.local[SIDE_KEY[activeSide]];
 
     const moved = r.result && !off ? r.result.box[SIDE_KEY[activeSide]] - originalCoordinate : 0;
     const outward = (d.out > 0 ? moved : -moved);
@@ -488,6 +524,10 @@ export function createRefineLab(input: {
     zoom.style.cursor = zoomBands.some((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) ? "pointer" : "crosshair";
   });
   source.addEventListener("change", loadCases);
+  deltaStepSelect.addEventListener("change", () => {
+    try { input.windowRef.localStorage.setItem(DELTA_STEP_KEY, deltaStepSelect.value); } catch { /* per-viewer convenience only */ }
+    schedule();
+  });
   bandOpacity.addEventListener("input", () => {
     try { input.windowRef.localStorage.setItem(BAND_OPACITY_KEY, bandOpacity.value); } catch { /* per-viewer convenience only */ }
     schedule();
@@ -508,6 +548,7 @@ export function createRefineLab(input: {
     open(): void {
       if (!input.getImage()) { input.notify("Open an image in the Detection workflow first."); return; }
       draft = input.getSettings();
+      void input.loadPreprocessingPresets().then((presets) => { preprocessingPresets = presets; editor.render(); }).catch(() => undefined);
       const selection = input.collectCases("selection", []);
       source.value = selection.length ? "selection" : "classes";
       active = 0;

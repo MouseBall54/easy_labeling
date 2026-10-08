@@ -4622,16 +4622,6 @@ body.dark-mode .loading-overlay {
     gap: 6px;
 }
 
-.refine-run-grid kbd,
-.refine-review-row kbd {
-    padding: 0 4px;
-    font-size: var(--fs-badge);
-    background: transparent;
-    color: inherit;
-    border: 1px solid currentColor;
-    opacity: 0.7;
-}
-
 .refine-review-row {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr);
@@ -4766,9 +4756,9 @@ body.dark-mode .loading-overlay {
 }
 
 .refine-lab-profile {
-    flex: 0 0 170px;
+    flex: 0 0 250px;
     width: 100%;
-    height: 170px;
+    height: 250px;
     border: 1px solid var(--workbench-border);
     border-radius: var(--radius-sm);
     background: var(--workbench-surface);
@@ -4918,4 +4908,18 @@ body.dark-mode .loading-overlay {
 
 .segmentation-preprocessing-reset {
     grid-column: 1 / -1;
+}
+
+.refine-lab-profile-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: -4px;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.refine-lab-profile-toolbar .form-select {
+    width: auto;
 }

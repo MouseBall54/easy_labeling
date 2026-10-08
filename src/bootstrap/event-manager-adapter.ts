@@ -1,4 +1,6 @@
-import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG } from "../features/segmentation/preprocessing.js";
+import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
+import type { DirectoryHandleLike } from "../types/files.js";
+import { loadPreprocessingPresets, savePreprocessingPresets, upsertPreprocessingPreset, type PreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
@@ -1617,7 +1619,11 @@ export function createEventManagerAdapter(input: {
           if (slider instanceof HTMLInputElement && value) value.textContent = field.label(Number(slider.value) / field.scale);
         }
       };
+      const preprocessPresetSelect = preprocessElement("PresetSelect");
+      let applyingPreprocessPreset = false;
       const applyPreprocessing = (): void => {
+        // A hand-made change no longer matches the chosen preset.
+        if (!applyingPreprocessPreset && preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = "";
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
           || !(preprocessBlurInput instanceof HTMLInputElement)
           || !(preprocessEdgeWeightInput instanceof HTMLInputElement)) return;
@@ -1650,18 +1656,64 @@ export function createEventManagerAdapter(input: {
       });
       preprocessMedianToggle?.addEventListener("change", applyPreprocessing);
       preprocessDestripeSelect?.addEventListener("change", applyPreprocessing);
-      preprocessElement("ResetBtn")?.addEventListener("click", () => {
-        const defaults = DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG;
-        if (preprocessModeSelect instanceof HTMLSelectElement) preprocessModeSelect.value = defaults.mode;
-        if (preprocessBlurInput instanceof HTMLInputElement) preprocessBlurInput.value = String(defaults.blurStrength);
-        if (preprocessEdgeWeightInput instanceof HTMLInputElement) preprocessEdgeWeightInput.value = String(Math.round(defaults.edgeWeight * 100));
-        if (preprocessMedianToggle instanceof HTMLInputElement) preprocessMedianToggle.checked = defaults.median;
-        if (preprocessDestripeSelect instanceof HTMLSelectElement) preprocessDestripeSelect.value = defaults.destripe;
+      /** Writes a whole config into the panel controls and applies it (Reset and presets). */
+      const setPreprocessPanel = (config: SegmentationPreprocessingConfig, presetName = ""): void => {
+        if (preprocessModeSelect instanceof HTMLSelectElement) preprocessModeSelect.value = config.mode;
+        if (preprocessBlurInput instanceof HTMLInputElement) preprocessBlurInput.value = String(config.blurStrength);
+        if (preprocessEdgeWeightInput instanceof HTMLInputElement) preprocessEdgeWeightInput.value = String(Math.round(config.edgeWeight * 100));
+        if (preprocessMedianToggle instanceof HTMLInputElement) preprocessMedianToggle.checked = config.median;
+        if (preprocessDestripeSelect instanceof HTMLSelectElement) preprocessDestripeSelect.value = config.destripe;
         for (const field of preprocessRanges) {
           const slider = preprocessElement(`${field.id}Input`);
-          if (slider instanceof HTMLInputElement) slider.value = String(Math.round(defaults[field.key] * field.scale));
+          if (slider instanceof HTMLInputElement) slider.value = String(Math.round(config[field.key] * field.scale));
         }
-        applyPreprocessing();
+        applyingPreprocessPreset = true;
+        try { applyPreprocessing(); } finally { applyingPreprocessPreset = false; }
+        if (preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = presetName;
+      };
+      preprocessElement("ResetBtn")?.addEventListener("click", () => setPreprocessPanel(DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG));
+
+      // Preprocessing presets live in the dataset's .easy-labeling folder.
+      let preprocessPresets: PreprocessingPreset[] = [];
+      const renderPreprocessPresets = (selected = preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : ""): void => {
+        if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
+        preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => new Option(preset.name, preset.name)));
+        preprocessPresetSelect.value = preprocessPresets.some((preset) => preset.name === selected) ? selected : "";
+      };
+      const refreshPreprocessPresets = (): void => {
+        runAsync(async () => {
+          preprocessPresets = await loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null);
+          renderPreprocessPresets();
+        });
+      };
+      const currentPreprocessConfig = (): SegmentationPreprocessingConfig | undefined => preprocessingController().getSegmentationPreprocessingConfig?.();
+      const storePreprocessPresets = (next: PreprocessingPreset[], selected: string): void => {
+        const folder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+        if (!folder) { input.uiManager.notify("Open a dataset folder to keep preprocessing presets.", 4000); return; }
+        preprocessPresets = next;
+        renderPreprocessPresets(selected);
+        runAsync(() => savePreprocessingPresets(folder, next));
+      };
+      preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
+      input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", refreshPreprocessPresets);
+      preprocessPresetSelect?.addEventListener("change", () => {
+        if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
+        const preset = preprocessPresets.find((item) => item.name === preprocessPresetSelect.value);
+        if (preset) setPreprocessPanel(preset.config, preset.name);
+      });
+      preprocessElement("PresetSaveBtn")?.addEventListener("click", () => {
+        const nameInput = preprocessElement("PresetName");
+        const config = currentPreprocessConfig();
+        if (!(nameInput instanceof HTMLInputElement) || !config) return;
+        const name = nameInput.value.trim() || (preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : "");
+        if (!name) { input.uiManager.notify("Type a preset name.", 3000); nameInput.focus(); return; }
+        storePreprocessPresets(upsertPreprocessingPreset(preprocessPresets, name, config), name);
+        nameInput.value = "";
+        input.uiManager.notify(`Saved preprocessing preset "${name}".`, 2500);
+      });
+      preprocessElement("PresetDeleteBtn")?.addEventListener("click", () => {
+        if (!(preprocessPresetSelect instanceof HTMLSelectElement) || !preprocessPresetSelect.value) return;
+        storePreprocessPresets(preprocessPresets.filter((preset) => preset.name !== preprocessPresetSelect.value), "");
       });
       preprocessSourceSelect?.addEventListener("change", () => {
         if (!(preprocessSourceSelect instanceof HTMLSelectElement)) return;

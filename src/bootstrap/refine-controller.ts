@@ -6,7 +6,9 @@ import {
   resolveRefineParams,
   serializeRefineSettings,
   REFINE_SETTINGS_FILE,
+  refinePresetLabel,
   type RefineImageSource,
+  type RefineProcessing,
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
 import { extractVisibleRectSelection, getRectBounds } from "../features/canvas/arrange.js";
@@ -17,6 +19,8 @@ import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFi
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RefineLab, RefineLabCaseSource } from "./refine-lab.js";
+import { loadPreprocessingPresets } from "../features/segmentation/preprocessing-presets.js";
+import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
 export type RefineShortcut = "toggle" | "refineSelected" | "refineAll" | "nextReview" | "previousReview" | "approve";
@@ -83,10 +87,23 @@ export function createRefineController(input: {
   const isDetection = (): boolean => input.state.session.workflow === "detection";
   const paneOpen = (): boolean => !pane.hidden;
   const getService = (): RefineService => (service ??= createRefineService());
-  /** "Processed" uses the Preprocess panel's current settings, the same pixels its canvas view shows. */
-  const imageInput = (source: RefineImageSource = settings.imageSource): RefineImageInput => source === "processed"
-    ? { kind: "processed", config: (input.canvasController.preprocessing ?? raw).getSegmentationPreprocessingConfig?.() }
+  /** "Processed" uses the pinned processing snapshot, or the Preprocess panel's live settings when none is pinned. */
+  const imageInput = (source: RefineImageSource, processing: RefineProcessing | null): RefineImageInput => source === "processed"
+    ? { kind: "processed", config: (processing?.config as SegmentationPreprocessingConfig | undefined) ?? (input.canvasController.preprocessing ?? raw).getSegmentationPreprocessingConfig?.() }
     : { kind: "original" };
+  /**
+   * What a run uses: the Run-with preset (same rule for every class, with its image and processing) or the
+   * saved class settings. Presets saved before image sources existed keep the current image settings.
+   */
+  const runConfig = (): { params(classId: string): RefineParams; image: RefineImageInput; label: string } => {
+    const preset = settings.activePreset ? settings.presets.find((item) => item.name === settings.activePreset) : undefined;
+    if (preset) {
+      const source = preset.imageSource ?? settings.imageSource;
+      const processing = preset.imageSource ? preset.processing ?? null : settings.processing;
+      return { params: () => preset.params, image: imageInput(source, processing), label: refinePresetLabel(preset) };
+    }
+    return { params: (classId) => resolveRefineParams(settings, classId), image: imageInput(settings.imageSource, settings.processing), label: "class settings" };
+  };
   const setStatus = (text: string): void => { status.textContent = text; };
 
   const syncImage = (): HTMLImageElement | null => {
@@ -112,8 +129,9 @@ export function createRefineController(input: {
     Math.abs(a.x0 - b.x0) < eps && Math.abs(a.y0 - b.y0) < eps && Math.abs(a.x1 - b.x1) < eps && Math.abs(a.y1 - b.y1) < eps;
   const selectedRects = (): FabricRectLike[] => extractVisibleRectSelection(raw.canvas.getActiveObject?.() ?? null);
   const paramsFor = (boxes: readonly RefineBoxInput[]): Record<string, RefineParams> => {
+    const config = runConfig();
     const out: Record<string, RefineParams> = {};
-    for (const box of boxes) out[box.classId] ??= resolveRefineParams(settings, box.classId);
+    for (const box of boxes) out[box.classId] ??= config.params(box.classId);
     return out;
   };
   const classIds = (): string[] => {
@@ -136,17 +154,20 @@ export function createRefineController(input: {
   /** The pane only applies settings: summary line plus the class list for "Refine class". Editing lives in the Lab. */
   const renderPane = (): void => {
     const own = Object.keys(settings.classes).length;
-    const presets = settings.presets.length;
-    byId("refineSettingsSummary").textContent = `Image: ${settings.imageSource === "processed" ? "Processed" : "Original"} · `
-      + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default")
-      + (presets ? ` · ${presets} preset${presets === 1 ? "" : "s"}` : "");
+    const processing = settings.imageSource === "processed" ? ` (${settings.processing?.name || "live Preprocess panel"})` : "";
+    byId("refineSettingsSummary").textContent = `Class settings: image ${settings.imageSource === "processed" ? "Processed" : "Original"}${processing} · `
+      + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
+    const runSelect = byId<HTMLSelectElement>("refineRunPresetSelect");
+    runSelect.replaceChildren(new Option("Class settings", ""), ...settings.presets.map((preset) => new Option(refinePresetLabel(preset), preset.name)));
+    runSelect.value = settings.activePreset && settings.presets.some((preset) => preset.name === settings.activePreset) ? settings.activePreset : "";
+    runSelect.title = runSelect.value ? "Every class is refined with this preset; class settings are left unchanged" : "Each class uses its own settings";
     const select = byId<HTMLSelectElement>("refineClassSelect");
     const previous = select.value;
     const ids = classIds();
     select.replaceChildren(...ids.map((classId) => {
       const name = input.state.session.classNames.get(classId);
       const option = new Option(name ? `${classId} ${name}` : classId, classId);
-      option.disabled = !resolveRefineParams(settings, classId).enabled;
+      option.disabled = !runConfig().params(classId).enabled;
       return option;
     }));
     if (!ids.length) select.add(new Option("No classes", ""));
@@ -201,7 +222,7 @@ export function createRefineController(input: {
     setBusy(true);
     setStatus(`Refining ${runnable.length} box${runnable.length === 1 ? "" : "es"}…`);
     try {
-      const results = await getService().refine(image, runnable, paramsByClass, rects().map(toBox), imageInput());
+      const results = await getService().refine(image, runnable, paramsByClass, rects().map(toBox), runConfig().image);
       if (token !== generation || image !== input.state.session.currentImage) return;
       // Skip boxes the user moved while the worker was busy.
       const now = new Map(rects().map(toBox).map((box) => [box.id, box]));
@@ -286,7 +307,7 @@ export function createRefineController(input: {
       }
       const token = ++previewGeneration;
       void loadSettings()
-        .then(() => getService().refine(image, selected, paramsFor(selected), rects().map(toBox), imageInput()))
+        .then(() => getService().refine(image, selected, paramsFor(selected), rects().map(toBox), runConfig().image))
         .then((results) => {
           if (token !== previewGeneration) return;
           const before = new Map(selected.map((box) => [box.id, box]));
@@ -393,7 +414,9 @@ export function createRefineController(input: {
           void run(rects().map(toBox).filter((box) => wanted.has(box.id)), false);
         },
         collectCases,
-        cropImage: (image, rect, source) => getService().crop(image, rect, imageInput(source)),
+        cropImage: (image, rect, source, processing) => getService().crop(image, rect, imageInput(source, processing)),
+        loadPreprocessingPresets: () => loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null)
+          .then((presets) => presets.map((preset) => ({ name: preset.name, config: { ...preset.config } }))),
         allBoxes: () => rects().map(toBox),
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),
@@ -418,6 +441,9 @@ export function createRefineController(input: {
   return {
     bind(): void {
       renderPane();
+      byId("refineRunPresetSelect").addEventListener("change", (event) => {
+        changeSettings({ ...settings, activePreset: (event.target as HTMLSelectElement).value || null });
+      });
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);
       byId("refineAllBtn").addEventListener("click", refineAll);
@@ -463,7 +489,7 @@ export function createRefineController(input: {
           if (rect) {
             const box = toBox(rect);
             void loadSettings().then(() => {
-              const params = resolveRefineParams(settings, box.classId);
+              const params = runConfig().params(box.classId);
               if (params.enabled && params.autoOnDraw) return run([box], false);
             });
           }

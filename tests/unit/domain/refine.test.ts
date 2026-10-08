@@ -15,13 +15,15 @@ import {
   deleteRefinePreset,
   importRefinePresets,
   saveRefinePreset,
+  refinePresetLabel,
   serializeRefinePresets,
   sideHasOwnRule,
   parseRefineSettings,
   refineOverriddenKeys,
   resetRefineSettings,
   resolveRefineParams,
-  updateRefineSettings
+  updateRefineSettings,
+  type RefineSettingsDocument
 } from "../../../src/domain/refine/settings.js";
 
 function paint(width: number, height: number, rects: readonly RefineRect[], noise = 6): GrayImage {
@@ -158,6 +160,25 @@ describe("domain/refine/settings", () => {
     expect(createRefineSettings().imageSource).toBe("original");
     expect(parseRefineSettings(JSON.stringify({ imageSource: "processed" })).imageSource).toBe("processed");
     expect(parseRefineSettings(JSON.stringify({ imageSource: "bogus" })).imageSource).toBe("original");
+  });
+
+  it("stores the image source and processing with presets and restores them when applied", () => {
+    const processing = { name: "SEM fins", config: { mode: "original", claheClip: 2 } };
+    let doc: RefineSettingsDocument = { ...createRefineSettings(), imageSource: "processed", processing };
+    doc = saveRefinePreset(doc, "Fins", normalizeRefineParams({ crit: "flank" }), { imageSource: doc.imageSource, processing: doc.processing });
+    doc = deleteRefinePreset(saveRefinePreset(doc, "Plain", normalizeRefineParams({})), "Plain");
+    const reset = { ...doc, imageSource: "original" as const, processing: null, activePreset: "Fins" };
+    const applied = applyRefinePreset(reset, "Fins", ["0"]);
+    expect(applied).toMatchObject({ imageSource: "processed", processing, activePreset: "Fins" });
+    expect(resolveRefineParams(applied, "0").crit).toBe("flank");
+    const roundTrip = parseRefineSettings(JSON.stringify(applied));
+    expect(roundTrip.presets[0]).toMatchObject({ name: "Fins", imageSource: "processed", processing });
+    expect(roundTrip.activePreset).toBe("Fins");
+    expect(deleteRefinePreset(roundTrip, "Fins").activePreset).toBeNull();
+    expect(refinePresetLabel(roundTrip.presets[0])).toBe("Fins · Processed (SEM fins)");
+    // Presets from before image sources existed leave the current image settings alone.
+    const legacy = parseRefineSettings(JSON.stringify({ imageSource: "processed", presets: [{ name: "Old", params: {} }] }));
+    expect(applyRefinePreset(legacy, "Old", "default").imageSource).toBe("processed");
   });
 
   it("reads legacy refine-module JSON", () => {

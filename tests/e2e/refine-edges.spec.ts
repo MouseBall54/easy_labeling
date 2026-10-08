@@ -245,7 +245,8 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await expect.poll(async () => maxError(await geometries(page)), { timeout: 15_000 }).toBeLessThan(0.6);
   await expect.poll(async () => (await settingsFile(page))?.presets.map((preset) => preset.name)).toEqual(["Bright fins"]);
   expect((await settingsFile(page) as unknown as { imageSource: string }).imageSource).toBe("original");
-  await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings · 1 preset");
+  await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings");
+  await expect(page.locator("#refineRunPresetSelect option", { hasText: "Bright fins" })).toHaveCount(1);
   await openLab(page);
   await expect(page.locator("#refineLabField-polarity")).toHaveValue("brightInside");
 });
@@ -300,6 +301,11 @@ test("refine: per-side edge rules, use-for-all-sides, and remembered search rang
   await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ rangeIn: 18, polarity: "brightInside" });
   await openLab(page);
   await expect(page.locator("#refineLabBandOpacity")).toHaveValue("80");
+  // The change plot step is remembered too.
+  await page.locator("#refineLabDeltaStep").selectOption("3");
+  await lab(page).locator(".btn-close").click();
+  await openLab(page);
+  await expect(page.locator("#refineLabDeltaStep")).toHaveValue("3");
 });
 
 test("refine: processed image follows the Preprocess panel's contrast and gamma", async ({ page }) => {
@@ -321,7 +327,7 @@ test("refine: processed image follows the Preprocess panel's contrast and gamma"
   // 180 -> (180 - 127.5) * 2 + 127.5 = 232.5; 40 -> clipped to 0.
   await expect(page.locator("#refineLabReadout")).toContainText("Inside 233 → outside 0");
   await saveLab(page);
-  await expect(page.locator("#refineSettingsSummary")).toContainText("Image: Processed");
+  await expect(page.locator("#refineSettingsSummary")).toContainText("image Processed (live Preprocess panel)");
   await setPreprocess("segmentationPreprocessContrastInput", "100");
   await setPreprocess("segmentationPreprocessGammaInput", "200");
   await expect(page.locator("#segmentationPreprocessGammaValue")).toHaveText("2.00");
@@ -362,4 +368,68 @@ test("preprocess: SEM filters reach the processed image and Reset restores the d
   await expect(page.locator("#segmentationPreprocessClaheValue")).toHaveText("Off");
   await expect(page.locator("#segmentationPreprocessMedianToggle")).not.toBeChecked();
   await expect(page.locator("#segmentationPreprocessModeSelect")).toHaveValue("edge-blend");
+});
+
+test("presets: preprocessing presets feed Refine Lab, refine presets keep their processing, and the pane runs with a preset", async ({ page }) => {
+  test.setTimeout(120_000);
+  await openSemDataset(page);
+  const setControl = (id: string, value: string) => page.evaluate(([elementId, next]) => {
+    const element = document.getElementById(elementId) as HTMLInputElement | HTMLSelectElement;
+    element.value = next;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }, [id, value] as const);
+  const click = (id: string) => page.evaluate((elementId) => (document.getElementById(elementId) as HTMLButtonElement).click(), id);
+  const datasetFile = (name: string) => page.evaluate(async (fileName) => {
+    const folder = Reflect.get(window, "__refineTestFolder") as { getDirectoryHandle(n: string): Promise<{ getFileHandle(n: string): Promise<{ content: string }> }> };
+    try { return JSON.parse((await (await folder.getDirectoryHandle(".easy-labeling")).getFileHandle(fileName)).content); } catch { return null; }
+  }, name);
+
+  // Preprocess panel: save a preset, change the settings, then load the preset back.
+  await setControl("segmentationPreprocessModeSelect", "original");
+  await setControl("segmentationPreprocessContrastInput", "200");
+  await setControl("segmentationPreprocessPresetName", "High contrast");
+  await click("segmentationPreprocessPresetSaveBtn");
+  await expect.poll(async () => (await datasetFile("preprocessing-presets.json"))?.presets?.[0]?.config?.contrast).toBe(2);
+  await click("segmentationPreprocessResetBtn");
+  await expect(page.locator("#segmentationPreprocessContrastValue")).toHaveText("100%");
+  await setControl("segmentationPreprocessPresetSelect", "High contrast");
+  await expect(page.locator("#segmentationPreprocessContrastValue")).toHaveText("200%");
+  await expect(page.locator("#segmentationPreprocessModeSelect")).toHaveValue("original");
+  await click("segmentationPreprocessResetBtn");
+
+  // Refine Lab: pin Processed to the saved preprocessing preset (the panel itself is back to neutral).
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  await lab(page).locator('[data-image-source="processed"]').click();
+  await expect(page.locator("#refineLabProcessing option", { hasText: "High contrast" })).toHaveCount(1);
+  await page.locator("#refineLabProcessing").selectOption("High contrast");
+  await expect(page.locator("#refineLabReadout")).toContainText("Inside 233 → outside 0");
+  await lab(page).locator('[data-ref="presetName"]').fill("Fins HC");
+  await lab(page).locator('[data-act="savePreset"]').click();
+  await saveLab(page);
+  await expect.poll(async () => ((await settingsFile(page)) as unknown as { imageSource?: string } | null)?.imageSource).toBe("processed");
+  const settings = await settingsFile(page) as unknown as { imageSource: string; processing: { name: string }; presets: { name: string; imageSource: string; processing: { name: string } }[] };
+  expect(settings.imageSource).toBe("processed");
+  expect(settings.processing.name).toBe("High contrast");
+  expect(settings.presets[0]).toMatchObject({ name: "Fins HC", imageSource: "processed", processing: { name: "High contrast" } });
+
+  // Pane: run with the preset; shortcuts live in tooltips, not inside the buttons.
+  const pane = page.locator("#inspectorRefinePane");
+  await expect(page.locator("#refineSettingsSummary")).toContainText("Processed (High contrast)");
+  await expect(pane.locator("kbd")).toHaveCount(0);
+  await expect(page.locator("#refineSelectedBtn")).toHaveAttribute("title", /\(E\)/);
+  await expect(page.locator("#refineAllBtn")).toHaveAttribute("title", /\(Shift\+E\)/);
+  await expect(page.locator("#refineApproveBtn")).toHaveAttribute("title", /\(F\)/);
+  await page.locator("#refineRunPresetSelect").selectOption("Fins HC");
+  await expect(page.locator("#refineRunPresetSelect option:checked")).toHaveText("Fins HC · Processed (High contrast)");
+  await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string }).activePreset).toBe("Fins HC");
+  await page.locator("#refineSelectedBtn").click();
+  await expect.poll(async () => {
+    const box = (await geometries(page))[0];
+    return Math.max(Math.abs(box.left - 20), Math.abs(box.top - 30), Math.abs(box.right - 60), Math.abs(box.bottom - 90));
+  }, { timeout: 15_000 }).toBeLessThan(0.6);
+  await page.locator("#refineRunPresetSelect").selectOption("");
+  await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string | null }).activePreset).toBeNull();
 });

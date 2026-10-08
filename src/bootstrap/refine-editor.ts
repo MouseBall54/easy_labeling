@@ -10,6 +10,7 @@ import {
   resetRefineSettings,
   resolveRefineParams,
   saveRefinePreset,
+  refinePresetLabel,
   serializeRefinePresets,
   sideHasOwnRule,
   updateRefineSettings,
@@ -24,6 +25,8 @@ export interface RefineEditorStore {
   classIds(): string[];
   className(classId: string): string | undefined;
   notify(message: string): void;
+  /** Preprocess panel presets that Processed refinement can be pinned to. */
+  preprocessingPresets?(): { name: string; config: Record<string, unknown> }[];
 }
 
 /** "all" edits the rule every side shares; a side edits that side's own rule only. */
@@ -125,7 +128,11 @@ function markup(prefix: string): string {
       <div class="section-heading-row"><h3>Image</h3><span class="section-value">All classes</span></div>
       <div class="refine-scope refine-image-source" role="group" aria-label="Image that refinement reads" data-ref="imageSource">
         <button type="button" data-image-source="original" title="Refine on the original pixels">Original</button>
-        <button type="button" data-image-source="processed" title="Refine on the Preprocess panel's processed image (what the Processed canvas view shows)">Processed</button>
+        <button type="button" data-image-source="processed" title="Refine on a processed image">Processed</button>
+      </div>
+      <div class="refine-field mt-2" data-ref="processingRow">
+        <label for="${prefix}Processing" title="Preprocessing used for the Processed image">Processing</label>
+        <select id="${prefix}Processing" class="form-select form-select-sm" data-ref="processing"></select>
       </div>
     </section>
     <section class="inspector-section">
@@ -271,7 +278,7 @@ export function createRefineEditor(input: {
     const select = ref<HTMLSelectElement>("presetSelect");
     const previous = select.value;
     const presets = store.getDoc().presets;
-    select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""), ...presets.map((preset) => new Option(preset.name, preset.name)));
+    select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""), ...presets.map((preset) => new Option(refinePresetLabel(preset), preset.name)));
     select.value = presets.some((preset) => preset.name === previous) ? previous : "";
   };
   const exportPresets = async (): Promise<void> => {
@@ -378,6 +385,17 @@ export function createRefineEditor(input: {
     ref("imageSource").querySelectorAll<HTMLButtonElement>("[data-image-source]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.imageSource === docNow.imageSource));
     });
+    // Processing: live Preprocess panel settings, or a saved preprocessing preset (kept even if since deleted).
+    ref("processingRow").hidden = docNow.imageSource !== "processed";
+    const processingSelect = ref<HTMLSelectElement>("processing");
+    const available = store.preprocessingPresets?.() ?? [];
+    const pinned = docNow.processing;
+    processingSelect.replaceChildren(
+      new Option("Live (Preprocess panel)", ""),
+      ...available.map((preset) => new Option(preset.name, preset.name)),
+      ...(pinned && !available.some((preset) => preset.name === pinned.name) ? [new Option(`${pinned.name || "Saved"} (saved)`, pinned.name)] : [])
+    );
+    processingSelect.value = pinned?.name ?? "";
     const sideBox = ref("sideBox");
     sideBox.dataset.scope = scope;
     ref("contextDetails").hidden = scope !== "all";
@@ -425,6 +443,13 @@ export function createRefineEditor(input: {
     const distances: [RefineSide, number][] = [["L", fx], ["R", 1 - fx], ["T", fy], ["B", 1 - fy]];
     const [side, distance] = distances.sort((a, b) => a[1] - b[1])[0];
     setScope(distance > 0.3 ? "all" : side);
+  });
+  ref("processing").addEventListener("change", (event) => {
+    const name = (event.target as HTMLSelectElement).value;
+    const docNow = store.getDoc();
+    if (!name) { setDoc({ ...docNow, processing: null }); return; }
+    const preset = (store.preprocessingPresets?.() ?? []).find((item) => item.name === name);
+    if (preset) setDoc({ ...docNow, processing: { name: preset.name, config: { ...preset.config } } });
   });
   ref("imageSource").addEventListener("click", (event) => {
     const value = (event.target as HTMLElement).closest<HTMLElement>("[data-image-source]")?.dataset.imageSource;
@@ -497,7 +522,8 @@ export function createRefineEditor(input: {
         const nameInput = ref<HTMLInputElement>("presetName");
         const name = nameInput.value.trim() || presetName;
         if (!name) { store.notify("Type a preset name."); nameInput.focus(); return; }
-        setDoc(saveRefinePreset(store.getDoc(), name, editedParams()[0]));
+        const docNow = store.getDoc();
+        setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
         nameInput.value = "";
         ref<HTMLSelectElement>("presetSelect").value = name;
         store.notify(`Saved preset "${name}"${Array.isArray(t) && t.length > 1 ? ` from class ${t[0]}` : ""}.`);

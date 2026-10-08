@@ -21,9 +21,21 @@ export type RefineParamsPatch = Partial<Omit<RefineParams, "sides" | "sideRules"
 /** Image refinement reads: the original, or the Preprocess panel's "Processed" output. */
 export type RefineImageSource = "original" | "processed";
 
+/**
+ * Processing used when the image source is "processed": a named snapshot of Preprocess panel settings.
+ * The config is opaque here (owned by the preprocessing feature). null follows the panel live.
+ */
+export interface RefineProcessing {
+  name: string;
+  config: Record<string, unknown>;
+}
+
 export interface RefineSettingsDocument {
   schemaVersion: 1;
   imageSource: RefineImageSource;
+  processing: RefineProcessing | null;
+  /** Preset the Refine pane runs with instead of the class settings; null = class settings. */
+  activePreset: string | null;
   default: RefineParams;
   classes: Record<string, RefineParamsPatch>;
   /** Named full parameter sets that can be applied to the default, one class or a group of classes. */
@@ -33,13 +45,16 @@ export interface RefineSettingsDocument {
 export interface RefinePreset {
   name: string;
   params: RefineParams;
+  /** Image the preset was tuned on; absent in presets saved before image sources existed. */
+  imageSource?: RefineImageSource;
+  processing?: RefineProcessing | null;
 }
 
 type ScalarKey = Exclude<keyof RefineParams, "sides" | "sideRules">;
 const SCALAR_KEYS = Object.keys(normalizeRefineParams({})).filter((key) => key !== "sides" && key !== "sideRules") as ScalarKey[];
 
 export function createRefineSettings(): RefineSettingsDocument {
-  return { schemaVersion: 1, imageSource: "original", default: normalizeRefineParams({}), classes: {}, presets: [] };
+  return { schemaVersion: 1, imageSource: "original", processing: null, activePreset: null, default: normalizeRefineParams({}), classes: {}, presets: [] };
 }
 
 const mergeSideRules = (
@@ -177,6 +192,8 @@ export function parseRefineSettings(text: string): RefineSettingsDocument {
   return {
     schemaVersion: 1,
     imageSource: source.imageSource === "processed" ? "processed" : "original",
+    processing: parseProcessing(source.processing),
+    activePreset: typeof source.activePreset === "string" ? source.activePreset : null,
     default: defaults,
     classes,
     presets: parsePresetList(source.presets)
@@ -190,38 +207,64 @@ export function serializeRefineSettings(doc: RefineSettingsDocument): string {
 // ---------------------------------------------------------------------------
 // Presets
 // ---------------------------------------------------------------------------
+function parseProcessing(value: unknown): RefineProcessing | null {
+  const source = value as { name?: unknown; config?: unknown } | null;
+  return source && typeof source.config === "object" && source.config !== null
+    ? { name: typeof source.name === "string" ? source.name : "", config: { ...(source.config as Record<string, unknown>) } }
+    : null;
+}
+
 function parsePresetList(value: unknown): RefinePreset[] {
   if (!Array.isArray(value)) return [];
   const byName = new Map<string, RefinePreset>();
   for (const item of value) {
     const name = typeof item?.name === "string" ? item.name.trim() : "";
-    if (name) byName.set(name, { name, params: normalizeRefineParams(item.params) });
+    if (!name) continue;
+    const preset: RefinePreset = { name, params: normalizeRefineParams(item.params) };
+    if (item.imageSource === "processed" || item.imageSource === "original") {
+      preset.imageSource = item.imageSource;
+      preset.processing = parseProcessing(item.processing);
+    }
+    byName.set(name, preset);
   }
   return [...byName.values()];
 }
 
-/** Adds the preset, replacing one with the same name. */
-export function saveRefinePreset(doc: RefineSettingsDocument, name: string, params: RefineParams): RefineSettingsDocument {
+/** Adds the preset (with the image it was tuned on), replacing one with the same name. */
+export function saveRefinePreset(
+  doc: RefineSettingsDocument,
+  name: string,
+  params: RefineParams,
+  image?: { imageSource: RefineImageSource; processing: RefineProcessing | null }
+): RefineSettingsDocument {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Preset name is required");
-  const preset = { name: trimmed, params: normalizeRefineParams(params) };
+  const preset: RefinePreset = { name: trimmed, params: normalizeRefineParams(params) };
+  if (image) {
+    preset.imageSource = image.imageSource;
+    preset.processing = image.processing ? { name: image.processing.name, config: { ...image.processing.config } } : null;
+  }
   const index = doc.presets.findIndex((item) => item.name === trimmed);
   const presets = index < 0 ? [...doc.presets, preset] : doc.presets.map((item, i) => (i === index ? preset : item));
   return { ...doc, presets };
 }
 
 export function deleteRefinePreset(doc: RefineSettingsDocument, name: string): RefineSettingsDocument {
-  return { ...doc, presets: doc.presets.filter((item) => item.name !== name) };
+  return { ...doc, presets: doc.presets.filter((item) => item.name !== name), activePreset: doc.activePreset === name ? null : doc.activePreset };
 }
 
-/** Pins the target to the preset: classes store every key, so later default edits do not drift them. */
+/**
+ * Pins the target to the preset: classes store every key, so later default edits do not drift them.
+ * A preset that carries an image source also restores the image source and its processing.
+ */
 export function applyRefinePreset(doc: RefineSettingsDocument, name: string, target: "default" | readonly string[]): RefineSettingsDocument {
   const preset = doc.presets.find((item) => item.name === name);
   if (!preset) return doc;
-  if (target === "default") return { ...doc, default: normalizeRefineParams(preset.params) };
+  const image = preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : {};
+  if (target === "default") return { ...doc, ...image, default: normalizeRefineParams(preset.params) };
   const classes = { ...doc.classes };
   for (const classId of target) classes[classId] = { ...preset.params, sides: { ...preset.params.sides }, sideRules: cloneRules(preset.params.sideRules) };
-  return { ...doc, classes };
+  return { ...doc, ...image, classes };
 }
 
 export function serializeRefinePresets(presets: readonly RefinePreset[]): string {
@@ -235,6 +278,14 @@ export function importRefinePresets(doc: RefineSettingsDocument, text: string): 
   const presets = parsePresetList((parsed as { presets?: unknown } | null)?.presets);
   if (!presets.length) throw new Error("No refine presets found in the file");
   let next = doc;
-  for (const preset of presets) next = saveRefinePreset(next, preset.name, preset.params);
+  for (const preset of presets) {
+    next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined);
+  }
   return { doc: next, count: presets.length };
+}
+
+/** "Refine preset · Processed (SEM fins)" style label for preset lists. */
+export function refinePresetLabel(preset: { name: string; imageSource?: string; processing?: { name: string } | null }): string {
+  if (preset.imageSource !== "processed") return preset.name;
+  return `${preset.name} · Processed${preset.processing?.name ? ` (${preset.processing.name})` : ""}`;
 }
