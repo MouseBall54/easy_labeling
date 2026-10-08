@@ -79,6 +79,23 @@ over scraping the DOM. Spec files map roughly 1:1 to feature areas:
 `layout-management.spec.ts`, `review-queue.spec.ts`,
 `mobile-unsupported.spec.ts`, `unsupported-env.spec.ts`, etc.
 
+Before trusting e2e results, read the "E2E pitfalls" in `AGENTS.md`:
+stale Vite servers on :4173 after a rebuild break `bootstrap-smoke`, a
+handful of specs fail on main already (listed there), and the full suite
+must run sequentially with nothing else rebuilding `dist/`. Use the
+`verify` skill for per-change checks and `e2e-full` for the whole suite.
+Screenshots go to `test-results/`; `ux-stage2` writes tracked
+`docs/ux-improvements/` images only with `UPDATE_DOC_SCREENSHOTS=1`.
+
+## Versioning
+
+`package.json` is bumped with `npm version <x.y.z> --no-git-tag-version`
+for every shipped change. `electron-builder.yoloe.cjs`
+`extraMetadata.version` must sit one minor above with the same patch
+(2.7.0 -> 2.8.0); `tests/unit/release/version-pairing.test.ts` fails
+otherwise. The standard installer's exe version comes from package.json
+through `scripts/after-pack.mjs`.
+
 ## Template-matching benchmark
 
 `scripts/benchmark-template-matching.mjs` drives the app headlessly via

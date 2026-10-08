@@ -7,9 +7,9 @@ description: >
   Also use for cross-cutting changes that touch both Detection and
   Segmentation, or app-wide concerns like mode/workflow switching, dark
   mode, or panel layout. For workflow-specific or feature-specific work,
-  jump straight to detection-workflow, segmentation-workflow,
-  automation-template-matching, ai-preprocessing, app-shell-and-file-io, or
-  testing-and-release instead.
+  jump straight to detection-workflow, segmentation-workflow, refine-edges,
+  image-preprocessing, automation-template-matching, ai-preprocessing,
+  app-shell-and-file-io, or testing-and-release instead.
 ---
 
 # Easy Labeling — overview
@@ -31,10 +31,13 @@ desktop app via Electron. Default docs/UI language is Korean
 |---|---|
 | `detection-workflow` | YOLO boxes: draw/edit/delete, class assign, copy-paste, align/distribute, undo/redo, `.txt` format, review checks |
 | `segmentation-workflow` | Brush/erase/polygon/superpixel/smart/ai-select tools, mask overlay, `.png`+`.seg.json` format, COCO/LabelMe/YOLO-seg import-export |
+| `refine-edges` | Refine: snapping box edges to image boundaries, Refine Lab, refine presets, the refine worker |
+| `image-preprocessing` | The Processed image: SEM/TEM filters, tone, edge modes, preprocessing presets, cache keys |
 | `automation-template-matching` | Template capture, OpenCV matching (accurate/fast), NMS candidates, box layouts, batch labeling across many images |
 | `ai-preprocessing` | EdgeSAM click/box-prompt segmentation, super-resolution ROI upscale/enhance, ONNX worker plumbing |
 | `app-shell-and-file-io` | Folder open/save flow, label folder creation, class `.yaml` files, sample dataset, Electron shell |
-| `testing-and-release` | Build/typecheck/test/e2e commands, test structure, Electron packaging |
+| `testing-and-release` | Build/typecheck/test/e2e commands, test structure, versioning, Electron packaging |
+| `verify` / `e2e-full` | `/verify` (checks for the changed area) and `/e2e-full` (whole suite with baseline triage) |
 
 ## Composition root (app-wide architecture)
 
@@ -85,6 +88,11 @@ tag, not `npm install` + `import`.
 - Common shortcuts: prev/next image `A`/`D`; mode toggle (Draw/Edit)
   `Ctrl+Q`; undo/redo `Ctrl+Z` / `Ctrl+Y` or `Ctrl+Shift+Z`; zoom = mouse
   wheel; pan = `Alt+Drag` or `Ctrl+Drag`; deselect = `Esc`.
+- Detection toolbar order: Draw / Edit / Refine / Automation. Refine
+  shortcuts (Detection only, outside inputs and modals): `R` toggles the
+  Refine pane, `E` refines the selection, `Shift+E` all boxes, `N` /
+  `Shift+N` next/previous review box, `F` approves (see `refine-edges`).
+  Shortcuts appear in button tooltips, not as labels.
 - Workflow-specific shortcuts (class change, copy/paste, align/distribute,
   arrow-key nudge, etc.) are documented in `detection-workflow` and
   `segmentation-workflow`.

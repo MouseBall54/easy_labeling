@@ -86,8 +86,10 @@ superpixel oddities.
   crop has a different resolution than the original), via
   `WorkingImageDescriptor.originalRoi` + scale factors.
 - `preprocessing.ts` — `SegmentationPreprocessMode = "original" | "edge" |
-  "edge-blend"`; `preprocessSegmentationImage()` applies edge-highlight
-  filters before display/AI input.
+  "edge-blend"` plus tone and SEM/TEM grayscale filters (median, destripe,
+  flattening, diffusion, CLAHE, auto levels) and presets; also feeds the
+  Detection Processed view and Refine. Details in the `image-preprocessing`
+  skill.
 
 ## Presets (`preset-service.ts` / `preset-codec.ts`)
 

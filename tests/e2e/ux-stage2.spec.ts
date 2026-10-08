@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/** Stage-2 evidence screenshots: tracked docs are refreshed only with UPDATE_DOC_SCREENSHOTS=1. */
+const evidence = (name: string): string =>
+  `${process.env.UPDATE_DOC_SCREENSHOTS === "1" ? "docs/ux-improvements" : "test-results/ux-improvements"}/20261006-stage2/${name}`;
+
 async function loadSample(page: Page, query = ""): Promise<void> {
   await page.goto(`/index.html${query}`, { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
@@ -64,7 +68,7 @@ test("empty startup, compact dataset management and panel/tool navigation remain
   await expect(page.locator("#classSearchInput")).toBeHidden();
   await expect(page.locator("#label-filters")).toBeHidden();
   await expect(page.locator(".label-list-section")).toBeHidden();
-  await page.screenshot({ path: "docs/ux-improvements/20261006-stage2/empty.png" });
+  await page.screenshot({ path: evidence("empty.png") });
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#datasetActions")).toHaveClass(/dataset-connected/);
@@ -110,7 +114,7 @@ test("Template results lead diagnostics and real dry runs distinguish no targets
   await page.locator("#templateMatchingModal").getByText("Execution details", { exact: true }).click();
   await expect(page.locator("#templateMatchTimings")).toContainText("OpenCV");
   await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
-  await page.screenshot({ path: "docs/ux-improvements/20261006-stage2/template-light.png" });
+  await page.screenshot({ path: evidence("template-light.png") });
   await page.locator("#templateMatchingModal .modal-footer").getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator("#templateMatchingModal")).toBeHidden();
   await page.locator('label[for="darkModeToggle"]').click();
@@ -129,7 +133,7 @@ test("Template results lead diagnostics and real dry runs distinguish no targets
     return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
   });
   expect(contrast).toBeGreaterThanOrEqual(4.5);
-  await page.screenshot({ path: "docs/ux-improvements/20261006-stage2/template-dark.png" });
+  await page.screenshot({ path: evidence("template-dark.png") });
   await page.locator("#templateMatchingModal .modal-footer").getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator("#templateMatchingModal")).toBeHidden();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount())).toBe(207);
@@ -144,7 +148,7 @@ test("Template results lead diagnostics and real dry runs distinguish no targets
     await expect(page.locator('#automationBatchResultList [data-state="no-match"]')).not.toHaveCount(0);
     await expect(page.locator("#retryFailedBatchBtn")).toBeHidden();
     await page.locator("#automationBatchResultSummary").scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `docs/ux-improvements/20261006-stage2/batch-${preset}.png` });
+    await page.screenshot({ path: evidence(`batch-${preset}.png`) });
   }
 });
 
@@ -161,7 +165,7 @@ for (const theme of ["light", "dark"] as const) {
     const next = (await page.locator("#nextReviewIssueBtn").boundingBox())!;
     expect(next.y + next.height).toBeLessThan(720);
     await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
-    await page.screenshot({ path: `docs/ux-improvements/20261006-stage2/review-${theme}.png` });
+    await page.screenshot({ path: evidence(`review-${theme}.png`) });
     await page.locator('label[for="segmentationWorkflowTab"]').click();
     await expect(page.locator("#segmentationPaintClassList .segmentation-class-row")).toHaveCount(12);
     const paint = page.locator('[data-ui="segmentation-active-class"][data-class-id="2"]');
@@ -177,7 +181,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.locator(".segmentation-class-row:visible")).toHaveCount(1);
     await page.locator("#segmentationClassSearchInput").fill("");
     await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
-    await page.screenshot({ path: `docs/ux-improvements/20261006-stage2/mask-${theme}.png` });
+    await page.screenshot({ path: evidence(`mask-${theme}.png`) });
     await page.locator("#taskSegmentationDisplayBtn").click();
     await expect(page.locator("#segmentationClassSummary")).toBeHidden();
     await page.getByText("Display class filter", { exact: true }).click();
