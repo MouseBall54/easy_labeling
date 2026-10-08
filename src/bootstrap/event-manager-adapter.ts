@@ -1,3 +1,4 @@
+import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG } from "../features/segmentation/preprocessing.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
@@ -1270,10 +1271,20 @@ export function createEventManagerAdapter(input: {
       const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
       const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
-      const preprocessContrastInput = segmentationDocument?.getElementById("segmentationPreprocessContrastInput");
-      const preprocessContrastValue = segmentationDocument?.getElementById("segmentationPreprocessContrastValue");
-      const preprocessGammaInput = segmentationDocument?.getElementById("segmentationPreprocessGammaInput");
-      const preprocessGammaValue = segmentationDocument?.getElementById("segmentationPreprocessGammaValue");
+      const preprocessElement = (id: string): HTMLElement | null => segmentationDocument?.getElementById(`segmentationPreprocess${id}`) ?? null;
+      // Range sliders of the filter pipeline: slider value / scale = config value.
+      const preprocessRanges: { id: string; key: "contrast" | "gamma" | "flattenSigma" | "diffusionIterations" | "diffusionKappa" | "claheClip" | "claheTiles" | "levelsClip"; scale: number; label(value: number): string }[] = [
+        { id: "Flatten", key: "flattenSigma", scale: 1, label: (v) => (v ? `${v} px` : "Off") },
+        { id: "Diffusion", key: "diffusionIterations", scale: 1, label: (v) => (v ? `${v}×` : "Off") },
+        { id: "Kappa", key: "diffusionKappa", scale: 1, label: (v) => String(v) },
+        { id: "Clahe", key: "claheClip", scale: 10, label: (v) => (v ? v.toFixed(1) : "Off") },
+        { id: "ClaheTiles", key: "claheTiles", scale: 1, label: (v) => `${v}×${v}` },
+        { id: "Levels", key: "levelsClip", scale: 10, label: (v) => (v ? `${v.toFixed(1)}%` : "Off") },
+        { id: "Contrast", key: "contrast", scale: 100, label: (v) => `${Math.round(v * 100)}%` },
+        { id: "Gamma", key: "gamma", scale: 100, label: (v) => v.toFixed(2) }
+      ];
+      const preprocessMedianToggle = preprocessElement("MedianToggle");
+      const preprocessDestripeSelect = preprocessElement("DestripeSelect");
       const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
       const focusSrRoiButton = segmentationDocument?.getElementById("segmentationFocusSrRoiBtn");
@@ -1599,9 +1610,12 @@ export function createEventManagerAdapter(input: {
         event.preventDefault();
         setOriginalComparison(false);
       });
-      const syncToneLabels = (): void => {
-        if (preprocessContrastInput instanceof HTMLInputElement && preprocessContrastValue) preprocessContrastValue.textContent = `${preprocessContrastInput.value}%`;
-        if (preprocessGammaInput instanceof HTMLInputElement && preprocessGammaValue) preprocessGammaValue.textContent = (Number(preprocessGammaInput.value) / 100).toFixed(2);
+      const syncFilterLabels = (): void => {
+        for (const field of preprocessRanges) {
+          const slider = preprocessElement(`${field.id}Input`);
+          const value = preprocessElement(`${field.id}Value`);
+          if (slider instanceof HTMLInputElement && value) value.textContent = field.label(Number(slider.value) / field.scale);
+        }
       };
       const applyPreprocessing = (): void => {
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
@@ -1611,10 +1625,14 @@ export function createEventManagerAdapter(input: {
           mode: preprocessModeSelect.value as import("../features/segmentation/preprocessing.js").SegmentationPreprocessMode,
           blurStrength: Number.parseInt(preprocessBlurInput.value, 10),
           edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100,
-          ...(preprocessContrastInput instanceof HTMLInputElement ? { contrast: Number.parseInt(preprocessContrastInput.value, 10) / 100 } : {}),
-          ...(preprocessGammaInput instanceof HTMLInputElement ? { gamma: Number.parseInt(preprocessGammaInput.value, 10) / 100 } : {})
+          ...(preprocessMedianToggle instanceof HTMLInputElement ? { median: preprocessMedianToggle.checked } : {}),
+          ...(preprocessDestripeSelect instanceof HTMLSelectElement ? { destripe: preprocessDestripeSelect.value as "off" | "rows" | "columns" } : {}),
+          ...Object.fromEntries(preprocessRanges.flatMap((field) => {
+            const slider = preprocessElement(`${field.id}Input`);
+            return slider instanceof HTMLInputElement ? [[field.key, Number(slider.value) / field.scale]] : [];
+          }))
         });
-        syncToneLabels();
+        syncFilterLabels();
         if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
         if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
       };
@@ -1624,10 +1642,26 @@ export function createEventManagerAdapter(input: {
         if (preprocessEdgeWeightInput instanceof HTMLInputElement && preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
       });
       preprocessEdgeWeightInput?.addEventListener("change", applyPreprocessing);
-      // Tone sliders: labels follow while dragging, the (whole-image) reprocess runs on release.
-      [preprocessContrastInput, preprocessGammaInput].forEach((slider) => {
-        slider?.addEventListener("input", syncToneLabels);
+      // Filter sliders: labels follow while dragging, the (whole-image) reprocess runs on release.
+      preprocessRanges.forEach((field) => {
+        const slider = preprocessElement(`${field.id}Input`);
+        slider?.addEventListener("input", syncFilterLabels);
         slider?.addEventListener("change", applyPreprocessing);
+      });
+      preprocessMedianToggle?.addEventListener("change", applyPreprocessing);
+      preprocessDestripeSelect?.addEventListener("change", applyPreprocessing);
+      preprocessElement("ResetBtn")?.addEventListener("click", () => {
+        const defaults = DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG;
+        if (preprocessModeSelect instanceof HTMLSelectElement) preprocessModeSelect.value = defaults.mode;
+        if (preprocessBlurInput instanceof HTMLInputElement) preprocessBlurInput.value = String(defaults.blurStrength);
+        if (preprocessEdgeWeightInput instanceof HTMLInputElement) preprocessEdgeWeightInput.value = String(Math.round(defaults.edgeWeight * 100));
+        if (preprocessMedianToggle instanceof HTMLInputElement) preprocessMedianToggle.checked = defaults.median;
+        if (preprocessDestripeSelect instanceof HTMLSelectElement) preprocessDestripeSelect.value = defaults.destripe;
+        for (const field of preprocessRanges) {
+          const slider = preprocessElement(`${field.id}Input`);
+          if (slider instanceof HTMLInputElement) slider.value = String(Math.round(defaults[field.key] * field.scale));
+        }
+        applyPreprocessing();
       });
       preprocessSourceSelect?.addEventListener("change", () => {
         if (!(preprocessSourceSelect instanceof HTMLSelectElement)) return;

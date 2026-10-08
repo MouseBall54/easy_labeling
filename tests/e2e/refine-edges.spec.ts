@@ -329,3 +329,37 @@ test("refine: processed image follows the Preprocess panel's contrast and gamma"
   // 40 -> 255 * (40 / 255) ^ 0.5 = 101; 180 -> 214.
   await expect(page.locator("#refineLabReadout")).toContainText("Inside 214 → outside 101");
 });
+
+test("preprocess: SEM filters reach the processed image and Reset restores the defaults", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page);
+  const setPreprocess = (id: string, value: string | boolean) => page.evaluate(([elementId, next]) => {
+    const element = document.getElementById(elementId) as HTMLInputElement | HTMLSelectElement;
+    if (typeof next === "boolean") (element as HTMLInputElement).checked = next;
+    else element.value = next;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }, [id, value] as const);
+  await setPreprocess("segmentationPreprocessModeSelect", "original");
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  await lab(page).locator('[data-image-source="processed"]').click();
+  await expect(page.locator("#refineLabReadout")).toContainText("Inside 180 → outside 40");
+  await saveLab(page);
+
+  await setPreprocess("segmentationPreprocessMedianToggle", true);
+  await setPreprocess("segmentationPreprocessClaheInput", "40");
+  await setPreprocess("segmentationPreprocessLevelsInput", "10");
+  await expect(page.locator("#segmentationPreprocessClaheValue")).toHaveText("4.0");
+  await expect(page.locator("#segmentationPreprocessLevelsValue")).toHaveText("1.0%");
+  await openLab(page);
+  await expect(page.locator("#refineLabReadout")).not.toContainText("Inside 180 → outside 40");
+  await expect(page.locator("#refineLabReadout")).toContainText("bright → dark");
+  await lab(page).locator(".btn-close").click();
+
+  await page.locator("#segmentationPreprocessResetBtn").evaluate((button) => (button as HTMLButtonElement).click());
+  await expect(page.locator("#segmentationPreprocessClaheValue")).toHaveText("Off");
+  await expect(page.locator("#segmentationPreprocessMedianToggle")).not.toBeChecked();
+  await expect(page.locator("#segmentationPreprocessModeSelect")).toHaveValue("edge-blend");
+});

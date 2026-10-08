@@ -44,7 +44,7 @@ describe("segmentation preprocessing", () => {
 
   it("normalizes stable cache configuration values", () => {
     const config = normalizeSegmentationPreprocessingConfig({ mode: "edge-blend", blurStrength: 9, edgeWeight: 2 });
-    expect(config).toEqual({ mode: "edge-blend", blurStrength: 4, edgeWeight: 1, contrast: 1, gamma: 1 });
+    expect(config).toEqual({ ...DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, mode: "edge-blend", blurStrength: 4, edgeWeight: 1 });
     expect(getSegmentationPreprocessingKey(config)).toBe("edge-blend:4:1.000");
     expect(getSegmentationPreprocessingKey({ ...config, contrast: 1.5, gamma: 0.8 })).toBe("edge-blend:4:1.000:c1.50:g0.80");
     expect(DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG.edgeWeight).toBeGreaterThan(0);
