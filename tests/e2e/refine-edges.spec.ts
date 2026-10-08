@@ -210,6 +210,21 @@ test("refine: per-side edge rules, use-for-all-sides, and remembered search rang
   await pane.locator('.refine-scope [data-scope="all"]').click();
   await expect(pane.locator("#refineField-rangeIn")).toHaveValue("10");
 
+  // Left edge only: scan past the box ends (outside-only) to use an edge visible above/below the box.
+  await pane.locator('.refine-scope [data-scope="L"]').click();
+  await expect(pane.locator('label[for="refineField-extendStart"]')).toHaveText("Extend above (px)");
+  await expect(pane.locator("#refineField-extendStart")).toBeDisabled();
+  await pane.locator("#refineField-scanSpan").selectOption("outside");
+  await pane.locator("#refineField-extendStart").fill("20");
+  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toEqual({
+    sideRules: { R: { rangeIn: 18, polarity: "brightInside" }, L: { scanSpan: "outside", extendStart: 20 } }
+  });
+  await pane.locator('.refine-scope [data-scope="T"]').click();
+  await expect(pane.locator('label[for="refineField-extendStart"]')).toHaveText("Extend left (px)");
+  await pane.locator('.refine-scope [data-scope="L"]').click();
+  await pane.locator("#refineField-scanSpan").locator("..").locator(".refine-field-reset").click();
+  await pane.locator("#refineField-extendStart").locator("..").locator(".refine-field-reset").click();
+
   // Promote the right edge's rule to every side.
   await pane.locator('.refine-scope [data-scope="R"]').click();
   await pane.locator('[data-act="sideToAll"]').click();

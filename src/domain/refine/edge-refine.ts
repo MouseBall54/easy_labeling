@@ -6,6 +6,11 @@ export type RefineSide = "L" | "R" | "T" | "B";
 export type RefineSideMode = "off" | "inherit" | RefineCriterion;
 /** Brightness change crossing the edge from inside the box to outside. */
 export type RefinePolarity = "auto" | "brightInside" | "darkInside";
+/**
+ * Stretch of the side that is scanned: the box's own extent, the box plus the extensions beyond its ends,
+ * or only the extensions (for edges that are visible beyond the box but not along it).
+ */
+export type RefineScanSpan = "box" | "boxOutside" | "outside";
 
 export interface RefineParams {
   enabled: boolean;
@@ -17,6 +22,11 @@ export interface RefineParams {
   segments: number;
   sigma: number;
   inset: number;
+  scanSpan: RefineScanSpan;
+  /** Pixels scanned beyond the start (top for L/R, left for T/B) of the side. */
+  extendStart: number;
+  /** Pixels scanned beyond the end (bottom for L/R, right for T/B) of the side. */
+  extendEnd: number;
   sides: Record<RefineSide, RefineSideMode>;
   /** Per-side overrides of the edge rule; the side's criterion lives in `sides`. */
   sideRules: Record<RefineSide, RefineSideRule>;
@@ -31,7 +41,7 @@ export interface RefineParams {
 }
 
 /** Edge-rule keys a single side may override. */
-export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "segments", "inset"] as const;
+export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "segments", "inset", "scanSpan", "extendStart", "extendEnd"] as const;
 export type RefineSideRuleKey = typeof REFINE_SIDE_RULE_KEYS[number];
 export type RefineSideRule = Partial<Pick<RefineParams, RefineSideRuleKey>>;
 
@@ -69,6 +79,9 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   segments: 6,
   sigma: 1.2,
   inset: 0.12,
+  scanSpan: "box",
+  extendStart: 0,
+  extendEnd: 0,
   sides: Object.freeze({ L: "inherit", R: "inherit", T: "inherit", B: "inherit" }) as Record<RefineSide, RefineSideMode>,
   sideRules: Object.freeze({ L: {}, R: {}, T: {}, B: {} }) as Record<RefineSide, RefineSideRule>,
   iterations: 2,
@@ -120,6 +133,9 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     segments: clamp(Math.round(num(p.segments, num(p.K, d.segments))), 1, 30),
     sigma: clamp(num(p.sigma, d.sigma), 0, 6),
     inset: clamp(num(p.inset, d.inset), 0, 0.4),
+    scanSpan: p.scanSpan === "boxOutside" || p.scanSpan === "outside" || p.scanSpan === "box" ? p.scanSpan : d.scanSpan,
+    extendStart: clamp(Math.round(num(p.extendStart, d.extendStart)), 0, 400),
+    extendEnd: clamp(Math.round(num(p.extendEnd, d.extendEnd)), 0, 400),
     sides: {
       L: normalizeSideMode(sides.L, d.sides.L),
       R: normalizeSideMode(sides.R, d.sides.R),
@@ -379,8 +395,10 @@ function neighbourLimit(box: RefineRect, side: RefineSide, neighbours: readonly 
 
 interface SideWindow {
   geometry: SideGeometry;
-  s0: number;
-  s1: number;
+  /** Along-side pixel rows/columns that are scanned, in order. */
+  positions: Int32Array;
+  /** The same positions as inclusive [from, to] runs, for drawing. */
+  runs: [number, number][];
   base: number;
   n: number;
   /** Profile index of the current edge. */
@@ -400,8 +418,20 @@ function sideWindow(img: GrayImage, box: RefineRect, side: RefineSide, p: Refine
   let s0 = Math.round(a0 + length * p.inset);
   let s1 = Math.round(a1 - length * p.inset);
   if (s1 < s0) s0 = s1 = Math.round((a0 + a1) / 2);
-  s0 = clamp(s0, 0, lim);
-  s1 = clamp(s1, 0, lim);
+  const inside: [number, number] = [clamp(s0, 0, lim), clamp(s1, 0, lim)];
+  // Extensions continue straight past the box ends; the corner inset does not apply to them.
+  const before: [number, number] = [Math.max(0, Math.round(a0) - p.extendStart), Math.min(lim, Math.round(a0) - 1)];
+  const after: [number, number] = [Math.max(0, Math.round(a1)), Math.min(lim, Math.round(a1) + p.extendEnd - 1)];
+  const hasBefore = p.extendStart > 0 && before[1] >= before[0];
+  const hasAfter = p.extendEnd > 0 && after[1] >= after[0];
+  const outside = [...(hasBefore ? [before] : []), ...(hasAfter ? [after] : [])];
+  // "Outside only" with nothing to scan (no extension, or clipped by the image) falls back to the box.
+  const runs = p.scanSpan === "box" || !outside.length
+    ? [inside]
+    : p.scanSpan === "outside" ? outside : [...(hasBefore ? [before] : []), inside, ...(hasAfter ? [after] : [])];
+  const positions = new Int32Array(runs.reduce((total, [from, to]) => total + to - from + 1, 0));
+  let k = 0;
+  for (const [from, to] of runs) for (let t = from; t <= to; t += 1) positions[k++] = t;
   // Inward search never crosses the box centre; outward search stops halfway to a facing neighbour.
   const rangeIn = Math.max(1, Math.min(p.rangeIn, Math.floor(thickness / 2)));
   const rangeOut = p.avoidNeighbors
@@ -409,21 +439,22 @@ function sideWindow(img: GrayImage, box: RefineRect, side: RefineSide, p: Refine
     : p.rangeOut;
   const base = Math.round(p0) - (geometry.out > 0 ? rangeIn : rangeOut);
   // Profile index i samples pixel base+i, whose centre sits at base+i+0.5 in box coordinates.
-  return { geometry, s0, s1, base, n: rangeIn + rangeOut + 1, c: p0 - 0.5 - base, rangeIn, rangeOut };
+  return { geometry, positions, runs, base, n: rangeIn + rangeOut + 1, c: p0 - 0.5 - base, rangeIn, rangeOut };
 }
 
-/** Mean perpendicular profile over rows/columns [from, to] along the side. */
+/** Mean perpendicular profile over the along-side positions [from, to) of the window. */
 function sampleProfile(img: GrayImage, w: SideWindow, from: number, to: number): Float32Array {
   const { gray, width } = img;
   const plim = w.geometry.vertical ? img.width - 1 : img.height - 1;
   const profile = new Float32Array(w.n);
-  for (let t = from; t <= to; t += 1) {
+  for (let k = from; k < to; k += 1) {
+    const t = w.positions[k];
     for (let i = 0; i < w.n; i += 1) {
       const q = clamp(w.base + i, 0, plim);
       profile[i] += w.geometry.vertical ? gray[t * width + q] : gray[q * width + t];
     }
   }
-  const count = to - from + 1;
+  const count = Math.max(1, to - from);
   for (let i = 0; i < w.n; i += 1) profile[i] /= count;
   return profile;
 }
@@ -449,18 +480,22 @@ function refineSide(
   const w = sideWindow(img, box, side, p, neighbours);
   const sign = edgeSign(resolvePolarity(p, context), w.geometry.out);
   const kernel = gaussKernel(p.sigma);
-  const total = w.s1 - w.s0 + 1;
+  const total = w.positions.length;
   const segments = Math.max(1, Math.min(p.segments, total));
   const found: { pos: number; conf: number }[] = [];
   for (let k = 0; k < segments; k += 1) {
-    const from = w.s0 + Math.floor(k * total / segments);
-    const to = Math.max(from, w.s0 + Math.floor((k + 1) * total / segments) - 1);
+    const from = Math.floor(k * total / segments);
+    const to = Math.max(from + 1, Math.floor((k + 1) * total / segments));
     const profile = sampleProfile(img, w, from, to);
     const edge = findEdge(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context);
     if (edge) found.push(edge);
   }
   if (!found.length) return null;
-  const positions = Float32Array.from(found, (e) => e.pos).sort();
+  // Segments with only noise (e.g. box rows without a visible edge when outside rows are scanned too)
+  // must not steer the position: keep the segments at least half as confident as the best one.
+  const best = Math.max(...found.map((e) => e.conf));
+  const strong = found.filter((e) => e.conf >= best * 0.5);
+  const positions = Float32Array.from(strong, (e) => e.pos).sort();
   const pos = p.comb === "outer" ? quantile(positions, w.geometry.out < 0 ? 0.1 : 0.9) : quantile(positions, 0.5);
   const confidences = Float32Array.from(found, (e) => e.conf).sort();
   return { value: w.base + pos + 0.5, conf: quantile(confidences, 0.5) * (found.length / segments) };
@@ -477,6 +512,8 @@ export interface RefineSideDiagnostics {
   smoothed: Float32Array;
   rangeIn: number;
   rangeOut: number;
+  /** Along-side runs that were scanned (inclusive pixel indices), including any extension past the box. */
+  runs: [number, number][];
   /** Median brightness inside the box and in the background ring (null when the ring is off). */
   inside: number | null;
   outside: number | null;
@@ -491,7 +528,7 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
   const widest = Math.max(...REFINE_SIDES.map((s) => sideParams(classParams, s).rangeOut));
   const context = measureContext(img, box, { ...classParams, rangeOut: widest });
   const w = sideWindow(img, box, side, params, neighbours);
-  const raw = sampleProfile(img, w, w.s0, w.s1);
+  const raw = sampleProfile(img, w, 0, w.positions.length);
   return {
     side,
     criterion: params.crit,
@@ -501,6 +538,7 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
     smoothed: smooth(raw, gaussKernel(params.sigma)),
     rangeIn: w.rangeIn,
     rangeOut: w.rangeOut,
+    runs: w.runs,
     inside: context?.inside ?? null,
     outside: context?.outside ?? null,
     polarity: resolvePolarity(params, context),

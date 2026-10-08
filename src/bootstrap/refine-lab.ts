@@ -4,6 +4,7 @@ import {
   describeRefineSide,
   refineBox,
   REFINE_SIDES,
+  sideParams,
   toGray,
   type GrayImage,
   type RefineBoxInput,
@@ -26,6 +27,9 @@ export interface RefineLab {
 interface LabCase {
   id: string;
   classId: string;
+  /** The box in image coordinates and the crop margin around it. */
+  box: RefineBoxInput;
+  margin: number;
   /** Box and neighbours in crop coordinates. */
   local: RefineRect;
   neighbours: RefineRect[];
@@ -40,7 +44,8 @@ interface LabResult {
 }
 
 const MAX_CASES = 24;
-// Covers the largest outward range (80) plus the largest background ring (40) and the ring gap.
+// Covers the largest outward range (80) plus the largest background ring (40) and the ring gap;
+// scan-span extensions past the box ends grow a case's crop on demand.
 const CROP_MARGIN = 128;
 const WARN = "#f0ad4e";
 const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
@@ -107,11 +112,11 @@ export function createRefineLab(input: {
   });
 
   // ---------------------------------------------------------------- cases
-  const prepare = (image: HTMLImageElement, box: RefineBoxInput, everyBox: readonly RefineBoxInput[]): LabCase => {
-    const x0 = Math.max(0, Math.floor(box.x0 - CROP_MARGIN));
-    const y0 = Math.max(0, Math.floor(box.y0 - CROP_MARGIN));
-    const x1 = Math.min(image.naturalWidth || image.width, Math.ceil(box.x1 + CROP_MARGIN));
-    const y1 = Math.min(image.naturalHeight || image.height, Math.ceil(box.y1 + CROP_MARGIN));
+  const prepare = (image: HTMLImageElement, box: RefineBoxInput, everyBox: readonly RefineBoxInput[], margin = CROP_MARGIN): LabCase => {
+    const x0 = Math.max(0, Math.floor(box.x0 - margin));
+    const y0 = Math.max(0, Math.floor(box.y0 - margin));
+    const x1 = Math.min(image.naturalWidth || image.width, Math.ceil(box.x1 + margin));
+    const y1 = Math.min(image.naturalHeight || image.height, Math.ceil(box.y1 + margin));
     const pixels = doc.createElement("canvas");
     pixels.width = Math.max(1, x1 - x0);
     pixels.height = Math.max(1, y1 - y0);
@@ -122,6 +127,8 @@ export function createRefineLab(input: {
     return {
       id: box.id,
       classId: box.classId,
+      box,
+      margin,
       local: shift(box),
       neighbours: everyBox.filter((n) => n.id !== box.id && n.x1 > x0 && n.x0 < x1 && n.y1 > y0 && n.y0 < y1).map(shift),
       img: { gray: toGray(rgba, pixels.width, pixels.height), width: pixels.width, height: pixels.height },
@@ -141,6 +148,15 @@ export function createRefineLab(input: {
       : "No boxes for this source. Select boxes on the canvas, or switch the case source.";
     schedule();
   }
+
+  /** Re-crops a case when the draft scans further past the box than its crop covers. */
+  const withMargin = (c: LabCase): LabCase => {
+    const params = resolveRefineParams(draft, c.classId);
+    const extension = Math.max(...REFINE_SIDES.map((side) => { const p = sideParams(params, side); return p.scanSpan === "box" ? 0 : Math.max(p.extendStart, p.extendEnd); }));
+    const needed = CROP_MARGIN + extension;
+    const image = input.getImage();
+    return needed > c.margin && image ? prepare(image, c.box, input.allBoxes(), Math.ceil(needed / 64) * 64) : c;
+  };
 
   const compute = (c: LabCase): LabResult => {
     const params = resolveRefineParams(draft, c.classId);
@@ -163,11 +179,29 @@ export function createRefineLab(input: {
 
   /** Draws the crop around the case and returns the crop->screen mapping. */
   const drawCase = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, width: number, height: number, detail: boolean) => {
+    // Search bands in crop coordinates: the perpendicular search range over every scanned run along the side.
+    const bands: { side: RefineSide; rect: RefineRect }[] = [];
+    for (const side of REFINE_SIDES) {
+      const d = r.sides[side];
+      if (!d || r.params.sides[side] === "off") continue;
+      const a = d.start;
+      const b = d.start + d.raw.length;
+      for (const [from, to] of d.runs) {
+        bands.push({ side, rect: side === "L" || side === "R" ? { x0: a, y0: from, x1: b, y1: to + 1 } : { x0: from, y0: a, x1: to + 1, y1: b } });
+      }
+    }
     const reach = Math.max(r.params.rangeOut, r.params.rangeIn) + 10;
-    const vx = Math.max(0, c.local.x0 - reach);
-    const vy = Math.max(0, c.local.y0 - reach);
-    const vw = Math.min(c.img.width, c.local.x1 + reach) - vx;
-    const vh = Math.min(c.img.height, c.local.y1 + reach) - vy;
+    let [vx0, vy0, vx1, vy1] = [c.local.x0 - reach, c.local.y0 - reach, c.local.x1 + reach, c.local.y1 + reach];
+    if (detail) {
+      for (const { rect } of bands) {
+        vx0 = Math.min(vx0, rect.x0 - 6); vy0 = Math.min(vy0, rect.y0 - 6);
+        vx1 = Math.max(vx1, rect.x1 + 6); vy1 = Math.max(vy1, rect.y1 + 6);
+      }
+    }
+    const vx = Math.max(0, vx0);
+    const vy = Math.max(0, vy0);
+    const vw = Math.min(c.img.width, vx1) - vx;
+    const vh = Math.min(c.img.height, vy1) - vy;
     const s = Math.min(width / vw, height / vh);
     const ox = (width - vw * s) / 2;
     const oy = (height - vh * s) / 2;
@@ -179,14 +213,8 @@ export function createRefineLab(input: {
     if (detail) {
       // Search ranges: user-set fill opacity plus an outline, so the range stays findable even at low opacity.
       const alpha = Number(bandOpacity.value) / 100;
-      for (const side of REFINE_SIDES) {
-        const d = r.sides[side];
-        if (!d || r.params.sides[side] === "off") continue;
-        const a = d.start;
-        const b = d.start + d.raw.length;
-        const band: [number, number, number, number] = side === "L" || side === "R"
-          ? [X(a), Y(c.local.y0), (b - a) * s, (c.local.y1 - c.local.y0) * s]
-          : [X(c.local.x0), Y(a), (c.local.x1 - c.local.x0) * s, (b - a) * s];
+      for (const { side, rect } of bands) {
+        const band: [number, number, number, number] = [X(rect.x0), Y(rect.y0), (rect.x1 - rect.x0) * s, (rect.y1 - rect.y0) * s];
         const emphasis = side === activeSide ? 1.6 : 1;
         context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis)})`;
         context.fillRect(...band);
@@ -368,6 +396,7 @@ export function createRefineLab(input: {
     frame = 0;
     if (!modalElement.classList.contains("show")) return;
     const started = performance.now();
+    cases = cases.map(withMargin);
     results = cases.map(compute);
     const elapsed = performance.now() - started;
     renderCases();

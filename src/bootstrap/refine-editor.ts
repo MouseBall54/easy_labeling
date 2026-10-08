@@ -49,6 +49,8 @@ interface FieldSpec {
   group: "rule" | "context" | "advanced";
   /** Can be set for a single side. */
   perSide?: boolean;
+  /** Label when a single left/right (vertical) or top/bottom (horizontal) edge is edited. */
+  sideLabels?: { vertical: string; horizontal: string };
   options?: [string, string][];
   min?: number;
   max?: number;
@@ -70,6 +72,21 @@ const FIELDS: FieldSpec[] = [
   { key: "rangeIn", label: "Search inward (px)", type: "int", group: "rule", perSide: true, min: 1, max: 80, step: 1 },
   { key: "rangeOut", label: "Search outward (px)", type: "int", group: "rule", perSide: true, min: 1, max: 80, step: 1 },
   { key: "sigma", label: "Smoothing σ", type: "num", group: "rule", perSide: true, min: 0, max: 6, step: 0.2 },
+  {
+    key: "scanSpan", label: "Scan span", type: "select", group: "rule", perSide: true,
+    title: "Rows/columns scanned along the edge: the box only, the box plus its extensions, or only the extensions past the box ends",
+    options: [["box", "Box only"], ["boxOutside", "Box + outside"], ["outside", "Outside only"]]
+  },
+  {
+    key: "extendStart", label: "Extend before (px)", type: "int", group: "rule", perSide: true, min: 0, max: 400, step: 1,
+    title: "Scan this far past the box start: above it for left/right edges, left of it for top/bottom edges",
+    sideLabels: { vertical: "Extend above (px)", horizontal: "Extend left (px)" }
+  },
+  {
+    key: "extendEnd", label: "Extend after (px)", type: "int", group: "rule", perSide: true, min: 0, max: 400, step: 1,
+    title: "Scan this far past the box end: below it for left/right edges, right of it for top/bottom edges",
+    sideLabels: { vertical: "Extend below (px)", horizontal: "Extend right (px)" }
+  },
   { key: "contextRing", label: "Background ring (px)", title: "0 turns surrounding brightness off", type: "int", group: "context", min: 0, max: 40, step: 1 },
   { key: "avoidNeighbors", label: "Stop halfway to neighbours", type: "bool", group: "context" },
   { key: "peerTolerance", label: "Row/column tolerance (px)", title: "0 turns row/column alignment flags off", type: "num", group: "context", min: 0, max: 50, step: 0.5 },
@@ -331,6 +348,14 @@ export function createRefineEditor(input: {
     const docNow = store.getDoc();
     for (const { spec, row, control } of fieldControls) {
       row.hidden = scope !== "all" && !spec.perSide;
+      if (spec.sideLabels) {
+        row.querySelector("label")!.textContent = scope === "all" ? spec.label
+          : scope === "L" || scope === "R" ? spec.sideLabels.vertical : spec.sideLabels.horizontal;
+      }
+      // Extensions do nothing while only the box is scanned.
+      if (spec.key === "extendStart" || spec.key === "extendEnd") {
+        control.disabled = params.every((p) => valueOf(p, "scanSpan") === "box");
+      }
       row.classList.toggle("is-overridden", isOverridden(spec.key));
       const values = params.map((p) => valueOf(p, spec.key));
       const mixed = values.some((value) => value !== values[0]);

@@ -99,6 +99,19 @@ describe("domain/refine/edge-refine", () => {
     expect(normalizeRefineParams({ sideRules: { R: { rangeIn: 500, bogus: 1 } } }).sideRules).toEqual({ L: {}, R: { rangeIn: 80 }, T: {}, B: {} });
   });
 
+  it("scans past the box ends to use an edge that is only visible outside the box", () => {
+    // The left boundary (x = 40) shows above and below the box; along the box itself everything is bright.
+    const img = paint(120, 120, [{ x0: 40, y0: 0, x1: 100, y1: 120 }, { x0: 20, y0: 30, x1: 100, y1: 90 }], 2);
+    const box = { id: "a", classId: "0", x0: 46, y0: 30, x1: 100, y1: 90 };
+    const left = (params: object) => refineBoxes(img, [box], { 0: normalizeRefineParams({ sides: { R: "off", T: "off", B: "off" }, contextRing: 0, ...params }) })[0];
+    expect(Math.abs(left({}).box.x0 - 40)).toBeGreaterThan(3);
+    const sideOnly = { sideRules: { L: { scanSpan: "outside", extendStart: 25, extendEnd: 25 } } };
+    expect(Math.abs(left(sideOnly).box.x0 - 40)).toBeLessThan(0.5);
+    expect(Math.abs(left({ scanSpan: "boxOutside", extendStart: 25, extendEnd: 25, comb: "outer" }).box.x0 - 40)).toBeLessThan(0.5);
+    const runs = describeRefineSide(img, box, "L", normalizeRefineParams(sideOnly)).runs;
+    expect(runs).toEqual([[5, 29], [90, 114]]);
+  });
+
   it("converts RGBA to one byte of luma per pixel", () => {
     expect([...toGray([255, 255, 255, 255, 0, 0, 0, 255], 2, 1)]).toEqual([255, 0]);
   });
