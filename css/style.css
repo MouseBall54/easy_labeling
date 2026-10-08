@@ -4615,7 +4615,7 @@ body.dark-mode .loading-overlay {
     /* Cover the scroll container's bottom padding so fields do not show through below the bar. */
     bottom: -12px;
     padding-bottom: 26px;
-    z-index: 1;
+    z-index: 5; /* above Bootstrap input-group buttons (z-index 2-3) */
     background: var(--workbench-surface);
     box-shadow: 0 -1px 0 var(--workbench-border);
 }
@@ -4891,4 +4891,9 @@ body.dark-mode .loading-overlay {
 
 .refine-lab-opacity .form-range {
     width: 96px;
+}
+
+.refine-scope.refine-image-source {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 0;
 }

@@ -5,7 +5,6 @@ import {
   refineBox,
   REFINE_SIDES,
   sideParams,
-  toGray,
   type GrayImage,
   type RefineBoxInput,
   type RefineParams,
@@ -14,7 +13,7 @@ import {
   type RefineSide,
   type RefineSideDiagnostics
 } from "../domain/refine/edge-refine.js";
-import { resolveRefineParams, type RefineSettingsDocument } from "../domain/refine/settings.js";
+import { resolveRefineParams, type RefineImageSource, type RefineSettingsDocument } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
 
@@ -30,6 +29,8 @@ interface LabCase {
   /** The box in image coordinates and the crop margin around it. */
   box: RefineBoxInput;
   margin: number;
+  /** Image source the crop was taken from. */
+  source: RefineImageSource;
   /** Box and neighbours in crop coordinates. */
   local: RefineRect;
   neighbours: RefineRect[];
@@ -61,6 +62,8 @@ export function createRefineLab(input: {
   saveSettings(doc: RefineSettingsDocument): void;
   refineOnCanvas(ids: string[]): void;
   collectCases(source: RefineLabCaseSource, classIds: readonly string[]): RefineBoxInput[];
+  /** Gray pixels refinement reads for rect (clamped), from the original or the processed image. */
+  cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource): Promise<GrayImage & { x0: number; y0: number }>;
   allBoxes(): RefineBoxInput[];
   classIds(): string[];
   className(classId: string): string | undefined;
@@ -112,50 +115,77 @@ export function createRefineLab(input: {
   });
 
   // ---------------------------------------------------------------- cases
-  const prepare = (image: HTMLImageElement, box: RefineBoxInput, everyBox: readonly RefineBoxInput[], margin = CROP_MARGIN): LabCase => {
-    const x0 = Math.max(0, Math.floor(box.x0 - margin));
-    const y0 = Math.max(0, Math.floor(box.y0 - margin));
-    const x1 = Math.min(image.naturalWidth || image.width, Math.ceil(box.x1 + margin));
-    const y1 = Math.min(image.naturalHeight || image.height, Math.ceil(box.y1 + margin));
+  // Crops come from the refine worker, so the lab shows exactly the gray pixels refinement reads.
+  const prepare = async (image: HTMLImageElement, box: RefineBoxInput, everyBox: readonly RefineBoxInput[], margin = CROP_MARGIN): Promise<LabCase> => {
+    const imageSource = draft.imageSource;
+    const crop = await input.cropImage(image, { x0: box.x0 - margin, y0: box.y0 - margin, x1: box.x1 + margin, y1: box.y1 + margin }, imageSource);
+    const { x0, y0, width, height } = crop;
     const pixels = doc.createElement("canvas");
-    pixels.width = Math.max(1, x1 - x0);
-    pixels.height = Math.max(1, y1 - y0);
-    const context = pixels.getContext("2d", { willReadFrequently: true })!;
-    context.drawImage(image, x0, y0, pixels.width, pixels.height, 0, 0, pixels.width, pixels.height);
-    const rgba = context.getImageData(0, 0, pixels.width, pixels.height).data;
+    pixels.width = width;
+    pixels.height = height;
+    const imageData = pixels.getContext("2d")!.createImageData(width, height);
+    for (let i = 0, o = 0; i < crop.gray.length; i += 1, o += 4) {
+      const v = crop.gray[i];
+      imageData.data[o] = v; imageData.data[o + 1] = v; imageData.data[o + 2] = v; imageData.data[o + 3] = 255;
+    }
+    pixels.getContext("2d")!.putImageData(imageData, 0, 0);
     const shift = (r: RefineRect): RefineRect => ({ x0: r.x0 - x0, y0: r.y0 - y0, x1: r.x1 - x0, y1: r.y1 - y0 });
+    const x1 = x0 + width;
+    const y1 = y0 + height;
     return {
       id: box.id,
       classId: box.classId,
       box,
       margin,
+      source: imageSource,
       local: shift(box),
       neighbours: everyBox.filter((n) => n.id !== box.id && n.x1 > x0 && n.x0 < x1 && n.y1 > y0 && n.y0 < y1).map(shift),
-      img: { gray: toGray(rgba, pixels.width, pixels.height), width: pixels.width, height: pixels.height },
+      img: { gray: crop.gray, width, height },
       pixels
     };
   };
+
+  let caseToken = 0;
+  let recropping = false;
+  const fail = (error: unknown): void => { status.textContent = `Cannot load cases: ${error instanceof Error ? error.message : String(error)}`; };
 
   function loadCases(): void {
     const image = input.getImage();
     const targets = editor.targets();
     const boxes = image ? input.collectCases(source.value as RefineLabCaseSource, targets === "default" ? [] : targets).slice(0, MAX_CASES) : [];
     const everyBox = input.allBoxes();
-    cases = image ? boxes.map((box) => prepare(image, box, everyBox)) : [];
-    active = Math.min(active, Math.max(0, cases.length - 1));
-    byId("refineLabSummary").textContent = cases.length
-      ? `${cases.length} case${cases.length === 1 ? "" : "s"} · edits stay in this window until you save`
+    const token = ++caseToken;
+    byId("refineLabSummary").textContent = boxes.length
+      ? `${boxes.length} case${boxes.length === 1 ? "" : "s"} · edits stay in this window until you save`
       : "No boxes for this source. Select boxes on the canvas, or switch the case source.";
-    schedule();
+    if (!image || !boxes.length) { cases = []; schedule(); return; }
+    status.textContent = "Loading cases…";
+    Promise.all(boxes.map((box) => prepare(image, box, everyBox))).then((loaded) => {
+      if (token !== caseToken) return;
+      cases = loaded;
+      active = Math.min(active, Math.max(0, cases.length - 1));
+      schedule();
+    }).catch(fail);
   }
 
-  /** Re-crops a case when the draft scans further past the box than its crop covers. */
-  const withMargin = (c: LabCase): LabCase => {
+  /** Crop margin a case needs so the draft's scan-span extensions stay inside it. */
+  const neededMargin = (c: LabCase): number => {
     const params = resolveRefineParams(draft, c.classId);
     const extension = Math.max(...REFINE_SIDES.map((side) => { const p = sideParams(params, side); return p.scanSpan === "box" ? 0 : Math.max(p.extendStart, p.extendEnd); }));
-    const needed = CROP_MARGIN + extension;
+    return CROP_MARGIN + extension;
+  };
+  /** Re-crops cases whose image source changed or whose extensions outgrew the crop; renders again when done. */
+  const recropStale = (): void => {
     const image = input.getImage();
-    return needed > c.margin && image ? prepare(image, c.box, input.allBoxes(), Math.ceil(needed / 64) * 64) : c;
+    const stale = (c: LabCase): boolean => c.source !== draft.imageSource || neededMargin(c) > c.margin;
+    if (recropping || !image || !cases.some(stale)) return;
+    recropping = true;
+    const token = caseToken;
+    const everyBox = input.allBoxes();
+    Promise.all(cases.map((c) => (stale(c) ? prepare(image, c.box, everyBox, Math.max(c.margin, Math.ceil(neededMargin(c) / 64) * 64)) : c)))
+      .then((next) => { if (token === caseToken) cases = next; })
+      .catch(fail)
+      .finally(() => { recropping = false; schedule(); });
   };
 
   const compute = (c: LabCase): LabResult => {
@@ -176,6 +206,9 @@ export function createRefineLab(input: {
     context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     return context;
   };
+
+  /** Search bands as drawn in the zoom view (CSS px), for click-to-edit. */
+  let zoomBands: { side: RefineSide; x: number; y: number; w: number; h: number }[] = [];
 
   /** Draws the crop around the case and returns the crop->screen mapping. */
   const drawCase = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, width: number, height: number, detail: boolean) => {
@@ -213,8 +246,10 @@ export function createRefineLab(input: {
     if (detail) {
       // Search ranges: user-set fill opacity plus an outline, so the range stays findable even at low opacity.
       const alpha = Number(bandOpacity.value) / 100;
+      zoomBands = [];
       for (const { side, rect } of bands) {
         const band: [number, number, number, number] = [X(rect.x0), Y(rect.y0), (rect.x1 - rect.x0) * s, (rect.y1 - rect.y0) * s];
+        zoomBands.push({ side, x: band[0], y: band[1], w: band[2], h: band[3] });
         const emphasis = side === activeSide ? 1.6 : 1;
         context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis)})`;
         context.fillRect(...band);
@@ -396,7 +431,7 @@ export function createRefineLab(input: {
     frame = 0;
     if (!modalElement.classList.contains("show")) return;
     const started = performance.now();
-    cases = cases.map(withMargin);
+    recropStale();
     results = cases.map(compute);
     const elapsed = performance.now() - started;
     renderCases();
@@ -427,12 +462,30 @@ export function createRefineLab(input: {
     if (side) { activeSide = side; schedule(); }
   });
   // Clicking the zoom view picks the nearest side for the profile.
+  // Clicking a search band opens that side's Edge rule; elsewhere it only switches the profile to the nearest side.
   zoom.addEventListener("click", (event) => {
     const rect = zoom.getBoundingClientRect();
-    const fx = (event.clientX - rect.left) / rect.width - 0.5;
-    const fy = (event.clientY - rect.top) / rect.height - 0.5;
-    activeSide = Math.abs(fx) > Math.abs(fy) ? (fx < 0 ? "L" : "R") : (fy < 0 ? "T" : "B");
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    // Bands overlap at corners; the active side's band wins, then the narrowest one.
+    const hits = zoomBands.filter((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h)
+      .sort((a, b) => Number(b.side === activeSide) - Number(a.side === activeSide) || (a.w * a.h) - (b.w * b.h));
+    if (hits.length) {
+      activeSide = hits[0].side;
+      editor.setScope(activeSide);
+      editor.focusRule();
+    } else {
+      const fx = px / rect.width - 0.5;
+      const fy = py / rect.height - 0.5;
+      activeSide = Math.abs(fx) > Math.abs(fy) ? (fx < 0 ? "L" : "R") : (fy < 0 ? "T" : "B");
+    }
     schedule();
+  });
+  zoom.addEventListener("mousemove", (event) => {
+    const rect = zoom.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    zoom.style.cursor = zoomBands.some((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) ? "pointer" : "crosshair";
   });
   source.addEventListener("change", loadCases);
   bandOpacity.addEventListener("input", () => {

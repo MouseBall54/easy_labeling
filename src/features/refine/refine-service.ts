@@ -1,8 +1,20 @@
-import type { RefineBoxInput, RefineParams, RefineResult } from "../../domain/refine/edge-refine.js";
+import type { GrayImage, RefineBoxInput, RefineParams, RefineRect, RefineResult } from "../../domain/refine/edge-refine.js";
+import type { SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
+
+/** Which pixels refinement reads; "processed" carries the Preprocess panel's config. */
+export type RefineImageInput = { kind: "original" } | { kind: "processed"; config: SegmentationPreprocessingConfig | undefined };
 
 export interface RefineService {
   /** Uploads the image once (gray conversion runs in the worker), then refines boxes against it. */
-  refine(image: HTMLImageElement, boxes: readonly RefineBoxInput[], paramsByClass: Record<string, RefineParams>, neighbours: readonly RefineBoxInput[]): Promise<RefineResult[]>;
+  refine(
+    image: HTMLImageElement,
+    boxes: readonly RefineBoxInput[],
+    paramsByClass: Record<string, RefineParams>,
+    neighbours: readonly RefineBoxInput[],
+    source: RefineImageInput
+  ): Promise<RefineResult[]>;
+  /** The gray pixels refinement sees inside rect (clamped to the image), for the Refine Lab. */
+  crop(image: HTMLImageElement, rect: RefineRect, source: RefineImageInput): Promise<GrayImage & { x0: number; y0: number }>;
 }
 
 export function createRefineService(): RefineService {
@@ -37,19 +49,35 @@ export function createRefineService(): RefineService {
     });
   };
 
+  const ensureImage = async (image: HTMLImageElement): Promise<number> => {
+    if (loadedImage !== image) {
+      loadedImage = image;
+      const key = ++imageKey;
+      // The image message must be posted before any request for it; the worker handles messages in order.
+      upload = createImageBitmap(image).then((bitmap) => {
+        call({ type: "image", key, bitmap }, [bitmap]).catch(() => { if (imageKey === key) loadedImage = null; });
+      });
+      upload.catch(() => { if (imageKey === key) loadedImage = null; });
+    }
+    await upload;
+    return imageKey;
+  };
+
   return {
-    async refine(image, boxes, paramsByClass, neighbours) {
-      if (loadedImage !== image) {
-        loadedImage = image;
-        const key = ++imageKey;
-        // The image message must be posted before any refine message; the worker handles messages in order.
-        upload = createImageBitmap(image).then((bitmap) => {
-          call({ type: "image", key, bitmap }, [bitmap]).catch(() => { if (imageKey === key) loadedImage = null; });
-        });
-        upload.catch(() => { if (imageKey === key) loadedImage = null; });
-      }
-      await upload;
-      return call({ type: "refine", key: imageKey, boxes, paramsByClass, neighbours }) as Promise<RefineResult[]>;
+    async refine(image, boxes, paramsByClass, neighbours, source) {
+      const key = await ensureImage(image);
+      return call({ type: "refine", key, boxes, paramsByClass, neighbours, source }) as Promise<RefineResult[]>;
+    },
+    async crop(image, rect, source) {
+      const key = await ensureImage(image);
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      const x0 = Math.max(0, Math.floor(rect.x0));
+      const y0 = Math.max(0, Math.floor(rect.y0));
+      const x1 = Math.max(x0 + 1, Math.min(width, Math.ceil(rect.x1)));
+      const y1 = Math.max(y0 + 1, Math.min(height, Math.ceil(rect.y1)));
+      const result = await call({ type: "crop", key, rect: { x0, y0, x1, y1 }, source }) as GrayImage;
+      return { ...result, x0, y0 };
     }
   };
 }

@@ -18,8 +18,12 @@ export type RefineParamsPatch = Partial<Omit<RefineParams, "sides" | "sideRules"
   sideRules?: Partial<Record<RefineSide, RefineSideRule>>;
 };
 
+/** Image refinement reads: the original, or the Preprocess panel's "Processed" output. */
+export type RefineImageSource = "original" | "processed";
+
 export interface RefineSettingsDocument {
   schemaVersion: 1;
+  imageSource: RefineImageSource;
   default: RefineParams;
   classes: Record<string, RefineParamsPatch>;
   /** Named full parameter sets that can be applied to the default, one class or a group of classes. */
@@ -35,7 +39,7 @@ type ScalarKey = Exclude<keyof RefineParams, "sides" | "sideRules">;
 const SCALAR_KEYS = Object.keys(normalizeRefineParams({})).filter((key) => key !== "sides" && key !== "sideRules") as ScalarKey[];
 
 export function createRefineSettings(): RefineSettingsDocument {
-  return { schemaVersion: 1, default: normalizeRefineParams({}), classes: {}, presets: [] };
+  return { schemaVersion: 1, imageSource: "original", default: normalizeRefineParams({}), classes: {}, presets: [] };
 }
 
 const mergeSideRules = (
@@ -170,7 +174,13 @@ export function parseRefineSettings(text: string): RefineSettingsDocument {
     const clean = cleanPatch(defaults, patch);
     if (!isEmptyPatch(clean)) classes[classId] = clean;
   }
-  return { schemaVersion: 1, default: defaults, classes, presets: parsePresetList(source.presets) };
+  return {
+    schemaVersion: 1,
+    imageSource: source.imageSource === "processed" ? "processed" : "original",
+    default: defaults,
+    classes,
+    presets: parsePresetList(source.presets)
+  };
 }
 
 export function serializeRefineSettings(doc: RefineSettingsDocument): string {

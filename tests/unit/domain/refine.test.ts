@@ -154,6 +154,12 @@ describe("domain/refine/settings", () => {
     expect(parseRefineSettings(JSON.stringify(updateRefineSettings(doc, ["2"], { sideRules: { L: { sigma: 3 } } }))).classes["2"]).toEqual({ sideRules: { L: { sigma: 3 } } });
   });
 
+  it("keeps the image source with the settings and defaults to the original", () => {
+    expect(createRefineSettings().imageSource).toBe("original");
+    expect(parseRefineSettings(JSON.stringify({ imageSource: "processed" })).imageSource).toBe("processed");
+    expect(parseRefineSettings(JSON.stringify({ imageSource: "bogus" })).imageSource).toBe("original");
+  });
+
   it("reads legacy refine-module JSON", () => {
     const doc = parseRefineSettings(JSON.stringify({ version: 1, default: { R: 14, K: 8 }, classes: { 2: { R: 16, sides: { B: false } } } }));
     expect(doc.default).toMatchObject({ rangeIn: 14, rangeOut: 14, segments: 8 });

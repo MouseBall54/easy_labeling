@@ -6,12 +6,13 @@ import {
   resolveRefineParams,
   serializeRefineSettings,
   REFINE_SETTINGS_FILE,
+  type RefineImageSource,
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
 import { extractVisibleRectSelection, getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
-import { createRefineService, type RefineService } from "../features/refine/refine-service.js";
+import { createRefineService, type RefineImageInput, type RefineService } from "../features/refine/refine-service.js";
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
@@ -83,6 +84,10 @@ export function createRefineController(input: {
   const isDetection = (): boolean => input.state.session.workflow === "detection";
   const paneOpen = (): boolean => !pane.hidden;
   const getService = (): RefineService => (service ??= createRefineService());
+  /** "Processed" uses the Preprocess panel's current settings, the same pixels its canvas view shows. */
+  const imageInput = (source: RefineImageSource = settings.imageSource): RefineImageInput => source === "processed"
+    ? { kind: "processed", config: (input.canvasController.preprocessing ?? raw).getSegmentationPreprocessingConfig?.() }
+    : { kind: "original" };
   const setStatus = (text: string): void => { status.textContent = text; };
 
   const syncImage = (): HTMLImageElement | null => {
@@ -179,7 +184,7 @@ export function createRefineController(input: {
     setBusy(true);
     setStatus(`Refining ${runnable.length} box${runnable.length === 1 ? "" : "es"}…`);
     try {
-      const results = await getService().refine(image, runnable, paramsByClass, rects().map(toBox));
+      const results = await getService().refine(image, runnable, paramsByClass, rects().map(toBox), imageInput());
       if (token !== generation || image !== input.state.session.currentImage) return;
       // Skip boxes the user moved while the worker was busy.
       const now = new Map(rects().map(toBox).map((box) => [box.id, box]));
@@ -263,7 +268,7 @@ export function createRefineController(input: {
       }
       const token = ++previewGeneration;
       void loadSettings()
-        .then(() => getService().refine(image, selected, paramsFor(selected), rects().map(toBox)))
+        .then(() => getService().refine(image, selected, paramsFor(selected), rects().map(toBox), imageInput()))
         .then((results) => {
           if (token !== previewGeneration) return;
           const before = new Map(selected.map((box) => [box.id, box]));
@@ -370,6 +375,7 @@ export function createRefineController(input: {
           void run(rects().map(toBox).filter((box) => wanted.has(box.id)), false);
         },
         collectCases,
+        cropImage: (image, rect, source) => getService().crop(image, rect, imageInput(source)),
         allBoxes: () => rects().map(toBox),
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),

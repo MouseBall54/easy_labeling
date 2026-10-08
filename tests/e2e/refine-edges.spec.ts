@@ -174,6 +174,28 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await page.locator("#refineLabField-polarity").selectOption("brightInside");
   await expect(page.locator("#refineLabStatus")).toContainText("0 to review");
 
+  // Processed image: the lab re-crops from the Preprocess output, so the measured brightness changes.
+  const originalReadout = await page.locator("#refineLabReadout").textContent();
+  await lab.locator('[data-image-source="processed"]').click();
+  await expect(lab.locator('[data-image-source="processed"]')).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.locator("#refineLabReadout").textContent()).not.toBe(originalReadout);
+  await lab.locator('[data-image-source="original"]').click();
+  await expect.poll(() => page.locator("#refineLabReadout").textContent()).toBe(originalReadout);
+
+  // Clicking a search band opens that side's Edge rule.
+  const zoom = page.locator("#refineLabZoom");
+  const zoomBox = (await zoom.boundingBox())!;
+  let bandX = -1;
+  for (let x = zoomBox.x + 4; x < zoomBox.x + zoomBox.width / 2; x += 3) {
+    await page.mouse.move(x, zoomBox.y + zoomBox.height / 2);
+    if (await zoom.evaluate((element) => (element as HTMLElement).style.cursor) === "pointer") { bandX = x; break; }
+  }
+  expect(bandX).toBeGreaterThan(0);
+  await page.mouse.click(bandX + 2, zoomBox.y + zoomBox.height / 2);
+  await expect(lab.locator('#refineLabEditor .refine-scope [data-scope="L"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#refineLabSideTabs [data-side=L]")).toHaveAttribute("aria-pressed", "true");
+  await lab.locator('#refineLabEditor .refine-scope [data-scope="all"]').click();
+
   // Cancel discards the draft.
   await lab.locator(".btn-close").click();
   await expect(lab).toBeHidden();
@@ -189,6 +211,7 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await expect(lab).toBeHidden();
   await expect.poll(async () => maxError(await geometries(page)), { timeout: 15_000 }).toBeLessThan(0.6);
   await expect.poll(async () => (await settingsFile(page))?.presets.map((preset) => preset.name)).toEqual(["Bright fins"]);
+  expect((await settingsFile(page) as unknown as { imageSource: string }).imageSource).toBe("original");
   await expect(page.locator("#refineField-polarity")).toHaveValue("brightInside");
   await expect(page.locator('#inspectorRefinePane [data-ref="presetSelect"] option', { hasText: "Bright fins" })).toHaveCount(1);
 });

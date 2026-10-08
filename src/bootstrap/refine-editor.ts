@@ -33,6 +33,8 @@ export interface RefineEditor {
   render(): void;
   scope(): RefineEditScope;
   setScope(scope: RefineEditScope): void;
+  /** Scrolls the Edge rule section into view. */
+  focusRule(): void;
   onScopeChange(listener: (scope: RefineEditScope) => void): void;
   /** "default" or the selected class ids, sorted. */
   targets(): "default" | string[];
@@ -118,6 +120,13 @@ function markup(prefix: string): string {
       </div>
       <div class="refine-class-chips" data-ref="chips" role="group" aria-label="Classes to edit"></div>
       <p class="refine-hint" data-ref="hint"></p>
+    </section>
+    <section class="inspector-section">
+      <div class="section-heading-row"><h3>Image</h3><span class="section-value">All classes</span></div>
+      <div class="refine-scope refine-image-source" role="group" aria-label="Image that refinement reads" data-ref="imageSource">
+        <button type="button" data-image-source="original" title="Refine on the original pixels">Original</button>
+        <button type="button" data-image-source="processed" title="Refine on the Preprocess panel's processed image (what the Processed canvas view shows)">Processed</button>
+      </div>
     </section>
     <section class="inspector-section">
       <div class="section-heading-row">
@@ -366,6 +375,9 @@ export function createRefineEditor(input: {
         control.value = mixed ? "" : String(spec.type === "pct" ? Math.round(Number(values[0]) * 100) : values[0]);
       }
     }
+    ref("imageSource").querySelectorAll<HTMLButtonElement>("[data-image-source]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.imageSource === docNow.imageSource));
+    });
     const sideBox = ref("sideBox");
     sideBox.dataset.scope = scope;
     ref("contextDetails").hidden = scope !== "all";
@@ -413,6 +425,10 @@ export function createRefineEditor(input: {
     const distances: [RefineSide, number][] = [["L", fx], ["R", 1 - fx], ["T", fy], ["B", 1 - fy]];
     const [side, distance] = distances.sort((a, b) => a[1] - b[1])[0];
     setScope(distance > 0.3 ? "all" : side);
+  });
+  ref("imageSource").addEventListener("click", (event) => {
+    const value = (event.target as HTMLElement).closest<HTMLElement>("[data-image-source]")?.dataset.imageSource;
+    if (value === "original" || value === "processed") setDoc({ ...store.getDoc(), imageSource: value });
   });
   ref("scope").addEventListener("click", (event) => {
     const value = (event.target as HTMLElement).closest<HTMLElement>("[data-scope]")?.dataset.scope as RefineEditScope | undefined;
@@ -514,6 +530,7 @@ export function createRefineEditor(input: {
     render,
     scope: () => scope,
     setScope,
+    focusRule() { ref("scope").scrollIntoView({ block: "start", behavior: "smooth" }); },
     onScopeChange(listener) { scopeListeners.push(listener); },
     targets,
     setTargets(classIds) { selected = new Set(classIds); targetsChanged(); },

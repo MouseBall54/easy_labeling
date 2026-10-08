@@ -99,6 +99,19 @@ function normalizedSobel(gray: Float32Array, width: number, height: number): Flo
   return gradient;
 }
 
+/** The "Processed" view on a luma image (0-255). DOM-free, so workers can use it. */
+export function preprocessGray(gray: Float32Array, width: number, height: number, requestedConfig?: Partial<SegmentationPreprocessingConfig>): Float32Array {
+  const config = normalizeSegmentationPreprocessingConfig(requestedConfig);
+  if (config.mode === "original") return gray;
+  const gradient = normalizedSobel(blurGaussian(gray, width, height, config.blurStrength), width, height);
+  if (config.mode === "edge") return gradient;
+  const out = new Float32Array(gray.length);
+  for (let index = 0; index < gray.length; index += 1) {
+    out[index] = ((gray[index] ?? 0) * (1 - config.edgeWeight)) + ((gradient[index] ?? 0) * config.edgeWeight);
+  }
+  return out;
+}
+
 export function preprocessSegmentationImage(
   input: SegmentationPreprocessingInput,
   requestedConfig?: Partial<SegmentationPreprocessingConfig>
@@ -109,15 +122,11 @@ export function preprocessSegmentationImage(
   const config = normalizeSegmentationPreprocessingConfig(requestedConfig);
   if (config.mode === "original") return new Uint8ClampedArray(input.rgba);
 
-  const gray = toGrayscale(input);
-  const gradient = normalizedSobel(blurGaussian(gray, input.width, input.height, config.blurStrength), input.width, input.height);
+  const processed = preprocessGray(toGrayscale(input), input.width, input.height, config);
   const rgba = new Uint8ClampedArray(input.rgba.length);
-  for (let index = 0; index < gray.length; index += 1) {
-    const value = config.mode === "edge"
-      ? gradient[index] ?? 0
-      : ((gray[index] ?? 0) * (1 - config.edgeWeight)) + ((gradient[index] ?? 0) * config.edgeWeight);
+  for (let index = 0; index < processed.length; index += 1) {
     const offset = index * 4;
-    const byte = clampByte(value);
+    const byte = clampByte(processed[index] ?? 0);
     rgba[offset] = byte;
     rgba[offset + 1] = byte;
     rgba[offset + 2] = byte;
