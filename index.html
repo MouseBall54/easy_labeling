@@ -532,25 +532,31 @@
 
                     <section id="inspectorRefinePane" class="inspector-pane refine-pane" data-inspector-pane="refine" hidden>
                         <section class="inspector-section">
-                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Try settings on sample boxes with live results before saving"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
-                            <p class="refine-hint">Selected boxes on the canvas show a live preview of the result.</p>
+                            <div class="section-heading-row"><h3>Settings</h3></div>
+                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit classes, presets and edge rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
+                            <p id="refineSettingsSummary" class="refine-hint"></p>
                         </section>
-                        <div id="refineEditor"></div>
-                        <section class="inspector-section refine-run-section">
+                        <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Selection previews live</span></div>
                             <div class="refine-run-grid">
                                 <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected <kbd>E</kbd></button>
-                                <button id="refineClassesBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine boxes of the edited classes">Classes</button>
-                                <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all boxes (Shift+E)">All <kbd>⇧E</kbd></button>
+                                <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all visible boxes (Shift+E)">All boxes <kbd>⇧E</kbd></button>
                             </div>
-                            <label class="form-check form-switch small mt-2"><input id="refineSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep hand-edited boxes in Classes/All</span></label>
+                            <div class="input-group input-group-sm mt-2">
+                                <select id="refineClassSelect" class="form-select" aria-label="Class to refine"></select>
+                                <button id="refineClassesBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Refine every visible box of this class">Refine class</button>
+                            </div>
+                            <label class="form-check form-switch small mt-2 mb-0"><input id="refineSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep hand-edited boxes when refining a class or all boxes</span></label>
+                        </section>
+                        <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Review</h3><span id="refineReviewCounter" class="section-value">0 to review</span></div>
                             <div class="refine-review-row">
-                                <button id="refinePrevReviewBtn" type="button" class="panel-icon-button" title="Previous box to review (Shift+N)" aria-label="Previous box to review"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
-                                <span id="refineReviewCounter" class="refine-review-counter">0 to review</span>
-                                <button id="refineNextReviewBtn" type="button" class="panel-icon-button" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                                <button id="refinePrevReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Previous box to review (Shift+N)" aria-label="Previous box to review"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                                <button id="refineNextReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
                                 <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve <kbd>F</kbd></button>
                             </div>
-                            <div id="refineStatus" class="refine-hint" role="status" aria-live="polite"></div>
                         </section>
+                        <div id="refineStatus" class="refine-hint" role="status" aria-live="polite"></div>
                     </section>
 
                     <section id="inspectorAutomationPane" class="inspector-pane" data-inspector-pane="automation" hidden>

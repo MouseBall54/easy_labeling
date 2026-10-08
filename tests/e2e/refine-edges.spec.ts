@@ -100,6 +100,34 @@ async function settingsFile(page: Page): Promise<{ classes: Record<string, { sid
   });
 }
 
+const lab = (page: Page) => page.locator("#refineLabModal");
+
+async function openLab(page: Page): Promise<void> {
+  await page.locator("#openRefineLabBtn").click();
+  await expect(lab(page)).toBeVisible();
+}
+
+async function saveLab(page: Page): Promise<void> {
+  await page.locator("#refineLabSaveBtn").click();
+  await expect(lab(page)).toBeHidden();
+}
+
+/** Makes class `classId` the only edited target in the lab (chips toggle, so only click when needed). */
+async function editClass(page: Page, classId: string): Promise<void> {
+  const chips = page.locator("#refineLabEditor .refine-class-chip");
+  for (const chip of await chips.all()) {
+    const id = await chip.getAttribute("data-class-id");
+    const pressed = await chip.getAttribute("aria-pressed") === "true";
+    if (id && id !== classId && pressed) await chip.click();
+  }
+  const target = page.locator(`#refineLabEditor .refine-class-chip[data-class-id="${classId}"]`);
+  if (await target.getAttribute("aria-pressed") !== "true") await target.click();
+  await expect(target).toHaveAttribute("aria-pressed", "true");
+}
+
+const selectBoxes = (page: Page, indices: number[]) => page.evaluate((list) =>
+  (Reflect.get(window, "__easyLabelingTestApi") as { selectRectsByIndex(i: number[]): void }).selectRectsByIndex(list), indices);
+
 test("refine: global shortcuts snap boxes to edges in one undo step and persist class settings", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
@@ -116,25 +144,34 @@ test("refine: global shortcuts snap boxes to edges in one undo step and persist 
   await page.keyboard.press("Control+Z");
   await expect.poll(async () => maxError(await geometries(page))).toBeCloseTo(maxError(before), 3);
 
-  // R opens the Refine workspace on the right; per-side rule for class 0 is stored in the dataset.
+  // R opens the apply-only Refine workspace; settings are edited in the lab and stored in the dataset.
   await page.keyboard.press("r");
-  await expect(page.locator("#inspectorRefinePane")).toBeVisible();
+  const pane = page.locator("#inspectorRefinePane");
+  await expect(pane).toBeVisible();
   await expect(page.locator("#taskRefineBtn")).toHaveAttribute("aria-pressed", "true");
-  await page.locator('#inspectorRefinePane .refine-class-chip[data-class-id="0"]').click();
-  await page.locator("#refineSideB").selectOption("off");
+  await expect(pane.locator(".refine-class-chip")).toHaveCount(0);
+  await expect(page.locator("#refineSettingsSummary")).toContainText("every class uses the default");
+  await openLab(page);
+  await editClass(page, "0");
+  await page.locator("#refineLabSideB").selectOption("off");
+  await saveLab(page);
   await expect.poll(async () => (await settingsFile(page))?.classes["0"]?.sides?.B).toBe("off");
+  await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings");
 
   await page.locator("#refineAllBtn").click();
   await expect.poll(async () => (await geometries(page))[0].left, { timeout: 15_000 }).toBeCloseTo(20, 0);
   const after = await geometries(page);
   expect(after[0].bottom).toBeCloseTo(before[0].bottom, 3); // bottom edge is off for class 0
   await page.keyboard.press("r");
-  await expect(page.locator("#inspectorRefinePane")).toBeHidden();
+  await expect(pane).toBeHidden();
 
   // Opt-in auto refine: a box drawn loosely around the first structure snaps (bottom stays off for class 0).
   await page.keyboard.press("r");
-  await page.locator("#inspectorRefinePane .refine-details summary", { hasText: "Advanced" }).click();
-  await page.locator("#refineField-autoOnDraw").check();
+  await openLab(page);
+  await editClass(page, "0");
+  await page.locator("#refineLabEditor .refine-details summary", { hasText: "Advanced" }).click();
+  await page.locator("#refineLabField-autoOnDraw").check();
+  await saveLab(page);
   const existingIds = new Set((await geometries(page)).map((g) => g.annotationId));
   await page.locator('label[for="drawMode"]').click();
   const vt = await page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { getCanvasViewportTransform(): number[] }).getCanvasViewportTransform());
@@ -157,13 +194,10 @@ test("refine: global shortcuts snap boxes to edges in one undo step and persist 
 test("refine lab: tunes a draft with live results, shows polarity, and saves presets only on demand", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
-  await page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { selectRectsByIndex(i: number[]): void }).selectRectsByIndex([0, 1]));
+  await selectBoxes(page, [0, 1]);
   await page.keyboard.press("r");
-  await page.locator('#inspectorRefinePane .refine-class-chip[data-class-id="0"]').click();
-  await page.locator("#openRefineLabBtn").click();
-  const lab = page.locator("#refineLabModal");
-  await expect(lab).toBeVisible();
-  await expect(lab.locator(".refine-lab-case")).toHaveCount(2);
+  await openLab(page);
+  await expect(lab(page).locator(".refine-lab-case")).toHaveCount(2);
   await expect(page.locator("#refineLabReadout")).toContainText("bright → dark");
   await expect(page.locator("#refineLabStatus")).toContainText("0 to review");
 
@@ -176,10 +210,10 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
 
   // Processed image: the lab re-crops from the Preprocess output, so the measured brightness changes.
   const originalReadout = await page.locator("#refineLabReadout").textContent();
-  await lab.locator('[data-image-source="processed"]').click();
-  await expect(lab.locator('[data-image-source="processed"]')).toHaveAttribute("aria-pressed", "true");
+  await lab(page).locator('[data-image-source="processed"]').click();
+  await expect(lab(page).locator('[data-image-source="processed"]')).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.locator("#refineLabReadout").textContent()).not.toBe(originalReadout);
-  await lab.locator('[data-image-source="original"]').click();
+  await lab(page).locator('[data-image-source="original"]').click();
   await expect.poll(() => page.locator("#refineLabReadout").textContent()).toBe(originalReadout);
 
   // Clicking a search band opens that side's Edge rule.
@@ -192,77 +226,79 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   }
   expect(bandX).toBeGreaterThan(0);
   await page.mouse.click(bandX + 2, zoomBox.y + zoomBox.height / 2);
-  await expect(lab.locator('#refineLabEditor .refine-scope [data-scope="L"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(lab(page).locator('#refineLabEditor .refine-scope [data-scope="L"]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#refineLabSideTabs [data-side=L]")).toHaveAttribute("aria-pressed", "true");
-  await lab.locator('#refineLabEditor .refine-scope [data-scope="all"]').click();
+  await lab(page).locator('#refineLabEditor .refine-scope [data-scope="all"]').click();
 
   // Cancel discards the draft.
-  await lab.locator(".btn-close").click();
-  await expect(lab).toBeHidden();
-  await expect(page.locator("#refineField-polarity")).toHaveValue("auto");
+  await lab(page).locator(".btn-close").click();
+  await expect(lab(page)).toBeHidden();
+  await openLab(page);
+  await expect(page.locator("#refineLabField-polarity")).toHaveValue("auto");
 
-  // Reopen, keep the fixed polarity, save it as a preset and refine the cases on the canvas.
-  await page.locator("#openRefineLabBtn").click();
-  await expect(lab).toBeVisible();
+  // Keep the fixed polarity, save it as a preset and refine the cases on the canvas.
   await page.locator("#refineLabField-polarity").selectOption("brightInside");
-  await lab.locator('[data-ref="presetName"]').fill("Bright fins");
-  await lab.locator('[data-act="savePreset"]').click();
+  await lab(page).locator('[data-ref="presetName"]').fill("Bright fins");
+  await lab(page).locator('[data-act="savePreset"]').click();
   await page.locator("#refineLabApplyBtn").click();
-  await expect(lab).toBeHidden();
+  await expect(lab(page)).toBeHidden();
   await expect.poll(async () => maxError(await geometries(page)), { timeout: 15_000 }).toBeLessThan(0.6);
   await expect.poll(async () => (await settingsFile(page))?.presets.map((preset) => preset.name)).toEqual(["Bright fins"]);
   expect((await settingsFile(page) as unknown as { imageSource: string }).imageSource).toBe("original");
-  await expect(page.locator("#refineField-polarity")).toHaveValue("brightInside");
-  await expect(page.locator('#inspectorRefinePane [data-ref="presetSelect"] option', { hasText: "Bright fins" })).toHaveCount(1);
+  await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings · 1 preset");
+  await openLab(page);
+  await expect(page.locator("#refineLabField-polarity")).toHaveValue("brightInside");
 });
 
 test("refine: per-side edge rules, use-for-all-sides, and remembered search range opacity", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
+  await selectBoxes(page, [0]);
   await page.keyboard.press("r");
-  const pane = page.locator("#inspectorRefinePane");
-  await pane.locator('.refine-class-chip[data-class-id="0"]').click();
+  await openLab(page);
+  const editor = page.locator("#refineLabEditor");
+  await editClass(page, "0");
 
   // Right edge only: wider inward search and fixed polarity; other sides keep the shared rule.
-  await pane.locator('.refine-scope [data-scope="R"]').click();
-  await expect(pane.locator("#refineField-contextRing")).toBeHidden();
-  await pane.locator("#refineField-rangeIn").fill("18");
-  await pane.locator("#refineField-polarity").selectOption("brightInside");
-  await expect(pane.locator('.refine-scope [data-scope="R"]')).toHaveClass(/has-override/);
-  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toEqual({ sideRules: { R: { rangeIn: 18, polarity: "brightInside" } } });
-  await pane.locator('.refine-scope [data-scope="all"]').click();
-  await expect(pane.locator("#refineField-rangeIn")).toHaveValue("10");
+  await editor.locator('.refine-scope [data-scope="R"]').click();
+  await expect(editor.locator("#refineLabField-contextRing")).toBeHidden();
+  await editor.locator("#refineLabField-rangeIn").fill("18");
+  await editor.locator("#refineLabField-polarity").selectOption("brightInside");
+  await expect(editor.locator('.refine-scope [data-scope="R"]')).toHaveClass(/has-override/);
+  await editor.locator('.refine-scope [data-scope="all"]').click();
+  await expect(editor.locator("#refineLabField-rangeIn")).toHaveValue("10");
 
   // Left edge only: scan past the box ends (outside-only) to use an edge visible above/below the box.
-  await pane.locator('.refine-scope [data-scope="L"]').click();
-  await expect(pane.locator('label[for="refineField-extendStart"]')).toHaveText("Extend above (px)");
-  await expect(pane.locator("#refineField-extendStart")).toBeDisabled();
-  await pane.locator("#refineField-scanSpan").selectOption("outside");
-  await pane.locator("#refineField-extendStart").fill("20");
+  await editor.locator('.refine-scope [data-scope="L"]').click();
+  await expect(editor.locator('label[for="refineLabField-extendStart"]')).toHaveText("Extend above (px)");
+  await expect(editor.locator("#refineLabField-extendStart")).toBeDisabled();
+  await editor.locator("#refineLabField-scanSpan").selectOption("outside");
+  await editor.locator("#refineLabField-extendStart").fill("20");
+  await editor.locator('.refine-scope [data-scope="T"]').click();
+  await expect(editor.locator('label[for="refineLabField-extendStart"]')).toHaveText("Extend left (px)");
+  await saveLab(page);
   await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toEqual({
     sideRules: { R: { rangeIn: 18, polarity: "brightInside" }, L: { scanSpan: "outside", extendStart: 20 } }
   });
-  await pane.locator('.refine-scope [data-scope="T"]').click();
-  await expect(pane.locator('label[for="refineField-extendStart"]')).toHaveText("Extend left (px)");
-  await pane.locator('.refine-scope [data-scope="L"]').click();
-  await pane.locator("#refineField-scanSpan").locator("..").locator(".refine-field-reset").click();
-  await pane.locator("#refineField-extendStart").locator("..").locator(".refine-field-reset").click();
 
-  // Promote the right edge's rule to every side.
-  await pane.locator('.refine-scope [data-scope="R"]').click();
-  await pane.locator('[data-act="sideToAll"]').click();
-  await expect(pane.locator('.refine-scope [data-scope="all"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(pane.locator("#refineField-rangeIn")).toHaveValue("18");
-  await expect(pane.locator('.refine-scope .has-override')).toHaveCount(0);
+  // Clear the left edge's own values, then promote the right edge's rule to every side.
+  await openLab(page);
+  await editClass(page, "0");
+  await editor.locator('.refine-scope [data-scope="L"]').click();
+  await editor.locator("#refineLabField-scanSpan").locator("..").locator(".refine-field-reset").click();
+  await editor.locator("#refineLabField-extendStart").locator("..").locator(".refine-field-reset").click();
+  await editor.locator('.refine-scope [data-scope="R"]').click();
+  await editor.locator('[data-act="sideToAll"]').click();
+  await expect(editor.locator('.refine-scope [data-scope="all"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(editor.locator("#refineLabField-rangeIn")).toHaveValue("18");
+  await expect(editor.locator(".refine-scope .has-override")).toHaveCount(0);
 
   // Search range opacity is adjustable in the lab and remembered.
-  await page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { selectRectsByIndex(i: number[]): void }).selectRectsByIndex([0]));
-  await page.locator("#openRefineLabBtn").click();
   const opacity = page.locator("#refineLabBandOpacity");
-  await expect(opacity).toBeVisible();
   await opacity.fill("80");
-  await page.locator("#refineLabModal .btn-close").click();
-  await page.locator("#openRefineLabBtn").click();
+  await saveLab(page);
+  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ rangeIn: 18, polarity: "brightInside" });
+  await openLab(page);
   await expect(page.locator("#refineLabBandOpacity")).toHaveValue("80");
 });
 
@@ -278,17 +314,18 @@ test("refine: processed image follows the Preprocess panel's contrast and gamma"
   await setPreprocess("segmentationPreprocessModeSelect", "original");
   await setPreprocess("segmentationPreprocessContrastInput", "200");
   await expect(page.locator("#segmentationPreprocessContrastValue")).toHaveText("200%");
-  await page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { selectRectsByIndex(i: number[]): void }).selectRectsByIndex([0]));
+  await selectBoxes(page, [0]);
   await page.keyboard.press("r");
-  await page.locator('#inspectorRefinePane [data-image-source="processed"]').click();
-  await page.locator("#openRefineLabBtn").click();
+  await openLab(page);
+  await lab(page).locator('[data-image-source="processed"]').click();
   // 180 -> (180 - 127.5) * 2 + 127.5 = 232.5; 40 -> clipped to 0.
   await expect(page.locator("#refineLabReadout")).toContainText("Inside 233 → outside 0");
-  await page.locator("#refineLabModal .btn-close").click();
+  await saveLab(page);
+  await expect(page.locator("#refineSettingsSummary")).toContainText("Image: Processed");
   await setPreprocess("segmentationPreprocessContrastInput", "100");
   await setPreprocess("segmentationPreprocessGammaInput", "200");
   await expect(page.locator("#segmentationPreprocessGammaValue")).toHaveText("2.00");
-  await page.locator("#openRefineLabBtn").click();
+  await openLab(page);
   // 40 -> 255 * (40 / 255) ^ 0.5 = 101; 180 -> 214.
   await expect(page.locator("#refineLabReadout")).toContainText("Inside 214 → outside 101");
 });

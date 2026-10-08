@@ -16,7 +16,6 @@ import { createRefineService, type RefineImageInput, type RefineService } from "
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
-import { createRefineEditor, type RefineEditor } from "./refine-editor.js";
 import type { RefineLab, RefineLabCaseSource } from "./refine-lab.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
@@ -134,7 +133,25 @@ export function createRefineController(input: {
   };
 
   // ---------------------------------------------------------------- settings
-  let editor: RefineEditor | null = null;
+  /** The pane only applies settings: summary line plus the class list for "Refine class". Editing lives in the Lab. */
+  const renderPane = (): void => {
+    const own = Object.keys(settings.classes).length;
+    const presets = settings.presets.length;
+    byId("refineSettingsSummary").textContent = `Image: ${settings.imageSource === "processed" ? "Processed" : "Original"} · `
+      + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default")
+      + (presets ? ` · ${presets} preset${presets === 1 ? "" : "s"}` : "");
+    const select = byId<HTMLSelectElement>("refineClassSelect");
+    const previous = select.value;
+    const ids = classIds();
+    select.replaceChildren(...ids.map((classId) => {
+      const name = input.state.session.classNames.get(classId);
+      const option = new Option(name ? `${classId} ${name}` : classId, classId);
+      option.disabled = !resolveRefineParams(settings, classId).enabled;
+      return option;
+    }));
+    if (!ids.length) select.add(new Option("No classes", ""));
+    select.value = ids.includes(previous) ? previous : ids[0] ?? "";
+  };
   const loadSettings = async (): Promise<void> => {
     const folder = input.state.session.imageFolderHandle;
     if (folder === settingsFolder) return;
@@ -148,11 +165,11 @@ export function createRefineController(input: {
         if (!isNotFoundError(error)) input.uiManager.notify("Refine settings were invalid; defaults are in use.", 5000);
       }
     }
-    editor?.render();
+    renderPane();
   };
   const changeSettings = (next: RefineSettingsDocument): void => {
     settings = next;
-    editor?.render();
+    renderPane();
     schedulePreview();
     clearTimeout(saveTimer);
     const folder = settingsFolder;
@@ -222,8 +239,9 @@ export function createRefineController(input: {
     void run(boxes, false);
   };
   const refineClasses = (): void => {
-    const targets = editor?.targets() ?? "default";
-    void run(editedClassBoxes(targets === "default" ? [] : targets), skipManualToggle().checked);
+    const classId = byId<HTMLSelectElement>("refineClassSelect").value;
+    if (!classId) { setStatus("Choose a class to refine."); return; }
+    void run(editedClassBoxes([classId]), skipManualToggle().checked);
   };
   const refineAll = (): void => { void run(visibleRects().map(toBox), skipManualToggle().checked); };
 
@@ -399,19 +417,7 @@ export function createRefineController(input: {
 
   return {
     bind(): void {
-      editor = createRefineEditor({
-        root: byId("refineEditor"),
-        prefix: "refine",
-        documentRef: doc,
-        windowRef,
-        store: {
-          getDoc: () => settings,
-          setDoc: changeSettings,
-          classIds,
-          className: (classId) => input.state.session.classNames.get(classId),
-          notify: setStatus
-        }
-      });
+      renderPane();
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);
       byId("refineAllBtn").addEventListener("click", refineAll);
@@ -434,7 +440,7 @@ export function createRefineController(input: {
         schedulePreview();
         if (!paneOpen()) return;
         syncImage();
-        void loadSettings().then(() => { editor?.render(); renderReviewCounter(); });
+        void loadSettings().then(() => { renderPane(); renderReviewCounter(); });
       }).observe(pane, { attributes: true, attributeFilter: ["hidden"] });
 
       raw.subscribeHistory?.((entry) => {

@@ -4610,23 +4610,13 @@ body.dark-mode .loading-overlay {
     font-variant-numeric: tabular-nums;
 }
 
-.refine-run-section {
-    position: sticky;
-    /* Cover the scroll container's bottom padding so fields do not show through below the bar. */
-    bottom: -12px;
-    padding-bottom: 26px;
-    z-index: 5; /* above Bootstrap input-group buttons (z-index 2-3) */
-    background: var(--workbench-surface);
-    box-shadow: 0 -1px 0 var(--workbench-border);
-}
-
 .refine-run-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
 }
 
-.refine-run-section kbd,
+.refine-run-grid kbd,
 .refine-review-row kbd {
     padding: 0 4px;
     font-size: var(--fs-badge);
@@ -4637,18 +4627,9 @@ body.dark-mode .loading-overlay {
 }
 
 .refine-review-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 8px;
-}
-
-.refine-review-counter {
-    flex: 1;
-    white-space: nowrap;
-    text-align: center;
-    font-size: var(--fs-caption);
-    font-variant-numeric: tabular-nums;
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 6px;
 }
 
 .refine-side-box[data-polarity="brightInside"] {
