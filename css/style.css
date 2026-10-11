@@ -2099,8 +2099,76 @@ body {
     }
 }
 
-.segmentation-preprocess-source-label {
+.segmentation-pipeline {
     margin-top: 12px;
+}
+
+.segmentation-pipeline > .form-label {
+    display: block;
+}
+
+.segmentation-pipeline-steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.segmentation-pipeline-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 2px 8px;
+    border: 1px solid var(--border-color, #ced4da);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.segmentation-pipeline-step .form-check-input {
+    margin: 0;
+}
+
+/* The steps keep their DOM order; flex order shows the chosen run order. */
+.segmentation-pipeline-steps[data-order="ai-first"] [data-step="ai"],
+.segmentation-pipeline-steps[data-order="processed-first"] [data-step="processed"] {
+    order: 1;
+}
+
+.segmentation-pipeline-arrow {
+    order: 2;
+}
+
+.segmentation-pipeline-steps[data-order="ai-first"] [data-step="processed"],
+.segmentation-pipeline-steps[data-order="processed-first"] [data-step="ai"] {
+    order: 3;
+}
+
+.segmentation-pipeline-swap {
+    order: 4;
+    margin-left: auto;
+}
+
+.segmentation-pipeline-stale {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    color: var(--bs-warning-text-emphasis, #997404);
+}
+
+.segmentation-pipeline-stale[hidden] {
+    display: none;
+}
+
+.segmentation-pipeline-stale .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+body.dark-mode .segmentation-pipeline-stale {
+    color: #ffda6a;
 }
 
 .segmentation-sr-roi-group .segmentation-sr-roi-controls {

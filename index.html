@@ -162,8 +162,16 @@
                                 </div>
                                 <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Processing mode</label>
                                 <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
-                                <label class="form-label small mb-1 segmentation-preprocess-source-label" for="segmentationPreprocessSourceSelect">Processing input</label>
-                                <select id="segmentationPreprocessSourceSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="sr-roi">AI</option></select>
+                                <div class="segmentation-pipeline" role="group" aria-labelledby="segmentationPipelineLabel">
+                                    <span id="segmentationPipelineLabel" class="form-label small mb-1">Pipeline</span>
+                                    <div id="segmentationPipelineSteps" class="segmentation-pipeline-steps" data-order="ai-first">
+                                        <label class="segmentation-pipeline-step" data-step="ai" title="Use the AI enhancement of the ROI"><input id="segmentationPipelineAiToggle" class="form-check-input" type="checkbox"><span>AI</span></label>
+                                        <i class="bi bi-arrow-right segmentation-pipeline-arrow" aria-hidden="true"></i>
+                                        <span class="segmentation-pipeline-step" data-step="processed">Processed</span>
+                                        <button id="segmentationPipelineSwapBtn" type="button" class="btn btn-sm btn-outline-secondary segmentation-pipeline-swap" title="Swap the order of AI and Processed" aria-label="Swap the order of AI and Processed"><i class="bi bi-arrow-left-right" aria-hidden="true"></i></button>
+                                    </div>
+                                    <div id="segmentationPipelineStale" class="segmentation-pipeline-stale" role="status" hidden><small>AI result uses earlier processing settings.</small><button id="segmentationPipelineRerunBtn" type="button" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run AI</button></div>
+                                </div>
                                 <div class="segmentation-preprocessing-controls">
                                     <div class="segmentation-preprocessing-subhead"><span>Clean-up</span><small>keeps edges in place</small></div>
                                     <div class="segmentation-preprocessing-switch"><label class="form-check form-switch small mb-0" title="3x3 median against impulse noise and dropped pixels"><input id="segmentationPreprocessMedianToggle" class="form-check-input" type="checkbox"><span class="form-check-label">Median 3×3</span></label></div>

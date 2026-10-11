@@ -14,7 +14,7 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
 
   await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
   await expect(page.locator("#segmentationViewSrBtn")).toHaveText("AI");
-  await expect(page.locator("#segmentationPreprocessSourceSelect option")).toHaveText(["Original", "AI"]);
+  await expect(page.locator("#segmentationPipelineSteps [data-step]")).toHaveText(["AI", "Processed"]);
   await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
   await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
   await expect(srSettings).toBeHidden();
@@ -31,8 +31,8 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await expect(roiGroup).toBeVisible();
   await expect(page.locator("#segmentationEdgeSamInputSelect")).toHaveValue("original-processed");
   await expect(page.locator("#segmentationSuperpixelInputSelect")).toHaveValue("original-processed");
-  await page.locator("#segmentationPreprocessSourceSelect").selectOption("sr-roi");
-  await expect(page.locator("#segmentationPreprocessSourceSelect")).toHaveValue("original");
+  await expect(page.locator("#segmentationPipelineAiToggle")).toBeDisabled();
+  await expect(page.locator("#segmentationPipelineAiToggle")).not.toBeChecked();
 
   await page.locator("#segmentationPreprocessModeSelect").selectOption("edge");
   await page.locator("#segmentationPreprocessBlurInput").fill("3");

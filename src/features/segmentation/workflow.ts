@@ -38,6 +38,7 @@ import {
   preprocessSegmentationImage,
   type SegmentationImageSourceMode,
   type SegmentationPreprocessingConfig,
+  type SegmentationProcessingOrder,
   type SegmentationViewSourceMode
 } from "./preprocessing.js";
 import {
@@ -124,6 +125,10 @@ export function createSegmentationCanvasWorkflow(
   let preprocessingConfig: SegmentationPreprocessingConfig = { ...DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG };
   let preprocessingSource: "original" | "sr-roi" = "original";
   let superResolutionMode: "off" | SuperResolutionMode = "off";
+  // Order of the AI and Processed steps when Processed uses the AI ROI.
+  let processingOrder: SegmentationProcessingOrder = "ai-first";
+  // Last Processed -> AI result; shown (stale) after processing settings change until AI is re-run.
+  let processedFirstKey: string | null = null;
   let viewSource: SegmentationViewSourceMode = "original";
   let edgeSamInputSource: SegmentationImageSourceMode = "original";
   let superpixelInputSource: SegmentationImageSourceMode = "original";
@@ -177,6 +182,7 @@ export function createSegmentationCanvasWorkflow(
   let pendingSelectionForceFull = false;
   let overlayRenderScheduled = false;
   let overlayRenderRequestId: number | null = null;
+  let overlayRenderDeferred = false;
   let workflowActive = true;
 
   const getDefaultPaintClassId = (): string | null => {
@@ -487,6 +493,7 @@ export function createSegmentationCanvasWorkflow(
   };
 
   const ensureProcessedImage = (baseSource: "original" | "sr-roi"): SegmentationImageInput | null => {
+    if (baseSource === "sr-roi" && processingOrder === "processed-first") return getProcessedFirstImage();
     const base = baseSource === "sr-roi" ? getSrImageInput() : getOriginalImageInput();
     if (!base || typeof globalThis.document === "undefined") return null;
     const preprocessingKey = getSegmentationPreprocessingKey(preprocessingConfig);
@@ -617,15 +624,16 @@ export function createSegmentationCanvasWorkflow(
     return cropped;
   };
 
-  const ensureSuperResolutionImage = async (mode: SuperResolutionMode): Promise<SegmentationImageInput | null> => {
-    const cacheKey = getSrRoiCacheKey(mode);
-    const cached = cacheKey ? srImages.get(cacheKey) : null;
-    if (cached) return cached;
-    const original = getOriginalImageInput();
+  const upscaleRoi = async (
+    base: SegmentationImageInput,
+    mode: SuperResolutionMode,
+    cacheKey: string,
+    source: "sr-roi" | "sr-roi-processed"
+  ): Promise<SegmentationImageInput | null> => {
     const service = deps.superResolutionService;
-    if (!original || !service || !srRoi || !cacheKey) return null;
+    if (!service || !srRoi) return null;
     const roi = { ...srRoi };
-    const croppedRgba = cropRgba(original.rgba, original.descriptor.width, roi);
+    const croppedRgba = cropRgba(base.rgba, base.descriptor.width, roi);
     try {
       const result = await service.upscale({
         cacheKey,
@@ -634,17 +642,17 @@ export function createSegmentationCanvasWorkflow(
         height: roi.height,
         rgba: croppedRgba
       });
-      const source = createCanvasImageSource(result.width, result.height, result.rgba);
-      if (!source) return null;
+      const canvasSource = createCanvasImageSource(result.width, result.height, result.rgba);
+      if (!canvasSource) return null;
       const input: SegmentationImageInput = {
-        source,
+        source: canvasSource,
         rgba: result.rgba,
         descriptor: {
-          source: "sr-roi",
+          source,
           width: result.width,
           height: result.height,
-          originalWidth: original.descriptor.originalWidth,
-          originalHeight: original.descriptor.originalHeight,
+          originalWidth: base.descriptor.originalWidth,
+          originalHeight: base.descriptor.originalHeight,
           originalRoi: roi,
           cacheKey: result.cacheKey
         }
@@ -655,6 +663,47 @@ export function createSegmentationCanvasWorkflow(
       deps.notify(`AI enhancement is unavailable: ${error instanceof Error ? error.message : "model initialization failed"}`, 5000);
       return null;
     }
+  };
+
+  const ensureSuperResolutionImage = async (mode: SuperResolutionMode): Promise<SegmentationImageInput | null> => {
+    const cacheKey = getSrRoiCacheKey(mode);
+    const cached = cacheKey ? srImages.get(cacheKey) : null;
+    if (cached) return cached;
+    const original = getOriginalImageInput();
+    if (!original || !cacheKey) return null;
+    return upscaleRoi(original, mode, cacheKey, "sr-roi");
+  };
+
+  const getProcessedFirstCacheKey = (mode: SuperResolutionMode): string | null => {
+    const base = getSrRoiCacheKey(mode);
+    return base ? `${base}:pre:${getSegmentationPreprocessingKey(preprocessingConfig)}` : null;
+  };
+
+  /** Processed -> AI result for the current settings, or the previous one for this ROI and model after settings changed. */
+  const getProcessedFirstImage = (): SegmentationImageInput | null => {
+    if (superResolutionMode === "off") return null;
+    const key = getProcessedFirstCacheKey(superResolutionMode);
+    const exact = key ? srImages.get(key) : undefined;
+    if (exact) return exact;
+    const base = getSrRoiCacheKey(superResolutionMode);
+    return base && processedFirstKey?.startsWith(`${base}:pre:`) ? srImages.get(processedFirstKey) ?? null : null;
+  };
+
+  const isProcessedFirstStale = (): boolean => {
+    if (processingOrder !== "processed-first" || preprocessingSource !== "sr-roi" || superResolutionMode === "off") return false;
+    const key = getProcessedFirstCacheKey(superResolutionMode);
+    return !(key && srImages.has(key)) && getProcessedFirstImage() !== null;
+  };
+
+  /** Runs AI on the ROI of the processed image (the Processed -> AI order). */
+  const ensureProcessedFirstImage = async (mode: SuperResolutionMode): Promise<SegmentationImageInput | null> => {
+    const cacheKey = getProcessedFirstCacheKey(mode);
+    if (!cacheKey) return null;
+    const cached = srImages.get(cacheKey);
+    const processed = cached ? null : ensureProcessedImage("original");
+    const result = cached ?? (processed ? await upscaleRoi(processed, mode, cacheKey, "sr-roi-processed") : null);
+    if (result) processedFirstKey = cacheKey;
+    return result;
   };
 
   const resetDocumentForCurrentImage = (): void => {
@@ -807,6 +856,12 @@ export function createSegmentationCanvasWorkflow(
 
   const flushOverlayRender = (): void => {
     cancelPendingOverlayRender();
+    if (!workflowActive) {
+      // Overlays are hidden outside Segmentation; redrawing the full mask on every Detection image or
+      // label switch cost about a second at 3072x2048. Redraw once when Segmentation becomes active.
+      overlayRenderDeferred = true;
+      return;
+    }
 
     const doc = ensureDocument();
     if (!doc) {
@@ -988,6 +1043,20 @@ export function createSegmentationCanvasWorkflow(
       hasBox: aiBox !== null,
       score: aiPreview.score
     };
+  };
+
+  /** Re-reads the canvas view and every algorithm input that uses one of these processed sources. */
+  const refreshProcessedConsumers = (sources: SegmentationImageSourceMode[]): void => {
+    if (viewSource === "processed") refreshViewSource();
+    if (sources.includes(superpixelInputSource)) {
+      const regionSize = superpixelResult?.regionSize ?? null;
+      smartPreview = null;
+      superpixelResult = null;
+      superpixelCache.clear();
+      removeSuperpixelOverlayLayer();
+      if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+    }
+    if (sources.includes(edgeSamInputSource)) void prepareEdgeSamImage();
   };
 
   const prepareEdgeSamImage = async (): Promise<void> => {
@@ -2034,16 +2103,38 @@ export function createSegmentationCanvasWorkflow(
       if (getSegmentationPreprocessingKey(next) === getSegmentationPreprocessingKey(preprocessingConfig)) return false;
       preprocessingConfig = next;
       clearProcessedImageCache();
-      if (viewSource === "processed") refreshViewSource();
-      if (superpixelInputSource === "original-processed" || superpixelInputSource === "sr-roi-processed") {
-        const regionSize = superpixelResult?.regionSize ?? null;
-        smartPreview = null;
-        superpixelResult = null;
-        superpixelCache.clear();
-        removeSuperpixelOverlayLayer();
-        if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      refreshProcessedConsumers(["original-processed", "sr-roi-processed"]);
+      return true;
+    },
+
+    async setSegmentationProcessingPipeline(next: { includeAi?: boolean; order?: SegmentationProcessingOrder }): Promise<boolean> {
+      const includeAi = next.includeAi ?? preprocessingSource === "sr-roi";
+      const order = next.order ?? processingOrder;
+      if (includeAi && (superResolutionMode === "off" || !getSrImageInput())) return false;
+      const previousOrder = processingOrder;
+      processingOrder = order;
+      if (includeAi && order === "processed-first" && !getProcessedFirstImage()
+        && !await ensureProcessedFirstImage(superResolutionMode as SuperResolutionMode)) {
+        processingOrder = previousOrder;
+        return false;
       }
-      if (edgeSamInputSource === "original-processed" || edgeSamInputSource === "sr-roi-processed") void prepareEdgeSamImage();
+      const sourceChanged = controller.setSegmentationPreprocessingSource?.(includeAi ? "sr-roi" : "original") ?? false;
+      if (order !== previousOrder && !sourceChanged) refreshProcessedConsumers(["sr-roi-processed"]);
+      return sourceChanged || order !== previousOrder;
+    },
+
+    getSegmentationProcessingOrder(): SegmentationProcessingOrder {
+      return processingOrder;
+    },
+
+    isSegmentationProcessedAiStale(): boolean {
+      return isProcessedFirstStale();
+    },
+
+    async rerunSegmentationProcessedAi(): Promise<boolean> {
+      if (!isProcessedFirstStale()) return false;
+      if (!await ensureProcessedFirstImage(superResolutionMode as SuperResolutionMode)) return false;
+      refreshProcessedConsumers(["sr-roi-processed"]);
       return true;
     },
 
@@ -2085,6 +2176,8 @@ export function createSegmentationCanvasWorkflow(
         return false;
       }
       if (mode !== "off" && !await ensureSuperResolutionImage(mode)) return false;
+      if (mode !== "off" && processingOrder === "processed-first" && preprocessingSource === "sr-roi"
+        && !await ensureProcessedFirstImage(mode)) return false;
       superResolutionMode = mode;
       if (mode === "off" && preprocessingSource === "sr-roi") preprocessingSource = "original";
       if (viewSource === "sr-roi" && mode === "off") viewSource = "original";
@@ -2527,6 +2620,10 @@ export function createSegmentationCanvasWorkflow(
         smartPreview = null;
         canvas.discardActiveObject();
       } else {
+        if (overlayRenderDeferred) {
+          overlayRenderDeferred = false;
+          requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
+        }
         const hasSrView = viewSource === "sr-roi" || (viewSource === "processed" && preprocessingSource === "sr-roi");
         if (hasSrView) refreshViewSource();
         else renderSrRoiOverlay();

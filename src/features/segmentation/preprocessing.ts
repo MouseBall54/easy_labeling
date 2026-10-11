@@ -2,6 +2,8 @@ import { anisotropicDiffusion, autoLevels, clahe, destripe, flattenBackground, m
 
 export type SegmentationImageSourceMode = "original" | "original-processed" | "sr-roi" | "sr-roi-processed";
 export type SegmentationViewSourceMode = "original" | "sr-roi" | "processed";
+/** Which step runs first when Processed uses the AI ROI. */
+export type SegmentationProcessingOrder = "ai-first" | "processed-first";
 
 export type SegmentationPreprocessMode = "original" | "edge" | "edge-blend";
 

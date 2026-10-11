@@ -1292,7 +1292,12 @@ export function createEventManagerAdapter(input: {
       const viewSrButton = segmentationDocument?.getElementById("segmentationViewSrBtn");
       const viewProcessedButton = segmentationDocument?.getElementById("segmentationViewProcessedBtn");
       const preprocessModeSelect = segmentationDocument?.getElementById("segmentationPreprocessModeSelect");
-      const preprocessSourceSelect = segmentationDocument?.getElementById("segmentationPreprocessSourceSelect");
+      const pipelineSteps = segmentationDocument?.getElementById("segmentationPipelineSteps");
+      const pipelineAiToggle = segmentationDocument?.getElementById("segmentationPipelineAiToggle");
+      const pipelineSwapButton = segmentationDocument?.getElementById("segmentationPipelineSwapBtn");
+      const pipelineStale = segmentationDocument?.getElementById("segmentationPipelineStale");
+      const pipelineRerunButton = segmentationDocument?.getElementById("segmentationPipelineRerunBtn");
+      let pipelineBusy = false;
       const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
       const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
@@ -1385,13 +1390,10 @@ export function createEventManagerAdapter(input: {
       };
       const syncSuperResolutionControls = (): void => {
         const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
-        const sourceSelect = segmentationDocument?.getElementById("segmentationPreprocessSourceSelect");
         if (select instanceof HTMLSelectElement) {
           select.value = preprocessingController().getSegmentationSuperResolutionMode?.() ?? "off";
         }
-        if (sourceSelect instanceof HTMLSelectElement) {
-          sourceSelect.value = preprocessingController().getSegmentationPreprocessingSource?.() ?? "original";
-        }
+        syncProcessingPipeline();
         const edgeSamSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
         const superpixelSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
         if (edgeSamSelect instanceof HTMLSelectElement) {
@@ -1429,6 +1431,46 @@ export function createEventManagerAdapter(input: {
             if (label) label.textContent = "Hold Original";
           }
         }
+      };
+      function syncProcessingPipeline(): void {
+        const controller = preprocessingController();
+        const order = controller.getSegmentationProcessingOrder?.() ?? "ai-first";
+        const hasAi = (controller.getSegmentationSuperResolutionMode?.() ?? "off") !== "off";
+        if (pipelineSteps instanceof HTMLElement) pipelineSteps.dataset.order = order;
+        if (pipelineAiToggle instanceof HTMLInputElement) {
+          pipelineAiToggle.checked = controller.getSegmentationPreprocessingSource?.() === "sr-roi";
+          pipelineAiToggle.disabled = pipelineBusy || (!hasAi && !pipelineAiToggle.checked);
+          pipelineAiToggle.closest("label")?.setAttribute("title", hasAi ? "Use the AI enhancement of the ROI" : "Create an AI enhancement of an ROI first");
+        }
+        if (pipelineSwapButton instanceof HTMLButtonElement) pipelineSwapButton.disabled = pipelineBusy;
+        pipelineStale?.toggleAttribute("hidden", !(controller.isSegmentationProcessedAiStale?.() ?? false));
+        if (pipelineRerunButton instanceof HTMLButtonElement) {
+          pipelineRerunButton.disabled = pipelineBusy;
+          pipelineRerunButton.innerHTML = pipelineBusy
+            ? '<i class="bi bi-hourglass-split" aria-hidden="true"></i> Running AI…'
+            : '<i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run AI';
+        }
+        // The combined source follows the order, so name it by what it contains.
+        const combinedLabel = order === "processed-first" ? "AI on processed ROI" : "Processed AI ROI";
+        [edgeSamInputSelect, superpixelInputSelect].forEach((select) => {
+          const option = select instanceof HTMLSelectElement ? select.querySelector<HTMLOptionElement>('option[value="sr-roi-processed"]') : null;
+          if (option) option.textContent = combinedLabel;
+        });
+      }
+      /** Runs a pipeline change that may start the AI model, keeping the controls disabled meanwhile. */
+      const runPipelineChange = (change: () => Promise<boolean> | undefined, failure: string): void => {
+        if (pipelineBusy) return;
+        pipelineBusy = true;
+        syncProcessingPipeline();
+        runAsync(async () => {
+          try {
+            if (!await (change() ?? Promise.resolve(false))) input.uiManager.notify(failure, 3500);
+          } finally {
+            pipelineBusy = false;
+            syncSuperResolutionControls();
+            syncSegmentationViewSource();
+          }
+        });
       };
       const setSuperResolutionBusy = (mode: SuperResolutionMode | null): void => {
         const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
@@ -1664,6 +1706,7 @@ export function createEventManagerAdapter(input: {
         syncFilterLabels();
         if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
         if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
+        syncProcessingPipeline();
       };
       preprocessModeSelect?.addEventListener("change", applyPreprocessing);
       preprocessBlurInput?.addEventListener("change", applyPreprocessing);
@@ -1738,16 +1781,26 @@ export function createEventManagerAdapter(input: {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement) || !preprocessPresetSelect.value) return;
         storePreprocessPresets(preprocessPresets.filter((preset) => preset.name !== preprocessPresetSelect.value), "");
       });
-      preprocessSourceSelect?.addEventListener("change", () => {
-        if (!(preprocessSourceSelect instanceof HTMLSelectElement)) return;
-        const changed = preprocessingController().setSegmentationPreprocessingSource?.(
-          preprocessSourceSelect.value as "original" | "sr-roi"
+      pipelineAiToggle?.addEventListener("change", () => {
+        if (!(pipelineAiToggle instanceof HTMLInputElement)) return;
+        const includeAi = pipelineAiToggle.checked;
+        runPipelineChange(
+          () => preprocessingController().setSegmentationProcessingPipeline?.({ includeAi }),
+          includeAi ? "Select an ROI and generate an AI result before preprocessing it." : "Processing input could not be changed."
         );
-        if (changed === false && preprocessSourceSelect.value === "sr-roi") {
-          input.uiManager.notify("Select an ROI and generate an AI result before preprocessing it.", 3500);
-        }
-        syncSuperResolutionControls();
-        syncSegmentationViewSource();
+      });
+      pipelineSwapButton?.addEventListener("click", () => {
+        const order = preprocessingController().getSegmentationProcessingOrder?.() === "processed-first" ? "ai-first" : "processed-first";
+        runPipelineChange(
+          () => preprocessingController().setSegmentationProcessingPipeline?.({ order }),
+          "AI could not run on the processed image."
+        );
+      });
+      pipelineRerunButton?.addEventListener("click", () => {
+        runPipelineChange(
+          () => preprocessingController().rerunSegmentationProcessedAi?.(),
+          "AI could not run on the processed image."
+        );
       });
       edgeSamInputSelect?.addEventListener("change", () => {
         if (!(edgeSamInputSelect instanceof HTMLSelectElement)) return;

@@ -218,6 +218,12 @@ export interface CanvasController {
   setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
   setSegmentationPreprocessingSource?(source: "original" | "sr-roi"): boolean;
   getSegmentationPreprocessingSource?(): "original" | "sr-roi";
+  /** Sets whether Processed uses the AI ROI and in which order the two steps run; may run AI first. */
+  setSegmentationProcessingPipeline?(next: { includeAi?: boolean; order?: import("../segmentation/preprocessing.js").SegmentationProcessingOrder }): Promise<boolean>;
+  getSegmentationProcessingOrder?(): import("../segmentation/preprocessing.js").SegmentationProcessingOrder;
+  /** True when the Processed -> AI result was made with earlier processing settings. */
+  isSegmentationProcessedAiStale?(): boolean;
+  rerunSegmentationProcessedAi?(): Promise<boolean>;
   beginSegmentationSrRoiSelection?(): boolean;
   cancelSegmentationSrRoiSelection?(): boolean;
   isSegmentationSrRoiSelecting?(): boolean;

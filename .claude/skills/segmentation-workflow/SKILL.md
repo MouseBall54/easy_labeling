@@ -90,6 +90,14 @@ superpixel oddities.
   flattening, diffusion, CLAHE, auto levels) and presets; also feeds the
   Detection Processed view and Refine. Details in the `image-preprocessing`
   skill.
+- Pipeline order (`processingOrder`, Processed panel chips + swap button):
+  with the AI step on, `ai-first` processes the AI ROI, `processed-first` runs
+  AI on the ROI of the processed image (`ensureProcessedFirstImage`, cache key
+  `...:sr:<mode>:pre:<preprocessing key>`). The combined source is still
+  `sr-roi-processed`; the plain `sr-roi` and `original-processed` sources do
+  not change. After a processing change the previous Processed -> AI result
+  stays in use and `isSegmentationProcessedAiStale()` is true until
+  `rerunSegmentationProcessedAi()`; the model never re-runs on its own.
 
 ## Presets (`preset-service.ts` / `preset-codec.ts`)
 
