@@ -5,7 +5,7 @@ import type { PixelPoint } from "../automation/types.js";
 import type { AppMode, CanvasPoint } from "../../types/labels.js";
 import { createClipboardManager } from "./clipboard.js";
 import { getContrastTextColor, getColorForClass as defaultGetColorForClass } from "./colors.js";
-import type { CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
+import type { BoxGeometryUpdate, CanvasBulkOperationOptions, CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "./canvas-controller-types.js";
 import {
   createAnnotationId,
   ensureAnnotationId,
@@ -15,6 +15,7 @@ import {
   type FabricObjectLike,
   type FabricCircleLike,
   type FabricRectLike,
+  type FabricTextLike,
   type YoloMetadata
 } from "./fabric-types.js";
 import { normalizeFilterClassKey } from "../../ui/filter-state.js";
@@ -35,6 +36,9 @@ import {
   type CanvasHistorySelectionPayload
 } from "./history.js";
 import { layoutAnnotationLabels } from "./annotation-label-renderer.js";
+
+/** Above this many visible tags, tags hide while boxes move or the view zooms, and are laid out once afterwards. */
+const LABEL_TAG_SUSPEND_THRESHOLD = 150;
 
 function hasTinySize(rect: FabricRectLike): boolean {
   return rect.width < 5 && rect.height < 5;
@@ -95,6 +99,14 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
   let suspendedSelection: CanvasHistorySelectionPayload | null = null;
   let hoveredAnnotationId: string | null = null;
   let labelLayoutFrame: number | null = null;
+  let labelTagsSuspended = false;
+
+  const cancelLabelLayout = (): void => {
+    if (labelLayoutFrame !== null && typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(labelLayoutFrame);
+    }
+    labelLayoutFrame = null;
+  };
 
   const scheduleLabelLayout = (): void => {
     if (labelLayoutFrame !== null) {
@@ -454,10 +466,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     clear(): void {
-      if (labelLayoutFrame !== null && typeof globalThis.cancelAnimationFrame === "function") {
-        globalThis.cancelAnimationFrame(labelLayoutFrame);
-      }
-      labelLayoutFrame = null;
+      cancelLabelLayout();
+      labelTagsSuspended = false;
       hoveredAnnotationId = null;
       suspendedSelection = null;
       shell.clear();
@@ -1002,6 +1012,48 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       return true;
     },
 
+    updateBoxGeometries(updates: readonly BoxGeometryUpdate[]): number {
+      const byId = new Map(updates.map((update) => [update.annotationId, update]));
+      const rects = canvas.getObjects("rect").filter(isRectObject).filter((rect) => byId.has(ensureAnnotationId(rect)));
+      if (!state.currentImage || rects.length === 0) {
+        return 0;
+      }
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      // Group members use group-relative left/top; edit them ungrouped, then restore the selection.
+      canvas.discardActiveObject();
+      const epsilon = 1e-8;
+      rects.forEach((rect) => {
+        const geometry = byId.get(ensureAnnotationId(rect));
+        if (!geometry) return;
+        // Saved geometry is the bounding rect, which includes the (uniform) stroke: scale only the fill part.
+        const scaled = rect as FabricRectLike & { scaleX?: number; scaleY?: number };
+        rect.setCoords();
+        let bounds = rect.getBoundingRect();
+        const strokeX = bounds.width - rect.width * (scaled.scaleX ?? 1);
+        const strokeY = bounds.height - rect.height * (scaled.scaleY ?? 1);
+        rect.set({
+          scaleX: Math.max(geometry.width - strokeX, epsilon) / Math.max(rect.width, epsilon),
+          scaleY: Math.max(geometry.height - strokeY, epsilon) / Math.max(rect.height, epsilon)
+        });
+        rect.setCoords();
+        bounds = rect.getBoundingRect();
+        rect.set({ left: rect.left + geometry.x - bounds.left, top: rect.top + geometry.y - bounds.top });
+        rect.setCoords();
+        rect.originalYolo = null;
+        this.updateLabelText(rect);
+      });
+      restoreSelectionFromPayload(selectionBefore);
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({ before, after: captureRectSnapshots(), selectionBefore, selectionAfter: captureSelectionSnapshot() });
+      return rects.length;
+    },
+
+    subscribeHistory(listener: (entry: CanvasHistoryEntry) => void): () => void {
+      return history.subscribe(listener);
+    },
+
     setSelectedBoxesVisibility(visible: boolean): boolean {
       const selectedRects = extractVisibleRectSelection(canvas.getActiveObject());
       if (selectedRects.length === 0) {
@@ -1022,33 +1074,21 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     highlightSelection(): void {
-      const rects = this.getObjects("rect").filter(isRectObject);
-      const activeObjects = canvas.getActiveObjects();
-
-      rects.forEach((rect) => {
-        const isSelected = activeObjects.includes(rect);
-        const color = colorForClass(rect.labelClass);
-
-        if (isSelected) {
-          rect.set({
-            stroke: "#ff0000",
-            strokeWidth: 2,
-            strokeDashArray: [10, 5],
-            shadow: null
-          });
-        } else {
-          rect.set({
-            stroke: color,
-            strokeWidth: 2,
-            strokeDashArray: [],
-            shadow: null
-          });
+      // Only boxes whose selected state or class colour changed are touched: with thousands of
+      // boxes, restyling every box and its tag on each selection change froze the canvas.
+      const selected = new Set<unknown>(canvas.getActiveObjects());
+      this.getObjects("rect").filter(isRectObject).forEach((rect) => {
+        const isSelected = selected.has(rect);
+        const stroke = isSelected ? "#ff0000" : colorForClass(rect.labelClass);
+        if (rect.stroke === stroke && (rect.strokeDashArray?.length ?? 0) > 0 === isSelected) {
+          return;
         }
-
-        this.updateLabelText(rect);
+        rect.set({ stroke, strokeWidth: 2, strokeDashArray: isSelected ? [10, 5] : [], shadow: null });
+        rect._labelText?.set({ backgroundColor: stroke, fill: getContrastTextColor(stroke) });
       });
 
-      this.renderAll();
+      scheduleLabelLayout();
+      canvas.requestRenderAll();
     },
 
     refreshClassColors(): void {
@@ -1328,9 +1368,10 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
     updateAllLabelTexts(): void {
       const image = state.currentImage;
-      if (!image) {
+      if (!image || labelTagsSuspended) {
         return;
       }
+      cancelLabelLayout();
       const rects = this.getObjects("rect").filter(isRectObject);
       const [scaleX, , , scaleY, translateX, translateY] = canvas.viewportTransform;
       const zoom = Math.max(0.01, canvas.getZoom());
@@ -1388,7 +1429,30 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           visible: workflowActive && rect.visible !== false && layoutVisible
         });
       });
+      // Tags created above scheduled another layout pass; this one already placed them.
+      cancelLabelLayout();
       canvas.requestRenderAll();
+    },
+
+    suspendLabelTags(): boolean {
+      if (labelTagsSuspended) {
+        return true;
+      }
+      // Runs on every move event, so it scans the raw object list without type filtering.
+      const shown = canvas.getObjects().filter((object) => (object as FabricTextLike)._isLabelText === true && object.visible === true);
+      if (shown.length <= LABEL_TAG_SUSPEND_THRESHOLD) {
+        return false;
+      }
+      labelTagsSuspended = true;
+      cancelLabelLayout();
+      shown.forEach((text) => text.set("visible", false));
+      return true;
+    },
+
+    resumeLabelTags(): boolean {
+      const wasSuspended = labelTagsSuspended;
+      labelTagsSuspended = false;
+      return wasSuspended;
     },
 
     toggleAllLabelTexts(visible: boolean): void {

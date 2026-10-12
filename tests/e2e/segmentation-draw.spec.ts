@@ -298,7 +298,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeHidden();
   await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("cfsr-x2");
   await expect(page.locator("#segmentationPreprocessModeSelect")).toHaveValue("edge-blend");
-  await expect(page.locator("#segmentationPreprocessSourceSelect")).toHaveValue("original");
+  await expect(page.locator("#segmentationPipelineAiToggle")).not.toBeChecked();
   await page.locator("#segmentationViewSrBtn").click();
   await expect(page.locator("#segmentationSrSettingsGroup")).toBeVisible();
   await expect(page.locator("#segmentationPreprocessSettingsGroup")).toBeHidden();
@@ -317,7 +317,7 @@ test("segmentation draw creates overlay state and enables undo", async ({ page }
   await page.locator("#segmentationResetSrRoiBtn").click();
   await expect(page.locator("#segmentationResetSrRoiBtn")).toBeDisabled();
   await expect(page.locator("#segmentationSuperResolutionSelect")).toHaveValue("off");
-  await expect(page.locator("#segmentationPreprocessSourceSelect")).toHaveValue("original");
+  await expect(page.locator("#segmentationPipelineAiToggle")).not.toBeChecked();
   await expect(page.locator("#segmentationEdgeSamInputSelect")).toHaveValue("original");
   await expect(page.locator("#segmentationSuperpixelInputSelect")).toHaveValue("original");
   await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);

@@ -8,7 +8,7 @@ dist/
 test-results/
 .sisyphus/
 vendor/
-release/
+/release/
 .DS_Store
 # Local verification outputs, app profiles, and editor history
 /output/
@@ -22,3 +22,4 @@ runtime/yoloe/models/
 runtime/yoloe/__pycache__/
 runtime/yoloe/.state/
 Ultralytics/
+.claude/settings.local.json

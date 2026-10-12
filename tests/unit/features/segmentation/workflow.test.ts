@@ -387,6 +387,20 @@ describe("features/segmentation/workflow", () => {
     expect(controller.getSegmentationSummary?.()?.visibleClassIds).toEqual([]);
   });
 
+  it("defers overlay rendering while Detection is active and draws it once Segmentation activates", () => {
+    const controller = createCanvasControllerForWorkflow("segmentation", createState(), createDeps());
+    const overlays = () => controller.getObjects("image").filter((object) => {
+      return (object as { _isSegmentationOverlay?: boolean })._isSegmentationOverlay;
+    });
+    controller.setWorkflowActive?.(false);
+    controller.setBackgroundImage({ width: 32, height: 24 });
+    controller.loadSegmentationDocumentSnapshot?.(null);
+    expect(overlays()).toHaveLength(0);
+
+    controller.setWorkflowActive?.(true);
+    expect(overlays()).toHaveLength(1);
+  });
+
   it("uses document-level undo/redo and overlay state controls", async () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 16, height: 16 });
@@ -808,6 +822,73 @@ describe("features/segmentation/workflow", () => {
       expect(controller.isSegmentationSrRoiSelecting?.()).toBe(false);
       expect(controller.getSegmentationSrPreviewInfo?.()).toBeNull();
       expect(controller.getSegmentationSuperResolutionMode?.()).toBe("off");
+    } finally {
+      if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+      else Reflect.deleteProperty(globalThis, "document");
+    }
+  });
+
+  it("runs AI on the processed ROI in Processed -> AI order and re-runs it only on request", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const sourcePixels = new Uint8ClampedArray(4 * 4 * 4).map((_, index) => (index % 4 === 3 ? 255 : (index >> 2) * 10));
+    Object.defineProperty(globalThis, "document", { configurable: true, value: {
+      createElement: () => {
+        const element = {
+          width: 0, height: 0, dataset: {} as DOMStringMap, pixels: new Uint8ClampedArray(),
+          getContext: () => ({
+            drawImage: (image: { rgba?: Uint8ClampedArray }) => { element.pixels = new Uint8ClampedArray(image.rgba ?? sourcePixels); },
+            getImageData: () => ({ width: element.width, height: element.height, data: new Uint8ClampedArray(element.pixels) }),
+            createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+            putImageData: (imageData: { data: Uint8ClampedArray }) => { element.pixels = new Uint8ClampedArray(imageData.data); }
+          })
+        };
+        return element;
+      }
+    } });
+    const upscale = vi.fn(async (input: { mode: "cfsr-x2" | "cfsr-x4"; width: number; height: number; cacheKey: string; rgba: Uint8ClampedArray }) => ({
+      mode: input.mode, width: input.width * 2, height: input.height * 2, rgba: new Uint8ClampedArray(input.width * input.height * 16).fill(144), cacheKey: input.cacheKey
+    }));
+    const superResolutionService = {
+      upscale, clear: vi.fn(), dispose: vi.fn(), subscribeStatus: vi.fn(() => () => undefined),
+      getStatus: () => ({
+        phase: "ready" as const, backend: "wasm" as const, mode: "cfsr-x2" as const, modelLabel: "CFSR x2",
+        imageCacheKey: null, runs: 0, startedAt: null, elapsedMs: 0, completedUnits: 1, totalUnits: 1,
+        progressPercent: 100, fallbackOccurred: false, fallbackReason: null, cacheHit: false, message: null
+      })
+    };
+    try {
+      const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentImage: { width: 4, height: 4 } }), createDeps({ superResolutionService }));
+      controller.setBackgroundImage({ width: 4, height: 4, rgba: sourcePixels } as unknown as CanvasImageSource);
+      controller.setSegmentationPreprocessingConfig?.({ mode: "original", gamma: 2 });
+      controller.beginSegmentationSrRoiSelection?.();
+      controller.startSegmentationSrRoiSelection?.({ x: 1, y: 1 });
+      controller.finishSegmentationSrRoiSelection?.({ x: 3, y: 3 });
+      await controller.setSegmentationSuperResolutionMode?.("cfsr-x2");
+      const originalCrop = upscale.mock.calls.at(-1)![0].rgba;
+      await expect(controller.setSegmentationProcessingPipeline?.({ includeAi: true })).resolves.toBe(true);
+      expect(upscale).toHaveBeenCalledTimes(1);
+
+      await expect(controller.setSegmentationProcessingPipeline?.({ order: "processed-first" })).resolves.toBe(true);
+      expect(controller.getSegmentationProcessingOrder?.()).toBe("processed-first");
+      expect(upscale).toHaveBeenCalledTimes(2);
+      const processedCall = upscale.mock.calls.at(-1)![0];
+      expect(processedCall.cacheKey).toContain(":pre:");
+      expect(Array.from(processedCall.rgba)).not.toEqual(Array.from(originalCrop));
+      expect(controller.setSegmentationViewSource?.("processed")).toBe(true);
+      expect(controller.getSegmentationEdgeSamInputSource?.()).toBe("sr-roi-processed");
+      expect(controller.isSegmentationProcessedAiStale?.()).toBe(false);
+
+      controller.setSegmentationPreprocessingConfig?.({ gamma: 1.5 });
+      expect(controller.isSegmentationProcessedAiStale?.()).toBe(true);
+      expect(controller.getSegmentationViewSource?.()).toBe("processed");
+      expect(upscale).toHaveBeenCalledTimes(2);
+      await expect(controller.rerunSegmentationProcessedAi?.()).resolves.toBe(true);
+      expect(upscale).toHaveBeenCalledTimes(3);
+      expect(controller.isSegmentationProcessedAiStale?.()).toBe(false);
+
+      await expect(controller.setSegmentationProcessingPipeline?.({ order: "ai-first" })).resolves.toBe(true);
+      expect(upscale).toHaveBeenCalledTimes(3);
+      expect(controller.isSegmentationProcessedAiStale?.()).toBe(false);
     } finally {
       if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
       else Reflect.deleteProperty(globalThis, "document");

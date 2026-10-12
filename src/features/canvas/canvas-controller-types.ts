@@ -22,6 +22,14 @@ export interface AppliedBoxLayout {
   discardedOutOfBoundsCount: number;
 }
 
+export interface BoxGeometryUpdate {
+  annotationId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DetectionBoxInput {
   classId: string;
   x: number;
@@ -116,6 +124,9 @@ export interface CanvasController {
   translateSelectedBoxes(delta: PixelPoint): void;
   getSelectedBoxCount(): number;
   updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
+  /** Sets bounding-rect geometry (image px) for many boxes as one undo step; returns the count updated. */
+  updateBoxGeometries?(updates: readonly BoxGeometryUpdate[]): number;
+  subscribeHistory?(listener: (entry: import("./history.js").CanvasHistoryEntry) => void): () => void;
   setSelectedBoxesVisibility?(visible: boolean): boolean;
   highlightSelection(): void;
   refreshClassColors?(): void;
@@ -136,6 +147,10 @@ export interface CanvasController {
   drawLabelText(rect: FabricRectLike): void;
   updateLabelText(rect: FabricRectLike): void;
   updateAllLabelTexts(): void;
+  /** Hides class tags during a gesture when many are shown; true while suspended. Layout is skipped until resumed. */
+  suspendLabelTags?(): boolean;
+  /** Ends a suspension; true if one was active (the caller then runs updateAllLabelTexts). */
+  resumeLabelTags?(): boolean;
   toggleAllLabelTexts(visible: boolean): void;
   setLabelDisplayMode?(mode: LabelDisplayMode): void;
   setHoveredAnnotation?(rect: FabricRectLike | null): void;
@@ -203,6 +218,12 @@ export interface CanvasController {
   setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
   setSegmentationPreprocessingSource?(source: "original" | "sr-roi"): boolean;
   getSegmentationPreprocessingSource?(): "original" | "sr-roi";
+  /** Sets whether Processed uses the AI ROI and in which order the two steps run; may run AI first. */
+  setSegmentationProcessingPipeline?(next: { includeAi?: boolean; order?: import("../segmentation/preprocessing.js").SegmentationProcessingOrder }): Promise<boolean>;
+  getSegmentationProcessingOrder?(): import("../segmentation/preprocessing.js").SegmentationProcessingOrder;
+  /** True when the Processed -> AI result was made with earlier processing settings. */
+  isSegmentationProcessedAiStale?(): boolean;
+  rerunSegmentationProcessedAi?(): Promise<boolean>;
   beginSegmentationSrRoiSelection?(): boolean;
   cancelSegmentationSrRoiSelection?(): boolean;
   isSegmentationSrRoiSelecting?(): boolean;

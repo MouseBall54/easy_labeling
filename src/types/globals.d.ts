@@ -26,7 +26,7 @@ declare global {
     };
   }
 
-  type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe";
+  type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe" | "refine";
   type EasyLabelingProfileDirectoryKind = EasyLabelingLibraryFileKind | "class-info";
 
   interface EasyLabelingLibraryFile {

@@ -1,3 +1,6 @@
+import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
+import type { DirectoryHandleLike } from "../types/files.js";
+import { loadPreprocessingPresets, savePreprocessingPresets, upsertPreprocessingPreset, type PreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
@@ -8,6 +11,7 @@ import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
+import { createRefineController, resolveRefineShortcut } from "./refine-controller.js";
 import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
 import { saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
@@ -156,6 +160,29 @@ export function createEventManagerAdapter(input: {
       }
       const rawCanvas = input.canvasController.raw.canvas;
       const preprocessingController = () => input.canvasController.preprocessing ?? input.canvasController.raw;
+      // Class tags hide while many boxes move or the view zooms, and are laid out once afterwards.
+      let labelTagResumeTimer: ReturnType<typeof setTimeout> | null = null;
+      const resumeLabelTags = (): boolean => {
+        if (labelTagResumeTimer !== null) {
+          clearTimeout(labelTagResumeTimer);
+          labelTagResumeTimer = null;
+        }
+        return input.canvasController.raw.resumeLabelTags?.() ?? false;
+      };
+      const relayoutLabelTagsWhenIdle = (): void => {
+        if (!input.canvasController.raw.suspendLabelTags?.()) {
+          input.canvasController.raw.updateAllLabelTexts();
+          return;
+        }
+        if (labelTagResumeTimer !== null) {
+          clearTimeout(labelTagResumeTimer);
+        }
+        labelTagResumeTimer = setTimeout(() => {
+          if (resumeLabelTags()) {
+            input.canvasController.raw.updateAllLabelTexts();
+          }
+        }, 200);
+      };
       const syncLabelOnlyControls = (): void => {
         const enabled = input.state.view.labelOnlyView;
         const background = input.state.view.labelOnlyBackground;
@@ -205,6 +232,15 @@ export function createEventManagerAdapter(input: {
         })
         : null;
       automationController?.bind();
+      const refineController = input.documentRef
+        ? createRefineController({
+          state: input.state,
+          uiManager: input.uiManager,
+          canvasController: input.canvasController,
+          documentRef: input.documentRef
+        })
+        : null;
+      refineController?.bind();
 
 
       const runAsync = (action: () => Promise<void>): void => {
@@ -1256,10 +1292,29 @@ export function createEventManagerAdapter(input: {
       const viewSrButton = segmentationDocument?.getElementById("segmentationViewSrBtn");
       const viewProcessedButton = segmentationDocument?.getElementById("segmentationViewProcessedBtn");
       const preprocessModeSelect = segmentationDocument?.getElementById("segmentationPreprocessModeSelect");
-      const preprocessSourceSelect = segmentationDocument?.getElementById("segmentationPreprocessSourceSelect");
+      const pipelineSteps = segmentationDocument?.getElementById("segmentationPipelineSteps");
+      const pipelineAiToggle = segmentationDocument?.getElementById("segmentationPipelineAiToggle");
+      const pipelineSwapButton = segmentationDocument?.getElementById("segmentationPipelineSwapBtn");
+      const pipelineStale = segmentationDocument?.getElementById("segmentationPipelineStale");
+      const pipelineRerunButton = segmentationDocument?.getElementById("segmentationPipelineRerunBtn");
+      let pipelineBusy = false;
       const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
       const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
+      const preprocessElement = (id: string): HTMLElement | null => segmentationDocument?.getElementById(`segmentationPreprocess${id}`) ?? null;
+      // Range sliders of the filter pipeline: slider value / scale = config value.
+      const preprocessRanges: { id: string; key: "contrast" | "gamma" | "flattenSigma" | "diffusionIterations" | "diffusionKappa" | "claheClip" | "claheTiles" | "levelsClip"; scale: number; label(value: number): string }[] = [
+        { id: "Flatten", key: "flattenSigma", scale: 1, label: (v) => (v ? `${v} px` : "Off") },
+        { id: "Diffusion", key: "diffusionIterations", scale: 1, label: (v) => (v ? `${v}×` : "Off") },
+        { id: "Kappa", key: "diffusionKappa", scale: 1, label: (v) => String(v) },
+        { id: "Clahe", key: "claheClip", scale: 10, label: (v) => (v ? v.toFixed(1) : "Off") },
+        { id: "ClaheTiles", key: "claheTiles", scale: 1, label: (v) => `${v}×${v}` },
+        { id: "Levels", key: "levelsClip", scale: 10, label: (v) => (v ? `${v.toFixed(1)}%` : "Off") },
+        { id: "Contrast", key: "contrast", scale: 100, label: (v) => `${Math.round(v * 100)}%` },
+        { id: "Gamma", key: "gamma", scale: 100, label: (v) => v.toFixed(2) }
+      ];
+      const preprocessMedianToggle = preprocessElement("MedianToggle");
+      const preprocessDestripeSelect = preprocessElement("DestripeSelect");
       const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
       const focusSrRoiButton = segmentationDocument?.getElementById("segmentationFocusSrRoiBtn");
@@ -1335,13 +1390,10 @@ export function createEventManagerAdapter(input: {
       };
       const syncSuperResolutionControls = (): void => {
         const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
-        const sourceSelect = segmentationDocument?.getElementById("segmentationPreprocessSourceSelect");
         if (select instanceof HTMLSelectElement) {
           select.value = preprocessingController().getSegmentationSuperResolutionMode?.() ?? "off";
         }
-        if (sourceSelect instanceof HTMLSelectElement) {
-          sourceSelect.value = preprocessingController().getSegmentationPreprocessingSource?.() ?? "original";
-        }
+        syncProcessingPipeline();
         const edgeSamSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
         const superpixelSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
         if (edgeSamSelect instanceof HTMLSelectElement) {
@@ -1379,6 +1431,46 @@ export function createEventManagerAdapter(input: {
             if (label) label.textContent = "Hold Original";
           }
         }
+      };
+      function syncProcessingPipeline(): void {
+        const controller = preprocessingController();
+        const order = controller.getSegmentationProcessingOrder?.() ?? "ai-first";
+        const hasAi = (controller.getSegmentationSuperResolutionMode?.() ?? "off") !== "off";
+        if (pipelineSteps instanceof HTMLElement) pipelineSteps.dataset.order = order;
+        if (pipelineAiToggle instanceof HTMLInputElement) {
+          pipelineAiToggle.checked = controller.getSegmentationPreprocessingSource?.() === "sr-roi";
+          pipelineAiToggle.disabled = pipelineBusy || (!hasAi && !pipelineAiToggle.checked);
+          pipelineAiToggle.closest("label")?.setAttribute("title", hasAi ? "Use the AI enhancement of the ROI" : "Create an AI enhancement of an ROI first");
+        }
+        if (pipelineSwapButton instanceof HTMLButtonElement) pipelineSwapButton.disabled = pipelineBusy;
+        pipelineStale?.toggleAttribute("hidden", !(controller.isSegmentationProcessedAiStale?.() ?? false));
+        if (pipelineRerunButton instanceof HTMLButtonElement) {
+          pipelineRerunButton.disabled = pipelineBusy;
+          pipelineRerunButton.innerHTML = pipelineBusy
+            ? '<i class="bi bi-hourglass-split" aria-hidden="true"></i> Running AI…'
+            : '<i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run AI';
+        }
+        // The combined source follows the order, so name it by what it contains.
+        const combinedLabel = order === "processed-first" ? "AI on processed ROI" : "Processed AI ROI";
+        [edgeSamInputSelect, superpixelInputSelect].forEach((select) => {
+          const option = select instanceof HTMLSelectElement ? select.querySelector<HTMLOptionElement>('option[value="sr-roi-processed"]') : null;
+          if (option) option.textContent = combinedLabel;
+        });
+      }
+      /** Runs a pipeline change that may start the AI model, keeping the controls disabled meanwhile. */
+      const runPipelineChange = (change: () => Promise<boolean> | undefined, failure: string): void => {
+        if (pipelineBusy) return;
+        pipelineBusy = true;
+        syncProcessingPipeline();
+        runAsync(async () => {
+          try {
+            if (!await (change() ?? Promise.resolve(false))) input.uiManager.notify(failure, 3500);
+          } finally {
+            pipelineBusy = false;
+            syncSuperResolutionControls();
+            syncSegmentationViewSource();
+          }
+        });
       };
       const setSuperResolutionBusy = (mode: SuperResolutionMode | null): void => {
         const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
@@ -1585,17 +1677,36 @@ export function createEventManagerAdapter(input: {
         event.preventDefault();
         setOriginalComparison(false);
       });
+      const syncFilterLabels = (): void => {
+        for (const field of preprocessRanges) {
+          const slider = preprocessElement(`${field.id}Input`);
+          const value = preprocessElement(`${field.id}Value`);
+          if (slider instanceof HTMLInputElement && value) value.textContent = field.label(Number(slider.value) / field.scale);
+        }
+      };
+      const preprocessPresetSelect = preprocessElement("PresetSelect");
+      let applyingPreprocessPreset = false;
       const applyPreprocessing = (): void => {
+        // A hand-made change no longer matches the chosen preset.
+        if (!applyingPreprocessPreset && preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = "";
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
           || !(preprocessBlurInput instanceof HTMLInputElement)
           || !(preprocessEdgeWeightInput instanceof HTMLInputElement)) return;
         const changed = preprocessingController().setSegmentationPreprocessingConfig?.({
           mode: preprocessModeSelect.value as import("../features/segmentation/preprocessing.js").SegmentationPreprocessMode,
           blurStrength: Number.parseInt(preprocessBlurInput.value, 10),
-          edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100
+          edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100,
+          ...(preprocessMedianToggle instanceof HTMLInputElement ? { median: preprocessMedianToggle.checked } : {}),
+          ...(preprocessDestripeSelect instanceof HTMLSelectElement ? { destripe: preprocessDestripeSelect.value as "off" | "rows" | "columns" } : {}),
+          ...Object.fromEntries(preprocessRanges.flatMap((field) => {
+            const slider = preprocessElement(`${field.id}Input`);
+            return slider instanceof HTMLInputElement ? [[field.key, Number(slider.value) / field.scale]] : [];
+          }))
         });
+        syncFilterLabels();
         if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
         if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
+        syncProcessingPipeline();
       };
       preprocessModeSelect?.addEventListener("change", applyPreprocessing);
       preprocessBlurInput?.addEventListener("change", applyPreprocessing);
@@ -1603,16 +1714,93 @@ export function createEventManagerAdapter(input: {
         if (preprocessEdgeWeightInput instanceof HTMLInputElement && preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
       });
       preprocessEdgeWeightInput?.addEventListener("change", applyPreprocessing);
-      preprocessSourceSelect?.addEventListener("change", () => {
-        if (!(preprocessSourceSelect instanceof HTMLSelectElement)) return;
-        const changed = preprocessingController().setSegmentationPreprocessingSource?.(
-          preprocessSourceSelect.value as "original" | "sr-roi"
-        );
-        if (changed === false && preprocessSourceSelect.value === "sr-roi") {
-          input.uiManager.notify("Select an ROI and generate an AI result before preprocessing it.", 3500);
+      // Filter sliders: labels follow while dragging, the (whole-image) reprocess runs on release.
+      preprocessRanges.forEach((field) => {
+        const slider = preprocessElement(`${field.id}Input`);
+        slider?.addEventListener("input", syncFilterLabels);
+        slider?.addEventListener("change", applyPreprocessing);
+      });
+      preprocessMedianToggle?.addEventListener("change", applyPreprocessing);
+      preprocessDestripeSelect?.addEventListener("change", applyPreprocessing);
+      /** Writes a whole config into the panel controls and applies it (Reset and presets). */
+      const setPreprocessPanel = (config: SegmentationPreprocessingConfig, presetName = ""): void => {
+        if (preprocessModeSelect instanceof HTMLSelectElement) preprocessModeSelect.value = config.mode;
+        if (preprocessBlurInput instanceof HTMLInputElement) preprocessBlurInput.value = String(config.blurStrength);
+        if (preprocessEdgeWeightInput instanceof HTMLInputElement) preprocessEdgeWeightInput.value = String(Math.round(config.edgeWeight * 100));
+        if (preprocessMedianToggle instanceof HTMLInputElement) preprocessMedianToggle.checked = config.median;
+        if (preprocessDestripeSelect instanceof HTMLSelectElement) preprocessDestripeSelect.value = config.destripe;
+        for (const field of preprocessRanges) {
+          const slider = preprocessElement(`${field.id}Input`);
+          if (slider instanceof HTMLInputElement) slider.value = String(Math.round(config[field.key] * field.scale));
         }
-        syncSuperResolutionControls();
-        syncSegmentationViewSource();
+        applyingPreprocessPreset = true;
+        try { applyPreprocessing(); } finally { applyingPreprocessPreset = false; }
+        if (preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = presetName;
+      };
+      preprocessElement("ResetBtn")?.addEventListener("click", () => setPreprocessPanel(DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG));
+
+      // Preprocessing presets live in the dataset's .easy-labeling folder.
+      let preprocessPresets: PreprocessingPreset[] = [];
+      const renderPreprocessPresets = (selected = preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : ""): void => {
+        if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
+        preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => new Option(preset.name, preset.name)));
+        preprocessPresetSelect.value = preprocessPresets.some((preset) => preset.name === selected) ? selected : "";
+      };
+      const refreshPreprocessPresets = (): void => {
+        runAsync(async () => {
+          preprocessPresets = await loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null);
+          renderPreprocessPresets();
+        });
+      };
+      const currentPreprocessConfig = (): SegmentationPreprocessingConfig | undefined => preprocessingController().getSegmentationPreprocessingConfig?.();
+      const storePreprocessPresets = (next: PreprocessingPreset[], selected: string): void => {
+        const folder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+        if (!folder) { input.uiManager.notify("Open a dataset folder to keep preprocessing presets.", 4000); return; }
+        preprocessPresets = next;
+        renderPreprocessPresets(selected);
+        runAsync(() => savePreprocessingPresets(folder, next));
+      };
+      preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
+      input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", refreshPreprocessPresets);
+      preprocessPresetSelect?.addEventListener("change", () => {
+        if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
+        const preset = preprocessPresets.find((item) => item.name === preprocessPresetSelect.value);
+        if (preset) setPreprocessPanel(preset.config, preset.name);
+      });
+      preprocessElement("PresetSaveBtn")?.addEventListener("click", () => {
+        const nameInput = preprocessElement("PresetName");
+        const config = currentPreprocessConfig();
+        if (!(nameInput instanceof HTMLInputElement) || !config) return;
+        const name = nameInput.value.trim() || (preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : "");
+        if (!name) { input.uiManager.notify("Type a preset name.", 3000); nameInput.focus(); return; }
+        storePreprocessPresets(upsertPreprocessingPreset(preprocessPresets, name, config), name);
+        nameInput.value = "";
+        input.uiManager.notify(`Saved preprocessing preset "${name}".`, 2500);
+      });
+      preprocessElement("PresetDeleteBtn")?.addEventListener("click", () => {
+        if (!(preprocessPresetSelect instanceof HTMLSelectElement) || !preprocessPresetSelect.value) return;
+        storePreprocessPresets(preprocessPresets.filter((preset) => preset.name !== preprocessPresetSelect.value), "");
+      });
+      pipelineAiToggle?.addEventListener("change", () => {
+        if (!(pipelineAiToggle instanceof HTMLInputElement)) return;
+        const includeAi = pipelineAiToggle.checked;
+        runPipelineChange(
+          () => preprocessingController().setSegmentationProcessingPipeline?.({ includeAi }),
+          includeAi ? "Select an ROI and generate an AI result before preprocessing it." : "Processing input could not be changed."
+        );
+      });
+      pipelineSwapButton?.addEventListener("click", () => {
+        const order = preprocessingController().getSegmentationProcessingOrder?.() === "processed-first" ? "ai-first" : "processed-first";
+        runPipelineChange(
+          () => preprocessingController().setSegmentationProcessingPipeline?.({ order }),
+          "AI could not run on the processed image."
+        );
+      });
+      pipelineRerunButton?.addEventListener("click", () => {
+        runPipelineChange(
+          () => preprocessingController().rerunSegmentationProcessedAi?.(),
+          "AI could not run on the processed image."
+        );
       });
       edgeSamInputSelect?.addEventListener("change", () => {
         if (!(edgeSamInputSelect instanceof HTMLSelectElement)) return;
@@ -2044,6 +2232,7 @@ export function createEventManagerAdapter(input: {
 
         const mouseEvent = event.e as MouseEvent;
         if (mouseEvent.altKey || (mouseEvent.ctrlKey && !mouseEvent.shiftKey)) {
+          input.canvasController.raw.suspendLabelTags?.();
           rawCanvas.isDragging = true;
           rawCanvas.selection = false;
           rawCanvas.lastPosX = mouseEvent.clientX;
@@ -2173,6 +2362,7 @@ export function createEventManagerAdapter(input: {
           rawCanvas.selection = shouldEnableCanvasSelection();
           rawCanvas.setViewportTransform([...rawCanvas.viewportTransform]);
           rawCanvas.calcOffset?.();
+          resumeLabelTags();
           input.canvasController.raw.updateAllLabelTexts();
           rawCanvas.requestRenderAll();
           input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
@@ -2214,6 +2404,9 @@ export function createEventManagerAdapter(input: {
           return;
         }
         clearTemporarySelectionSuppression();
+        if (resumeLabelTags()) {
+          input.canvasController.raw.updateAllLabelTexts();
+        }
         runAsync(() => input.canvasController.raw.finishDrawing().then(() => {
           input.uiManager.updateLabelList();
           syncToolbarActionState();
@@ -2268,7 +2461,7 @@ export function createEventManagerAdapter(input: {
         wheelEvent.preventDefault();
         wheelEvent.stopPropagation();
         input.uiManager.updateZoomDisplay(rawCanvas.getZoom());
-        input.canvasController.raw.updateAllLabelTexts();
+        relayoutLabelTagsWhenIdle();
         input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
       });
 
@@ -2286,14 +2479,22 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.setHoveredAnnotation?.(null);
       });
 
+      const suspendLabelTagsDuringTransform = (): void => {
+        input.canvasController.raw.suspendLabelTags?.();
+      };
+      rawCanvas.on?.("object:moving", suspendLabelTagsDuringTransform);
+      rawCanvas.on?.("object:scaling", suspendLabelTagsDuringTransform);
+      rawCanvas.on?.("object:rotating", suspendLabelTagsDuringTransform);
       rawCanvas.on?.("object:modified", () => {
         finalizeGestureBaseline();
+        resumeLabelTags();
         input.canvasController.raw.updateAllLabelTexts();
         input.uiManager.updateLabelList();
         syncToolbarActionState();
       });
       rawCanvas.on?.("object:scaled", () => {
         finalizeGestureBaseline();
+        resumeLabelTags();
         input.canvasController.raw.updateAllLabelTexts();
         input.uiManager.updateLabelList();
         syncToolbarActionState();
@@ -2426,6 +2627,14 @@ export function createEventManagerAdapter(input: {
           return;
         }
         if (elements.classFileViewerModal._element?.classList.contains("show")) {
+          return;
+        }
+
+        const refineShortcut = resolveRefineShortcut(event);
+        if (refineShortcut && refineController && input.state.session.workflow === "detection"
+          && input.documentRef?.querySelector(".modal.show, .modal[aria-modal='true']") == null) {
+          event.preventDefault();
+          if (!event.repeat) refineController.runShortcut(refineShortcut);
           return;
         }
 
@@ -2741,15 +2950,12 @@ export function createEventManagerAdapter(input: {
           if (isActiveSelectionObject(activeObject)) {
             activeObject.getObjects().forEach((object) => {
               object.originalYolo = null;
-              if (isRectObject(object)) {
-                input.canvasController.raw.updateLabelText(object);
-              }
             });
           } else if (isRectObject(activeObject)) {
             activeObject.originalYolo = null;
-            input.canvasController.raw.updateLabelText(activeObject);
           }
-          input.canvasController.raw.renderAll();
+          relayoutLabelTagsWhenIdle();
+          rawCanvas.requestRenderAll();
           input.uiManager.updateLabelList();
           input.canvasController.raw.commitHistoryFromBaseline(baseline);
           syncToolbarActionState();

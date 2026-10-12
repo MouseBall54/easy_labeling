@@ -151,13 +151,46 @@
                                 </div>
                             </div>
                             <div id="segmentationPreprocessSettingsGroup" class="segmentation-preprocessing-block segmentation-view-settings" data-view-settings="processed" hidden>
+                                <label class="form-label small mb-1" for="segmentationPreprocessPresetSelect">Preset</label>
+                                <div class="input-group input-group-sm">
+                                    <select id="segmentationPreprocessPresetSelect" class="form-select" aria-label="Preprocessing preset"><option value="">No presets yet</option></select>
+                                    <button id="segmentationPreprocessPresetDeleteBtn" type="button" class="btn btn-outline-danger" title="Delete the chosen preset" aria-label="Delete the chosen preprocessing preset"><i class="bi bi-trash" aria-hidden="true"></i></button>
+                                </div>
+                                <div class="input-group input-group-sm mt-1 mb-2">
+                                    <input id="segmentationPreprocessPresetName" type="text" class="form-control" placeholder="Preset name" aria-label="New preprocessing preset name" maxlength="60">
+                                    <button id="segmentationPreprocessPresetSaveBtn" type="button" class="btn btn-outline-secondary" title="Save the current settings as a preset">Save</button>
+                                </div>
                                 <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Processing mode</label>
                                 <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
-                                <label class="form-label small mb-1 segmentation-preprocess-source-label" for="segmentationPreprocessSourceSelect">Processing input</label>
-                                <select id="segmentationPreprocessSourceSelect" class="form-select form-select-sm"><option value="original" selected>Original</option><option value="sr-roi">AI</option></select>
+                                <div class="segmentation-pipeline" role="group" aria-labelledby="segmentationPipelineLabel">
+                                    <span id="segmentationPipelineLabel" class="form-label small mb-1">Pipeline</span>
+                                    <div id="segmentationPipelineSteps" class="segmentation-pipeline-steps" data-order="ai-first">
+                                        <label class="segmentation-pipeline-step" data-step="ai" title="Use the AI enhancement of the ROI"><input id="segmentationPipelineAiToggle" class="form-check-input" type="checkbox"><span>AI</span></label>
+                                        <i class="bi bi-arrow-right segmentation-pipeline-arrow" aria-hidden="true"></i>
+                                        <span class="segmentation-pipeline-step" data-step="processed">Processed</span>
+                                        <button id="segmentationPipelineSwapBtn" type="button" class="btn btn-sm btn-outline-secondary segmentation-pipeline-swap" title="Swap the order of AI and Processed" aria-label="Swap the order of AI and Processed"><i class="bi bi-arrow-left-right" aria-hidden="true"></i></button>
+                                    </div>
+                                    <div id="segmentationPipelineStale" class="segmentation-pipeline-stale" role="status" hidden><small>AI result uses earlier processing settings.</small><button id="segmentationPipelineRerunBtn" type="button" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run AI</button></div>
+                                </div>
                                 <div class="segmentation-preprocessing-controls">
+                                    <div class="segmentation-preprocessing-subhead"><span>Clean-up</span><small>keeps edges in place</small></div>
+                                    <div class="segmentation-preprocessing-switch"><label class="form-check form-switch small mb-0" title="3x3 median against impulse noise and dropped pixels"><input id="segmentationPreprocessMedianToggle" class="form-check-input" type="checkbox"><span class="form-check-label">Median 3×3</span></label></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessDestripeSelect" title="Remove raster-scan streaks line by line">Destripe</label><select id="segmentationPreprocessDestripeSelect" class="form-select form-select-sm"><option value="off" selected>Off</option><option value="rows">Rows</option><option value="columns">Columns</option></select></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessFlattenInput" title="Subtract a smooth background this wide (charging, thickness or illumination gradients)">Flatten σ <span id="segmentationPreprocessFlattenValue">Off</span></label><input id="segmentationPreprocessFlattenInput" type="range" class="form-range" min="0" max="300" step="10" value="0"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessDiffusionInput" title="Edge-preserving (anisotropic diffusion) iterations">Denoise <span id="segmentationPreprocessDiffusionValue">Off</span></label><input id="segmentationPreprocessDiffusionInput" type="range" class="form-range" min="0" max="30" step="1" value="0"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessKappaInput" title="Grey-level steps larger than this are kept as edges while denoising">Edge keep κ <span id="segmentationPreprocessKappaValue">20</span></label><input id="segmentationPreprocessKappaInput" type="range" class="form-range" min="2" max="100" step="1" value="20"></div>
+                                    <div aria-hidden="true"></div>
+                                    <div class="segmentation-preprocessing-subhead"><span>Contrast</span><small>local, then global</small></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessClaheInput" title="Local contrast (contrast-limited adaptive histogram equalisation) clip limit">CLAHE <span id="segmentationPreprocessClaheValue">Off</span></label><input id="segmentationPreprocessClaheInput" type="range" class="form-range" min="0" max="80" step="5" value="0"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessClaheTilesInput" title="Tiles per side for CLAHE">CLAHE tiles <span id="segmentationPreprocessClaheTilesValue">8</span></label><input id="segmentationPreprocessClaheTilesInput" type="range" class="form-range" min="2" max="16" step="1" value="8"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessLevelsInput" title="Stretch the image so this percentage clips at each end">Auto levels <span id="segmentationPreprocessLevelsValue">Off</span></label><input id="segmentationPreprocessLevelsInput" type="range" class="form-range" min="0" max="50" step="5" value="0"></div>
+                                    <div aria-hidden="true"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessContrastInput" title="Contrast around mid grey, applied before edge processing">Contrast <span id="segmentationPreprocessContrastValue">100%</span></label><input id="segmentationPreprocessContrastInput" type="range" class="form-range" min="20" max="300" step="5" value="100"></div>
+                                    <div><label class="form-label small mb-1" for="segmentationPreprocessGammaInput" title="Above 1 brightens mid-tones, below 1 darkens them">Gamma <span id="segmentationPreprocessGammaValue">1.00</span></label><input id="segmentationPreprocessGammaInput" type="range" class="form-range" min="20" max="300" step="5" value="100"></div>
+                                    <div class="segmentation-preprocessing-subhead"><span>Edges</span><small>Edge / Edge Blend modes</small></div>
                                     <div><label class="form-label small mb-1" for="segmentationPreprocessBlurInput">Blur strength</label><input id="segmentationPreprocessBlurInput" type="range" class="form-range" min="0" max="4" step="1" value="2"></div>
                                     <div><label class="form-label small mb-1" for="segmentationPreprocessEdgeWeightInput">Edge weight <span id="segmentationPreprocessEdgeWeightValue">65%</span></label><input id="segmentationPreprocessEdgeWeightInput" type="range" class="form-range" min="0" max="100" step="1" value="65"></div>
+                                    <button id="segmentationPreprocessResetBtn" type="button" class="btn btn-sm btn-outline-secondary segmentation-preprocessing-reset">Reset preprocessing</button>
                                 </div>
                             </div>
                             <div id="segmentationSrRoiGroup" class="segmentation-preprocessing-block segmentation-sr-roi-group">
@@ -413,9 +446,10 @@
                 <div id="genericModeControls" class="segmented-control mode-switch-group" data-ui="mode-switch-group" role="group" aria-label="Annotation tool">
                     <input type="radio" class="btn-check" name="mode" id="drawMode" autocomplete="off">
                     <label class="btn" for="drawMode" data-ui="mode-draw" title="Draw (Ctrl+Q)"><i class="bi bi-bounding-box" aria-hidden="true"></i><span>Draw</span></label>
-                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Open automation settings. Canvas tool stays unchanged." aria-label="Automation settings" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation settings</span></button>
                     <input type="radio" class="btn-check" name="mode" id="editMode" autocomplete="off" checked>
                     <label class="btn" for="editMode" data-ui="mode-edit" title="Select and edit (Ctrl+Q)"><i class="bi bi-cursor" aria-hidden="true"></i><span>Edit</span></label>
+                    <button id="taskRefineBtn" type="button" class="btn" data-task="refine" title="Refine box edges (R). Canvas tool stays unchanged." aria-label="Refine settings" aria-pressed="false"><i class="bi bi-bounding-box-circles" aria-hidden="true"></i><span>Refine</span></button>
+                    <button id="taskAutomateBtn" type="button" class="btn" data-task="automate" title="Open automation settings. Canvas tool stays unchanged." aria-label="Automation settings" aria-pressed="false"><i class="bi bi-robot" aria-hidden="true"></i><span>Automation settings</span></button>
                 </div>
             </section>
             <section id="segmentationCanvasToolbar" class="segmentation-canvas-toolbar" aria-label="Segmentation tools" hidden>
@@ -433,6 +467,7 @@
             <div id="segmentationBrushCursorPreview" class="segmentation-brush-cursor-preview" aria-hidden="true" hidden></div>
             <canvas id="canvas"></canvas>
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
+            <canvas id="refineOverlayCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
             <canvas id="yoloePreviewCanvas" class="layout-ghost-canvas" aria-label="YOLOE sample drawing canvas" tabindex="-1" aria-hidden="true" hidden></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             <button id="expand-right-panel-btn" type="button" class="panel-expand-btn" title="Expand inspector" aria-label="Expand inspector" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
@@ -465,6 +500,7 @@
                         <button id="inspectorAnnotationTabBtn" type="button" class="inspector-tab active" data-inspector-tab="annotation" aria-current="page">Annotation</button>
                         <button id="inspectorTransformTabBtn" type="button" class="inspector-tab" data-inspector-tab="transform">Transform</button>
                         <button id="inspectorAutomationTabBtn" type="button" class="inspector-tab" data-inspector-tab="automation" hidden>Automation</button>
+                        <button id="inspectorRefineTabBtn" type="button" class="inspector-tab" data-inspector-tab="refine" hidden>Refine</button>
                     </nav>
 
                     <section id="inspectorAnnotationPane" class="inspector-pane active" data-inspector-pane="annotation">
@@ -523,6 +559,37 @@
                                 <button id="moveSelectedBoxesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrows-move" aria-hidden="true"></i> Move selection</button>
                             </div>
                         </section>
+                    </section>
+
+                    <section id="inspectorRefinePane" class="inspector-pane refine-pane" data-inspector-pane="refine" hidden>
+                        <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Settings</h3></div>
+                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit classes, presets and edge rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
+                            <p id="refineSettingsSummary" class="refine-hint"></p>
+                        </section>
+                        <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Selection previews live</span></div>
+                            <label class="form-label small mb-1" for="refineRunPresetSelect">Run with</label>
+                            <select id="refineRunPresetSelect" class="form-select form-select-sm mb-2" aria-label="Settings used when refining"><option value="">Class settings</option></select>
+                            <div class="refine-run-grid">
+                                <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected</button>
+                                <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all visible boxes (Shift+E)">All boxes</button>
+                            </div>
+                            <div class="input-group input-group-sm mt-2">
+                                <select id="refineClassSelect" class="form-select" aria-label="Class to refine"></select>
+                                <button id="refineClassesBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Refine every visible box of this class">Refine class</button>
+                            </div>
+                            <label class="form-check form-switch small mt-2 mb-0"><input id="refineSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep hand-edited boxes when refining a class or all boxes</span></label>
+                        </section>
+                        <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Review</h3><span id="refineReviewCounter" class="section-value">0 to review</span></div>
+                            <div class="refine-review-row">
+                                <button id="refinePrevReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Previous box to review (Shift+N)" aria-label="Previous box to review"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                                <button id="refineNextReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                                <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve</button>
+                            </div>
+                        </section>
+                        <div id="refineStatus" class="refine-hint" role="status" aria-live="polite"></div>
                     </section>
 
                     <section id="inspectorAutomationPane" class="inspector-pane" data-inspector-pane="automation" hidden>
@@ -751,6 +818,61 @@
                         <button id="previewYoloeSampleBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Run preview</button>
                         <button id="closeYoloeSetupBtn" type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="refineLabModal" tabindex="-1" aria-labelledby="refineLabModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable refine-lab-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="refineLabModalLabel"><i class="bi bi-sliders" aria-hidden="true"></i> Refine Lab</h5>
+                        <div class="small text-muted" id="refineLabSummary"></div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body refine-lab-body">
+                    <section class="refine-lab-cases-column" aria-label="Cases">
+                        <div class="section-heading-row"><h3>Cases</h3></div>
+                        <select id="refineLabSource" class="form-select form-select-sm mb-2" aria-label="Case source">
+                            <option value="selection">Selected boxes</option>
+                            <option value="classes">Boxes of edited classes</option>
+                            <option value="all">All boxes</option>
+                        </select>
+                        <div id="refineLabCases" class="refine-lab-cases"></div>
+                    </section>
+                    <section class="refine-lab-view-column" aria-label="Result">
+                        <div class="refine-lab-view-toolbar">
+                            <div id="refineLabSideTabs" class="btn-group btn-group-sm" role="group" aria-label="Profile side">
+                                <button type="button" class="btn btn-outline-secondary" data-side="T">Top</button>
+                                <button type="button" class="btn btn-outline-secondary" data-side="L">Left</button>
+                                <button type="button" class="btn btn-outline-secondary" data-side="R">Right</button>
+                                <button type="button" class="btn btn-outline-secondary" data-side="B">Bottom</button>
+                            </div>
+                            <label class="refine-lab-opacity" title="Search range fill opacity"><span>Range opacity</span><input id="refineLabBandOpacity" type="range" class="form-range" min="0" max="100" step="5" value="35"></label>
+                            <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review</span>
+                        </div>
+                        <canvas id="refineLabZoom" class="refine-lab-zoom" aria-label="Zoomed case with original and refined box"></canvas>
+                        <div class="refine-lab-profile-toolbar">
+                            <label for="refineLabDeltaStep" title="Distance between the two samples compared in the change plot">Change over</label>
+                            <select id="refineLabDeltaStep" class="form-select form-select-sm" aria-label="Change plot step">
+                                <option value="1" selected>1 px</option><option value="2">2 px</option><option value="3">3 px</option><option value="4">4 px</option>
+                            </select>
+                        </div>
+                        <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Mean brightness and its change across the chosen edge"></canvas>
+                        <div id="refineLabReadout" class="refine-lab-readout" role="status" aria-live="polite"></div>
+                    </section>
+                    <section class="refine-lab-settings-column" aria-label="Settings">
+                        <div id="refineLabEditor"></div>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <span id="refineLabStatus" class="me-auto small text-muted" role="status"></span>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button id="refineLabSaveBtn" type="button" class="btn btn-outline-primary">Save settings</button>
+                    <button id="refineLabApplyBtn" type="button" class="btn btn-primary">Save &amp; refine these boxes</button>
                 </div>
             </div>
         </div>
