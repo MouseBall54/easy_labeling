@@ -23,6 +23,8 @@ import { loadPreprocessingPresets } from "../features/segmentation/preprocessing
 import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
+const CRITERION_SHORT: Record<RefineParams["crit"], string> = { grad: "Gradient", flank: "Band 50%", peak: "Band peak", thr: "50% level" };
+
 export type RefineShortcut = "toggle" | "refineSelected" | "refineAll" | "nextReview" | "previousReview" | "approve";
 
 /**
@@ -105,6 +107,14 @@ export function createRefineController(input: {
     return { params: (classId) => resolveRefineParams(settings, classId), image: imageInput(settings.imageSource, settings.processing), label: "class settings" };
   };
   const setStatus = (text: string): void => { status.textContent = text; };
+  /** One-line rule summary shown under each Run-with choice. */
+  const describePreset = (preset: RefineSettingsDocument["presets"][number]): string => {
+    const p = preset.params;
+    const image = preset.imageSource === "processed" ? `Processed${preset.processing?.name ? ` (${preset.processing.name})` : ""}` : preset.imageSource ? "Original" : "current image";
+    const step = p.crit === "grad" ? ` · step ${p.gradStep} px` : "";
+    const off = REFINE_SIDES.filter((side) => p.sides[side] === "off").length;
+    return `${CRITERION_SHORT[p.crit]} · in ${p.rangeIn} / out ${p.rangeOut} px${step}${off ? ` · ${off} side${off === 1 ? "" : "s"} off` : ""} · ${image}`;
+  };
 
   const syncImage = (): HTMLImageElement | null => {
     const image = input.state.session.currentImage;
@@ -157,10 +167,37 @@ export function createRefineController(input: {
     const processing = settings.imageSource === "processed" ? ` (${settings.processing?.name || "live Preprocess panel"})` : "";
     byId("refineSettingsSummary").textContent = `Class settings: image ${settings.imageSource === "processed" ? "Processed" : "Original"}${processing} · `
       + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
-    const runSelect = byId<HTMLSelectElement>("refineRunPresetSelect");
-    runSelect.replaceChildren(new Option("Class settings", ""), ...settings.presets.map((preset) => new Option(refinePresetLabel(preset), preset.name)));
-    runSelect.value = settings.activePreset && settings.presets.some((preset) => preset.name === settings.activePreset) ? settings.activePreset : "";
-    runSelect.title = runSelect.value ? "Every class is refined with this preset; class settings are left unchanged" : "Each class uses its own settings";
+    // Run with: native radios (arrow keys work), one per preset plus the class settings.
+    const active = settings.activePreset && settings.presets.some((preset) => preset.name === settings.activePreset) ? settings.activePreset : "";
+    const choice = (value: string, name: string, detail: string, title: string): HTMLLabelElement => {
+      const label = doc.createElement("label");
+      label.className = "refine-preset-option";
+      label.title = title;
+      const radio = doc.createElement("input");
+      radio.type = "radio";
+      radio.name = "refineRunPreset";
+      radio.value = value;
+      radio.checked = value === active;
+      const text = doc.createElement("span");
+      const strong = doc.createElement("strong");
+      strong.textContent = name;
+      const small = doc.createElement("small");
+      small.textContent = detail;
+      text.append(strong, small);
+      label.append(radio, text);
+      return label;
+    };
+    const list = byId("refineRunPresetList");
+    list.replaceChildren(
+      choice("", "Class settings", own ? `${own} class${own === 1 ? "" : "es"} with own rules` : "Default rule for every class", "Each class uses its own settings"),
+      ...settings.presets.map((preset) => choice(preset.name, preset.name, describePreset(preset), "Every class is refined with this preset; class settings are left unchanged"))
+    );
+    if (!settings.presets.length) {
+      const hint = doc.createElement("p");
+      hint.className = "refine-hint";
+      hint.textContent = "Save presets in Refine Lab to switch between them here.";
+      list.append(hint);
+    }
     const select = byId<HTMLSelectElement>("refineClassSelect");
     const previous = select.value;
     const ids = classIds();
@@ -441,8 +478,11 @@ export function createRefineController(input: {
   return {
     bind(): void {
       renderPane();
-      byId("refineRunPresetSelect").addEventListener("change", (event) => {
-        changeSettings({ ...settings, activePreset: (event.target as HTMLSelectElement).value || null });
+      byId("refineRunPresetList").addEventListener("change", (event) => {
+        const radio = event.target as HTMLInputElement;
+        if (radio.name !== "refineRunPreset") return;
+        changeSettings({ ...settings, activePreset: radio.value || null });
+        setStatus(radio.value ? `Refining with ${radio.value} for every class.` : "Refining with class settings.");
       });
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);

@@ -568,9 +568,11 @@
                             <p id="refineSettingsSummary" class="refine-hint"></p>
                         </section>
                         <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Run with</h3></div>
+                            <div id="refineRunPresetList" class="refine-preset-list" role="radiogroup" aria-label="Settings used when refining"></div>
+                        </section>
+                        <section class="inspector-section">
                             <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Selection previews live</span></div>
-                            <label class="form-label small mb-1" for="refineRunPresetSelect">Run with</label>
-                            <select id="refineRunPresetSelect" class="form-select form-select-sm mb-2" aria-label="Settings used when refining"><option value="">Class settings</option></select>
                             <div class="refine-run-grid">
                                 <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected</button>
                                 <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all visible boxes (Shift+E)">All boxes</button>
@@ -855,12 +857,6 @@
                             <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review</span>
                         </div>
                         <canvas id="refineLabZoom" class="refine-lab-zoom" aria-label="Zoomed case with original and refined box"></canvas>
-                        <div class="refine-lab-profile-toolbar">
-                            <label for="refineLabDeltaStep" title="Distance between the two samples compared in the change plot">Change over</label>
-                            <select id="refineLabDeltaStep" class="form-select form-select-sm" aria-label="Change plot step">
-                                <option value="1" selected>1 px</option><option value="2">2 px</option><option value="3">3 px</option><option value="4">4 px</option>
-                            </select>
-                        </div>
                         <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Mean brightness and its change across the chosen edge"></canvas>
                         <div id="refineLabReadout" class="refine-lab-readout" role="status" aria-live="polite"></div>
                     </section>

@@ -28,6 +28,8 @@ description: >
 
 ## Algorithm (edge-refine.ts)
 
+Max gradient compares `P(i + after) - P(i - before)` over `gradStep` samples (default 2 = central difference; odd steps shift the centre by half a sample).
+
 Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` inside + `rangeOut` outside around the current edge, average it along the side in `segments` chunks, smooth (Gaussian `sigma`), find the edge per chunk (`findEdge`), then combine chunks (`comb`: outermost quantile or median) after dropping chunks under half the best chunk confidence. Iterates `iterations` times.
 
 - Criteria: `grad` (max gradient, signed by polarity), `flank` (bright band outer 50%), `peak` (band centre), `thr` (50% level between inside/outside medians).
@@ -48,9 +50,9 @@ Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` insid
 
 ## UI
 
-- Toolbar button `#taskRefineBtn` (shortcut `R`) toggles the right inspector to the Refine pane: Settings (Open Refine Lab + summary), Apply (Run with, Selected, All boxes, Refine class, keep hand-edited toggle), Review (prev/next/Approve). Shortcuts are in tooltips only.
+- Toolbar button `#taskRefineBtn` (shortcut `R`) toggles the right inspector to the Refine pane: Settings (Open Refine Lab + summary), Run with (radio list: class settings or one preset, each with a rule summary), Apply (Selected, All boxes, Refine class, keep hand-edited toggle), Review (prev/next/Approve). Shortcuts are in tooltips only.
 - Global shortcuts (Detection, outside inputs/modals, via `event.code`): `R` pane, `E` selected, `Shift+E` all, `N`/`Shift+N` review, `F` approve. Adding keys means updating `resolveRefineShortcut` and its collision test.
-- Refine Lab works on a draft copy; nothing is saved until "Save settings" / "Save & refine these boxes". Cases are crops served by the worker from the same pixels refinement reads; clicking a search band opens that side's edge rule; the profile shows mean brightness and its change over a 1-4 px step (oriented inside -> outside).
+- Refine Lab works on a draft copy; nothing is saved until "Save settings" / "Save & refine these boxes". Cases are crops served by the worker from the same pixels refinement reads; clicking a search band opens that side's edge rule; the profile shows mean brightness and its change over the side's `gradStep` (oriented inside -> outside).
 - Canvas overlay (`#refineOverlayCanvas`) is positioned onto `#canvas` each render; preview draws the would-be box and per-side deltas.
 
 ## Undo and edits

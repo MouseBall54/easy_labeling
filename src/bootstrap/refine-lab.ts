@@ -50,7 +50,6 @@ const MAX_CASES = 24;
 const CROP_MARGIN = 128;
 const WARN = "#f0ad4e";
 const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
-const DELTA_STEP_KEY = "easy-labeling:refine-lab-delta-step";
 const SIDE_NAMES: Record<RefineSide, string> = { L: "Left", R: "Right", T: "Top", B: "Bottom" };
 const POLARITY_TEXT = { 1: "bright → dark", [-1]: "dark → bright", 0: "unclear" } as const;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
@@ -83,11 +82,6 @@ export function createRefineLab(input: {
   const source = byId<HTMLSelectElement>("refineLabSource");
   const sideTabs = byId<HTMLElement>("refineLabSideTabs");
   const bandOpacity = byId<HTMLInputElement>("refineLabBandOpacity");
-  const deltaStepSelect = byId<HTMLSelectElement>("refineLabDeltaStep");
-  try {
-    const stored = input.windowRef.localStorage.getItem(DELTA_STEP_KEY);
-    if (stored && [...deltaStepSelect.options].some((option) => option.value === stored)) deltaStepSelect.value = stored;
-  } catch { /* storage unavailable: keep the default */ }
   try {
     const stored = input.windowRef.localStorage.getItem(BAND_OPACITY_KEY);
     if (stored !== null && Number.isFinite(Number(stored))) bandOpacity.value = stored;
@@ -319,7 +313,7 @@ export function createRefineLab(input: {
 
   /**
    * Two stacked plots sharing an inside -> outside axis: the mean brightness across the side (raw and
-   * smoothed) and its change over `deltaStep` pixels, Δ(x) = P(x + k/2) - P(x - k/2). A positive change
+   * smoothed) and its change over the side's gradient step k, Δ(x) = P(x + k/2) - P(x - k/2). A positive change
    * means the image gets brighter going outward.
    */
   const drawProfile = (c: LabCase, r: LabResult): void => {
@@ -330,7 +324,7 @@ export function createRefineLab(input: {
     const off = r.params.sides[activeSide] === "off";
     if (!d) return;
     const n = d.raw.length;
-    const k = Math.max(1, Math.min(n - 1, Number(deltaStepSelect.value) || 1));
+    const k = Math.max(1, Math.min(n - 1, sideParams(r.params, activeSide).gradStep));
     const flip = d.out < 0;
     // Samples ordered inside -> outside; sample j covers [j, j + 1) on that axis.
     const oriented = (values: Float32Array): Float32Array => (flip ? Float32Array.from(values).reverse() : values);
@@ -406,7 +400,7 @@ export function createRefineLab(input: {
       { values: raw, offset: 0.5, color: muted, lineWidth: 1 },
       { values: smoothed, offset: 0.5, color: primary, lineWidth: 2 }
     ], levels, false);
-    panel(gap * 2 + plotH, plotH, `Change over ${k} px (outward, + = brighter)`, [
+    panel(gap * 2 + plotH, plotH, `Change over ${k} px · gradient step (outward, + = brighter)`, [
       { values: rawDelta, offset: 0.5 + k / 2, color: muted, lineWidth: 1 },
       { values: smoothDelta, offset: 0.5 + k / 2, color: primary, lineWidth: 2 }
     ], [], true);
@@ -524,10 +518,6 @@ export function createRefineLab(input: {
     zoom.style.cursor = zoomBands.some((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) ? "pointer" : "crosshair";
   });
   source.addEventListener("change", loadCases);
-  deltaStepSelect.addEventListener("change", () => {
-    try { input.windowRef.localStorage.setItem(DELTA_STEP_KEY, deltaStepSelect.value); } catch { /* per-viewer convenience only */ }
-    schedule();
-  });
   bandOpacity.addEventListener("input", () => {
     try { input.windowRef.localStorage.setItem(BAND_OPACITY_KEY, bandOpacity.value); } catch { /* per-viewer convenience only */ }
     schedule();

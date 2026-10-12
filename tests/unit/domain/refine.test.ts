@@ -54,6 +54,20 @@ describe("domain/refine/edge-refine", () => {
     expect(results.every((r) => !r.flagged)).toBe(true);
   });
 
+  it("keeps edges in place for every gradient step, odd steps included", () => {
+    const truth = Array.from({ length: 6 }, (_, i) => ({ x0: 20 + i * 50, y0: 30, x1: 50 + i * 50, y1: 90 }));
+    const img = paint(340, 130, truth);
+    const offsets = [[4, -3, -5, 2], [-3, 4, 3, -4], [5, 5, -2, -5], [-4, -2, 4, 3], [2, -5, -4, 4], [-5, 3, 5, -3]];
+    const boxes: RefineBoxInput[] = truth.map((r, i) => ({ id: String(i), classId: "0", ...jitter(r, offsets[i]) }));
+    for (const gradStep of [1, 2, 3, 4, 6]) {
+      const results = refineBoxes(img, boxes, { 0: normalizeRefineParams({ rangeIn: 8, rangeOut: 8, gradStep }) });
+      results.forEach((r, i) => expect(maxError(r.box, truth[i]), `step ${gradStep}`).toBeLessThan(0.5));
+    }
+    expect(normalizeRefineParams({}).gradStep).toBe(2);
+    expect(normalizeRefineParams({ gradStep: 99 }).gradStep).toBe(16);
+    expect(normalizeRefineParams({ sideRules: { T: { gradStep: 0 } } }).sideRules.T).toEqual({ gradStep: 1 });
+  });
+
   it("does not jump to a close neighbour's edge", () => {
     const a = { x0: 20, y0: 20, x1: 50, y1: 80 };
     const b = { x0: 58, y0: 20, x1: 88, y1: 80 };

@@ -21,6 +21,8 @@ export interface RefineParams {
   rangeOut: number;
   segments: number;
   sigma: number;
+  /** Max-gradient criterion: brightness change measured across this many pixels (2 = central difference). */
+  gradStep: number;
   inset: number;
   scanSpan: RefineScanSpan;
   /** Pixels scanned beyond the start (top for L/R, left for T/B) of the side. */
@@ -41,7 +43,7 @@ export interface RefineParams {
 }
 
 /** Edge-rule keys a single side may override. */
-export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "segments", "inset", "scanSpan", "extendStart", "extendEnd"] as const;
+export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "extendStart", "extendEnd"] as const;
 export type RefineSideRuleKey = typeof REFINE_SIDE_RULE_KEYS[number];
 export type RefineSideRule = Partial<Pick<RefineParams, RefineSideRuleKey>>;
 
@@ -78,6 +80,7 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   rangeOut: 10,
   segments: 6,
   sigma: 1.2,
+  gradStep: 2,
   inset: 0.12,
   scanSpan: "box",
   extendStart: 0,
@@ -132,6 +135,7 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     rangeOut: clamp(Math.round(num(p.rangeOut, num(legacyRange, d.rangeOut))), 1, 80),
     segments: clamp(Math.round(num(p.segments, num(p.K, d.segments))), 1, 30),
     sigma: clamp(num(p.sigma, d.sigma), 0, 6),
+    gradStep: clamp(Math.round(num(p.gradStep, d.gradStep)), 1, 16),
     inset: clamp(num(p.inset, d.inset), 0, 0.4),
     scanSpan: p.scanSpan === "boxOutside" || p.scanSpan === "outside" || p.scanSpan === "box" ? p.scanSpan : d.scanSpan,
     extendStart: clamp(Math.round(num(p.extendStart, d.extendStart)), 0, 400),
@@ -240,7 +244,7 @@ interface EdgeContext {
 /**
  * Finds the edge in one perpendicular profile.
  * raw: unsmoothed profile (noise estimate), P: smoothed, out: outward direction, c: start index,
- * sign: expected sign of dP/di at the edge (0 = either).
+ * sign: expected sign of dP/di at the edge (0 = either), step: gradient span in samples.
  */
 function findEdge(
   raw: Float32Array,
@@ -249,7 +253,8 @@ function findEdge(
   out: 1 | -1,
   c: number,
   sign: -1 | 0 | 1,
-  context: EdgeContext | null
+  context: EdgeContext | null,
+  step: number
 ): { pos: number; conf: number } | null {
   const n = P.length;
   let lo = Infinity;
@@ -270,18 +275,21 @@ function findEdge(
   let pos: number | null = null;
 
   if (crit === "grad") {
+    // g(i) = P(i + after) - P(i - before) spans `step` samples; it is centred on i + (after - before) / 2.
+    const before = Math.floor(step / 2);
+    const after = step - before;
     const gradient = (i: number): number => {
-      const g = P[Math.min(n - 1, i + 1)] - P[Math.max(0, i - 1)];
+      const g = P[Math.min(n - 1, i + after)] - P[Math.max(0, i - before)];
       return sign === 0 ? Math.abs(g) : Math.max(0, sign * g);
     };
     let best = 0;
     let bestIndex = -1;
-    for (let i = 1; i < n - 1; i += 1) {
+    for (let i = Math.max(1, before); i < n - Math.max(1, after); i += 1) {
       const g = gradient(i) * weight(i);
       if (g > best) { best = g; bestIndex = i; }
     }
     if (bestIndex < 0) return null;
-    pos = bestIndex + parabola(gradient, bestIndex, n);
+    pos = bestIndex + (after - before) / 2 + parabola(gradient, bestIndex, n);
   } else if (crit === "thr") {
     const level = context && context.polarity !== 0 ? (context.inside + context.outside) / 2 : (lo + hi) / 2;
     let bestDistance = Infinity;
@@ -487,7 +495,7 @@ function refineSide(
     const from = Math.floor(k * total / segments);
     const to = Math.max(from + 1, Math.floor((k + 1) * total / segments));
     const profile = sampleProfile(img, w, from, to);
-    const edge = findEdge(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context);
+    const edge = findEdge(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context, p.gradStep);
     if (edge) found.push(edge);
   }
   if (!found.length) return null;

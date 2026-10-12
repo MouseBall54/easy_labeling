@@ -78,6 +78,10 @@ const FIELDS: FieldSpec[] = [
   { key: "rangeOut", label: "Search outward (px)", type: "int", group: "rule", perSide: true, min: 1, max: 80, step: 1 },
   { key: "sigma", label: "Smoothing σ", type: "num", group: "rule", perSide: true, min: 0, max: 6, step: 0.2 },
   {
+    key: "gradStep", label: "Gradient step (px)", type: "int", group: "rule", perSide: true, min: 1, max: 16, step: 1,
+    title: "Max gradient compares brightness this many pixels apart. Larger steps ignore fine noise and soft edges; 2 is the classic central difference"
+  },
+  {
     key: "scanSpan", label: "Scan span", type: "select", group: "rule", perSide: true,
     title: "Rows/columns scanned along the edge: the box only, the box plus its extensions, or only the extensions past the box ends",
     options: [["box", "Box only"], ["boxOutside", "Box + outside"], ["outside", "Outside only"]]

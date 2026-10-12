@@ -2928,7 +2928,9 @@ export function createEventManagerAdapter(input: {
         }
 
         const activeObject = rawCanvas.getActiveObject();
-        if (activeObject && input.state.view.currentMode === "edit" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        // A focused radio group keeps its own arrow-key navigation (e.g. the Refine pane's Run-with presets).
+        const radioTarget = (event.target as HTMLInputElement | null)?.type === "radio";
+        if (activeObject && !radioTarget && input.state.view.currentMode === "edit" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
           event.preventDefault();
           const baseline = input.canvasController.raw.captureHistoryBaseline();
           const step = event.shiftKey ? 10 : 1;

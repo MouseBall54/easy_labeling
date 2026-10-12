@@ -246,7 +246,10 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await expect.poll(async () => (await settingsFile(page))?.presets.map((preset) => preset.name)).toEqual(["Bright fins"]);
   expect((await settingsFile(page) as unknown as { imageSource: string }).imageSource).toBe("original");
   await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings");
-  await expect(page.locator("#refineRunPresetSelect option", { hasText: "Bright fins" })).toHaveCount(1);
+  const brightFins = page.locator("#refineRunPresetList .refine-preset-option", { hasText: "Bright fins" });
+  await expect(brightFins).toHaveCount(1);
+  await expect(brightFins).toContainText("Gradient · in 10 / out 10 px · step 2 px · Original");
+  await expect(page.locator('#refineRunPresetList input[value=""]')).toBeChecked();
   await openLab(page);
   await expect(page.locator("#refineLabField-polarity")).toHaveValue("brightInside");
 });
@@ -301,11 +304,13 @@ test("refine: per-side edge rules, use-for-all-sides, and remembered search rang
   await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ rangeIn: 18, polarity: "brightInside" });
   await openLab(page);
   await expect(page.locator("#refineLabBandOpacity")).toHaveValue("80");
-  // The change plot step is remembered too.
-  await page.locator("#refineLabDeltaStep").selectOption("3");
-  await lab(page).locator(".btn-close").click();
+  // The gradient step is a saved edge-rule setting (it also sets the change plot's step).
+  await expect(page.locator("#refineLabField-gradStep")).toHaveValue("2");
+  await page.locator("#refineLabField-gradStep").fill("3");
+  await saveLab(page);
+  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ gradStep: 3 });
   await openLab(page);
-  await expect(page.locator("#refineLabDeltaStep")).toHaveValue("3");
+  await expect(page.locator("#refineLabField-gradStep")).toHaveValue("3");
 });
 
 test("refine: processed image follows the Preprocess panel's contrast and gamma", async ({ page }) => {
@@ -422,14 +427,27 @@ test("presets: preprocessing presets feed Refine Lab, refine presets keep their 
   await expect(page.locator("#refineSelectedBtn")).toHaveAttribute("title", /\(E\)/);
   await expect(page.locator("#refineAllBtn")).toHaveAttribute("title", /\(Shift\+E\)/);
   await expect(page.locator("#refineApproveBtn")).toHaveAttribute("title", /\(F\)/);
-  await page.locator("#refineRunPresetSelect").selectOption("Fins HC");
-  await expect(page.locator("#refineRunPresetSelect option:checked")).toHaveText("Fins HC · Processed (High contrast)");
+  const finsHc = page.locator("#refineRunPresetList .refine-preset-option", { hasText: "Fins HC" });
+  await expect(finsHc).toContainText("Processed (High contrast)");
+  await finsHc.click();
+  await expect(finsHc.locator("input")).toBeChecked();
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((dark) => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = dark; toggle.dispatchEvent(new Event("change", { bubbles: true })); }, theme === "dark");
+    await pane.screenshot({ path: `test-results/refine-run-presets-${theme}.png` });
+  }
+  await page.evaluate(() => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = false; toggle.dispatchEvent(new Event("change", { bubbles: true })); });
   await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string }).activePreset).toBe("Fins HC");
   await page.locator("#refineSelectedBtn").click();
   await expect.poll(async () => {
     const box = (await geometries(page))[0];
     return Math.max(Math.abs(box.left - 20), Math.abs(box.top - 30), Math.abs(box.right - 60), Math.abs(box.bottom - 90));
   }, { timeout: 15_000 }).toBeLessThan(0.6);
-  await page.locator("#refineRunPresetSelect").selectOption("");
+  // Arrow keys move between the choices like any radio group.
+  // The selected box must not be nudged meanwhile.
+  const before = (await geometries(page))[0];
+  await finsHc.locator("input").focus();
+  await page.keyboard.press("ArrowUp");
+  expect((await geometries(page))[0]).toEqual(before);
+  await expect(page.locator('#refineRunPresetList input[value=""]')).toBeChecked();
   await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string | null }).activePreset).toBeNull();
 });
