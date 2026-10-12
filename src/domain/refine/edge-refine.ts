@@ -34,6 +34,10 @@ export interface RefineParams {
   sideRules: Record<RefineSide, RefineSideRule>;
   iterations: number;
   reviewBelow: number;
+  /** Flag boxes whose area grew by more than this fraction (1 = doubled); 0 disables. */
+  areaGrowLimit: number;
+  /** Flag boxes whose area shrank by more than this fraction (0.5 = -50%); 0 disables. */
+  areaShrinkLimit: number;
   autoOnDraw: boolean;
   /** Width (px) of the background ring sampled outside the search range; 0 disables context. */
   contextRing: number;
@@ -63,6 +67,10 @@ export interface RefineResult {
   conf: number;
   sideConf: Partial<Record<RefineSide, number>>;
   weakSides: RefineSide[];
+  /** (refined area - original area) / original area. */
+  areaChange: number;
+  /** The area changed beyond areaGrowLimit / areaShrinkLimit. */
+  areaFlagged: boolean;
   flagged: boolean;
 }
 
@@ -89,6 +97,8 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   sideRules: Object.freeze({ L: {}, R: {}, T: {}, B: {} }) as Record<RefineSide, RefineSideRule>,
   iterations: 2,
   reviewBelow: 0.35,
+  areaGrowLimit: 1,
+  areaShrinkLimit: 0.5,
   autoOnDraw: false,
   contextRing: 8,
   avoidNeighbors: true,
@@ -149,6 +159,8 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     sideRules: { L: normalizeSideRule(rules.L), R: normalizeSideRule(rules.R), T: normalizeSideRule(rules.T), B: normalizeSideRule(rules.B) },
     iterations: clamp(Math.round(num(p.iterations, d.iterations)), 1, 4),
     reviewBelow: clamp(num(p.reviewBelow, d.reviewBelow), 0, 1),
+    areaGrowLimit: clamp(num(p.areaGrowLimit, d.areaGrowLimit), 0, 10),
+    areaShrinkLimit: clamp(num(p.areaShrinkLimit, d.areaShrinkLimit), 0, 0.99),
     autoOnDraw: p.autoOnDraw === undefined ? d.autoOnDraw : Boolean(p.autoOnDraw),
     contextRing: clamp(Math.round(num(p.contextRing, d.contextRing)), 0, 40),
     avoidNeighbors: p.avoidNeighbors === undefined ? d.avoidNeighbors : Boolean(p.avoidNeighbors),
@@ -590,12 +602,18 @@ export function refineBox(
   }
   const weakSides = REFINE_SIDES.filter((side) => (sideConf[side] ?? 1) < params.reviewBelow);
   const values = Object.values(sideConf) as number[];
+  const before = (box.x1 - box.x0) * (box.y1 - box.y0);
+  const areaChange = before > 0 ? (current.x1 - current.x0) * (current.y1 - current.y0) / before - 1 : 0;
+  const areaFlagged = (params.areaGrowLimit > 0 && areaChange > params.areaGrowLimit)
+    || (params.areaShrinkLimit > 0 && -areaChange > params.areaShrinkLimit);
   return {
     box: current,
     conf: values.length ? Math.min(...values) : 1,
     sideConf,
     weakSides,
-    flagged: weakSides.length > 0
+    areaChange,
+    areaFlagged,
+    flagged: weakSides.length > 0 || areaFlagged
   };
 }
 

@@ -38,7 +38,7 @@ Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` insid
 - `avoidNeighbors`: outward search stops halfway to a facing neighbour box. `rangeIn` never crosses the box centre.
 - Per-side rules: `sides[side]` holds off / inherit / a criterion; `sideRules[side]` overrides `REFINE_SIDE_RULE_KEYS` (polarity, comb, ranges, sigma, segments, inset, `scanSpan`, `extendStart`, `extendEnd`). Always read side values through `sideParams(params, side)`.
 - `scanSpan`: `box` (inset span), `boxOutside`, or `outside` (only the extensions past the box ends; falls back to the box if nothing is left).
-- Confidence: SNR per chunk, x0.3 when the edge sits on the search limit; `weakSides` below `reviewBelow` and row/column outliers (`peerTolerance`) flag the box.
+- Confidence: SNR per chunk, x0.3 when the edge sits on the search limit; `weakSides` below `reviewBelow`, row/column outliers (`peerTolerance`) and an area change beyond `areaGrowLimit` / `areaShrinkLimit` (fractions, 0 = off; `areaChange`, `areaFlagged` on the result) flag the box. Area flags draw a red frame with a `±N% area` tag on the canvas overlay.
 
 ## Settings and presets (settings.ts)
 
@@ -50,7 +50,7 @@ Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` insid
 
 ## UI
 
-- Toolbar button `#taskRefineBtn` (shortcut `R`) toggles the right inspector to the Refine pane: Settings (Open Refine Lab + summary), Run with (radio list: class settings or one preset, each with a rule summary), Apply (Selected, All boxes, Refine class, keep hand-edited toggle), Review (prev/next/Approve). Shortcuts are in tooltips only.
+- Toolbar button `#taskRefineBtn` (shortcut `R`) toggles the right inspector to the Refine pane: Settings (Open Refine Lab + summary), Run with (dropdown: class settings or one preset, with the chosen rule summarised below), Apply (Selected, All boxes, Refine class, keep hand-edited toggle), Review (prev/next/Approve). Shortcuts are in tooltips only.
 - Global shortcuts (Detection, outside inputs/modals, via `event.code`): `R` pane, `E` selected, `Shift+E` all, `N`/`Shift+N` review, `F` approve. Adding keys means updating `resolveRefineShortcut` and its collision test.
 - Refine Lab works on a draft copy; nothing is saved until "Save settings" / "Save & refine these boxes". Cases are crops served by the worker from the same pixels refinement reads; clicking a search band opens that side's edge rule; the profile shows mean brightness and its change over the side's `gradStep` (oriented inside -> outside).
 - Canvas overlay (`#refineOverlayCanvas`) is positioned onto `#canvas` each render; preview draws the would-be box and per-side deltas.

@@ -68,6 +68,26 @@ describe("domain/refine/edge-refine", () => {
     expect(normalizeRefineParams({ sideRules: { T: { gradStep: 0 } } }).sideRules.T).toEqual({ gradStep: 1 });
   });
 
+  it("flags boxes whose area grows or shrinks past the limits", () => {
+    const truth = { x0: 40, y0: 40, x1: 80, y1: 100 };
+    const img = paint(140, 150, [truth]);
+    const run = (box: RefineRect, params: object) =>
+      refineBoxes(img, [{ id: "a", classId: "0", ...box }], { 0: normalizeRefineParams({ rangeIn: 12, rangeOut: 12, ...params }) })[0];
+    // Drawn 8 px too small on every side: refining grows the area by about 140%.
+    const grown = run({ x0: 48, y0: 48, x1: 72, y1: 92 }, {});
+    expect(maxError(grown.box, truth)).toBeLessThan(0.5);
+    expect(grown.areaChange).toBeCloseTo(40 * 60 / (24 * 44) - 1, 1);
+    expect(grown.areaFlagged && grown.flagged).toBe(true);
+    expect(run({ x0: 48, y0: 48, x1: 72, y1: 92 }, { areaGrowLimit: 2 }).areaFlagged).toBe(false);
+    expect(run({ x0: 48, y0: 48, x1: 72, y1: 92 }, { areaGrowLimit: 0 }).flagged).toBe(false);
+    // Drawn 8 px too large: the area shrinks by about 47%.
+    const shrunk = run({ x0: 32, y0: 32, x1: 88, y1: 108 }, { areaShrinkLimit: 0.3 });
+    expect(shrunk.areaChange).toBeCloseTo(40 * 60 / (56 * 76) - 1, 1);
+    expect(shrunk.areaFlagged).toBe(true);
+    expect(run({ x0: 32, y0: 32, x1: 88, y1: 108 }, {}).areaFlagged).toBe(false); // default shrink limit 50%
+    expect(run(truth, {}).areaFlagged).toBe(false);
+  });
+
   it("does not jump to a close neighbour's edge", () => {
     const a = { x0: 20, y0: 20, x1: 50, y1: 80 };
     const b = { x0: 58, y0: 20, x1: 88, y1: 80 };

@@ -49,6 +49,9 @@ export interface RefineController {
 
 const PREVIEW_LIMIT = 50;
 const WARN_COLOR = "#f0ad4e";
+/** Boxes whose area changed beyond the class's area limits. */
+const AREA_COLOR = "#dc3545";
+const areaText = (change: number): string => `${change >= 0 ? "+" : "−"}${Math.abs(change * 100).toFixed(0)}% area`;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
 
 interface RefineRecord { result: RefineResult; reviewed: boolean }
@@ -167,37 +170,19 @@ export function createRefineController(input: {
     const processing = settings.imageSource === "processed" ? ` (${settings.processing?.name || "live Preprocess panel"})` : "";
     byId("refineSettingsSummary").textContent = `Class settings: image ${settings.imageSource === "processed" ? "Processed" : "Original"}${processing} · `
       + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
-    // Run with: native radios (arrow keys work), one per preset plus the class settings.
-    const active = settings.activePreset && settings.presets.some((preset) => preset.name === settings.activePreset) ? settings.activePreset : "";
-    const choice = (value: string, name: string, detail: string, title: string): HTMLLabelElement => {
-      const label = doc.createElement("label");
-      label.className = "refine-preset-option";
-      label.title = title;
-      const radio = doc.createElement("input");
-      radio.type = "radio";
-      radio.name = "refineRunPreset";
-      radio.value = value;
-      radio.checked = value === active;
-      const text = doc.createElement("span");
-      const strong = doc.createElement("strong");
-      strong.textContent = name;
-      const small = doc.createElement("small");
-      small.textContent = detail;
-      text.append(strong, small);
-      label.append(radio, text);
-      return label;
-    };
-    const list = byId("refineRunPresetList");
-    list.replaceChildren(
-      choice("", "Class settings", own ? `${own} class${own === 1 ? "" : "es"} with own rules` : "Default rule for every class", "Each class uses its own settings"),
-      ...settings.presets.map((preset) => choice(preset.name, preset.name, describePreset(preset), "Every class is refined with this preset; class settings are left unchanged"))
-    );
-    if (!settings.presets.length) {
-      const hint = doc.createElement("p");
-      hint.className = "refine-hint";
-      hint.textContent = "Save presets in Refine Lab to switch between them here.";
-      list.append(hint);
-    }
+    // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
+    const active = settings.presets.find((preset) => preset.name === settings.activePreset);
+    const runSelect = byId<HTMLSelectElement>("refineRunPresetSelect");
+    runSelect.replaceChildren(new Option("Class settings", ""), ...settings.presets.map((preset) => {
+      const option = new Option(refinePresetLabel(preset), preset.name);
+      option.title = describePreset(preset);
+      return option;
+    }));
+    runSelect.value = active?.name ?? "";
+    runSelect.title = active ? "Every class is refined with this preset; class settings are left unchanged" : "Each class uses its own settings";
+    byId("refineRunPresetDetail").textContent = active
+      ? describePreset(active)
+      : `${own ? `${own} class${own === 1 ? "" : "es"} with own rules` : "Default rule for every class"}${settings.presets.length ? "" : " · save presets in Refine Lab to switch here"}`;
     const select = byId<HTMLSelectElement>("refineClassSelect");
     const previous = select.value;
     const ids = classIds();
@@ -274,8 +259,9 @@ export function createRefineController(input: {
       fresh.forEach((result) => { records.set(result.id, { result, reviewed: false }); manual.delete(result.id); });
       const skipped = targets.length - fresh.length;
       const flagged = fresh.filter((r) => r.flagged).length;
+      const areaFlags = fresh.filter((r) => r.areaFlagged).length;
       setStatus(`${fresh.length} refined in ${Math.round(performance.now() - started)} ms`
-        + (skipped ? ` · ${skipped} skipped` : "") + ` · ${flagged} to review`);
+        + (skipped ? ` · ${skipped} skipped` : "") + ` · ${flagged} to review` + (areaFlags ? ` (${areaFlags} with a large area change)` : ""));
       preview = [];
       renderReviewCounter();
       raw.canvas.requestRenderAll?.();
@@ -388,14 +374,33 @@ export function createRefineController(input: {
     const sx = (x: number): number => v[0] * x + v[4];
     const sy = (y: number): number => v[3] * y + v[5];
     context.save();
+    context.font = "600 11px system-ui, sans-serif";
     for (const box of reviewQueue()) {
-      const weak = records.get(box.id)?.result.weakSides ?? [];
+      const result = records.get(box.id)?.result;
+      const weak = result?.weakSides ?? [];
       const [x0, y0, x1, y1] = [sx(box.x0), sy(box.y0), sx(box.x1), sy(box.y1)];
-      context.setLineDash([5, 4]);
-      context.lineWidth = 1.5;
+      if (result?.areaFlagged) {
+        // Large area change: a red frame on a white halo, set apart from the box (class colours can be red too),
+        // with the change in a tag under the box so it never covers the class label.
+        context.lineWidth = 5;
+        context.strokeStyle = "#ffffff";
+        context.strokeRect(x0 - 5, y0 - 5, x1 - x0 + 10, y1 - y0 + 10);
+        context.lineWidth = 2.5;
+        context.strokeStyle = AREA_COLOR;
+        context.strokeRect(x0 - 5, y0 - 5, x1 - x0 + 10, y1 - y0 + 10);
+        const text = areaText(result.areaChange);
+        context.fillStyle = AREA_COLOR;
+        context.fillRect(x0 - 6, y1 + 8, context.measureText(text).width + 8, 15);
+        context.fillStyle = "#ffffff";
+        context.fillText(text, x0 - 2, y1 + 19);
+      } else {
+        context.setLineDash([5, 4]);
+        context.lineWidth = 1.5;
+        context.strokeStyle = WARN_COLOR;
+        context.strokeRect(x0 - 3, y0 - 3, x1 - x0 + 6, y1 - y0 + 6);
+        context.setLineDash([]);
+      }
       context.strokeStyle = WARN_COLOR;
-      context.strokeRect(x0 - 3, y0 - 3, x1 - x0 + 6, y1 - y0 + 6);
-      context.setLineDash([]);
       context.lineWidth = 4;
       context.beginPath();
       for (const side of weak) {
@@ -407,12 +412,18 @@ export function createRefineController(input: {
       context.stroke();
     }
     // Preview: the would-be result as a solid outline plus how far each side moves (outward positive).
-    context.font = "600 11px system-ui, sans-serif";
     for (const { result, before } of preview) {
       const { x0, y0, x1, y1 } = result.box;
       context.lineWidth = 2;
-      context.strokeStyle = result.flagged ? WARN_COLOR : getColorForClass(result.classId);
+      context.strokeStyle = result.areaFlagged ? AREA_COLOR : result.flagged ? WARN_COLOR : getColorForClass(result.classId);
       context.strokeRect(sx(x0), sy(y0), sx(x1) - sx(x0), sy(y1) - sy(y0));
+      if (result.areaFlagged) {
+        const text = areaText(result.areaChange);
+        context.fillStyle = AREA_COLOR;
+        context.fillRect(sx(x0), sy(y1) + 18, context.measureText(text).width + 8, 15);
+        context.fillStyle = "#ffffff";
+        context.fillText(text, sx(x0) + 4, sy(y1) + 29);
+      }
       for (const side of REFINE_SIDES) {
         const key = SIDE_KEY[side];
         const delta = (result.box[key] - before[key]) * (side === "L" || side === "T" ? -1 : 1);
@@ -478,11 +489,10 @@ export function createRefineController(input: {
   return {
     bind(): void {
       renderPane();
-      byId("refineRunPresetList").addEventListener("change", (event) => {
-        const radio = event.target as HTMLInputElement;
-        if (radio.name !== "refineRunPreset") return;
-        changeSettings({ ...settings, activePreset: radio.value || null });
-        setStatus(radio.value ? `Refining with ${radio.value} for every class.` : "Refining with class settings.");
+      byId("refineRunPresetSelect").addEventListener("change", (event) => {
+        const name = (event.target as HTMLSelectElement).value;
+        changeSettings({ ...settings, activePreset: name || null });
+        setStatus(name ? `Refining with ${name} for every class.` : "Refining with class settings.");
       });
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);

@@ -276,7 +276,7 @@ export function createRefineLab(input: {
     context.setLineDash([]);
     if (r.result) {
       const box = r.result.box;
-      const color = getColorForClass(c.classId);
+      const color = r.result.areaFlagged ? "#dc3545" : getColorForClass(c.classId);
       const edges: Record<RefineSide, [number, number, number, number]> = {
         L: [X(box.x0), Y(box.y0), X(box.x0), Y(box.y1)],
         R: [X(box.x1), Y(box.y0), X(box.x1), Y(box.y1)],
@@ -422,11 +422,13 @@ export function createRefineLab(input: {
     readout.replaceChildren(...[
       off ? `${SIDE_NAMES[activeSide]}: off` : `${SIDE_NAMES[activeSide]}: ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${(r.result?.sideConf[activeSide] ?? 0).toFixed(2)} · ${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`,
       detected,
-      `Polarity used: ${usedPolarity}`
-    ].map((line, index) => {
+      `Polarity used: ${usedPolarity}`,
+      r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
+    ].filter(Boolean).map((line, index) => {
       const row = doc.createElement("div");
       row.textContent = line;
       if (index === 2 && line.includes("differs")) row.className = "text-warning";
+      if (line.includes("area limit")) row.className = "text-danger";
       return row;
     }));
   };

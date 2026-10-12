@@ -103,6 +103,8 @@ const FIELDS: FieldSpec[] = [
   { key: "inset", label: "Corner inset (%)", type: "pct", group: "advanced", perSide: true, min: 0, max: 40, step: 1 },
   { key: "iterations", label: "Iterations", type: "int", group: "advanced", min: 1, max: 4, step: 1 },
   { key: "reviewBelow", label: "Flag below confidence", type: "num", group: "advanced", min: 0, max: 1, step: 0.05 },
+  { key: "areaGrowLimit", label: "Flag area growth over (%)", title: "Boxes that grow more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", min: 0, max: 1000, step: 5 },
+  { key: "areaShrinkLimit", label: "Flag area shrink over (%)", title: "Boxes that shrink more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", min: 0, max: 99, step: 5 },
   { key: "autoOnDraw", label: "Refine new boxes on draw", type: "bool", group: "advanced" }
 ];
 const SIDE_OPTIONS: [string, string][] = [["inherit", "Inherit"], ["grad", "Gradient"], ["flank", "Band 50%"], ["peak", "Band peak"], ["thr", "50% level"], ["off", "Off"]];

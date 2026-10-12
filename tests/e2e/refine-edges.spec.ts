@@ -246,10 +246,12 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await expect.poll(async () => (await settingsFile(page))?.presets.map((preset) => preset.name)).toEqual(["Bright fins"]);
   expect((await settingsFile(page) as unknown as { imageSource: string }).imageSource).toBe("original");
   await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings");
-  const brightFins = page.locator("#refineRunPresetList .refine-preset-option", { hasText: "Bright fins" });
-  await expect(brightFins).toHaveCount(1);
-  await expect(brightFins).toContainText("Gradient · in 10 / out 10 px · step 2 px · Original");
-  await expect(page.locator('#refineRunPresetList input[value=""]')).toBeChecked();
+  await expect(page.locator("#refineRunPresetSelect option", { hasText: "Bright fins" })).toHaveCount(1);
+  await expect(page.locator("#refineRunPresetSelect")).toHaveValue("");
+  await expect(page.locator("#refineRunPresetDetail")).toHaveText("1 class with own rules");
+  await page.locator("#refineRunPresetSelect").selectOption("Bright fins");
+  await expect(page.locator("#refineRunPresetDetail")).toHaveText("Gradient · in 10 / out 10 px · step 2 px · Original");
+  await page.locator("#refineRunPresetSelect").selectOption("");
   await openLab(page);
   await expect(page.locator("#refineLabField-polarity")).toHaveValue("brightInside");
 });
@@ -427,10 +429,9 @@ test("presets: preprocessing presets feed Refine Lab, refine presets keep their 
   await expect(page.locator("#refineSelectedBtn")).toHaveAttribute("title", /\(E\)/);
   await expect(page.locator("#refineAllBtn")).toHaveAttribute("title", /\(Shift\+E\)/);
   await expect(page.locator("#refineApproveBtn")).toHaveAttribute("title", /\(F\)/);
-  const finsHc = page.locator("#refineRunPresetList .refine-preset-option", { hasText: "Fins HC" });
-  await expect(finsHc).toContainText("Processed (High contrast)");
-  await finsHc.click();
-  await expect(finsHc.locator("input")).toBeChecked();
+  await page.locator("#refineRunPresetSelect").selectOption("Fins HC");
+  await expect(page.locator("#refineRunPresetSelect option:checked")).toHaveText("Fins HC · Processed (High contrast)");
+  await expect(page.locator("#refineRunPresetDetail")).toContainText("step 2 px · Processed (High contrast)");
   for (const theme of ["light", "dark"]) {
     await page.evaluate((dark) => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = dark; toggle.dispatchEvent(new Event("change", { bubbles: true })); }, theme === "dark");
     await pane.screenshot({ path: `test-results/refine-run-presets-${theme}.png` });
@@ -442,12 +443,42 @@ test("presets: preprocessing presets feed Refine Lab, refine presets keep their 
     const box = (await geometries(page))[0];
     return Math.max(Math.abs(box.left - 20), Math.abs(box.top - 30), Math.abs(box.right - 60), Math.abs(box.bottom - 90));
   }, { timeout: 15_000 }).toBeLessThan(0.6);
-  // Arrow keys move between the choices like any radio group.
-  // The selected box must not be nudged meanwhile.
-  const before = (await geometries(page))[0];
-  await finsHc.locator("input").focus();
-  await page.keyboard.press("ArrowUp");
-  expect((await geometries(page))[0]).toEqual(before);
-  await expect(page.locator('#refineRunPresetList input[value=""]')).toBeChecked();
+  await page.locator("#refineRunPresetSelect").selectOption("");
   await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string | null }).activePreset).toBeNull();
+});
+
+test("refine: boxes whose area changes past the limit are outlined red and queued for review", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page);
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  // The second box (bounds include its 2 px stroke) shrinks by about 13% when refined; lower the shrink limit to 10%.
+  await openLab(page);
+  await page.locator("#refineLabEditor .refine-details summary", { hasText: "Advanced" }).click();
+  await expect(page.locator("#refineLabField-areaGrowLimit")).toHaveValue("100");
+  await expect(page.locator("#refineLabField-areaShrinkLimit")).toHaveValue("50");
+  await page.locator("#refineLabField-areaShrinkLimit").fill("10");
+  await expect(page.locator("#refineLabReadout")).toContainText("Box area");
+  await saveLab(page);
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"areaShrinkLimit":0.1');
+
+  await page.locator("#refineAllBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("1 with a large area change", { timeout: 15_000 });
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
+  const redPixels = () => page.evaluate(() => {
+    const overlay = document.getElementById("refineOverlayCanvas") as HTMLCanvasElement;
+    const data = overlay.getContext("2d")!.getImageData(0, 0, overlay.width, overlay.height).data;
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) if (Math.abs(data[i] - 220) < 8 && Math.abs(data[i + 1] - 53) < 8 && Math.abs(data[i + 2] - 69) < 8 && data[i + 3] > 240) count += 1; // area flag red
+    return count;
+  });
+  await expect.poll(redPixels).toBeGreaterThan(50);
+  await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-area-flag-pane.png" });
+  await page.locator("#canvas-container").screenshot({ path: "test-results/refine-area-flag-canvas.png" });
+
+  // N jumps to the flagged box; approving it clears the red outline.
+  await page.keyboard.press("n");
+  await page.keyboard.press("f");
+  await expect(page.locator("#refineReviewCounter")).toContainText("0 to review");
+  await expect.poll(redPixels).toBe(0);
 });

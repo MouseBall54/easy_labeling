@@ -4684,52 +4684,6 @@ body.dark-mode .loading-overlay {
     font-variant-numeric: tabular-nums;
 }
 
-.refine-preset-list {
-    display: grid;
-    gap: 4px;
-}
-
-.refine-preset-option {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 6px 8px;
-    border: 1px solid var(--workbench-border);
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.refine-preset-option:hover {
-    border-color: var(--workbench-primary);
-}
-
-.refine-preset-option:has(input:checked) {
-    border-color: var(--workbench-primary);
-    background: color-mix(in srgb, var(--workbench-primary) 12%, transparent);
-}
-
-.refine-preset-option input {
-    margin-top: 3px;
-    accent-color: var(--workbench-primary);
-}
-
-.refine-preset-option span {
-    display: grid;
-    min-width: 0;
-}
-
-.refine-preset-option strong {
-    font-size: var(--fs-body);
-    font-weight: 600;
-    overflow-wrap: anywhere;
-}
-
-.refine-preset-option small {
-    color: var(--workbench-text-muted);
-    font-size: var(--fs-caption);
-    font-variant-numeric: tabular-nums;
-}
-
 .refine-run-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
