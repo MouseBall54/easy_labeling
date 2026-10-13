@@ -308,7 +308,7 @@ async fn read_yoloe_model(app: AppHandle, file: String) -> CommandResult<Respons
     fs::read(path).map(Response::new).map_err(|error| io_error(error, "YOLOE model file"))
 }
 
-// File System Access polyfill commands (see desktop.js).
+// File System Access polyfill commands (see src/platform/tauri-desktop.ts).
 
 #[tauri::command]
 async fn fs_read_dir(path: String) -> CommandResult<Vec<Entry>> {
@@ -418,6 +418,27 @@ fn confirm_close(window: &tauri::Window) {
         });
 }
 
+/// The window globals bridge (src/platform/tauri-desktop.ts, compiled into the embedded dist/). tsc
+/// marks it as an ES module with a trailing `export {};`, which an initialization script cannot have.
+fn desktop_script(app: &AppHandle, is_yoloe: bool) -> Result<String, String> {
+    let asset = app
+        .asset_resolver()
+        .get("dist/platform/tauri-desktop.js".into())
+        .ok_or("dist/platform/tauri-desktop.js is missing from the bundled frontend")?;
+    let source = String::from_utf8(asset.bytes().to_vec()).map_err(|error| error.to_string())?;
+    Ok(classic_script(&source, is_yoloe))
+}
+
+fn classic_script(source: &str, is_yoloe: bool) -> String {
+    let body: String = source.lines().filter(|line| line.trim() != "export {};").collect::<Vec<_>>().join("
+");
+    format!("{{
+const __EASY_LABELING_IS_YOLOE__ = {is_yoloe};
+{body}
+}}
+")
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -443,7 +464,7 @@ fn main() {
         ])
         .setup(|app| {
             let is_yoloe = app.config().identifier == YOLOE_IDENTIFIER;
-            let script = include_str!("desktop.js").replace("__IS_YOLOE__", if is_yoloe { "true" } else { "false" });
+            let script = desktop_script(app.handle(), is_yoloe)?;
             let title = app.config().product_name.clone().unwrap_or_else(|| "Easy Labeling".into());
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title(title)
@@ -487,6 +508,15 @@ mod tests {
         let mut names = vec!["b10.json", "B2.json", "a.json"];
         names.sort_by_cached_key(|name| natural_key(name));
         assert_eq!(names, ["a.json", "B2.json", "b10.json"]);
+    }
+
+    #[test]
+    fn desktop_script_becomes_a_classic_script() {
+        let script = classic_script("(() => {})();
+export {};
+", true);
+        assert!(!script.contains("export"));
+        assert!(script.contains("const __EASY_LABELING_IS_YOLOE__ = true;"));
     }
 
     #[test]
