@@ -1,7 +1,7 @@
 {
   "productName": "Easy Labeling YOLOE-26",
   "mainBinaryName": "Easy Labeling YOLOE-26",
-  "version": "2.11.0",
+  "version": "2.12.0",
   "identifier": "com.easylabeling.yoloe26",
   "bundle": {
     "resources": { "../assets/models/yoloe26/": "yoloe26/" }

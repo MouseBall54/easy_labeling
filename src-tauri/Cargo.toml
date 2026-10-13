@@ -20,9 +20,9 @@ easy-labeling-compute = { path = "compute" }
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Graphics_Dxgi"] }
 
+# Thin LTO: fat LTO with one codegen unit needed >1.2 GB for one rustc and ~25 min per installer.
 [profile.release]
-codegen-units = 1
-lto = true
+lto = "thin"
 opt-level = 3
 
 # Debug desktop builds (npm run tauri:dev, used by the e2e specs) optimise every dependency, so IPC
