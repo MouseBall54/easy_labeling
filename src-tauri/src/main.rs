@@ -1,6 +1,7 @@
 // Tauri shell for Easy Labeling: the Rust counterpart of electron/main.cjs + preload.cjs.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod native;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -435,7 +436,10 @@ fn main() {
             fs_read,
             fs_mtime,
             fs_write,
-            fs_same_entry
+            fs_same_entry,
+            native::refine_load_image,
+            native::refine_run,
+            native::refine_crop
         ])
         .setup(|app| {
             let is_yoloe = app.config().identifier == YOLOE_IDENTIFIER;

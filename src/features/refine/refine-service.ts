@@ -1,5 +1,6 @@
 import type { GrayImage, RefineBoxInput, RefineParams, RefineRect, RefineResult } from "../../domain/refine/edge-refine.js";
 import type { SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
+import { createNativeRefineWorker, type RefineWorkerLike } from "./native-refine-worker.js";
 
 /** Which pixels refinement reads; "processed" carries the Preprocess panel's config. */
 export type RefineImageInput = { kind: "original" } | { kind: "processed"; config: SegmentationPreprocessingConfig | undefined };
@@ -18,7 +19,7 @@ export interface RefineService {
 }
 
 export function createRefineService(): RefineService {
-  let worker: Worker | null = null;
+  let worker: RefineWorkerLike | null = null;
   let nextId = 0;
   let loadedImage: HTMLImageElement | null = null;
   let imageKey = 0;
@@ -27,7 +28,8 @@ export function createRefineService(): RefineService {
 
   const call = (message: Record<string, unknown>, transfer: Transferable[] = []): Promise<unknown> => {
     if (!worker) {
-      worker = new Worker(new URL("../../../workers/refine-worker.js", import.meta.url), { type: "module" });
+      const createWorker = (): Worker => new Worker(new URL("../../../workers/refine-worker.js", import.meta.url), { type: "module" });
+      worker = createNativeRefineWorker(createWorker) ?? createWorker();
       worker.onmessage = ({ data }: MessageEvent<{ id: number; result?: unknown; error?: string }>) => {
         const request = pending.get(data.id);
         pending.delete(data.id);

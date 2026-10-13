@@ -100,6 +100,8 @@
     return handle;
   }
 
+  window.easyLabelingNative = Object.freeze({ invoke: call });
+
   const isYoloe = __IS_YOLOE__;
   window.easyLabelingDesktop = Object.freeze({
     readYoloeModel: isYoloe ? async (file) => new Uint8Array(await call("read_yoloe_model", { file })) : undefined,
