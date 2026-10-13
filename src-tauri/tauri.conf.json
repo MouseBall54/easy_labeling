@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Easy Labeling",
+  "mainBinaryName": "Easy Labeling",
+  "version": "../package.json",
+  "identifier": "com.easylabeling.desktop",
+  "build": {
+    "frontendDist": "frontend",
+    "beforeBuildCommand": "npm run build && node scripts/stage-tauri-frontend.mjs"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["../assets/icons/easy-labeling.ico", "../assets/icons/easy-labeling.png"],
+    "resources": { "../assets/sample/": "sample/" },
+    "windows": {
+      "webviewInstallMode": { "type": "offlineInstaller" },
+      "nsis": { "installMode": "currentUser", "installerIcon": "../assets/icons/easy-labeling.ico" }
+    }
+  }
+}
