@@ -57,12 +57,11 @@ test("Tauri YOLOE-26 build loads bundled models and predicts from visual example
     await expect.poll(count).toBe(2);
     await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.selectRectsByIndex?.([0, 1]));
     await page.locator("#openYoloeSetupBtn").click();
-    await expect(page.locator("#yoloeModelSelect")).toBeEnabled({ timeout: 180_000 });
-    await page.locator("#yoloeModelSelect").selectOption("yoloe-26n-seg");
+    await expect(page.locator("#yoloeSetupStatus")).toHaveText("Ready", { timeout: 180_000 });
     await page.locator("#yoloeProfileName").fill("desktop_check");
     await page.locator("#addYoloeSelectedBtn").click();
+    await expect(page.locator("#yoloeSetupStatus")).toContainText("2 sample(s) · Ready to find", { timeout: 300_000 });
     await page.locator("#closeYoloeSetupBtn").click();
-    await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2, { timeout: 300_000 });
     await page.locator("#nextImageBtn").click();
     await expect.poll(count).toBe(1);
     const sequence = await page.evaluate(() => Reflect.get(window, "__yoloeSequence") ?? 0);
