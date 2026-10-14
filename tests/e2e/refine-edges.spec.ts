@@ -315,6 +315,59 @@ test("refine: per-side edge rules, use-for-all-sides, and remembered search rang
   await expect(page.locator("#refineLabField-gradStep")).toHaveValue("3");
 });
 
+test("refine lab: extreme search settings reach through the box, widen the preview and still refine", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  const editor = page.locator("#refineLabEditor");
+  const readout = page.locator("#refineLabReadout");
+  const zoom = page.locator("#refineLabZoom");
+  await editClass(page, "0");
+  await page.locator("#refineLabField-avoidNeighbors").uncheck();
+  await editor.locator('.refine-scope [data-scope="R"]').click();
+  await expect(readout).toContainText("Search 10 px in · 10 px out");
+
+  // Inward: past the old centre limit up to the opposite side, which the readout names.
+  const box = (await geometries(page))[0]!;
+  await editor.locator("#refineLabField-rangeIn").fill("2000");
+  await expect(readout).toContainText(/Search \d+ px in \(box limit\)/);
+  await lab(page).screenshot({ path: "test-results/refine-lab-search-light.png" });
+  await page.evaluate(() => (document.querySelector("#darkModeToggle") as HTMLInputElement).click());
+  await lab(page).screenshot({ path: "test-results/refine-lab-search-dark.png" });
+  await zoom.screenshot({ path: "test-results/refine-lab-inward-2000.png" });
+  const inward = Number(/Search (\d+) px in/.exec((await readout.textContent()) ?? "")![1]);
+  expect(inward).toBeGreaterThan((box.right - box.left) / 2);
+
+  // Outward: far past the old 80 px cap and the 128 px crop; the zoom view keeps widening with it.
+  const shots: Buffer[] = [await zoom.screenshot()];
+  for (const range of ["150", "600"]) {
+    await editor.locator("#refineLabField-rangeOut").fill(range);
+    await expect(readout).toContainText(`· ${range} px out`);
+    await expect.poll(async () => Buffer.compare(await zoom.screenshot(), shots[shots.length - 1]!) !== 0).toBe(true);
+    shots.push(await zoom.screenshot());
+  }
+  await expect(editor.locator("#refineLabField-rangeOut")).toHaveValue("600");
+  await zoom.screenshot({ path: "test-results/refine-lab-outward-600.png" });
+
+  // Every advanced value at its bound at once: the draft still refines every case without errors.
+  await editor.locator('.refine-scope [data-scope="all"]').click();
+  await editor.locator("details.refine-details", { has: page.locator("#refineLabField-segments") }).evaluate((details) => { (details as HTMLDetailsElement).open = true; });
+  for (const [key, value] of [["rangeOut", "2000"], ["sigma", "12"], ["gradStep", "64"], ["segments", "100"], ["inset", "49"], ["iterations", "6"], ["contextRing", "500"]] as const) {
+    await editor.locator(`#refineLabField-${key}`).fill(value);
+  }
+  await editor.locator("#refineLabField-scanSpan").selectOption("boxOutside");
+  await editor.locator("#refineLabField-extendStart").fill("4000");
+  await editor.locator("#refineLabField-extendEnd").fill("4000");
+  await expect(page.locator("#refineLabStatus")).toContainText(/1 cases? · \d+ to review/, { timeout: 60_000 });
+  await expect(editor.locator("#refineLabField-segments")).toHaveValue("100");
+  await zoom.screenshot({ path: "test-results/refine-lab-extreme.png" });
+  expect(errors).toEqual([]);
+});
+
 test("refine: processed image follows the Preprocess panel's contrast and gamma", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);

@@ -81,6 +81,8 @@ pub enum Side {
 }
 
 const SIDES: [Side; 4] = [Side::L, Side::R, Side::T, Side::B];
+/// Smallest box side (px) a refinement may leave (MIN_SIZE in edge-refine.ts).
+const MIN_SIZE: f64 = 2.0;
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 pub struct Rect {
@@ -507,7 +509,8 @@ fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbo
         runs
     };
     let positions: Vec<i64> = runs.iter().flat_map(|&(from, to)| from..=to).collect();
-    let range_in = (p.range_in.min((thickness / 2.0).floor())).max(1.0) as i64;
+    // Inward search may run through the centre up to MIN_SIZE short of the opposite side.
+    let range_in = (p.range_in.min(thickness.floor() - MIN_SIZE)).max(1.0) as i64;
     let range_out = if p.avoid_neighbors {
         (p.range_out.min(neighbour_limit(rect, side, neighbours).floor())).max(1.0) as i64
     } else {
@@ -596,10 +599,15 @@ fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbou
         next.y0 = next.y0.max(0.0);
         next.x1 = next.x1.min(img.width as f64);
         next.y1 = next.y1.min(img.height as f64);
-        if next.x1 - next.x0 < 2.0 || next.y1 - next.y0 < 2.0 {
+        if next.x1 - next.x0 < MIN_SIZE || next.y1 - next.y0 < MIN_SIZE {
             break;
         }
+        // Converged: another pass over the same box would repeat exactly this result.
+        let settled = next.x0 == current.x0 && next.y0 == current.y0 && next.x1 == current.x1 && next.y1 == current.y1;
         current = next;
+        if settled {
+            break;
+        }
     }
     let weak_sides: Vec<Side> = SIDES.iter().copied().filter(|side| side_conf.get(side).copied().unwrap_or(1.0) < params.review_below).collect();
     let before = (start.x1 - start.x0) * (start.y1 - start.y0);
@@ -627,7 +635,7 @@ pub fn refine_boxes(img: &GrayImage, boxes: &[BoxInput], params_by_class: &HashM
         .par_iter()
         .filter_map(|input| {
             let params = params_by_class.get(&input.class_id).filter(|p| p.enabled)?;
-            let reach = params.range_out * 2.0 + 1.0;
+            let reach = SIDES.iter().map(|&side| side_params(params, side).range_out).fold(0.0, f64::max) * 2.0 + 1.0;
             let nearby: Vec<Rect> = if params.avoid_neighbors {
                 neighbours
                     .iter()

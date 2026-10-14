@@ -92,7 +92,10 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
     { crit: "thr", contextRing: 0, gradStep: 4 },
     { crit: "grad", scanSpan: "boxOutside", extendStart: 6, extendEnd: 9, avoidNeighbors: false, iterations: 4 },
     { scanSpan: "outside", extendEnd: 5, sides: { L: "off", R: "flank", T: "inherit", B: "thr" }, sideRules: { R: { rangeOut: 4, polarity: "darkInside" }, T: { sigma: 2.5, inset: 0.3 } } },
-    { peerTolerance: 0.5, reviewBelow: 0.8, areaGrowLimit: 0.05, areaShrinkLimit: 0.05 }
+    { peerTolerance: 0.5, reviewBelow: 0.8, areaGrowLimit: 0.05, areaShrinkLimit: 0.05 },
+    // Extremes: inward search through the centre, wide outward/ring/extensions, many segments and iterations.
+    { rangeIn: 2000, rangeOut: 300, contextRing: 200, sigma: 12, gradStep: 40, segments: 100, iterations: 6, inset: 0.49 },
+    { scanSpan: "boxOutside", extendStart: 4000, extendEnd: 4000, avoidNeighbors: false, sideRules: { L: { rangeIn: 2000, polarity: "darkInside" }, B: { rangeOut: 2000, segments: 1 } } }
   ];
 
   it.each(paramVariants.map((params) => [JSON.stringify(params), params] as const))("refineBoxes %s", (_label, raw) => {
