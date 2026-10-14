@@ -16,7 +16,7 @@ export async function launchDesktop(exe: string, sandbox: string, pickDirectorie
   const child: ChildProcess = spawn(exe, [], {
     env: {
       ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} ${process.env.EASY_LABELING_TEST_WEBVIEW_ARGS ?? ""}`.trim(),
       WEBVIEW2_USER_DATA_FOLDER: path.join(sandbox, "webview"),
       APPDATA: path.join(sandbox, "appdata"),
       EASY_LABELING_TEST_PROFILE_ROOT: path.join(sandbox, "profiles"),
