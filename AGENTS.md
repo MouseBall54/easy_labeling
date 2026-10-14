@@ -20,6 +20,7 @@ npm run electron:dist:yoloe:win   # YOLOE-26 variant installer (electron-builder
 npm run tauri:dev           # Rust/Tauri desktop exe (debug, no installer) -> src-tauri/target/debug/
 npm run tauri:dist:win      # Tauri NSIS installer -> src-tauri/target/release/bundle/nsis/ (needs Rust)
 npm run tauri:dist:yoloe:win   # Tauri YOLOE-26 variant (src-tauri/tauri.yoloe.conf.json)
+npm run release:tauri         # signed Tauri installers + GitHub release with the update feeds (latest.json, latest-yoloe.json)
 ```
 
 Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chromium`.

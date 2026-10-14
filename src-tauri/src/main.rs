@@ -461,9 +461,64 @@ const __EASY_LABELING_IS_YOLOE__ = {is_yoloe};
 ")
 }
 
+fn ask(app: &AppHandle, title: &str, message: String, accept: &str, decline: &str) -> bool {
+    let mut dialog = app
+        .dialog()
+        .message(message)
+        .title(title)
+        .buttons(MessageDialogButtons::OkCancelCustom(accept.into(), decline.into()));
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.parent(&window);
+    }
+    dialog.blocking_show()
+}
+
+/// Startup check against the GitHub release feed (plugins.updater.endpoints). Offline or failing
+/// checks stay silent; the installer runs only after the user agreed, twice if work is unsaved.
+async fn update_on_startup(app: AppHandle) -> tauri_plugin_updater::Result<()> {
+    use tauri_plugin_updater::UpdaterExt;
+    let Some(update) = app.updater_builder().timeout(std::time::Duration::from_secs(20)).build()?.check().await? else {
+        return Ok(());
+    };
+    let name = app.config().product_name.clone().unwrap_or_else(|| "Easy Labeling".into());
+    let offer = format!(
+        "{name} {} is available (installed: {}).\n\nDownload and install it now? The app restarts after the installer finishes.",
+        update.version, update.current_version
+    );
+    if !ask(&app, "Update available", offer, "Update", "Later") {
+        return Ok(());
+    }
+    // The download takes a while (the installer bundles WebView2); show its progress in the title.
+    let window = app.get_webview_window("main");
+    let mut received = 0usize;
+    let bytes = update
+        .download(
+            |chunk, total| {
+                received += chunk;
+                if let (Some(window), Some(total)) = (&window, total) {
+                    let _ = window.set_title(&format!("{name} - downloading update {}%", received as u64 * 100 / total.max(1)));
+                }
+            },
+            || {},
+        )
+        .await;
+    if let Some(window) = &window {
+        let _ = window.set_title(&name);
+    }
+    let bytes = bytes?;
+    if DOCUMENT_DIRTY.load(Ordering::SeqCst) {
+        let warning = "The update is ready, but there are unsaved annotation changes.\n\nInstall now and discard them?".to_string();
+        if !ask(&app, "Unsaved changes", warning, "Install and close", "Cancel") {
+            return Ok(());
+        }
+    }
+    update.install(bytes)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Never answers (WebView2 serves https://app.localhost); registering it makes that origin local.
         .register_uri_scheme_protocol("app", |_context, _request| tauri::http::Response::builder().status(404).body(Vec::new()).unwrap())
         .invoke_handler(tauri::generate_handler![
@@ -500,6 +555,15 @@ fn main() {
                 .disable_drag_drop_handler()
                 .build()?;
             serve_frontend(&window, frontend)?;
+            // Release builds only, and never under the e2e seams (they must not meet a dialog).
+            if !cfg!(debug_assertions) && std::env::var_os("EASY_LABELING_TEST_PROFILE_ROOT").is_none() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = update_on_startup(handle).await {
+                        eprintln!("Update check skipped: {error}");
+                    }
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

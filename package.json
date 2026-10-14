@@ -35,7 +35,8 @@
     "electron:dist:yoloe:win": "npm run build && npm run yoloe:models:record && electron-builder --config electron-builder.yoloe.cjs --win nsis --x64",
     "tauri:dev": "tauri build --debug --no-bundle",
     "tauri:dist:win": "tauri build",
-    "tauri:dist:yoloe:win": "npm run yoloe:models:record && tauri build --config src-tauri/tauri.yoloe.conf.json"
+    "tauri:dist:yoloe:win": "npm run yoloe:models:record && tauri build --config src-tauri/tauri.yoloe.conf.json",
+    "release:tauri": "node scripts/release-tauri.mjs"
   },
   "keywords": [],
   "author": "박영문",

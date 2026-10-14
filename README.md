@@ -41,6 +41,18 @@ Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기
 - 설치 없이 실행 파일만 빌드(디버그): `npm run tauri:dev` → `src-tauri/target/debug/Easy Labeling.exe`
 - 데스크톱 e2e: `npx playwright test tests/e2e/tauri-desktop.spec.ts --project=chromium` (위 실행 파일 사용)
 
+### 다운로드와 자동 업데이트(GitHub Releases)
+
+- 다운로드: [Releases](https://github.com/MouseBall54/easy_labeling/releases/latest)에서 `EasyLabeling_<버전>_x64-setup.exe`(일반) 또는 `EasyLabeling-YOLOE-26_<버전>_x64-setup.exe`(YOLOE-26)를 받아 설치합니다.
+- 업데이트: 설치된 앱은 시작할 때 최신 릴리스를 확인하고, 새 버전이 있으면 설치 여부를 묻습니다. 수락하면 받은 뒤(창 제목에 진행률 표시) 설치하고 다시 실행합니다. 저장하지 않은 변경이 있으면 설치 전에 한 번 더 묻습니다. 인터넷이 없으면 확인을 조용히 건너뜁니다.
+- 일반 버전은 `latest.json`, YOLOE-26 버전은 `latest-yoloe.json`을 따라가므로 서로의 설치파일로 바뀌지 않습니다.
+
+릴리스 만들기(관리자):
+
+1. `package.json` 버전을 올리고(AGENTS.md "Versioning") 커밋·push합니다.
+2. `npm run release:tauri` — 두 설치파일을 서명해 빌드하고 `v<버전>` 릴리스와 업데이트 피드를 올립니다. `-- --draft`로 초안만 만들 수 있고(초안은 앱이 보지 못함), `-- --skip-build`는 이미 서명해 빌드한 설치파일을 그대로 올립니다.
+3. 서명 키는 `%USERPROFILE%\.tauri\easy-labeling-updater.key`(또는 `TAURI_SIGNING_PRIVATE_KEY`)를 씁니다. 같은 키가 GitHub Secret `TAURI_SIGNING_PRIVATE_KEY`에도 있습니다. **이 키를 잃으면 이미 설치된 앱은 더 이상 업데이트를 받을 수 없으니 따로 백업해 두세요.**
+
 ## Windows 설치형 앱(Electron)
 
 개발 PC에 Node.js 22.12 이상을 준비하고, 프로젝트 루트에서 `npm ci`로 빌드 의존성을 설치합니다. 만들 설치 버전에 맞춰 아래 명령을 선택하세요.

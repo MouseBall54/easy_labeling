@@ -12,6 +12,13 @@
     "windows": [],
     "security": { "csp": null }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1QzY3RDM5NjI5NkUyMzQKUldRMDRwWmlPWDNHSlppeGlLbFdWcGJ6UXJyMkZROFVEU0RFZXg5SG5vajZXakM0Y3ZCMmN3L1UK",
+      "endpoints": ["https://github.com/MouseBall54/easy_labeling/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
