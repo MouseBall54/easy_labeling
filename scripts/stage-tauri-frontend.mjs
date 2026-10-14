@@ -1,4 +1,5 @@
-// Copies the files the desktop app serves into src-tauri/frontend (the Tauri frontendDist).
+// Copies the files the desktop app serves into src-tauri/frontend, which ships as a bundle resource
+// that WebView2 serves straight from disk (see serve_frontend in src-tauri/src/main.rs).
 // Same file set as the Electron build, minus the Electron shell, the sample dataset and the
 // YOLOE models: those ship as bundle resources on disk (see src-tauri/tauri.conf.json).
 import { cp, mkdir, rm } from "node:fs/promises";

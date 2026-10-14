@@ -5,7 +5,7 @@
   "version": "../package.json",
   "identifier": "com.easylabeling.desktop",
   "build": {
-    "frontendDist": "frontend",
+    "frontendDist": "shell",
     "beforeBuildCommand": "npm run build && node scripts/stage-tauri-frontend.mjs"
   },
   "app": {
@@ -16,7 +16,7 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["../assets/icons/easy-labeling.ico", "../assets/icons/easy-labeling.png"],
-    "resources": { "../assets/sample/": "sample/" },
+    "resources": { "frontend/": "frontend/", "../assets/sample/": "sample/" },
     "windows": {
       "webviewInstallMode": { "type": "offlineInstaller" },
       "nsis": { "installMode": "currentUser", "installerIcon": "../assets/icons/easy-labeling.ico" }

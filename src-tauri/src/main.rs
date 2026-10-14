@@ -418,15 +418,37 @@ fn confirm_close(window: &tauri::Window) {
         });
 }
 
-/// The window globals bridge (src/platform/tauri-desktop.ts, compiled into the embedded dist/). tsc
+/// The window globals bridge (src/platform/tauri-desktop.ts, compiled into the frontend's dist/). tsc
 /// marks it as an ES module with a trailing `export {};`, which an initialization script cannot have.
-fn desktop_script(app: &AppHandle, is_yoloe: bool) -> Result<String, String> {
-    let asset = app
-        .asset_resolver()
-        .get("dist/platform/tauri-desktop.js".into())
-        .ok_or("dist/platform/tauri-desktop.js is missing from the bundled frontend")?;
-    let source = String::from_utf8(asset.bytes().to_vec()).map_err(|error| error.to_string())?;
+fn desktop_script(frontend: &Path, is_yoloe: bool) -> Result<String, String> {
+    let source = fs::read_to_string(frontend.join("dist/platform/tauri-desktop.js"))
+        .map_err(|error| format!("dist/platform/tauri-desktop.js is missing from the frontend folder: {error}"))?;
     Ok(classic_script(&source, is_yoloe))
+}
+
+/// The frontend is served from the installed `frontend/` folder by WebView2 itself. Tauri's own
+/// asset protocol hands every file through the window thread (~25 MB/s): loading OpenCV.js and the
+/// ONNX runtime at startup then stalled the IPC calls of the first folder open by about a second.
+/// The host is `<registered protocol>.localhost` over https, which Tauri counts as a local origin
+/// (IPC allowed) while its own request filter only covers `http://app.localhost`.
+const FRONTEND_HOST: &str = "app.localhost";
+
+fn serve_frontend(window: &WebviewWindow, frontend: PathBuf) -> tauri::Result<()> {
+    window.with_webview(move |webview| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
+        use windows_core::{Interface, HSTRING};
+        let result = webview.controller().CoreWebView2().and_then(|core| {
+            core.cast::<ICoreWebView2_3>()?.SetVirtualHostNameToFolderMapping(
+                &HSTRING::from(FRONTEND_HOST),
+                &HSTRING::from(frontend.as_path()),
+                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
+            )?;
+            core.Navigate(&HSTRING::from(format!("https://{FRONTEND_HOST}/index.html")))
+        });
+        if let Err(error) = result {
+            eprintln!("Unable to serve the frontend folder: {error}");
+        }
+    })
 }
 
 fn classic_script(source: &str, is_yoloe: bool) -> String {
@@ -442,6 +464,8 @@ const __EASY_LABELING_IS_YOLOE__ = {is_yoloe};
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Never answers (WebView2 serves https://app.localhost); registering it makes that origin local.
+        .register_uri_scheme_protocol("app", |_context, _request| tauri::http::Response::builder().status(404).body(Vec::new()).unwrap())
         .invoke_handler(tauri::generate_handler![
             pick_directory,
             profile_directory,
@@ -464,15 +488,18 @@ fn main() {
         ])
         .setup(|app| {
             let is_yoloe = app.config().identifier == YOLOE_IDENTIFIER;
-            let script = desktop_script(app.handle(), is_yoloe)?;
+            // resource_dir() is a verbatim \?\ path, which breaks every subresource of a virtual host.
+            let frontend = dunce::simplified(&app.path().resource_dir()?.join("frontend")).to_path_buf();
+            let script = desktop_script(&frontend, is_yoloe)?;
             let title = app.config().product_name.clone().unwrap_or_else(|| "Easy Labeling".into());
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External("about:blank".parse()?))
                 .title(title)
                 .inner_size(1480.0, 940.0)
                 .min_inner_size(1080.0, 720.0)
                 .initialization_script(&script)
                 .disable_drag_drop_handler()
                 .build()?;
+            serve_frontend(&window, frontend)?;
             Ok(())
         })
         .on_window_event(|window, event| {
