@@ -1,6 +1,6 @@
 // Refine settings editor (class chips, presets, per-side rules, parameters). Mounted twice: the Refine
 // inspector pane edits the live settings, the Refine Lab edits a draft that is only saved on demand.
-import { REFINE_SIDE_RULE_KEYS, REFINE_SIDES, sideParams, type RefineParams, type RefineSide } from "../domain/refine/edge-refine.js";
+import { REFINE_PARAM_LIMITS, REFINE_SIDE_RULE_KEYS, REFINE_SIDES, sideParams, type RefineLimitedKey, type RefineParams, type RefineSide } from "../domain/refine/edge-refine.js";
 import {
   applyRefinePreset,
   createRefineSettings,
@@ -65,6 +65,11 @@ interface FieldSpec {
 export const REFINE_CRITERION_LABELS: Record<string, string> = {
   grad: "Max gradient", flank: "Bright band outer 50%", peak: "Bright band centre", thr: "50% contrast level"
 };
+/** Input bounds from the domain limits; percentage fields show fractions x100. */
+const bounds = (key: RefineLimitedKey, scale = 1): { min: number; max: number } => ({
+  min: REFINE_PARAM_LIMITS[key][0] * scale,
+  max: REFINE_PARAM_LIMITS[key][1] * scale
+});
 const FIELDS: FieldSpec[] = [
   { key: "enabled", label: "Refine this class", type: "bool", group: "rule" },
   { key: "crit", label: "Edge criterion", type: "select", group: "rule", perSide: true, options: Object.entries(REFINE_CRITERION_LABELS) },
@@ -74,11 +79,11 @@ const FIELDS: FieldSpec[] = [
     options: [["auto", "Auto (detect)"], ["brightInside", "Bright → dark"], ["darkInside", "Dark → bright"]]
   },
   { key: "comb", label: "Combine segments", type: "select", group: "rule", perSide: true, options: [["outer", "Outermost"], ["median", "Median"]] },
-  { key: "rangeIn", label: "Search inward (px)", type: "int", group: "rule", perSide: true, min: 1, max: 80, step: 1 },
-  { key: "rangeOut", label: "Search outward (px)", type: "int", group: "rule", perSide: true, min: 1, max: 80, step: 1 },
-  { key: "sigma", label: "Smoothing σ", type: "num", group: "rule", perSide: true, min: 0, max: 6, step: 0.2 },
+  { key: "rangeIn", label: "Search inward (px)", type: "int", group: "rule", perSide: true, ...bounds("rangeIn"), step: 1 },
+  { key: "rangeOut", label: "Search outward (px)", type: "int", group: "rule", perSide: true, ...bounds("rangeOut"), step: 1 },
+  { key: "sigma", label: "Smoothing σ", type: "num", group: "rule", perSide: true, ...bounds("sigma"), step: 0.2 },
   {
-    key: "gradStep", label: "Gradient step (px)", type: "int", group: "rule", perSide: true, min: 1, max: 16, step: 1,
+    key: "gradStep", label: "Gradient step (px)", type: "int", group: "rule", perSide: true, ...bounds("gradStep"), step: 1,
     title: "Max gradient compares brightness this many pixels apart. Larger steps ignore fine noise and soft edges; 2 is the classic central difference"
   },
   {
@@ -87,24 +92,24 @@ const FIELDS: FieldSpec[] = [
     options: [["box", "Box only"], ["boxOutside", "Box + outside"], ["outside", "Outside only"]]
   },
   {
-    key: "extendStart", label: "Extend before (px)", type: "int", group: "rule", perSide: true, min: 0, max: 400, step: 1,
+    key: "extendStart", label: "Extend before (px)", type: "int", group: "rule", perSide: true, ...bounds("extendStart"), step: 1,
     title: "Scan this far past the box start: above it for left/right edges, left of it for top/bottom edges",
     sideLabels: { vertical: "Extend above (px)", horizontal: "Extend left (px)" }
   },
   {
-    key: "extendEnd", label: "Extend after (px)", type: "int", group: "rule", perSide: true, min: 0, max: 400, step: 1,
+    key: "extendEnd", label: "Extend after (px)", type: "int", group: "rule", perSide: true, ...bounds("extendEnd"), step: 1,
     title: "Scan this far past the box end: below it for left/right edges, right of it for top/bottom edges",
     sideLabels: { vertical: "Extend below (px)", horizontal: "Extend right (px)" }
   },
-  { key: "contextRing", label: "Background ring (px)", title: "0 turns surrounding brightness off", type: "int", group: "context", min: 0, max: 40, step: 1 },
+  { key: "contextRing", label: "Background ring (px)", title: "0 turns surrounding brightness off", type: "int", group: "context", ...bounds("contextRing"), step: 1 },
   { key: "avoidNeighbors", label: "Stop halfway to neighbours", type: "bool", group: "context" },
-  { key: "peerTolerance", label: "Row/column tolerance (px)", title: "0 turns row/column alignment flags off", type: "num", group: "context", min: 0, max: 50, step: 0.5 },
-  { key: "segments", label: "Segments per side", type: "int", group: "advanced", perSide: true, min: 1, max: 30, step: 1 },
-  { key: "inset", label: "Corner inset (%)", type: "pct", group: "advanced", perSide: true, min: 0, max: 40, step: 1 },
-  { key: "iterations", label: "Iterations", type: "int", group: "advanced", min: 1, max: 4, step: 1 },
-  { key: "reviewBelow", label: "Flag below confidence", type: "num", group: "advanced", min: 0, max: 1, step: 0.05 },
-  { key: "areaGrowLimit", label: "Flag area growth over (%)", title: "Boxes that grow more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", min: 0, max: 1000, step: 5 },
-  { key: "areaShrinkLimit", label: "Flag area shrink over (%)", title: "Boxes that shrink more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", min: 0, max: 99, step: 5 },
+  { key: "peerTolerance", label: "Row/column tolerance (px)", title: "0 turns row/column alignment flags off", type: "num", group: "context", ...bounds("peerTolerance"), step: 0.5 },
+  { key: "segments", label: "Segments per side", type: "int", group: "advanced", perSide: true, ...bounds("segments"), step: 1 },
+  { key: "inset", label: "Corner inset (%)", type: "pct", group: "advanced", perSide: true, ...bounds("inset", 100), step: 1 },
+  { key: "iterations", label: "Iterations", type: "int", group: "advanced", ...bounds("iterations"), step: 1 },
+  { key: "reviewBelow", label: "Flag below confidence", type: "num", group: "advanced", ...bounds("reviewBelow"), step: 0.05 },
+  { key: "areaGrowLimit", label: "Flag area growth over (%)", title: "Boxes that grow more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", ...bounds("areaGrowLimit", 100), step: 5 },
+  { key: "areaShrinkLimit", label: "Flag area shrink over (%)", title: "Boxes that shrink more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", ...bounds("areaShrinkLimit", 100), step: 5 },
   { key: "autoOnDraw", label: "Refine new boxes on draw", type: "bool", group: "advanced" }
 ];
 const SIDE_OPTIONS: [string, string][] = [["inherit", "Inherit"], ["grad", "Gradient"], ["flank", "Band 50%"], ["peak", "Band peak"], ["thr", "50% level"], ["off", "Off"]];

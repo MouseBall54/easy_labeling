@@ -35,7 +35,9 @@ Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` insid
 - Criteria: `grad` (max gradient, signed by polarity), `flank` (bright band outer 50%), `peak` (band centre), `thr` (50% level between inside/outside medians).
 - Coordinates: profile index i samples pixel `base + i`, whose centre is `base + i + 0.5` (a half-pixel bias was fixed here once; keep it).
 - Context (`contextRing` > 0): medians of the box core and of a ring beyond the widest outward range give inside/outside levels and the detected polarity. `polarity` can force `brightInside` / `darkInside`.
-- `avoidNeighbors`: outward search stops halfway to a facing neighbour box. `rangeIn` never crosses the box centre.
+- `avoidNeighbors`: outward search stops halfway to a facing neighbour box. `rangeIn` may run through the box centre up to `MIN_SIZE` short of the opposite side.
+- Bounds: every numeric parameter is clamped to `REFINE_PARAM_LIMITS` (the editor inputs use the same table). Iterations stop early once a pass leaves the box unchanged. Every bound at once costs about 0.5 s per box (Gaussian smoothing of long profiles per segment); single extremes stay fast.
+- Refine Lab crops each case with `neededMargin()` (widest outward search + background ring + extensions) so it holds every pixel refinement reads; the readout names the search range in use and what cut it short (box limit, neighbour).
 - Per-side rules: `sides[side]` holds off / inherit / a criterion; `sideRules[side]` overrides `REFINE_SIDE_RULE_KEYS` (polarity, comb, ranges, sigma, segments, inset, `scanSpan`, `extendStart`, `extendEnd`). Always read side values through `sideParams(params, side)`.
 - `scanSpan`: `box` (inset span), `boxOutside`, or `outside` (only the extensions past the box ends; falls back to the box if nothing is left).
 - Confidence: SNR per chunk, x0.3 when the edge sits on the search limit; `weakSides` below `reviewBelow`, row/column outliers (`peerTolerance`) and an area change beyond `areaGrowLimit` / `areaShrinkLimit` (fractions, 0 = off; `areaChange`, `areaFlagged` on the result) flag the box. Area flags draw a red frame with a `±N% area` tag on the canvas overlay.

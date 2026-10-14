@@ -105,7 +105,30 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   peerTolerance: 2
 });
 
+/**
+ * Accepted range of each numeric parameter (the settings editor uses the same bounds). Generous on
+ * purpose: inward search is further bounded by the box (see sideWindow), outward by the image.
+ */
+export const REFINE_PARAM_LIMITS = Object.freeze({
+  rangeIn: [1, 2000],
+  rangeOut: [1, 2000],
+  segments: [1, 100],
+  sigma: [0, 12],
+  gradStep: [1, 64],
+  inset: [0, 0.49],
+  extendStart: [0, 4000],
+  extendEnd: [0, 4000],
+  iterations: [1, 6],
+  reviewBelow: [0, 1],
+  areaGrowLimit: [0, 100],
+  areaShrinkLimit: [0, 0.99],
+  contextRing: [0, 500],
+  peerTolerance: [0, 500]
+} as const satisfies Record<string, readonly [number, number]>);
+export type RefineLimitedKey = keyof typeof REFINE_PARAM_LIMITS;
+
 const clamp = (value: number, low: number, high: number): number => (value < low ? low : value > high ? high : value);
+const limit = (key: RefineLimitedKey, value: number): number => clamp(value, REFINE_PARAM_LIMITS[key][0], REFINE_PARAM_LIMITS[key][1]);
 const num = (value: unknown, fallback: number): number => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
 
 /** Accepts legacy refine-module values: boolean sides, R (both ranges) and K (segments). */
@@ -141,15 +164,15 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     crit: REFINE_CRITERIA.includes(p.crit as RefineCriterion) ? p.crit as RefineCriterion : d.crit,
     polarity: p.polarity === "brightInside" || p.polarity === "darkInside" || p.polarity === "auto" ? p.polarity : d.polarity,
     comb: p.comb === "median" || p.comb === "outer" ? p.comb : d.comb,
-    rangeIn: clamp(Math.round(num(p.rangeIn, num(legacyRange, d.rangeIn))), 1, 80),
-    rangeOut: clamp(Math.round(num(p.rangeOut, num(legacyRange, d.rangeOut))), 1, 80),
-    segments: clamp(Math.round(num(p.segments, num(p.K, d.segments))), 1, 30),
-    sigma: clamp(num(p.sigma, d.sigma), 0, 6),
-    gradStep: clamp(Math.round(num(p.gradStep, d.gradStep)), 1, 16),
-    inset: clamp(num(p.inset, d.inset), 0, 0.4),
+    rangeIn: limit("rangeIn", Math.round(num(p.rangeIn, num(legacyRange, d.rangeIn)))),
+    rangeOut: limit("rangeOut", Math.round(num(p.rangeOut, num(legacyRange, d.rangeOut)))),
+    segments: limit("segments", Math.round(num(p.segments, num(p.K, d.segments)))),
+    sigma: limit("sigma", num(p.sigma, d.sigma)),
+    gradStep: limit("gradStep", Math.round(num(p.gradStep, d.gradStep))),
+    inset: limit("inset", num(p.inset, d.inset)),
     scanSpan: p.scanSpan === "boxOutside" || p.scanSpan === "outside" || p.scanSpan === "box" ? p.scanSpan : d.scanSpan,
-    extendStart: clamp(Math.round(num(p.extendStart, d.extendStart)), 0, 400),
-    extendEnd: clamp(Math.round(num(p.extendEnd, d.extendEnd)), 0, 400),
+    extendStart: limit("extendStart", Math.round(num(p.extendStart, d.extendStart))),
+    extendEnd: limit("extendEnd", Math.round(num(p.extendEnd, d.extendEnd))),
     sides: {
       L: normalizeSideMode(sides.L, d.sides.L),
       R: normalizeSideMode(sides.R, d.sides.R),
@@ -157,14 +180,14 @@ export function normalizeRefineParams(value: unknown): RefineParams {
       B: normalizeSideMode(sides.B, d.sides.B)
     },
     sideRules: { L: normalizeSideRule(rules.L), R: normalizeSideRule(rules.R), T: normalizeSideRule(rules.T), B: normalizeSideRule(rules.B) },
-    iterations: clamp(Math.round(num(p.iterations, d.iterations)), 1, 4),
-    reviewBelow: clamp(num(p.reviewBelow, d.reviewBelow), 0, 1),
-    areaGrowLimit: clamp(num(p.areaGrowLimit, d.areaGrowLimit), 0, 10),
-    areaShrinkLimit: clamp(num(p.areaShrinkLimit, d.areaShrinkLimit), 0, 0.99),
+    iterations: limit("iterations", Math.round(num(p.iterations, d.iterations))),
+    reviewBelow: limit("reviewBelow", num(p.reviewBelow, d.reviewBelow)),
+    areaGrowLimit: limit("areaGrowLimit", num(p.areaGrowLimit, d.areaGrowLimit)),
+    areaShrinkLimit: limit("areaShrinkLimit", num(p.areaShrinkLimit, d.areaShrinkLimit)),
     autoOnDraw: p.autoOnDraw === undefined ? d.autoOnDraw : Boolean(p.autoOnDraw),
-    contextRing: clamp(Math.round(num(p.contextRing, d.contextRing)), 0, 40),
+    contextRing: limit("contextRing", Math.round(num(p.contextRing, d.contextRing))),
     avoidNeighbors: p.avoidNeighbors === undefined ? d.avoidNeighbors : Boolean(p.avoidNeighbors),
-    peerTolerance: clamp(num(p.peerTolerance, d.peerTolerance), 0, 50)
+    peerTolerance: limit("peerTolerance", num(p.peerTolerance, d.peerTolerance))
   };
 }
 
@@ -216,11 +239,16 @@ function smooth(profile: Float32Array, kernel: Float32Array): Float32Array {
   const radius = (kernel.length - 1) >> 1;
   const n = profile.length;
   const out = new Float32Array(n);
+  // Interior samples skip the edge clamp; the summation order (and so every float) is unchanged.
   for (let i = 0; i < n; i += 1) {
     let sum = 0;
-    for (let j = -radius; j <= radius; j += 1) {
-      const q = i + j < 0 ? 0 : i + j >= n ? n - 1 : i + j;
-      sum += profile[q] * kernel[j + radius];
+    if (i >= radius && i + radius < n) {
+      for (let j = -radius; j <= radius; j += 1) sum += profile[i + j] * kernel[j + radius];
+    } else {
+      for (let j = -radius; j <= radius; j += 1) {
+        const q = i + j < 0 ? 0 : i + j >= n ? n - 1 : i + j;
+        sum += profile[q] * kernel[j + radius];
+      }
     }
     out[i] = sum;
   }
@@ -243,6 +271,29 @@ function parabola(f: (i: number) => number, i: number, n: number): number {
   const den = a - 2 * b + c;
   if (Math.abs(den) < 1e-9) return 0;
   return clamp(0.5 * (a - c) / den, -0.5, 0.5);
+}
+
+/** The k-th smallest value (what values.sort()[k] would hold), in O(n); reorders values. */
+function kthSmallest(values: Float32Array, k: number): number {
+  let lo = 0;
+  let hi = values.length - 1;
+  while (lo < hi) {
+    const pivot = values[(lo + hi) >> 1];
+    let i = lo;
+    let j = hi;
+    while (i <= j) {
+      while (values[i] < pivot) i += 1;
+      while (values[j] > pivot) j -= 1;
+      if (i <= j) {
+        const t = values[i]; values[i] = values[j]; values[j] = t;
+        i += 1; j -= 1;
+      }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else break;
+  }
+  return values[k];
 }
 
 /** Context measured around the box: median brightness inside vs. a ring outside the search range. */
@@ -279,8 +330,7 @@ function findEdge(
   if (range < 1e-6) return null;
   const dd = new Float32Array(Math.max(0, n - 2));
   for (let i = 1; i < n - 1; i += 1) dd[i - 1] = Math.abs(raw[i + 1] - 2 * raw[i] + raw[i - 1]);
-  dd.sort();
-  const noise = dd.length ? dd[dd.length >> 1] / (0.6745 * Math.sqrt(6)) : 0;
+  const noise = dd.length ? kthSmallest(dd, dd.length >> 1) / (0.6745 * Math.sqrt(6)) : 0;
   const snr = range / (noise + 0.5);
   const ws = n * 0.35;
   const weight = (i: number): number => Math.exp(-((i - c) * (i - c)) / (2 * ws * ws));
@@ -452,8 +502,9 @@ function sideWindow(img: GrayImage, box: RefineRect, side: RefineSide, p: Refine
   const positions = new Int32Array(runs.reduce((total, [from, to]) => total + to - from + 1, 0));
   let k = 0;
   for (const [from, to] of runs) for (let t = from; t <= to; t += 1) positions[k++] = t;
-  // Inward search never crosses the box centre; outward search stops halfway to a facing neighbour.
-  const rangeIn = Math.max(1, Math.min(p.rangeIn, Math.floor(thickness / 2)));
+  // Inward search may run through the centre up to just short of the opposite side (a box keeps
+  // MIN_SIZE px); outward search stops halfway to a facing neighbour.
+  const rangeIn = Math.max(1, Math.min(p.rangeIn, Math.floor(thickness) - MIN_SIZE));
   const rangeOut = p.avoidNeighbors
     ? Math.max(1, Math.min(p.rangeOut, Math.floor(neighbourLimit(box, side, neighbours))))
     : p.rangeOut;
@@ -598,7 +649,10 @@ export function refineBox(
     next.x1 = Math.min(img.width, next.x1);
     next.y1 = Math.min(img.height, next.y1);
     if (next.x1 - next.x0 < MIN_SIZE || next.y1 - next.y0 < MIN_SIZE) break;
+    // Converged: another pass over the same box would repeat exactly this result.
+    const settled = next.x0 === current.x0 && next.y0 === current.y0 && next.x1 === current.x1 && next.y1 === current.y1;
     current = next;
+    if (settled) break;
   }
   const weakSides = REFINE_SIDES.filter((side) => (sideConf[side] ?? 1) < params.reviewBelow);
   const values = Object.values(sideConf) as number[];
@@ -632,7 +686,7 @@ export function refineBoxes(
     const params = paramsByClass[box.classId];
     if (!params?.enabled) continue;
     // ponytail: O(n·m) neighbour prefilter; fine to a few thousand boxes, switch to a grid index beyond that.
-    const reach = params.rangeOut * 2 + 1;
+    const reach = Math.max(...REFINE_SIDES.map((side) => sideParams(params, side).rangeOut)) * 2 + 1;
     const nearby = params.avoidNeighbors
       ? neighbours.filter((n) => n.id !== box.id
         && n.x1 >= box.x0 - reach && n.x0 <= box.x1 + reach

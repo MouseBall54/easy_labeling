@@ -45,14 +45,21 @@ interface LabResult {
 }
 
 const MAX_CASES = 24;
-// Covers the largest outward range (80) plus the largest background ring (40) and the ring gap;
-// scan-span extensions past the box ends grow a case's crop on demand.
+// Initial crop margin around a case; neededMargin() grows it on demand for wider outward searches,
+// background rings and scan-span extensions, so a case always holds every pixel refinement reads.
 const CROP_MARGIN = 128;
 const WARN = "#f0ad4e";
 const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
 const SIDE_NAMES: Record<RefineSide, string> = { L: "Left", R: "Right", T: "Top", B: "Bottom" };
 const POLARITY_TEXT = { 1: "bright → dark", [-1]: "dark → bright", 0: "unclear" } as const;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
+
+/** Search range actually used on a side, naming what cut it short of the setting. */
+const searchText = (d: RefineSideDiagnostics, set: RefineParams): string => {
+  const inward = `${d.rangeIn} px in${d.rangeIn < set.rangeIn ? " (box limit)" : ""}`;
+  const outward = `${d.rangeOut} px out${d.rangeOut < set.rangeOut ? " (halfway to a neighbour)" : ""}`;
+  return `Search ${inward} · ${outward}`;
+};
 
 export function createRefineLab(input: {
   documentRef: Document;
@@ -166,7 +173,7 @@ export function createRefineLab(input: {
       : "No boxes for this source. Select boxes on the canvas, or switch the case source.";
     if (!image || !boxes.length) { cases = []; schedule(); return; }
     status.textContent = "Loading cases…";
-    Promise.all(boxes.map((box) => prepare(image, box, everyBox))).then((loaded) => {
+    Promise.all(boxes.map((box) => prepare(image, box, everyBox, neededMargin(box.classId)))).then((loaded) => {
       if (token !== caseToken) return;
       cases = loaded;
       active = Math.min(active, Math.max(0, cases.length - 1));
@@ -174,21 +181,26 @@ export function createRefineLab(input: {
     }).catch(fail);
   }
 
-  /** Crop margin a case needs so the draft's scan-span extensions stay inside it. */
-  const neededMargin = (c: LabCase): number => {
-    const params = resolveRefineParams(draft, c.classId);
-    const extension = Math.max(...REFINE_SIDES.map((side) => { const p = sideParams(params, side); return p.scanSpan === "box" ? 0 : Math.max(p.extendStart, p.extendEnd); }));
-    return CROP_MARGIN + extension;
+  /**
+   * Crop margin a case needs: the outward search plus the background ring beyond it (perpendicular),
+   * and the scan-span extensions (along the side). Pixels past the crop would read as clamped copies.
+   */
+  const neededMargin = (classId: string): number => {
+    const params = resolveRefineParams(draft, classId);
+    const perSide = REFINE_SIDES.map((side) => sideParams(params, side));
+    const outward = Math.max(...perSide.map((p) => p.rangeOut)) + params.contextRing + 1;
+    const extension = Math.max(...perSide.map((p) => (p.scanSpan === "box" ? 0 : Math.max(p.extendStart, p.extendEnd))));
+    return Math.max(CROP_MARGIN, outward + extension + 16);
   };
   /** Re-crops cases whose image source changed or whose extensions outgrew the crop; renders again when done. */
   const recropStale = (): void => {
     const image = input.getImage();
-    const stale = (c: LabCase): boolean => c.source !== imageKey(draft) || neededMargin(c) > c.margin;
+    const stale = (c: LabCase): boolean => c.source !== imageKey(draft) || neededMargin(c.classId) > c.margin;
     if (recropping || !image || !cases.some(stale)) return;
     recropping = true;
     const token = caseToken;
     const everyBox = input.allBoxes();
-    Promise.all(cases.map((c) => (stale(c) ? prepare(image, c.box, everyBox, Math.max(c.margin, Math.ceil(neededMargin(c) / 64) * 64)) : c)))
+    Promise.all(cases.map((c) => (stale(c) ? prepare(image, c.box, everyBox, Math.max(c.margin, Math.ceil(neededMargin(c.classId) / 64) * 64)) : c)))
       .then((next) => { if (token === caseToken) cases = next; })
       .catch(fail)
       .finally(() => { recropping = false; schedule(); });
@@ -229,7 +241,8 @@ export function createRefineLab(input: {
         bands.push({ side, rect: side === "L" || side === "R" ? { x0: a, y0: from, x1: b, y1: to + 1 } : { x0: from, y0: a, x1: to + 1, y1: b } });
       }
     }
-    const reach = Math.max(r.params.rangeOut, r.params.rangeIn) + 10;
+    // Thumbnails show the box plus the widest outward search actually used (side rules, neighbour limits).
+    const reach = Math.max(0, ...REFINE_SIDES.map((side) => r.sides[side]?.rangeOut ?? 0)) + 10;
     let [vx0, vy0, vx1, vy1] = [c.local.x0 - reach, c.local.y0 - reach, c.local.x1 + reach, c.local.y1 + reach];
     if (detail) {
       for (const { rect } of bands) {
@@ -421,13 +434,14 @@ export function createRefineLab(input: {
       : `${POLARITY_TEXT[d.polarity]} (fixed)${d.detectedPolarity !== 0 && d.detectedPolarity !== d.polarity ? " · differs from the image" : ""}`;
     readout.replaceChildren(...[
       off ? `${SIDE_NAMES[activeSide]}: off` : `${SIDE_NAMES[activeSide]}: ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${(r.result?.sideConf[activeSide] ?? 0).toFixed(2)} · ${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`,
+      off ? "" : searchText(d, sideParams(r.params, activeSide)),
       detected,
       `Polarity used: ${usedPolarity}`,
       r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
     ].filter(Boolean).map((line, index) => {
       const row = doc.createElement("div");
       row.textContent = line;
-      if (index === 2 && line.includes("differs")) row.className = "text-warning";
+      if (line.startsWith("Polarity used") && line.includes("differs")) row.className = "text-warning";
       if (line.includes("area limit")) row.className = "text-danger";
       return row;
     }));

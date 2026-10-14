@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   describeRefineSide,
   normalizeRefineParams,
+  REFINE_CRITERIA,
+  REFINE_PARAM_LIMITS,
+  REFINE_SIDES,
   refineBoxes,
   toGray,
   type GrayImage,
@@ -64,7 +67,7 @@ describe("domain/refine/edge-refine", () => {
       results.forEach((r, i) => expect(maxError(r.box, truth[i]), `step ${gradStep}`).toBeLessThan(0.5));
     }
     expect(normalizeRefineParams({}).gradStep).toBe(2);
-    expect(normalizeRefineParams({ gradStep: 99 }).gradStep).toBe(16);
+    expect(normalizeRefineParams({ gradStep: 99 }).gradStep).toBe(64);
     expect(normalizeRefineParams({ sideRules: { T: { gradStep: 0 } } }).sideRules.T).toEqual({ gradStep: 1 });
   });
 
@@ -125,6 +128,57 @@ describe("domain/refine/edge-refine", () => {
     expect(side.inside).toBeLessThan(side.outside ?? 0);
   });
 
+  it("searches inward through the box centre up to the opposite side", () => {
+    // A bright structure fills only the left fifth of a box drawn far too wide: its right edge lies
+    // 70 px inside the box, past the centre (45 px), which the old centre limit could never reach.
+    const truth = { x0: 30, y0: 20, x1: 50, y1: 80 };
+    const img = paint(140, 100, [truth]);
+    const box = { id: "a", classId: "0", x0: 30, y0: 20, x1: 120, y1: 80 };
+    const right = (rangeIn: number) => refineBoxes(img, [box], {
+      0: normalizeRefineParams({ sides: { L: "off", T: "off", B: "off" }, sideRules: { R: { rangeIn, polarity: "brightInside" } } })
+    })[0].box.x1;
+    expect(Math.abs(right(80) - 50)).toBeLessThan(0.5);
+    expect(Math.abs(right(2000) - 50)).toBeLessThan(0.5);
+    expect(right(40)).toBeGreaterThan(75); // a short inward range still cannot reach it
+  });
+
+  it("clamps every numeric parameter to REFINE_PARAM_LIMITS", () => {
+    for (const [key, [low, high]] of Object.entries(REFINE_PARAM_LIMITS)) {
+      expect(normalizeRefineParams({ [key]: -1e9 })[key as keyof typeof REFINE_PARAM_LIMITS], key).toBe(low);
+      expect(normalizeRefineParams({ [key]: 1e9 })[key as keyof typeof REFINE_PARAM_LIMITS], key).toBe(high);
+    }
+  });
+
+  it("keeps a valid box inside the image for every extreme parameter on every side", () => {
+    const truth = [{ x0: 20, y0: 20, x1: 60, y1: 70 }, { x0: 70, y0: 25, x1: 100, y1: 75 }];
+    const img = paint(120, 100, truth);
+    const boxes: RefineBoxInput[] = [{ id: "a", classId: "0", x0: 16, y0: 24, x1: 63, y1: 66 }, { id: "b", classId: "0", x0: 72, y0: 20, x1: 98, y1: 80 }];
+    const variants: Record<string, unknown>[] = [];
+    for (const [key, [low, high]] of Object.entries(REFINE_PARAM_LIMITS)) variants.push({ [key]: low }, { [key]: high });
+    for (const crit of REFINE_CRITERIA) {
+      // Every bound at once is the slowest case (about 0.5 s per box), so it runs once per criterion.
+      variants.push({ crit, scanSpan: "boxOutside", rangeIn: 2000, rangeOut: 2000, extendStart: 4000, extendEnd: 4000, contextRing: 500, sigma: 12, gradStep: 64, segments: 100, iterations: 6, inset: 0.49, avoidNeighbors: false });
+      for (const scanSpan of ["box", "boxOutside", "outside"]) {
+        variants.push({ crit, scanSpan, rangeIn: 1, rangeOut: 1, sigma: 0, gradStep: 1, segments: 1, inset: 0, extendStart: 4000 });
+        for (const side of REFINE_SIDES) variants.push({ crit, polarity: "darkInside", sideRules: { [side]: { scanSpan, rangeIn: 2000, rangeOut: 2000, extendStart: 4000, extendEnd: 4000, gradStep: 64 } } });
+      }
+    }
+    for (const raw of variants) {
+      for (const r of refineBoxes(img, boxes, { 0: normalizeRefineParams(raw) })) {
+        const { x0, y0, x1, y1 } = r.box;
+        const label = JSON.stringify(raw);
+        expect([x0, y0, x1, y1, r.conf, r.areaChange].every(Number.isFinite), label).toBe(true);
+        expect(x0 >= 0 && y0 >= 0 && x1 <= img.width && y1 <= img.height, label).toBe(true);
+        expect(x1 - x0 >= 2 && y1 - y0 >= 2, label).toBe(true);
+      }
+      for (const side of REFINE_SIDES) {
+        const d = describeRefineSide(img, boxes[0], side, normalizeRefineParams(raw), [boxes[1]]);
+        expect(d.raw.length, JSON.stringify(raw)).toBe(d.rangeIn + d.rangeOut + 1);
+        expect(d.rangeIn).toBeLessThanOrEqual(Math.max(1, (side === "L" || side === "R" ? 47 : 42) - 2));
+      }
+    }
+  }, 60_000);
+
   it("applies a rule to one side only while the others keep the class rule", () => {
     const truth = { x0: 30, y0: 20, x1: 70, y1: 80 };
     const img = paint(110, 100, [truth]);
@@ -132,7 +186,7 @@ describe("domain/refine/edge-refine", () => {
     const right = (params: object) => refineBoxes(img, [box], { 0: normalizeRefineParams(params) })[0].box.x1;
     expect(Math.abs(right({ rangeIn: 10 }) - 70)).toBeGreaterThan(3);
     expect(Math.abs(right({ rangeIn: 10, sideRules: { R: { rangeIn: 18 } } }) - 70)).toBeLessThan(0.5);
-    expect(normalizeRefineParams({ sideRules: { R: { rangeIn: 500, bogus: 1 } } }).sideRules).toEqual({ L: {}, R: { rangeIn: 80 }, T: {}, B: {} });
+    expect(normalizeRefineParams({ sideRules: { R: { rangeIn: 5000, bogus: 1 } } }).sideRules).toEqual({ L: {}, R: { rangeIn: 2000 }, T: {}, B: {} });
   });
 
   it("scans past the box ends to use an edge that is only visible outside the box", () => {
