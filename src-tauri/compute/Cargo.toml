@@ -1,0 +1,14 @@
+[package]
+name = "easy-labeling-compute"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Native ports of the app's pixel algorithms (src/features/segmentation/gray-filters.ts, preprocessing.ts,
+# src/domain/refine/edge-refine.ts). Results match the JS versions;
+# tests/unit/native/compute-parity.test.ts checks that through the compute-cli binary.
+
+[dependencies]
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

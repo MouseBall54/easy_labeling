@@ -21,5 +21,10 @@ describe("release versions", () => {
     const yoloe = require(fileURLToPath(new URL("electron-builder.yoloe.cjs", root)));
     const [major, minor, patch] = parse(pkg.version);
     expect(yoloe.extraMetadata.version).toBe(`${major}.${minor + 1}.${patch}`);
+    expect(json("src-tauri/tauri.yoloe.conf.json").version).toBe(`${major}.${minor + 1}.${patch}`);
+  });
+
+  it("builds the standard Tauri installer from package.json's version", () => {
+    expect(json("src-tauri/tauri.conf.json").version).toBe("../package.json");
   });
 });

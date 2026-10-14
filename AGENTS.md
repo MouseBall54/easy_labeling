@@ -17,6 +17,10 @@ npm run test:e2e            # build + playwright (chromium)
 npm start                   # build + vite on :4173
 npm run electron:dist:win   # NSIS installer -> release/
 npm run electron:dist:yoloe:win   # YOLOE-26 variant installer (electron-builder.yoloe.cjs)
+npm run tauri:dev           # Rust/Tauri desktop exe (debug, no installer) -> src-tauri/target/debug/
+npm run tauri:dist:win      # Tauri NSIS installer -> src-tauri/target/release/bundle/nsis/ (needs Rust)
+npm run tauri:dist:yoloe:win   # Tauri YOLOE-26 variant (src-tauri/tauri.yoloe.conf.json)
+npm run release:tauri         # signed Tauri installers + GitHub release with the update feeds (latest.json, latest-yoloe.json)
 ```
 
 Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chromium`.
@@ -30,11 +34,12 @@ Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chr
 - **Feature map:** Detection canvas `features/canvas/`; Segmentation `features/segmentation/`; image preprocessing `features/segmentation/preprocessing.ts` + `gray-filters.ts` (used by the canvas Processed view, Refine, EdgeSAM, superpixels and automation); edge refinement `domain/refine/` + `features/refine/` + `bootstrap/refine-*.ts` + `workers/refine-worker.js`; template matching `features/automation/`; EdgeSAM / super-resolution / YOLO(E) inference under `features/` with ONNX workers.
 - **On-disk formats** (per image folder): `label/<image>.txt` (YOLO), `mask/<image>.png` + `.seg.json`, class files `.yaml` (simple `id: name` lines). Tool settings live in `<image folder>/.easy-labeling/`: `refine-settings.json`, `preprocessing-presets.json`, `automation-library.json`, `segmentation-tool-presets.json`, `review-state.json`. Changing any of these formats needs a parser that still reads the old shape.
 - **Electron** (`electron/*.cjs`) loads the same `dist/` + `index.html`, polyfills `showDirectoryPicker`, and exposes profile libraries (`Template Presets`, `Layouts`, `YOLOE Presets`, `Refine Presets`, `Class Info`) shared across datasets.
+- **Tauri** (`src-tauri/`) is the Rust desktop shell with the same contract: `src/platform/tauri-desktop.ts` is the preload counterpart (window globals over Rust commands in `src-tauri/src/main.rs`; it must stay a classic script with no imports), `scripts/stage-tauri-frontend.mjs` stages the served files into `src-tauri/frontend/`, which ships as a bundle resource that WebView2 serves from disk at `https://app.localhost` (Tauri's own asset protocol runs on the window thread and stalled IPC while large vendor files loaded). Refine runs natively there: `src-tauri/compute` ports `gray-filters.ts`, `preprocessGray` and `edge-refine.ts`, reached through `src/features/refine/native-refine-worker.ts`; keep the ports in step with the TS code (`tests/unit/native/compute-parity.test.ts` compares them once `cargo build --release -p easy-labeling-compute` has built the CLI). Template matching and ONNX stay on OpenCV.js / onnxruntime-web: native versions measured slower through WebView2 IPC.
 - **GitHub Pages** serves from `/easy_labeling/`: asset paths in `index.html` stay relative (`dist/main.js`, never `/dist/...`). See `GITHUB_PAGES_GUIDELINES.md`.
 
 ## Versioning
 
-Every change that ships to users bumps `package.json` (patch = fix, minor = backward-compatible feature, major = breaking) with `npm version <x.y.z> --no-git-tag-version` so `package-lock.json` follows. In the same change, move `electron-builder.yoloe.cjs` `extraMetadata.version` to **one minor above package.json with the same patch** (2.7.0 -> 2.8.0, 2.5.1 -> 2.6.1). `tests/unit/release/version-pairing.test.ts` enforces both; the standard installer takes its exe version from package.json through `scripts/after-pack.mjs`. Refactors and test-only changes do not bump.
+Every change that ships to users bumps `package.json` (patch = fix, minor = backward-compatible feature, major = breaking) with `npm version <x.y.z> --no-git-tag-version` so `package-lock.json` follows. In the same change, move `electron-builder.yoloe.cjs` `extraMetadata.version` and `src-tauri/tauri.yoloe.conf.json` `version` to **one minor above package.json with the same patch** (2.7.0 -> 2.8.0, 2.5.1 -> 2.6.1). `tests/unit/release/version-pairing.test.ts` enforces both; the standard installer takes its exe version from package.json through `scripts/after-pack.mjs`. Refactors and test-only changes do not bump.
 
 ## Verification
 

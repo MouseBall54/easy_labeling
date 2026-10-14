@@ -36,6 +36,13 @@ self.onmessage = ({ data }) => {
       self.postMessage({ id: data.id, result: null });
     } else if (data.type === "refine") {
       self.postMessage({ id: data.id, result: refineBoxes(sourceImage(data.key, data.source), data.boxes, data.paramsByClass, data.neighbours) });
+    } else if (data.type === "gray") {
+      // Desktop builds decode here and hand the gray image to the native refine (native-refine-worker.ts).
+      if (!image || image.key !== data.key) throw new Error("Refine image is not loaded");
+      const { gray, width, height } = image;
+      image = null;
+      processed = null;
+      self.postMessage({ id: data.id, result: { gray, width, height } }, [gray.buffer]);
     } else if (data.type === "crop") {
       const src = sourceImage(data.key, data.source);
       const { x0, y0, x1, y1 } = data.rect;

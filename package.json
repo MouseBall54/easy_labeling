@@ -1,6 +1,6 @@
 {
   "name": "easy_labeling",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {
@@ -32,7 +32,11 @@
     "electron:dev": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder --win --x64 --dir",
     "electron:dist:win": "npm run build && electron-builder --win nsis --x64",
-    "electron:dist:yoloe:win": "npm run build && npm run yoloe:models:record && electron-builder --config electron-builder.yoloe.cjs --win nsis --x64"
+    "electron:dist:yoloe:win": "npm run build && npm run yoloe:models:record && electron-builder --config electron-builder.yoloe.cjs --win nsis --x64",
+    "tauri:dev": "tauri build --debug --no-bundle",
+    "tauri:dist:win": "tauri build",
+    "tauri:dist:yoloe:win": "npm run yoloe:models:record && tauri build --config src-tauri/tauri.yoloe.conf.json",
+    "release:tauri": "node scripts/release-tauri.mjs"
   },
   "keywords": [],
   "author": "박영문",
@@ -40,6 +44,7 @@
   "description": "Desktop image annotation tool for detection and segmentation labeling.",
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "@tauri-apps/cli": "^2.12.2",
     "@types/node": "^24.12.2",
     "canvas": "file:stubs/canvas",
     "concurrently": "^9.2.1",

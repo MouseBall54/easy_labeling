@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Easy Labeling",
+  "mainBinaryName": "Easy Labeling",
+  "version": "../package.json",
+  "identifier": "com.easylabeling.desktop",
+  "build": {
+    "frontendDist": "shell",
+    "beforeBuildCommand": "npm run build && node scripts/stage-tauri-frontend.mjs"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1QzY3RDM5NjI5NkUyMzQKUldRMDRwWmlPWDNHSlppeGlLbFdWcGJ6UXJyMkZROFVEU0RFZXg5SG5vajZXakM0Y3ZCMmN3L1UK",
+      "endpoints": ["https://github.com/MouseBall54/easy_labeling/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["../assets/icons/easy-labeling.ico", "../assets/icons/easy-labeling.png"],
+    "resources": { "frontend/": "frontend/", "../assets/sample/": "sample/" },
+    "windows": {
+      "webviewInstallMode": { "type": "offlineInstaller" },
+      "nsis": { "installMode": "currentUser", "installerIcon": "../assets/icons/easy-labeling.ico" }
+    }
+  }
+}

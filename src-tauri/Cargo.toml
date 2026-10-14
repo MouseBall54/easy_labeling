@@ -1,0 +1,40 @@
+[package]
+name = "easy-labeling"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = ["compute"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dunce = "1"
+easy-labeling-compute = { path = "compute" }
+tauri-plugin-updater = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Graphics_Dxgi"] }
+# The WebView2 bindings wry uses, for serving the frontend folder through a virtual host.
+webview2-com = "0.39"
+windows-core = "0.62"
+
+# Thin LTO: fat LTO with one codegen unit needed >1.2 GB for one rustc and ~25 min per installer.
+[profile.release]
+lto = "thin"
+opt-level = 3
+
+# Debug desktop builds (npm run tauri:dev, used by the e2e specs) optimise every dependency, so IPC
+# transfers and the pixel algorithms run at release speed.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Workspace members are not covered by "*".
+[profile.dev.package.easy-labeling-compute]
+opt-level = 3

@@ -24,6 +24,10 @@ declare global {
       getGpuName?: (vendor: string, device: string) => Promise<string | null>;
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
     };
+    /** Desktop (Tauri) only: calls a Rust command; raw byte bodies pass headers alongside. */
+    easyLabelingNative?: {
+      invoke<T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }): Promise<T>;
+    };
   }
 
   type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe" | "refine";
