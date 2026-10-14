@@ -245,10 +245,10 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await expect.poll(async () => maxError(await geometries(page)), { timeout: 15_000 }).toBeLessThan(0.6);
   await expect.poll(async () => (await settingsFile(page))?.presets.map((preset) => preset.name)).toEqual(["Bright fins"]);
   expect((await settingsFile(page) as unknown as { imageSource: string }).imageSource).toBe("original");
-  await expect(page.locator("#refineSettingsSummary")).toContainText("1 class with own settings");
+  await expect(page.locator("#refineSettingsSummary")).toContainText("every class uses the default");
   await expect(page.locator("#refineRunPresetSelect option", { hasText: "Bright fins" })).toHaveCount(1);
   await expect(page.locator("#refineRunPresetSelect")).toHaveValue("");
-  await expect(page.locator("#refineRunPresetDetail")).toHaveText("1 class with own rules");
+  await expect(page.locator("#refineRunPresetDetail")).toHaveText("Default rule for every class");
   await page.locator("#refineRunPresetSelect").selectOption("Bright fins");
   await expect(page.locator("#refineRunPresetDetail")).toHaveText("Gradient · in 10 / out 10 px · step 2 px · Original");
   await page.locator("#refineRunPresetSelect").selectOption("");
@@ -306,11 +306,12 @@ test("refine: per-side edge rules, use-for-all-sides, and remembered search rang
   await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ rangeIn: 18, polarity: "brightInside" });
   await openLab(page);
   await expect(page.locator("#refineLabBandOpacity")).toHaveValue("80");
-  // The gradient step is a saved edge-rule setting (it also sets the change plot's step).
+  // The gradient step is a saved edge-rule setting (it also sets the change plot's step). The lab
+  // reopens on the Default, so it lands there.
   await expect(page.locator("#refineLabField-gradStep")).toHaveValue("2");
   await page.locator("#refineLabField-gradStep").fill("3");
   await saveLab(page);
-  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ gradStep: 3 });
+  await expect.poll(async () => (await settingsFile(page) as unknown as { default: object } | null)?.default).toMatchObject({ gradStep: 3 });
   await openLab(page);
   await expect(page.locator("#refineLabField-gradStep")).toHaveValue("3");
 });
@@ -365,6 +366,64 @@ test("refine lab: extreme search settings reach through the box, widen the previ
   await expect(page.locator("#refineLabStatus")).toContainText(/1 cases? · \d+ to review/, { timeout: 60_000 });
   await expect(editor.locator("#refineLabField-segments")).toHaveValue("100");
   await zoom.screenshot({ path: "test-results/refine-lab-extreme.png" });
+  expect(errors).toEqual([]);
+});
+
+test("refine lab: opens on the Default, classes inherit it, and outward ranges stay visible on every side", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  const editor = page.locator("#refineLabEditor");
+  const readout = page.locator("#refineLabReadout");
+  const zoom = page.locator("#refineLabZoom");
+  const chip = (classId: string) => editor.locator(`.refine-class-chip[data-class-id="${classId}"]`);
+  await expect(chip("")).toHaveAttribute("aria-pressed", "true");
+  await expect(chip("0")).toHaveAttribute("aria-pressed", "false");
+
+  // Outward search on each side, neighbour stop on: the band keeps growing with the setting even where
+  // the search itself stops (halfway to the neighbour, or at the image border), and the readout says why.
+  for (const side of ["T", "L", "R", "B"] as const) {
+    await editor.locator(`.refine-scope [data-scope="${side}"]`).click();
+    const shots: Buffer[] = [];
+    for (const range of ["40", "100", "200"]) {
+      await editor.locator("#refineLabField-rangeOut").fill(range);
+      await expect(readout).toContainText(new RegExp(`Search \\d+ px in(?: \\(box limit\\))? · \\d+ px out`));
+      if (Number(range) > 40) await expect(readout).toContainText(/(set \d+, stops halfway to a neighbour|image edge after \d+ px)/);
+      await expect.poll(async () => { const shot = await zoom.screenshot(); return shots.every((previous) => Buffer.compare(previous, shot) !== 0); }, { message: `${side} ${range}` }).toBe(true);
+      shots.push(await zoom.screenshot());
+    }
+    await zoom.screenshot({ path: `test-results/refine-lab-outward-${side}-200.png` });
+    await editor.locator("#refineLabField-rangeOut").locator("..").locator(".refine-field-reset").click();
+  }
+  await editor.locator('.refine-scope [data-scope="all"]').click();
+
+  // A class starts from the Default's values and keeps only what is changed for it.
+  await editor.locator("#refineLabField-rangeIn").fill("14");
+  await chip("0").click();
+  await expect(chip("")).toHaveAttribute("aria-pressed", "false");
+  await expect(editor.locator("#refineLabField-rangeIn")).toHaveValue("14");
+  await expect(editor.locator("#refineLabField-rangeIn").locator("xpath=ancestor::*[contains(@class,'refine-field')][1]")).not.toHaveClass(/is-overridden/);
+  await editor.locator("#refineLabField-rangeOut").fill("30");
+  await expect(editor.locator("#refineLabField-rangeOut").locator("xpath=ancestor::*[contains(@class,'refine-field')][1]")).toHaveClass(/is-overridden/);
+  await saveLab(page);
+  const saved = async () => await settingsFile(page) as unknown as { default: Record<string, unknown>; classes: Record<string, unknown> } | null;
+  await expect.poll(async () => (await saved())?.default).toMatchObject({ rangeIn: 14 });
+  expect((await saved())?.classes["0"]).toEqual({ rangeOut: 30 });
+
+  // Later Default changes still reach the class for every value it did not specialise.
+  await openLab(page);
+  await expect(chip("")).toHaveAttribute("aria-pressed", "true");
+  await editor.locator("#refineLabField-rangeIn").fill("16");
+  await chip("0").click();
+  await expect(editor.locator("#refineLabField-rangeIn")).toHaveValue("16");
+  await expect(editor.locator("#refineLabField-rangeOut")).toHaveValue("30");
+  await saveLab(page);
+  await expect.poll(async () => (await saved())?.default).toMatchObject({ rangeIn: 16 });
+  expect((await saved())?.classes["0"]).toEqual({ rangeOut: 30 });
   expect(errors).toEqual([]);
 });
 

@@ -33,6 +33,8 @@ interface LabCase {
   source: string;
   /** Box and neighbours in crop coordinates. */
   local: RefineRect;
+  /** The whole image in crop coordinates (the crop is clipped to it). */
+  imageBounds: RefineRect;
   neighbours: RefineRect[];
   img: GrayImage;
   pixels: HTMLCanvasElement;
@@ -55,11 +57,18 @@ const POLARITY_TEXT = { 1: "bright → dark", [-1]: "dark → bright", 0: "uncle
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
 
 /** Search range actually used on a side, naming what cut it short of the setting. */
-const searchText = (d: RefineSideDiagnostics, set: RefineParams): string => {
+const searchText = (d: RefineSideDiagnostics, set: RefineParams, room: number): string => {
   const inward = `${d.rangeIn} px in${d.rangeIn < set.rangeIn ? " (box limit)" : ""}`;
-  const outward = `${d.rangeOut} px out${d.rangeOut < set.rangeOut ? " (halfway to a neighbour)" : ""}`;
-  return `Search ${inward} · ${outward}`;
+  const limits = [
+    ...(d.rangeOut < set.rangeOut ? [`set ${set.rangeOut}, stops halfway to a neighbour`] : []),
+    ...(d.rangeOut > room ? [`image edge after ${Math.max(0, Math.floor(room))} px`] : [])
+  ];
+  return `Search ${inward} · ${d.rangeOut} px out${limits.length ? ` (${limits.join("; ")})` : ""}`;
 };
+/** Pixels between a side of the box and the image border, outward. */
+const roomOutside = (c: { local: RefineRect; imageBounds: RefineRect }, side: RefineSide): number => ({
+  L: c.local.x0 - c.imageBounds.x0, R: c.imageBounds.x1 - c.local.x1, T: c.local.y0 - c.imageBounds.y0, B: c.imageBounds.y1 - c.local.y1
+})[side];
 
 export function createRefineLab(input: {
   documentRef: Document;
@@ -152,6 +161,7 @@ export function createRefineLab(input: {
       margin,
       source,
       local: shift(box),
+      imageBounds: shift({ x0: 0, y0: 0, x1: image.naturalWidth, y1: image.naturalHeight }),
       neighbours: everyBox.filter((n) => n.id !== box.id && n.x1 > x0 && n.x0 < x1 && n.y1 > y0 && n.y0 < y1).map(shift),
       img: { gray: crop.gray, width, height },
       pixels
@@ -214,6 +224,24 @@ export function createRefineLab(input: {
   };
 
   // ---------------------------------------------------------------- drawing
+  /** Diagonal hatch for the area outside the image. */
+  let hatchPattern: CanvasPattern | null = null;
+  const hatch = (context: CanvasRenderingContext2D): CanvasPattern | string => {
+    if (!hatchPattern) {
+      const tile = doc.createElement("canvas");
+      tile.width = tile.height = 8;
+      const t = tile.getContext("2d")!;
+      t.fillStyle = "#1b1f24";
+      t.fillRect(0, 0, 8, 8);
+      t.strokeStyle = "rgba(255, 255, 255, 0.16)";
+      t.beginPath();
+      t.moveTo(0, 8);
+      t.lineTo(8, 0);
+      t.stroke();
+      hatchPattern = context.createPattern(tile, "repeat");
+    }
+    return hatchPattern ?? "#1b1f24";
+  };
   const fitCanvas = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
     const ratio = input.windowRef.devicePixelRatio || 1;
     const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
@@ -231,45 +259,67 @@ export function createRefineLab(input: {
   /** Draws the crop around the case and returns the crop->screen mapping. */
   const drawCase = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, width: number, height: number, detail: boolean) => {
     // Search bands in crop coordinates: the perpendicular search range over every scanned run along the side.
-    const bands: { side: RefineSide; rect: RefineRect }[] = [];
+    // `requested` reaches as far outward as the setting asks; the band itself stops where the search does
+    // (halfway to a neighbour). Past the image border the profile only repeats the border pixels.
+    const bands: { side: RefineSide; rect: RefineRect; requested: RefineRect }[] = [];
     for (const side of REFINE_SIDES) {
       const d = r.sides[side];
       if (!d || r.params.sides[side] === "off") continue;
       const a = d.start;
       const b = d.start + d.raw.length;
+      const extra = Math.max(0, sideParams(r.params, side).rangeOut - d.rangeOut);
+      const [ra, rb] = d.out > 0 ? [a, b + extra] : [a - extra, b];
+      const vertical = side === "L" || side === "R";
       for (const [from, to] of d.runs) {
-        bands.push({ side, rect: side === "L" || side === "R" ? { x0: a, y0: from, x1: b, y1: to + 1 } : { x0: from, y0: a, x1: to + 1, y1: b } });
+        bands.push({
+          side,
+          rect: vertical ? { x0: a, y0: from, x1: b, y1: to + 1 } : { x0: from, y0: a, x1: to + 1, y1: b },
+          requested: vertical ? { x0: ra, y0: from, x1: rb, y1: to + 1 } : { x0: from, y0: ra, x1: to + 1, y1: rb }
+        });
       }
     }
     // Thumbnails show the box plus the widest outward search actually used (side rules, neighbour limits).
     const reach = Math.max(0, ...REFINE_SIDES.map((side) => r.sides[side]?.rangeOut ?? 0)) + 10;
     let [vx0, vy0, vx1, vy1] = [c.local.x0 - reach, c.local.y0 - reach, c.local.x1 + reach, c.local.y1 + reach];
     if (detail) {
-      for (const { rect } of bands) {
-        vx0 = Math.min(vx0, rect.x0 - 6); vy0 = Math.min(vy0, rect.y0 - 6);
-        vx1 = Math.max(vx1, rect.x1 + 6); vy1 = Math.max(vy1, rect.y1 + 6);
+      for (const { requested } of bands) {
+        vx0 = Math.min(vx0, requested.x0 - 6); vy0 = Math.min(vy0, requested.y0 - 6);
+        vx1 = Math.max(vx1, requested.x1 + 6); vy1 = Math.max(vy1, requested.y1 + 6);
       }
     }
-    const vx = Math.max(0, vx0);
-    const vy = Math.max(0, vy0);
-    const vw = Math.min(c.img.width, vx1) - vx;
-    const vh = Math.min(c.img.height, vy1) - vy;
+    // The view is not clipped to the image: ranges reaching past the border stay visible over a hatched area.
+    const [vx, vy, vw, vh] = [vx0, vy0, vx1 - vx0, vy1 - vy0];
     const s = Math.min(width / vw, height / vh);
     const ox = (width - vw * s) / 2;
     const oy = (height - vh * s) / 2;
     const X = (x: number): number => ox + (x - vx) * s;
     const Y = (y: number): number => oy + (y - vy) * s;
+    if (vx < c.imageBounds.x0 || vy < c.imageBounds.y0 || vx1 > c.imageBounds.x1 || vy1 > c.imageBounds.y1) {
+      context.fillStyle = hatch(context);
+      context.fillRect(ox, oy, vw * s, vh * s);
+    }
     context.imageSmoothingEnabled = false;
-    context.drawImage(c.pixels, vx, vy, vw, vh, ox, oy, vw * s, vh * s);
+    context.drawImage(c.pixels, X(0), Y(0), c.img.width * s, c.img.height * s);
 
     if (detail) {
       // Search ranges: user-set fill opacity plus an outline, so the range stays findable even at low opacity.
       const alpha = Number(bandOpacity.value) / 100;
       zoomBands = [];
-      for (const { side, rect } of bands) {
+      for (const { side, rect, requested } of bands) {
         const band: [number, number, number, number] = [X(rect.x0), Y(rect.y0), (rect.x1 - rect.x0) * s, (rect.y1 - rect.y0) * s];
         zoomBands.push({ side, x: band[0], y: band[1], w: band[2], h: band[3] });
         const emphasis = side === activeSide ? 1.6 : 1;
+        if (requested.x0 !== rect.x0 || requested.x1 !== rect.x1 || requested.y0 !== rect.y0 || requested.y1 !== rect.y1) {
+          // The part of the setting the search does not use: faint fill, dashed outline.
+          const asked: [number, number, number, number] = [X(requested.x0), Y(requested.y0), (requested.x1 - requested.x0) * s, (requested.y1 - requested.y0) * s];
+          context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis) * 0.3})`;
+          context.fillRect(...asked);
+          context.setLineDash([5, 4]);
+          context.strokeStyle = "rgba(120, 180, 255, 0.7)";
+          context.lineWidth = 1;
+          context.strokeRect(...asked);
+          context.setLineDash([]);
+        }
         context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis)})`;
         context.fillRect(...band);
         context.strokeStyle = side === activeSide ? "rgba(120, 180, 255, 0.95)" : "rgba(120, 180, 255, 0.6)";
@@ -434,7 +484,7 @@ export function createRefineLab(input: {
       : `${POLARITY_TEXT[d.polarity]} (fixed)${d.detectedPolarity !== 0 && d.detectedPolarity !== d.polarity ? " · differs from the image" : ""}`;
     readout.replaceChildren(...[
       off ? `${SIDE_NAMES[activeSide]}: off` : `${SIDE_NAMES[activeSide]}: ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${(r.result?.sideConf[activeSide] ?? 0).toFixed(2)} · ${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`,
-      off ? "" : searchText(d, sideParams(r.params, activeSide)),
+      off ? "" : searchText(d, sideParams(r.params, activeSide), roomOutside(c, activeSide)),
       detected,
       `Polarity used: ${usedPolarity}`,
       r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
@@ -499,8 +549,6 @@ export function createRefineLab(input: {
     const button = (event.target as HTMLElement).closest<HTMLElement>(".refine-lab-case");
     if (!button) return;
     active = Number(button.dataset.index);
-    const c = cases[active];
-    if (c && source.value !== "classes") editor.setTargets([c.classId]);
     schedule();
   });
   sideTabs.addEventListener("click", (event) => {
@@ -558,9 +606,8 @@ export function createRefineLab(input: {
       const selection = input.collectCases("selection", []);
       source.value = selection.length ? "selection" : "classes";
       active = 0;
-      // Start on the class of the first selected box so edits apply where the user is looking.
-      if (selection.length) editor.setTargets([selection[0].classId]);
-      else editor.render();
+      // Edits start on the Default; a class chip then specialises one class on top of it.
+      editor.setTargets([]);
       loadCases();
       modal.show();
     }
