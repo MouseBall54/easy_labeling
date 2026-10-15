@@ -128,6 +128,50 @@ describe("domain/refine/edge-refine", () => {
     expect(side.inside).toBeLessThan(side.outside ?? 0);
   });
 
+  it("uses the strongest scanned part on its own, or every part together", () => {
+    // Top edge seen only beyond the box ends: a strong edge at y = 40 left of the box, a weak one at
+    // y = 34 right of it. Inside the box there is nothing to find (scan span "outside").
+    const width = 200;
+    const height = 100;
+    const gray = new Float32Array(width * height).fill(40);
+    let seed = 11;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (x < 80 && y >= 40) gray[y * width + x] = 200;
+        if (x > 120 && y >= 34) gray[y * width + x] = 70;
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        gray[y * width + x] += ((seed / 0x7fffffff) - 0.5) * 8;
+      }
+    }
+    const img = { gray, width, height };
+    const box = { x0: 80, y0: 30, x1: 120, y1: 70 };
+    const base = { sides: { L: "off", R: "off", B: "off" }, polarity: "brightInside", rangeIn: 14, rangeOut: 6, contextRing: 0, scanSpan: "outside", extendStart: 40, extendEnd: 40 };
+    const top = (raw: object) => refineBoxes(img, [{ id: "a", classId: "0", ...box }], { 0: normalizeRefineParams(raw) })[0]!.box.y0;
+    expect(Math.abs(top({ ...base, partMode: "strongest" }) - 40)).toBeLessThan(0.5);
+    expect(Math.abs(top({ ...base, partMode: "together" }) - 40)).toBeGreaterThan(1);
+    // A side rule can switch one side only; the class default stays "together".
+    expect(Math.abs(top({ ...base, sideRules: { T: { partMode: "strongest" } } }) - 40)).toBeLessThan(0.5);
+    expect(normalizeRefineParams({}).partMode).toBe("together");
+    expect(normalizeRefineParams({ partMode: "bogus" }).partMode).toBe("together");
+
+    // Diagnostics: one profile per part (left, right extension) and the chosen one.
+    const d = describeRefineSide(img, box, "T", normalizeRefineParams({ ...base, partMode: "strongest" }));
+    expect(d.parts).toHaveLength(2);
+    expect(d.chosenPart).toBe(0);
+    expect(d.parts![0]!.strength).toBeGreaterThan(d.parts![1]!.strength);
+    expect(Math.abs(d.parts![0]!.value! - 40)).toBeLessThan(0.5);
+    d.parts!.forEach((part) => expect(part.raw.length).toBe(d.raw.length));
+    expect(describeRefineSide(img, box, "T", normalizeRefineParams(base)).parts).toBeUndefined();
+
+    // Mirrored image: the strong edge now lies right of the box, so the choice does not depend on order.
+    const mirrored = new Float32Array(gray.length);
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) mirrored[y * width + x] = gray[y * width + (width - 1 - x)]!;
+    const flipped = { x0: width - 120, y0: 30, x1: width - 80, y1: 70 };
+    const mirroredTop = refineBoxes({ gray: mirrored, width, height }, [{ id: "a", classId: "0", ...flipped }], { 0: normalizeRefineParams({ ...base, partMode: "strongest" }) })[0]!.box.y0;
+    expect(Math.abs(mirroredTop - 40)).toBeLessThan(0.5);
+    expect(describeRefineSide({ gray: mirrored, width, height }, flipped, "T", normalizeRefineParams({ ...base, partMode: "strongest" })).chosenPart).toBe(1);
+  });
+
   it("searches inward through the box centre up to the opposite side", () => {
     // A bright structure fills only the left fifth of a box drawn far too wide: its right edge lies
     // 70 px inside the box, past the centre (45 px), which the old centre limit could never reach.

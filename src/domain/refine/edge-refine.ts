@@ -11,6 +11,11 @@ export type RefinePolarity = "auto" | "brightInside" | "darkInside";
  * or only the extensions (for edges that are visible beyond the box but not along it).
  */
 export type RefineScanSpan = "box" | "boxOutside" | "outside";
+/**
+ * How the scanned parts of a side (extension before the box, the box, extension after it) are used:
+ * one search over all of them together, or a search per part keeping the most confident one.
+ */
+export type RefinePartMode = "together" | "strongest";
 
 export interface RefineParams {
   enabled: boolean;
@@ -25,6 +30,8 @@ export interface RefineParams {
   gradStep: number;
   inset: number;
   scanSpan: RefineScanSpan;
+  /** With extensions scanned: average every part, or keep the part with the strongest edge. */
+  partMode: RefinePartMode;
   /** Pixels scanned beyond the start (top for L/R, left for T/B) of the side. */
   extendStart: number;
   /** Pixels scanned beyond the end (bottom for L/R, right for T/B) of the side. */
@@ -47,7 +54,7 @@ export interface RefineParams {
 }
 
 /** Edge-rule keys a single side may override. */
-export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "extendStart", "extendEnd"] as const;
+export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "partMode", "extendStart", "extendEnd"] as const;
 export type RefineSideRuleKey = typeof REFINE_SIDE_RULE_KEYS[number];
 export type RefineSideRule = Partial<Pick<RefineParams, RefineSideRuleKey>>;
 
@@ -91,6 +98,7 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   gradStep: 2,
   inset: 0.12,
   scanSpan: "box",
+  partMode: "together",
   extendStart: 0,
   extendEnd: 0,
   sides: Object.freeze({ L: "inherit", R: "inherit", T: "inherit", B: "inherit" }) as Record<RefineSide, RefineSideMode>,
@@ -171,6 +179,7 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     gradStep: limit("gradStep", Math.round(num(p.gradStep, d.gradStep))),
     inset: limit("inset", num(p.inset, d.inset)),
     scanSpan: p.scanSpan === "boxOutside" || p.scanSpan === "outside" || p.scanSpan === "box" ? p.scanSpan : d.scanSpan,
+    partMode: p.partMode === "strongest" || p.partMode === "together" ? p.partMode : d.partMode,
     extendStart: limit("extendStart", Math.round(num(p.extendStart, d.extendStart))),
     extendEnd: limit("extendEnd", Math.round(num(p.extendEnd, d.extendEnd))),
     sides: {
@@ -318,7 +327,7 @@ function findEdge(
   sign: -1 | 0 | 1,
   context: EdgeContext | null,
   step: number
-): { pos: number; conf: number } | null {
+): { pos: number; conf: number; strength: number } | null {
   const n = P.length;
   let lo = Infinity;
   let hi = -Infinity;
@@ -393,8 +402,11 @@ function findEdge(
   }
   if (pos === null || !Number.isFinite(pos)) return null;
   let conf = clamp((snr - 3) / 12, 0, 1);
-  if (pos < 1 || pos > n - 2) conf *= 0.3; // edge sits on the search limit: the real edge is probably beyond it
-  return { pos, conf };
+  // Strength is the unclamped contrast-to-noise ratio: confidence saturates at 1, strength still ranks
+  // a strong edge above a merely clear one when parts of a side compete.
+  let strength = snr;
+  if (pos < 1 || pos > n - 2) { conf *= 0.3; strength *= 0.3; } // edge on the search limit: the real one is probably beyond it
+  return { pos, conf, strength };
 }
 
 function median(values: Float32Array, count: number): number {
@@ -539,24 +551,35 @@ function resolvePolarity(p: RefineParams, context: EdgeContext | null): -1 | 0 |
   return context?.polarity ?? 0;
 }
 
-function refineSide(
+/** Index ranges [from, to) of w.positions covered by each scanned run, in order. */
+function runRanges(w: SideWindow): [number, number][] {
+  const ranges: [number, number][] = [];
+  let from = 0;
+  for (const [a, b] of w.runs) {
+    ranges.push([from, from + b - a + 1]);
+    from += b - a + 1;
+  }
+  return ranges;
+}
+
+/** Edge search over the along-side positions [start, end) of the window, split into segments. */
+function searchRange(
   img: GrayImage,
-  box: RefineRect,
-  side: RefineSide,
+  w: SideWindow,
+  start: number,
+  end: number,
   crit: RefineCriterion,
   p: RefineParams,
-  context: EdgeContext | null,
-  neighbours: readonly RefineRect[]
-): { value: number; conf: number } | null {
-  const w = sideWindow(img, box, side, p, neighbours);
-  const sign = edgeSign(resolvePolarity(p, context), w.geometry.out);
+  sign: -1 | 0 | 1,
+  context: EdgeContext | null
+): { value: number; conf: number; strength: number } | null {
   const kernel = gaussKernel(p.sigma);
-  const total = w.positions.length;
+  const total = end - start;
   const segments = Math.max(1, Math.min(p.segments, total));
-  const found: { pos: number; conf: number }[] = [];
+  const found: { pos: number; conf: number; strength: number }[] = [];
   for (let k = 0; k < segments; k += 1) {
-    const from = Math.floor(k * total / segments);
-    const to = Math.max(from + 1, Math.floor((k + 1) * total / segments));
+    const from = start + Math.floor(k * total / segments);
+    const to = Math.max(from + 1, start + Math.floor((k + 1) * total / segments));
     const profile = sampleProfile(img, w, from, to);
     const edge = findEdge(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context, p.gradStep);
     if (edge) found.push(edge);
@@ -569,7 +592,48 @@ function refineSide(
   const positions = Float32Array.from(strong, (e) => e.pos).sort();
   const pos = p.comb === "outer" ? quantile(positions, w.geometry.out < 0 ? 0.1 : 0.9) : quantile(positions, 0.5);
   const confidences = Float32Array.from(found, (e) => e.conf).sort();
-  return { value: w.base + pos + 0.5, conf: quantile(confidences, 0.5) * (found.length / segments) };
+  const strengths = Float32Array.from(found, (e) => e.strength).sort();
+  const coverage = found.length / segments;
+  return { value: w.base + pos + 0.5, conf: quantile(confidences, 0.5) * coverage, strength: quantile(strengths, 0.5) * coverage };
+}
+
+/** Each scanned part searched on its own (null where nothing was found). */
+function searchParts(
+  img: GrayImage,
+  w: SideWindow,
+  crit: RefineCriterion,
+  p: RefineParams,
+  sign: -1 | 0 | 1,
+  context: EdgeContext | null
+): ({ value: number; conf: number; strength: number } | null)[] {
+  return runRanges(w).map(([from, to]) => searchRange(img, w, from, to, crit, p, sign, context));
+}
+
+/** Index of the part with the strongest edge (the first one on a tie), or -1 when no part found one. */
+function strongestPart(parts: readonly ({ strength: number } | null)[]): number {
+  let best = -1;
+  parts.forEach((part, index) => { if (part && (best < 0 || part.strength > parts[best]!.strength)) best = index; });
+  return best;
+}
+
+function refineSide(
+  img: GrayImage,
+  box: RefineRect,
+  side: RefineSide,
+  crit: RefineCriterion,
+  p: RefineParams,
+  context: EdgeContext | null,
+  neighbours: readonly RefineRect[]
+): { value: number; conf: number } | null {
+  const w = sideWindow(img, box, side, p, neighbours);
+  const sign = edgeSign(resolvePolarity(p, context), w.geometry.out);
+  if (p.partMode === "strongest" && w.runs.length > 1) {
+    const parts = searchParts(img, w, crit, p, sign, context);
+    const best = strongestPart(parts);
+    return best < 0 ? null : { value: parts[best]!.value, conf: parts[best]!.conf };
+  }
+  const found = searchRange(img, w, 0, w.positions.length, crit, p, sign, context);
+  return found && { value: found.value, conf: found.conf };
 }
 
 export interface RefineSideDiagnostics {
@@ -591,6 +655,12 @@ export interface RefineSideDiagnostics {
   /** Polarity used: +1 bright inside, -1 dark inside, 0 either. */
   polarity: -1 | 0 | 1;
   detectedPolarity: -1 | 0 | 1;
+  /**
+   * "Strongest part" with more than one scanned run: each run's own profile and edge, in `runs` order,
+   * and the index of the part that sets the edge (-1 when none found one). Absent otherwise.
+   */
+  parts?: { raw: Float32Array; smoothed: Float32Array; value: number | null; conf: number; strength: number }[];
+  chosenPart?: number;
 }
 
 /** Whole-side averaged profile and context, for plotting while tuning (refinement itself works per segment). */
@@ -600,20 +670,32 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
   const context = measureContext(img, box, { ...classParams, rangeOut: widest });
   const w = sideWindow(img, box, side, params, neighbours);
   const raw = sampleProfile(img, w, 0, w.positions.length);
+  const kernel = gaussKernel(params.sigma);
+  let parts: RefineSideDiagnostics["parts"];
+  let chosenPart: number | undefined;
+  if (params.partMode === "strongest" && w.runs.length > 1) {
+    const found = searchParts(img, w, params.crit, params, edgeSign(resolvePolarity(params, context), w.geometry.out), context);
+    chosenPart = strongestPart(found);
+    parts = runRanges(w).map(([from, to], index) => {
+      const partRaw = sampleProfile(img, w, from, to);
+      return { raw: partRaw, smoothed: smooth(partRaw, kernel), value: found[index]?.value ?? null, conf: found[index]?.conf ?? 0, strength: found[index]?.strength ?? 0 };
+    });
+  }
   return {
     side,
     criterion: params.crit,
     start: w.base,
     out: w.geometry.out,
     raw,
-    smoothed: smooth(raw, gaussKernel(params.sigma)),
+    smoothed: smooth(raw, kernel),
     rangeIn: w.rangeIn,
     rangeOut: w.rangeOut,
     runs: w.runs,
     inside: context?.inside ?? null,
     outside: context?.outside ?? null,
     polarity: resolvePolarity(params, context),
-    detectedPolarity: context?.polarity ?? 0
+    detectedPolarity: context?.polarity ?? 0,
+    ...(parts ? { parts, chosenPart } : {})
   };
 }
 

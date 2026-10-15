@@ -18,6 +18,7 @@ pub struct SideRule {
     segments: Option<f64>,
     inset: Option<f64>,
     scan_span: Option<String>,
+    part_mode: Option<String>,
     extend_start: Option<f64>,
     extend_end: Option<f64>,
 }
@@ -59,6 +60,8 @@ pub struct RefineParams {
     grad_step: f64,
     inset: f64,
     scan_span: String,
+    #[serde(default = "together")]
+    part_mode: String,
     extend_start: f64,
     extend_end: f64,
     sides: Sides<String>,
@@ -70,6 +73,10 @@ pub struct RefineParams {
     context_ring: f64,
     avoid_neighbors: bool,
     peer_tolerance: f64,
+}
+
+fn together() -> String {
+    "together".into()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Hash, PartialOrd, Ord)]
@@ -162,6 +169,7 @@ struct SideParams {
     grad_step: f64,
     inset: f64,
     scan_span: String,
+    part_mode: String,
     extend_start: f64,
     extend_end: f64,
     avoid_neighbors: bool,
@@ -181,6 +189,7 @@ fn side_params(p: &RefineParams, side: Side) -> SideParams {
         grad_step: rule.grad_step.unwrap_or(p.grad_step),
         inset: rule.inset.unwrap_or(p.inset),
         scan_span: rule.scan_span.clone().unwrap_or_else(|| p.scan_span.clone()),
+        part_mode: rule.part_mode.clone().unwrap_or_else(|| p.part_mode.clone()),
         extend_start: rule.extend_start.unwrap_or(p.extend_start),
         extend_end: rule.extend_end.unwrap_or(p.extend_end),
         avoid_neighbors: p.avoid_neighbors,
@@ -253,6 +262,8 @@ struct EdgeContext {
 struct Edge {
     pos: f64,
     conf: f64,
+    /// Unclamped contrast-to-noise ratio (see findEdge): ranks competing parts of a side.
+    strength: f64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -364,10 +375,12 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
     }
     let pos = pos.filter(|p| p.is_finite())?;
     let mut conf = ((snr - 3.0) / 12.0).clamp(0.0, 1.0);
+    let mut strength = snr;
     if pos < 1.0 || pos > n as f64 - 2.0 {
         conf *= 0.3;
+        strength *= 0.3;
     }
-    Some(Edge { pos, conf })
+    Some(Edge { pos, conf, strength })
 }
 
 fn median(values: &mut [f32]) -> f64 {
@@ -463,6 +476,8 @@ fn outward(side: Side) -> i64 {
 
 struct SideWindow {
     positions: Vec<i64>,
+    /// Number of positions in each scanned run, in order.
+    run_lengths: Vec<usize>,
     base: i64,
     n: usize,
     c: f64,
@@ -509,6 +524,7 @@ fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbo
         runs
     };
     let positions: Vec<i64> = runs.iter().flat_map(|&(from, to)| from..=to).collect();
+    let run_lengths: Vec<usize> = runs.iter().map(|&(from, to)| (to - from + 1) as usize).collect();
     // Inward search may run through the centre up to MIN_SIZE short of the opposite side.
     let range_in = (p.range_in.min(thickness.floor() - MIN_SIZE)).max(1.0) as i64;
     let range_out = if p.avoid_neighbors {
@@ -517,7 +533,7 @@ fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbo
         p.range_out as i64
     };
     let base = js_round(p0) as i64 - if outward(side) > 0 { range_in } else { range_out };
-    SideWindow { positions, base, n: (range_in + range_out + 1) as usize, c: p0 - 0.5 - base as f64 }
+    SideWindow { positions, run_lengths, base, n: (range_in + range_out + 1) as usize, c: p0 - 0.5 - base as f64 }
 }
 
 fn sample_profile(img: &GrayImage, w: &SideWindow, vertical: bool, from: usize, to: usize) -> Vec<f32> {
@@ -543,18 +559,18 @@ fn resolve_polarity(p: &SideParams, context: Option<EdgeContext>) -> i32 {
     }
 }
 
-fn refine_side(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, context: Option<EdgeContext>, neighbours: &[Rect]) -> Option<(f64, f64)> {
-    let w = side_window(img, rect, side, p, neighbours);
-    let polarity = resolve_polarity(p, context);
+/// searchRange: edge search over positions [start, end) of the window, split into segments.
+#[allow(clippy::too_many_arguments)]
+/// Returns (edge position, confidence, strength).
+fn search_range(img: &GrayImage, w: &SideWindow, side: Side, p: &SideParams, sign: i32, context: Option<EdgeContext>, start: usize, end: usize) -> Option<(f64, f64, f64)> {
     let out = outward(side);
-    let sign = if polarity == 0 { 0 } else { -polarity * out as i32 };
     let kernel = gauss_kernel(p.sigma);
-    let total = w.positions.len();
+    let total = end - start;
     let segments = (p.segments as usize).min(total).max(1);
     let mut found = Vec::new();
     for k in 0..segments {
-        let from = k * total / segments;
-        let to = (from + 1).max((k + 1) * total / segments);
+        let from = start + k * total / segments;
+        let to = (from + 1).max(start + (k + 1) * total / segments);
         let profile = sample_profile(img, &w, is_vertical(side), from, to);
         if let Some(edge) = find_edge(&profile, &smooth(&profile, &kernel), &p.crit, out, w.c, sign, context, p.grad_step as i64) {
             found.push(edge);
@@ -569,7 +585,32 @@ fn refine_side(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, context
     let pos = if p.comb == "outer" { quantile(&positions, if out < 0 { 0.1 } else { 0.9 }) } else { quantile(&positions, 0.5) };
     let mut confidences: Vec<f32> = found.iter().map(|e| e.conf as f32).collect();
     sort_f32(&mut confidences);
-    Some((w.base as f64 + pos + 0.5, quantile(&confidences, 0.5) * (found.len() as f64 / segments as f64)))
+    let mut strengths: Vec<f32> = found.iter().map(|e| e.strength as f32).collect();
+    sort_f32(&mut strengths);
+    let coverage = found.len() as f64 / segments as f64;
+    Some((w.base as f64 + pos + 0.5, quantile(&confidences, 0.5) * coverage, quantile(&strengths, 0.5) * coverage))
+}
+
+fn refine_side(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, context: Option<EdgeContext>, neighbours: &[Rect]) -> Option<(f64, f64)> {
+    let w = side_window(img, rect, side, p, neighbours);
+    let polarity = resolve_polarity(p, context);
+    let sign = if polarity == 0 { 0 } else { -polarity * outward(side) as i32 };
+    if p.part_mode == "strongest" && w.run_lengths.len() > 1 {
+        // Each scanned part on its own; the strongest edge wins (the first one on a tie).
+        let mut start = 0;
+        let mut best: Option<(f64, f64, f64)> = None;
+        for &length in &w.run_lengths {
+            let part = search_range(img, &w, side, p, sign, context, start, start + length);
+            start += length;
+            if let Some(found) = part {
+                if best.is_none_or(|current| found.2 > current.2) {
+                    best = Some(found);
+                }
+            }
+        }
+        return best.map(|(value, conf, _)| (value, conf));
+    }
+    search_range(img, &w, side, p, sign, context, 0, w.positions.len()).map(|(value, conf, _)| (value, conf))
 }
 
 fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbours: &[Rect]) -> RefineResult {

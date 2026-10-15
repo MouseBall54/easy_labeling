@@ -92,6 +92,11 @@ const FIELDS: FieldSpec[] = [
     options: [["box", "Box only"], ["boxOutside", "Box + outside"], ["outside", "Outside only"]]
   },
   {
+    key: "partMode", label: "Scanned parts", type: "select", group: "rule", perSide: true,
+    title: "With extensions: average every scanned part into one profile, or search each part (before, box, after) on its own and keep the strongest edge",
+    options: [["together", "Together (one average)"], ["strongest", "Strongest part"]]
+  },
+  {
     key: "extendStart", label: "Extend before (px)", type: "int", group: "rule", perSide: true, ...bounds("extendStart"), step: 1,
     title: "Scan this far past the box start: above it for left/right edges, left of it for top/bottom edges",
     sideLabels: { vertical: "Extend above (px)", horizontal: "Extend left (px)" }
@@ -379,8 +384,8 @@ export function createRefineEditor(input: {
         row.querySelector("label")!.textContent = scope === "all" ? spec.label
           : scope === "L" || scope === "R" ? spec.sideLabels.vertical : spec.sideLabels.horizontal;
       }
-      // Extensions do nothing while only the box is scanned.
-      if (spec.key === "extendStart" || spec.key === "extendEnd") {
+      // Extensions, and how their parts combine, do nothing while only the box is scanned.
+      if (spec.key === "extendStart" || spec.key === "extendEnd" || spec.key === "partMode") {
         control.disabled = params.every((p) => valueOf(p, "scanSpan") === "box");
       }
       row.classList.toggle("is-overridden", isOverridden(spec.key));

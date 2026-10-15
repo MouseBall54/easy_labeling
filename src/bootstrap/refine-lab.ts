@@ -51,6 +51,15 @@ const MAX_CASES = 24;
 // background rings and scan-span extensions, so a case always holds every pixel refinement reads.
 const CROP_MARGIN = 128;
 const WARN = "#f0ad4e";
+/** One colour per scanned part (before the box, the box, after it) in "Strongest part" mode. */
+const PART_COLORS = ["#e8890c", "#2e9e6b", "#b44bc4"];
+
+/** Names the scanned runs of a side by where they lie along it: before the box, the box, after it. */
+const partNames = (d: RefineSideDiagnostics, box: RefineRect): string[] => {
+  const vertical = d.side === "L" || d.side === "R";
+  const [a0, a1] = vertical ? [box.y0, box.y1] : [box.x0, box.x1];
+  return d.runs.map(([from, to]) => (to < Math.round(a0) ? (vertical ? "Above" : "Left") : from >= Math.round(a1) ? (vertical ? "Below" : "Right") : "Box"));
+};
 const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
 const SIDE_NAMES: Record<RefineSide, string> = { L: "Left", R: "Right", T: "Top", B: "Bottom" };
 const POLARITY_TEXT = { 1: "bright → dark", [-1]: "dark → bright", 0: "unclear" } as const;
@@ -261,7 +270,7 @@ export function createRefineLab(input: {
     // Search bands in crop coordinates: the perpendicular search range over every scanned run along the side.
     // `requested` reaches as far outward as the setting asks; the band itself stops where the search does
     // (halfway to a neighbour). Past the image border the profile only repeats the border pixels.
-    const bands: { side: RefineSide; rect: RefineRect; requested: RefineRect }[] = [];
+    const bands: { side: RefineSide; rect: RefineRect; requested: RefineRect; part: number }[] = [];
     for (const side of REFINE_SIDES) {
       const d = r.sides[side];
       if (!d || r.params.sides[side] === "off") continue;
@@ -270,8 +279,9 @@ export function createRefineLab(input: {
       const extra = Math.max(0, sideParams(r.params, side).rangeOut - d.rangeOut);
       const [ra, rb] = d.out > 0 ? [a, b + extra] : [a - extra, b];
       const vertical = side === "L" || side === "R";
-      for (const [from, to] of d.runs) {
+      for (const [part, [from, to]] of d.runs.entries()) {
         bands.push({
+          part,
           side,
           rect: vertical ? { x0: a, y0: from, x1: b, y1: to + 1 } : { x0: from, y0: a, x1: to + 1, y1: b },
           requested: vertical ? { x0: ra, y0: from, x1: rb, y1: to + 1 } : { x0: from, y0: ra, x1: to + 1, y1: rb }
@@ -305,7 +315,9 @@ export function createRefineLab(input: {
       // Search ranges: user-set fill opacity plus an outline, so the range stays findable even at low opacity.
       const alpha = Number(bandOpacity.value) / 100;
       zoomBands = [];
-      for (const { side, rect, requested } of bands) {
+      for (const { side, rect, requested, part } of bands) {
+        const parts = r.sides[side]?.parts;
+        const unused = parts !== undefined && part !== r.sides[side]?.chosenPart;
         const band: [number, number, number, number] = [X(rect.x0), Y(rect.y0), (rect.x1 - rect.x0) * s, (rect.y1 - rect.y0) * s];
         zoomBands.push({ side, x: band[0], y: band[1], w: band[2], h: band[3] });
         const emphasis = side === activeSide ? 1.6 : 1;
@@ -320,10 +332,10 @@ export function createRefineLab(input: {
           context.strokeRect(...asked);
           context.setLineDash([]);
         }
-        context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis)})`;
+        context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis) * (unused ? 0.35 : 1)})`;
         context.fillRect(...band);
-        context.strokeStyle = side === activeSide ? "rgba(120, 180, 255, 0.95)" : "rgba(120, 180, 255, 0.6)";
-        context.lineWidth = side === activeSide ? 1.5 : 1;
+        context.strokeStyle = parts ? PART_COLORS[part % PART_COLORS.length]! : side === activeSide ? "rgba(120, 180, 255, 0.95)" : "rgba(120, 180, 255, 0.6)";
+        context.lineWidth = parts && !unused ? 2 : side === activeSide ? 1.5 : 1;
         context.strokeRect(...band);
       }
     }
@@ -410,7 +422,7 @@ export function createRefineLab(input: {
     const resultAxis = r.result && !off ? imageToAxis(r.result.box[SIDE_KEY[activeSide]]) : null;
     const resultColor = r.result?.weakSides.includes(activeSide) ? WARN : getColorForClass(c.classId);
 
-    const panel = (top: number, plotH: number, title: string, series: { values: Float32Array; offset: number; color: string; lineWidth: number }[], levels: number[], zero: boolean): void => {
+    const panel = (top: number, plotH: number, title: string, series: { values: Float32Array; offset: number; color: string; lineWidth: number }[], levels: number[], zero: boolean, marks: { axis: number; color: string }[] = []): void => {
       let lo = Infinity;
       let hi = -Infinity;
       for (const { values } of series) values.forEach((v) => { lo = Math.min(lo, v); hi = Math.max(hi, v); });
@@ -442,6 +454,8 @@ export function createRefineLab(input: {
         context.setLineDash([]);
       };
       vertical(originalAxis, muted, true, 1);
+      // Where each unused part would have put the edge.
+      for (const { axis, color } of marks) vertical(axis, color, true, 1.2);
       for (const { values, offset, color, lineWidth } of series) {
         context.strokeStyle = color;
         context.lineWidth = lineWidth;
@@ -459,14 +473,38 @@ export function createRefineLab(input: {
     const bottom = 18;
     const plotH = Math.max(30, (height - gap * 2 - bottom) / 2);
     const levels = d.inside !== null && d.outside !== null ? [d.inside, d.outside] : [];
-    panel(gap, plotH, `${SIDE_NAMES[activeSide]} edge · mean brightness`, [
+    // "Strongest part": each scanned part is its own curve (chosen one bold) instead of one average.
+    const parts = d.parts;
+    const names = parts ? partNames(d, c.local) : [];
+    const partSeries = (transform: (values: Float32Array) => Float32Array, offset: number) => (parts ?? []).map((part, index) => ({
+      values: transform(oriented(part.smoothed)),
+      offset,
+      color: PART_COLORS[index % PART_COLORS.length]!,
+      lineWidth: index === d.chosenPart ? 2.5 : 1.2
+    }));
+    const partEdges = (parts ?? []).flatMap((part, index) => (part.value === null || index === d.chosenPart ? [] : [{ axis: imageToAxis(part.value), color: PART_COLORS[index % PART_COLORS.length]! }]));
+    panel(gap, plotH, `${SIDE_NAMES[activeSide]} edge · mean brightness${parts ? " per scanned part" : ""}`, parts ? partSeries((v) => v, 0.5) : [
       { values: raw, offset: 0.5, color: muted, lineWidth: 1 },
       { values: smoothed, offset: 0.5, color: primary, lineWidth: 2 }
-    ], levels, false);
-    panel(gap * 2 + plotH, plotH, `Change over ${k} px · gradient step (outward, + = brighter)`, [
+    ], levels, false, partEdges);
+    panel(gap * 2 + plotH, plotH, `Change over ${k} px · gradient step (outward, + = brighter)`, parts ? partSeries(delta, 0.5 + k / 2) : [
       { values: rawDelta, offset: 0.5 + k / 2, color: muted, lineWidth: 1 },
       { values: smoothDelta, offset: 0.5 + k / 2, color: primary, lineWidth: 2 }
-    ], [], true);
+    ], [], true, partEdges);
+    if (parts) {
+      // Legend, right-aligned above the first panel: part name, strength, and which part sets the edge.
+      context.font = "600 11px system-ui, sans-serif";
+      let right = pad.l + plotW;
+      for (let index = parts.length - 1; index >= 0; index -= 1) {
+        const label = `${names[index]} ${parts[index]!.value === null ? "–" : parts[index]!.strength.toFixed(1)}${index === d.chosenPart ? " ✓" : ""}`;
+        const labelWidth = context.measureText(label).width;
+        context.fillStyle = text;
+        context.fillText(label, right - labelWidth, gap - 5);
+        context.fillStyle = PART_COLORS[index % PART_COLORS.length]!;
+        context.fillRect(right - labelWidth - 12, gap - 13, 8, 8);
+        right -= labelWidth + 22;
+      }
+    }
     context.fillStyle = muted;
     context.font = "11px system-ui, sans-serif";
     context.fillText("◀ inside", pad.l, height - 4);
@@ -485,6 +523,7 @@ export function createRefineLab(input: {
     readout.replaceChildren(...[
       off ? `${SIDE_NAMES[activeSide]}: off` : `${SIDE_NAMES[activeSide]}: ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${(r.result?.sideConf[activeSide] ?? 0).toFixed(2)} · ${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`,
       off ? "" : searchText(d, sideParams(r.params, activeSide), roomOutside(c, activeSide)),
+      off || !d.parts ? "" : `Parts (strength): ${partNames(d, c.local).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
       detected,
       `Polarity used: ${usedPolarity}`,
       r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
