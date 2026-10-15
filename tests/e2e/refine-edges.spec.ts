@@ -427,6 +427,43 @@ test("refine lab: opens on the Default, classes inherit it, and outward ranges s
   expect(errors).toEqual([]);
 });
 
+test("refine lab: scanned parts searched together or the strongest part alone, with one curve per part", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  const editor = page.locator("#refineLabEditor");
+  const readout = page.locator("#refineLabReadout");
+  const profile = page.locator("#refineLabProfile");
+  await editClass(page, "0");
+  await editor.locator('.refine-scope [data-scope="L"]').click();
+  // The option only matters once parts beyond the box are scanned.
+  await expect(editor.locator("#refineLabField-partMode")).toBeDisabled();
+  await editor.locator("#refineLabField-scanSpan").selectOption("boxOutside");
+  await editor.locator("#refineLabField-extendStart").fill("10");
+  await editor.locator("#refineLabField-extendEnd").fill("10");
+  await expect(editor.locator("#refineLabField-partMode")).toBeEnabled();
+  await expect(editor.locator("#refineLabField-partMode")).toHaveValue("together");
+  await expect(readout).not.toContainText("Parts (strength)");
+  const together = await profile.screenshot();
+
+  await editor.locator("#refineLabField-partMode").selectOption("strongest");
+  // Left edge: parts above the box, the box, below it; one of them sets the edge.
+  await expect(readout).toContainText(/Parts \(strength\): Above (?:[\d.]+|no edge)(?: — used)? · Box (?:[\d.]+|no edge)(?: — used)? · Below (?:[\d.]+|no edge)(?: — used)?/);
+  await expect(readout).toContainText("— used");
+  await expect.poll(async () => Buffer.compare(await profile.screenshot(), together) !== 0).toBe(true);
+  await profile.screenshot({ path: "test-results/refine-lab-parts-profile.png" });
+  await page.locator("#refineLabZoom").screenshot({ path: "test-results/refine-lab-parts-zoom.png" });
+  await expect(page.locator("#refineLabStatus")).toContainText(/1 cases? · \d+ to review/);
+
+  await saveLab(page);
+  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ sideRules: { L: { scanSpan: "boxOutside", partMode: "strongest" } } });
+  expect(errors).toEqual([]);
+});
+
 test("refine: processed image follows the Preprocess panel's contrast and gamma", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
