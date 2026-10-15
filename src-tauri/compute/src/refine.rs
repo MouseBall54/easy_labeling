@@ -19,6 +19,7 @@ pub struct SideRule {
     inset: Option<f64>,
     scan_span: Option<String>,
     part_mode: Option<String>,
+    near_weight: Option<bool>,
     extend_start: Option<f64>,
     extend_end: Option<f64>,
 }
@@ -62,6 +63,8 @@ pub struct RefineParams {
     scan_span: String,
     #[serde(default = "together")]
     part_mode: String,
+    #[serde(default = "yes")]
+    near_weight: bool,
     extend_start: f64,
     extend_end: f64,
     sides: Sides<String>,
@@ -77,6 +80,10 @@ pub struct RefineParams {
 
 fn together() -> String {
     "together".into()
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Hash, PartialOrd, Ord)]
@@ -170,6 +177,7 @@ struct SideParams {
     inset: f64,
     scan_span: String,
     part_mode: String,
+    near_weight: bool,
     extend_start: f64,
     extend_end: f64,
     avoid_neighbors: bool,
@@ -190,6 +198,7 @@ fn side_params(p: &RefineParams, side: Side) -> SideParams {
         inset: rule.inset.unwrap_or(p.inset),
         scan_span: rule.scan_span.clone().unwrap_or_else(|| p.scan_span.clone()),
         part_mode: rule.part_mode.clone().unwrap_or_else(|| p.part_mode.clone()),
+        near_weight: rule.near_weight.unwrap_or(p.near_weight),
         extend_start: rule.extend_start.unwrap_or(p.extend_start),
         extend_end: rule.extend_end.unwrap_or(p.extend_end),
         avoid_neighbors: p.avoid_neighbors,
@@ -267,7 +276,7 @@ struct Edge {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, context: Option<EdgeContext>, step: i64) -> Option<Edge> {
+fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, context: Option<EdgeContext>, step: i64, near: bool) -> Option<Edge> {
     let n = p.len() as i64;
     let at = |i: i64| p[i as usize] as f64;
     let mut lo = f64::INFINITY;
@@ -287,7 +296,8 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
     let noise = if dd.is_empty() { 0.0 } else { dd[dd.len() >> 1] as f64 / (0.6745 * 6f64.sqrt()) };
     let snr = range / (noise + 0.5);
     let ws = n as f64 * 0.35;
-    let weight = |i: i64| (-((i as f64 - c) * (i as f64 - c)) / (2.0 * ws * ws)).exp();
+    // edgeWeight: distance to the current edge, or 1 everywhere when nearWeight is off.
+    let weight = |i: i64| if near { (-((i as f64 - c) * (i as f64 - c)) / (2.0 * ws * ws)).exp() } else { 1.0 };
     let mut pos: Option<f64> = None;
     let polar = context.filter(|ctx| ctx.polarity != 0);
 
@@ -572,7 +582,7 @@ fn search_range(img: &GrayImage, w: &SideWindow, side: Side, p: &SideParams, sig
         let from = start + k * total / segments;
         let to = (from + 1).max(start + (k + 1) * total / segments);
         let profile = sample_profile(img, &w, is_vertical(side), from, to);
-        if let Some(edge) = find_edge(&profile, &smooth(&profile, &kernel), &p.crit, out, w.c, sign, context, p.grad_step as i64) {
+        if let Some(edge) = find_edge(&profile, &smooth(&profile, &kernel), &p.crit, out, w.c, sign, context, p.grad_step as i64, p.near_weight) {
             found.push(edge);
         }
     }

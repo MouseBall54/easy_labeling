@@ -32,6 +32,12 @@ export interface RefineParams {
   scanSpan: RefineScanSpan;
   /** With extensions scanned: average every part, or keep the part with the strongest edge. */
   partMode: RefinePartMode;
+  /**
+   * Max gradient and band criteria: weight candidates by their distance to the current edge (a Gaussian
+   * about 35% of the search window wide), so a nearby edge beats a stronger one far away. Off: the
+   * strongest candidate anywhere in the search range wins.
+   */
+  nearWeight: boolean;
   /** Pixels scanned beyond the start (top for L/R, left for T/B) of the side. */
   extendStart: number;
   /** Pixels scanned beyond the end (bottom for L/R, right for T/B) of the side. */
@@ -54,7 +60,7 @@ export interface RefineParams {
 }
 
 /** Edge-rule keys a single side may override. */
-export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "partMode", "extendStart", "extendEnd"] as const;
+export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "partMode", "nearWeight", "extendStart", "extendEnd"] as const;
 export type RefineSideRuleKey = typeof REFINE_SIDE_RULE_KEYS[number];
 export type RefineSideRule = Partial<Pick<RefineParams, RefineSideRuleKey>>;
 
@@ -99,6 +105,7 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   inset: 0.12,
   scanSpan: "box",
   partMode: "together",
+  nearWeight: true,
   extendStart: 0,
   extendEnd: 0,
   sides: Object.freeze({ L: "inherit", R: "inherit", T: "inherit", B: "inherit" }) as Record<RefineSide, RefineSideMode>,
@@ -180,6 +187,7 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     inset: limit("inset", num(p.inset, d.inset)),
     scanSpan: p.scanSpan === "boxOutside" || p.scanSpan === "outside" || p.scanSpan === "box" ? p.scanSpan : d.scanSpan,
     partMode: p.partMode === "strongest" || p.partMode === "together" ? p.partMode : d.partMode,
+    nearWeight: p.nearWeight === undefined ? d.nearWeight : Boolean(p.nearWeight),
     extendStart: limit("extendStart", Math.round(num(p.extendStart, d.extendStart))),
     extendEnd: limit("extendEnd", Math.round(num(p.extendEnd, d.extendEnd))),
     sides: {
@@ -313,6 +321,29 @@ interface EdgeContext {
   polarity: -1 | 0 | 1;
 }
 
+/** Candidate weight by distance to the current edge c (profile index); 1 everywhere when near is off. */
+function edgeWeight(n: number, c: number, near: boolean): (i: number) => number {
+  if (!near) return () => 1;
+  const ws = n * 0.35;
+  return (i: number): number => Math.exp(-((i - c) * (i - c)) / (2 * ws * ws));
+}
+
+/** Max-gradient step split: g(i) = P(i + after) - P(i - before), centred on i + (after - before) / 2. */
+function gradientSpan(step: number): { before: number; after: number } {
+  const before = Math.floor(step / 2);
+  return { before, after: step - before };
+}
+
+/** Brightness change at i over the gradient step, keeping only the expected direction (sign 0: either). */
+function gradientAt(P: Float32Array, step: number, sign: -1 | 0 | 1): (i: number) => number {
+  const n = P.length;
+  const { before, after } = gradientSpan(step);
+  return (i: number): number => {
+    const g = P[Math.min(n - 1, i + after)] - P[Math.max(0, i - before)];
+    return sign === 0 ? Math.abs(g) : Math.max(0, sign * g);
+  };
+}
+
 /**
  * Finds the edge in one perpendicular profile.
  * raw: unsmoothed profile (noise estimate), P: smoothed, out: outward direction, c: start index,
@@ -326,7 +357,8 @@ function findEdge(
   c: number,
   sign: -1 | 0 | 1,
   context: EdgeContext | null,
-  step: number
+  step: number,
+  near: boolean
 ): { pos: number; conf: number; strength: number } | null {
   const n = P.length;
   let lo = Infinity;
@@ -341,18 +373,13 @@ function findEdge(
   for (let i = 1; i < n - 1; i += 1) dd[i - 1] = Math.abs(raw[i + 1] - 2 * raw[i] + raw[i - 1]);
   const noise = dd.length ? kthSmallest(dd, dd.length >> 1) / (0.6745 * Math.sqrt(6)) : 0;
   const snr = range / (noise + 0.5);
-  const ws = n * 0.35;
-  const weight = (i: number): number => Math.exp(-((i - c) * (i - c)) / (2 * ws * ws));
+  const weight = edgeWeight(n, c, near);
   let pos: number | null = null;
 
   if (crit === "grad") {
     // g(i) = P(i + after) - P(i - before) spans `step` samples; it is centred on i + (after - before) / 2.
-    const before = Math.floor(step / 2);
-    const after = step - before;
-    const gradient = (i: number): number => {
-      const g = P[Math.min(n - 1, i + after)] - P[Math.max(0, i - before)];
-      return sign === 0 ? Math.abs(g) : Math.max(0, sign * g);
-    };
+    const { before, after } = gradientSpan(step);
+    const gradient = gradientAt(P, step, sign);
     let best = 0;
     let bestIndex = -1;
     for (let i = Math.max(1, before); i < n - Math.max(1, after); i += 1) {
@@ -571,24 +598,34 @@ function searchRange(
   crit: RefineCriterion,
   p: RefineParams,
   sign: -1 | 0 | 1,
-  context: EdgeContext | null
+  context: EdgeContext | null,
+  trace?: RefineSegmentTrace[],
+  part = 0
 ): { value: number; conf: number; strength: number } | null {
   const kernel = gaussKernel(p.sigma);
   const total = end - start;
   const segments = Math.max(1, Math.min(p.segments, total));
   const found: { pos: number; conf: number; strength: number }[] = [];
+  const traced: RefineSegmentTrace[] = [];
   for (let k = 0; k < segments; k += 1) {
     const from = start + Math.floor(k * total / segments);
     const to = Math.max(from + 1, start + Math.floor((k + 1) * total / segments));
     const profile = sampleProfile(img, w, from, to);
-    const edge = findEdge(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context, p.gradStep);
+    const edge = findEdge(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context, p.gradStep, p.nearWeight);
     if (edge) found.push(edge);
+    if (trace) {
+      traced.push({ span: [w.positions[from]!, w.positions[to - 1]! + 1], part, value: edge ? w.base + edge.pos + 0.5 : null, conf: edge?.conf ?? 0, kept: false });
+    }
   }
-  if (!found.length) return null;
+  if (!found.length) { trace?.push(...traced); return null; }
   // Segments with only noise (e.g. box rows without a visible edge when outside rows are scanned too)
   // must not steer the position: keep the segments at least half as confident as the best one.
   const best = Math.max(...found.map((e) => e.conf));
   const strong = found.filter((e) => e.conf >= best * 0.5);
+  if (trace) {
+    for (const segment of traced) segment.kept = segment.value !== null && segment.conf >= best * 0.5;
+    trace.push(...traced);
+  }
   const positions = Float32Array.from(strong, (e) => e.pos).sort();
   const pos = p.comb === "outer" ? quantile(positions, w.geometry.out < 0 ? 0.1 : 0.9) : quantile(positions, 0.5);
   const confidences = Float32Array.from(found, (e) => e.conf).sort();
@@ -604,9 +641,10 @@ function searchParts(
   crit: RefineCriterion,
   p: RefineParams,
   sign: -1 | 0 | 1,
-  context: EdgeContext | null
+  context: EdgeContext | null,
+  trace?: RefineSegmentTrace[]
 ): ({ value: number; conf: number; strength: number } | null)[] {
-  return runRanges(w).map(([from, to]) => searchRange(img, w, from, to, crit, p, sign, context));
+  return runRanges(w).map(([from, to], part) => searchRange(img, w, from, to, crit, p, sign, context, trace, part));
 }
 
 /** Index of the part with the strongest edge (the first one on a tie), or -1 when no part found one. */
@@ -636,6 +674,19 @@ function refineSide(
   return found && { value: found.value, conf: found.conf };
 }
 
+/** One segment of a side's search, as the first pass over the current box saw it. */
+export interface RefineSegmentTrace {
+  /** Along-side pixels the segment averaged: [first, last + 1). */
+  span: [number, number];
+  /** Scanned part the segment belongs to ("Strongest part"; 0 otherwise). */
+  part: number;
+  /** Edge it found (image coordinate), or null. */
+  value: number | null;
+  conf: number;
+  /** Used in the combine step: found an edge at least half as confident as the best segment. */
+  kept: boolean;
+}
+
 export interface RefineSideDiagnostics {
   side: RefineSide;
   criterion: RefineCriterion;
@@ -661,6 +712,18 @@ export interface RefineSideDiagnostics {
    */
   parts?: { raw: Float32Array; smoothed: Float32Array; value: number | null; conf: number; strength: number }[];
   chosenPart?: number;
+  /** Every segment of the first pass over the current box, in scan order. */
+  segments: RefineSegmentTrace[];
+  /** The side's edge after combining those segments (first pass; iterations may move it further). */
+  firstPass: number | null;
+  /** Candidate weight per profile sample (all 1 with nearWeight off). */
+  weight: Float32Array;
+  /**
+   * Max gradient: the score that is maximised per sample of the smoothed whole-side profile, i.e. the
+   * brightness change in the expected direction times the weight. Sample i is centred at i + scoreShift.
+   */
+  score: Float32Array | null;
+  scoreShift: number;
 }
 
 /** Whole-side averaged profile and context, for plotting while tuning (refinement itself works per segment). */
@@ -671,15 +734,33 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
   const w = sideWindow(img, box, side, params, neighbours);
   const raw = sampleProfile(img, w, 0, w.positions.length);
   const kernel = gaussKernel(params.sigma);
+  const smoothed = smooth(raw, kernel);
+  const sign = edgeSign(resolvePolarity(params, context), w.geometry.out);
+  const segments: RefineSegmentTrace[] = [];
   let parts: RefineSideDiagnostics["parts"];
   let chosenPart: number | undefined;
+  let firstPass: number | null;
   if (params.partMode === "strongest" && w.runs.length > 1) {
-    const found = searchParts(img, w, params.crit, params, edgeSign(resolvePolarity(params, context), w.geometry.out), context);
+    const found = searchParts(img, w, params.crit, params, sign, context, segments);
     chosenPart = strongestPart(found);
+    firstPass = chosenPart < 0 ? null : found[chosenPart]!.value;
     parts = runRanges(w).map(([from, to], index) => {
       const partRaw = sampleProfile(img, w, from, to);
       return { raw: partRaw, smoothed: smooth(partRaw, kernel), value: found[index]?.value ?? null, conf: found[index]?.conf ?? 0, strength: found[index]?.strength ?? 0 };
     });
+  } else {
+    firstPass = searchRange(img, w, 0, w.positions.length, params.crit, params, sign, context, segments)?.value ?? null;
+  }
+  const n = raw.length;
+  const weightAt = edgeWeight(n, w.c, params.nearWeight);
+  const weight = Float32Array.from({ length: n }, (_, i) => weightAt(i));
+  let score: Float32Array | null = null;
+  const { before, after } = gradientSpan(params.gradStep);
+  if (params.crit === "grad") {
+    // Same range and formula as findEdge's max-gradient loop.
+    const gradient = gradientAt(smoothed, params.gradStep, sign);
+    score = new Float32Array(n);
+    for (let i = Math.max(1, before); i < n - Math.max(1, after); i += 1) score[i] = gradient(i) * weightAt(i);
   }
   return {
     side,
@@ -687,7 +768,7 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
     start: w.base,
     out: w.geometry.out,
     raw,
-    smoothed: smooth(raw, kernel),
+    smoothed,
     rangeIn: w.rangeIn,
     rangeOut: w.rangeOut,
     runs: w.runs,
@@ -695,7 +776,12 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
     outside: context?.outside ?? null,
     polarity: resolvePolarity(params, context),
     detectedPolarity: context?.polarity ?? 0,
-    ...(parts ? { parts, chosenPart } : {})
+    ...(parts ? { parts, chosenPart } : {}),
+    segments,
+    firstPass,
+    weight,
+    score,
+    scoreShift: (after - before) / 2
   };
 }
 
