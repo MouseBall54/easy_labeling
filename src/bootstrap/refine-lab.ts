@@ -74,6 +74,24 @@ const searchText = (d: RefineSideDiagnostics, set: RefineParams, room: number): 
   ];
   return `Search ${inward} · ${d.rangeOut} px out${limits.length ? ` (${limits.join("; ")})` : ""}`;
 };
+/** Outward distance (px) from the original edge to a coordinate on that side's axis (0 for the edge itself). */
+const imageToOutward = (d: RefineSideDiagnostics, original: number, value = original): number => (value - original) * d.out;
+
+const COMBINE_TEXT = { outer: "Outermost (10% toward outside)", median: "Median" } as const;
+/** Plain-language account of how the side's edge was chosen, with the numbers the plots show. */
+const pickText = (d: RefineSideDiagnostics, set: RefineParams, iterations: number, firstShift: number | null, finalShift: number | null): string => {
+  const near = set.nearWeight ? "weighted toward the current edge" : "anywhere in the range";
+  const how = d.criterion === "grad"
+    ? `Max gradient: largest ${d.polarity === 0 ? "change" : d.polarity > 0 ? "bright → dark change" : "dark → bright change"} ${near}`
+    : d.criterion === "thr" ? "50% level: crossing nearest the current edge"
+      : `${d.criterion === "peak" ? "Band centre" : "Band outer 50%"}: brightest band ${near}`;
+  const found = d.segments.filter((segment) => segment.value !== null).length;
+  const kept = d.segments.filter((segment) => segment.kept).length;
+  const shift = (value: number | null): string => (value === null ? "no edge" : `${value >= 0 ? "out" : "in"} ${Math.abs(value).toFixed(1)} px`);
+  return `${how} · ${d.segments.length} segment${d.segments.length === 1 ? "" : "s"}: ${found} found, ${kept} kept (≥ ½ best confidence) → ${COMBINE_TEXT[set.comb]} = ${shift(firstShift)}`
+    + (finalShift === null ? "" : ` · after ${iterations} pass${iterations === 1 ? "" : "es"}: ${shift(finalShift)}`);
+};
+
 /** Pixels between a side of the box and the image border, outward. */
 const roomOutside = (c: { local: RefineRect; imageBounds: RefineRect }, side: RefineSide): number => ({
   L: c.local.x0 - c.imageBounds.x0, R: c.imageBounds.x1 - c.local.x1, T: c.local.y0 - c.imageBounds.y0, B: c.imageBounds.y1 - c.local.y1
@@ -383,6 +401,22 @@ export function createRefineLab(input: {
         }
       }
     }
+    // Each segment's own edge on the active side, over the result (gold: used, grey dashes: dropped).
+    const traced = detail ? r.sides[activeSide] : undefined;
+    if (traced && r.params.sides[activeSide] !== "off") {
+      const vertical = activeSide === "L" || activeSide === "R";
+      for (const segment of traced.segments) {
+        if (segment.value === null) continue;
+        context.setLineDash(segment.kept ? [] : [3, 3]);
+        context.strokeStyle = segment.kept ? "rgba(255, 214, 102, 0.95)" : "rgba(200, 200, 200, 0.7)";
+        context.lineWidth = segment.kept ? 2 : 1;
+        context.beginPath();
+        if (vertical) { context.moveTo(X(segment.value), Y(segment.span[0])); context.lineTo(X(segment.value), Y(segment.span[1])); }
+        else { context.moveTo(X(segment.span[0]), Y(segment.value)); context.lineTo(X(segment.span[1]), Y(segment.value)); }
+        context.stroke();
+      }
+      context.setLineDash([]);
+    }
     return { X, Y, s };
   };
 
@@ -422,7 +456,8 @@ export function createRefineLab(input: {
     const resultAxis = r.result && !off ? imageToAxis(r.result.box[SIDE_KEY[activeSide]]) : null;
     const resultColor = r.result?.weakSides.includes(activeSide) ? WARN : getColorForClass(c.classId);
 
-    const panel = (top: number, plotH: number, title: string, series: { values: Float32Array; offset: number; color: string; lineWidth: number }[], levels: number[], zero: boolean, marks: { axis: number; color: string }[] = []): void => {
+    type Overlay = (X: (u: number) => number, Y: (v: number) => number, lo: number, hi: number, top: number, plotH: number) => void;
+    const panel = (top: number, plotH: number, title: string, series: { values: Float32Array; offset: number; color: string; lineWidth: number }[], levels: number[], zero: boolean, marks: { axis: number; color: string }[] = [], overlay?: Overlay): void => {
       let lo = Infinity;
       let hi = -Infinity;
       for (const { values } of series) values.forEach((v) => { lo = Math.min(lo, v); hi = Math.max(hi, v); });
@@ -456,6 +491,7 @@ export function createRefineLab(input: {
       vertical(originalAxis, muted, true, 1);
       // Where each unused part would have put the edge.
       for (const { axis, color } of marks) vertical(axis, color, true, 1.2);
+      overlay?.(X, Y, lo, hi, top, plotH);
       for (const { values, offset, color, lineWidth } of series) {
         context.strokeStyle = color;
         context.lineWidth = lineWidth;
@@ -483,14 +519,68 @@ export function createRefineLab(input: {
       lineWidth: index === d.chosenPart ? 2.5 : 1.2
     }));
     const partEdges = (parts ?? []).flatMap((part, index) => (part.value === null || index === d.chosenPart ? [] : [{ axis: imageToAxis(part.value), color: PART_COLORS[index % PART_COLORS.length]! }]));
+    // Each segment's own edge as a tick along the top (filled: used in the combine step, hollow: dropped),
+    // and the combined first-pass edge as a triangle; the solid line is the final edge after iterations.
+    const segmentTicks: Overlay = (_X, _Y, _lo, _hi, top) => {
+      for (const segment of off ? [] : d.segments) {
+        if (segment.value === null) continue;
+        const x = X(imageToAxis(segment.value));
+        context.beginPath();
+        context.arc(x, top + 5, 3, 0, Math.PI * 2);
+        if (segment.kept) { context.fillStyle = "#e0a800"; context.fill(); }
+        else { context.strokeStyle = muted; context.lineWidth = 1; context.stroke(); }
+      }
+      if (!off && d.firstPass !== null) {
+        const x = X(imageToAxis(d.firstPass));
+        context.fillStyle = resultColor;
+        context.beginPath();
+        context.moveTo(x - 5, top + 12); context.lineTo(x + 5, top + 12); context.lineTo(x, top + 18);
+        context.fill();
+      }
+    };
     panel(gap, plotH, `${SIDE_NAMES[activeSide]} edge · mean brightness${parts ? " per scanned part" : ""}`, parts ? partSeries((v) => v, 0.5) : [
       { values: raw, offset: 0.5, color: muted, lineWidth: 1 },
       { values: smoothed, offset: 0.5, color: primary, lineWidth: 2 }
-    ], levels, false, partEdges);
+    ], levels, false, partEdges, segmentTicks);
+    // Max gradient picks the peak of the score: the change in the expected direction times the distance
+    // weight. It is drawn on the side of zero where the expected change lies (bright inside: darker outward).
+    const expected = d.polarity === 0 ? 1 : -d.polarity;
+    const selection: Overlay = (_X, Y, lo, hi) => {
+      if (off) return;
+      const axisOf = (i: number): number => (flip ? n - (i + d.scoreShift + 0.5) : i + d.scoreShift + 0.5);
+      if (d.score && !parts) {
+        let peak = -1;
+        d.score.forEach((value, i) => { if (value > 0 && (peak < 0 || value > d.score![peak]!)) peak = i; });
+        context.fillStyle = "rgba(224, 168, 0, 0.28)";
+        context.beginPath();
+        context.moveTo(X(axisOf(0)), Y(0));
+        d.score.forEach((value, i) => context.lineTo(X(axisOf(i)), Y(expected * value)));
+        context.lineTo(X(axisOf(d.score.length - 1)), Y(0));
+        context.closePath();
+        context.fill();
+        if (peak >= 0) {
+          context.fillStyle = "#e0a800";
+          context.beginPath();
+          context.arc(X(axisOf(peak)), Y(expected * d.score[peak]!), 3.5, 0, Math.PI * 2);
+          context.fill();
+        }
+      }
+      if (sideParams(r.params, activeSide).nearWeight && d.criterion !== "thr") {
+        // Weight 0..1 scaled to the half of the panel where the expected change lies.
+        const reach = expected > 0 ? hi : lo;
+        context.setLineDash([2, 3]);
+        context.strokeStyle = muted;
+        context.lineWidth = 1;
+        context.beginPath();
+        d.weight.forEach((value, i) => { const x = X(flip ? n - (i + 0.5) : i + 0.5); const y = Y(value * reach); if (i) context.lineTo(x, y); else context.moveTo(x, y); });
+        context.stroke();
+        context.setLineDash([]);
+      }
+    };
     panel(gap * 2 + plotH, plotH, `Change over ${k} px · gradient step (outward, + = brighter)`, parts ? partSeries(delta, 0.5 + k / 2) : [
       { values: rawDelta, offset: 0.5 + k / 2, color: muted, lineWidth: 1 },
       { values: smoothDelta, offset: 0.5 + k / 2, color: primary, lineWidth: 2 }
-    ], [], true, partEdges);
+    ], [], true, partEdges, selection);
     if (parts) {
       // Legend, right-aligned above the first panel: part name, strength, and which part sets the edge.
       context.font = "600 11px system-ui, sans-serif";
@@ -523,6 +613,9 @@ export function createRefineLab(input: {
     readout.replaceChildren(...[
       off ? `${SIDE_NAMES[activeSide]}: off` : `${SIDE_NAMES[activeSide]}: ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${(r.result?.sideConf[activeSide] ?? 0).toFixed(2)} · ${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`,
       off ? "" : searchText(d, sideParams(r.params, activeSide), roomOutside(c, activeSide)),
+      off ? "" : pickText(d, sideParams(r.params, activeSide), r.params.iterations,
+        d.firstPass === null ? null : imageToOutward(d, c.local[SIDE_KEY[activeSide]], d.firstPass),
+        r.result ? imageToOutward(d, c.local[SIDE_KEY[activeSide]], r.result.box[SIDE_KEY[activeSide]]) : null),
       off || !d.parts ? "" : `Parts (strength): ${partNames(d, c.local).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
       detected,
       `Polarity used: ${usedPolarity}`,

@@ -464,6 +464,44 @@ test("refine lab: scanned parts searched together or the strongest part alone, w
   expect(errors).toEqual([]);
 });
 
+test("refine lab: explains how each edge is picked and can drop the preference for nearby edges", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  const editor = page.locator("#refineLabEditor");
+  const readout = page.locator("#refineLabReadout");
+  const profile = page.locator("#refineLabProfile");
+  const zoom = page.locator("#refineLabZoom");
+  await editClass(page, "0");
+  await editor.locator('.refine-scope [data-scope="R"]').click();
+  const near = editor.locator("#refineLabField-nearWeight");
+  await expect(near).toBeChecked();
+  await expect(readout).toContainText(/Max gradient: largest bright → dark change weighted toward the current edge · 6 segments: \d found, \d kept \(≥ ½ best confidence\) → Outermost \(10% toward outside\) = (out|in) [\d.]+ px · after 2 passes: (out|in) [\d.]+ px/);
+  await profile.screenshot({ path: "test-results/refine-lab-pick-near.png" });
+  await zoom.screenshot({ path: "test-results/refine-lab-pick-zoom.png" });
+  const weighted = await profile.screenshot();
+
+  await near.uncheck();
+  await expect(readout).toContainText("anywhere in the range");
+  await expect.poll(async () => Buffer.compare(await profile.screenshot(), weighted) !== 0).toBe(true);
+  await profile.screenshot({ path: "test-results/refine-lab-pick-anywhere.png" });
+  await editor.locator("#refineLabField-comb").selectOption("median");
+  await expect(readout).toContainText("→ Median =");
+
+  // The 50% level always takes the nearest crossing, so the option does not apply to it.
+  await editor.locator("#refineLabField-crit").selectOption("thr");
+  await expect(near).toBeDisabled();
+  await expect(readout).toContainText("50% level: crossing nearest the current edge");
+  await editor.locator("#refineLabField-crit").selectOption("grad");
+  await saveLab(page);
+  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ sideRules: { R: { nearWeight: false, comb: "median" } } });
+  expect(errors).toEqual([]);
+});
+
 test("refine: processed image follows the Preprocess panel's contrast and gamma", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);

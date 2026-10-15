@@ -128,6 +128,38 @@ describe("domain/refine/edge-refine", () => {
     expect(side.inside).toBeLessThan(side.outside ?? 0);
   });
 
+  it("prefers the edge near the current one unless nearWeight is off, and explains the choice", () => {
+    // Right of the box: a weak step (210 -> 170) 2 px out, a strong one (170 -> 40) 14 px out.
+    const width = 90;
+    const height = 60;
+    const gray = new Float32Array(width * height);
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) gray[y * width + x] = x < 52 ? 210 : x < 64 ? 170 : 40;
+    const img = { gray, width, height };
+    const box = { x0: 10, y0: 10, x1: 50, y1: 50 };
+    const base = { sides: { L: "off", T: "off", B: "off" }, polarity: "brightInside", rangeIn: 6, rangeOut: 16, contextRing: 0, iterations: 1, sigma: 0, inset: 0 };
+    const right = (raw: object) => refineBoxes(img, [{ id: "a", classId: "0", ...box }], { 0: normalizeRefineParams(raw) })[0]!.box.x1;
+    expect(Math.abs(right(base) - 52)).toBeLessThan(0.5);
+    expect(Math.abs(right({ ...base, nearWeight: false }) - 64)).toBeLessThan(0.5);
+    expect(Math.abs(right({ ...base, sideRules: { R: { nearWeight: false } } }) - 64)).toBeLessThan(0.5);
+    expect(normalizeRefineParams({}).nearWeight).toBe(true);
+
+    // Diagnostics show the same choice: the score curve peaks where the first pass put the edge,
+    // every segment is traced, and the weight is flat when nearWeight is off.
+    for (const nearWeight of [true, false]) {
+      const params = normalizeRefineParams({ ...base, nearWeight, segments: 4 });
+      const d = describeRefineSide(img, box, "R", params);
+      const peak = d.score!.indexOf(Math.max(...d.score!));
+      // The edge is the score peak plus a sub-pixel (parabola) shift of at most half a sample.
+      expect(Math.abs(d.start + peak + d.scoreShift + 0.5 - d.firstPass!)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(d.firstPass! - (nearWeight ? 52 : 64))).toBeLessThan(0.5);
+      expect(d.segments).toHaveLength(4);
+      expect(d.segments.every((segment) => segment.kept && Math.abs(segment.value! - d.firstPass!) < 0.5)).toBe(true);
+      expect(d.segments[0]!.span[0]).toBe(10);
+      expect(d.segments[3]!.span[1]).toBe(51); // runs include the row at the box end
+      expect(Math.min(...d.weight) === 1).toBe(!nearWeight);
+    }
+  });
+
   it("uses the strongest scanned part on its own, or every part together", () => {
     // Top edge seen only beyond the box ends: a strong edge at y = 40 left of the box, a weak one at
     // y = 34 right of it. Inside the box there is nothing to find (scan span "outside").

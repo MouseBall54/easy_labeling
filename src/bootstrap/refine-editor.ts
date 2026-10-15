@@ -87,6 +87,10 @@ const FIELDS: FieldSpec[] = [
     title: "Max gradient compares brightness this many pixels apart. Larger steps ignore fine noise and soft edges; 2 is the classic central difference"
   },
   {
+    key: "nearWeight", label: "Prefer near the current edge", type: "bool", group: "rule", perSide: true,
+    title: "On: candidates are weighted by their distance to the current edge, so a nearby edge beats a stronger one far away. Off: the strongest edge anywhere in the search range wins (Max gradient and bright band criteria; the 50% level always takes the nearest crossing)"
+  },
+  {
     key: "scanSpan", label: "Scan span", type: "select", group: "rule", perSide: true,
     title: "Rows/columns scanned along the edge: the box only, the box plus its extensions, or only the extensions past the box ends",
     options: [["box", "Box only"], ["boxOutside", "Box + outside"], ["outside", "Outside only"]]
@@ -388,6 +392,8 @@ export function createRefineEditor(input: {
       if (spec.key === "extendStart" || spec.key === "extendEnd" || spec.key === "partMode") {
         control.disabled = params.every((p) => valueOf(p, "scanSpan") === "box");
       }
+      // The 50% level always takes the crossing nearest the current edge.
+      if (spec.key === "nearWeight") control.disabled = params.every((p) => valueOf(p, "crit") === "thr");
       row.classList.toggle("is-overridden", isOverridden(spec.key));
       const values = params.map((p) => valueOf(p, spec.key));
       const mixed = values.some((value) => value !== values[0]);
