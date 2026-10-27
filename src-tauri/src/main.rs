@@ -61,6 +61,15 @@ fn ensure_profile_directory(app: &AppHandle, kind: &str) -> CommandResult<PathBu
     Ok(directory)
 }
 
+/// The image folder's `.easy-labeling` settings folder, else the image folder; None when neither exists.
+fn dataset_library_directory(folder: &str) -> Option<PathBuf> {
+    if folder.is_empty() {
+        return None;
+    }
+    let folder = PathBuf::from(folder);
+    [folder.join(".easy-labeling"), folder].into_iter().find(|candidate| candidate.is_dir())
+}
+
 fn sanitize_suggested_file_name(file_name: &str) -> String {
     let base = Path::new(if file_name.is_empty() { "easy-labeling.json" } else { file_name })
         .file_name()
@@ -142,8 +151,9 @@ async fn sample_directory(app: AppHandle) -> CommandResult<Entry> {
 }
 
 #[tauri::command]
-async fn open_library_file(app: AppHandle, window: WebviewWindow, kind: String) -> CommandResult<Option<LibraryFile>> {
-    let directory = ensure_profile_directory(&app, &kind)?;
+async fn open_library_file(app: AppHandle, window: WebviewWindow, kind: String, folder: Option<String>) -> CommandResult<Option<LibraryFile>> {
+    let profile = ensure_profile_directory(&app, &kind)?;
+    let directory = folder.as_deref().and_then(dataset_library_directory).unwrap_or(profile);
     let picked = app
         .dialog()
         .file()
@@ -599,6 +609,19 @@ mod tests {
         let mut names = vec!["b10.json", "B2.json", "a.json"];
         names.sort_by_cached_key(|name| natural_key(name));
         assert_eq!(names, ["a.json", "B2.json", "b10.json"]);
+    }
+
+    #[test]
+    fn library_dialog_starts_in_the_dataset_settings_folder() {
+        let folder = std::env::temp_dir().join(format!("easy-labeling-library-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let text = folder.to_string_lossy().into_owned();
+        assert_eq!(dataset_library_directory(&text), Some(folder.clone()));
+        fs::create_dir_all(folder.join(".easy-labeling")).unwrap();
+        assert_eq!(dataset_library_directory(&text), Some(folder.join(".easy-labeling")));
+        fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(dataset_library_directory(&text), None);
+        assert_eq!(dataset_library_directory(""), None);
     }
 
     #[test]

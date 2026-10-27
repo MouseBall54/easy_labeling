@@ -208,8 +208,8 @@ window.showDirectoryPicker = async function showDirectoryPicker(options) {
   return createDirectoryHandle(selectedPath);
 };
 
-window.openEasyLabelingLibraryFile = function openEasyLabelingLibraryFile(kind) {
-  return ipcRenderer.invoke(OPEN_LIBRARY_FILE_CHANNEL, kind);
+window.openEasyLabelingLibraryFile = function openEasyLabelingLibraryFile(kind, startIn) {
+  return ipcRenderer.invoke(OPEN_LIBRARY_FILE_CHANNEL, kind, (startIn && directoryPaths.get(startIn)) || null);
 };
 
 

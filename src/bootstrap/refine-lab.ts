@@ -108,6 +108,7 @@ export function createRefineLab(input: {
   /** Gray pixels refinement reads for rect (clamped), from the original or the processed image. */
   cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource, processing: RefineProcessing | null): Promise<GrayImage & { x0: number; y0: number }>;
   loadPreprocessingPresets(): Promise<{ name: string; config: Record<string, unknown> }[]>;
+  imageFolder(): FileSystemDirectoryHandle | null;
   allBoxes(): RefineBoxInput[];
   classIds(): string[];
   className(classId: string): string | undefined;
@@ -152,7 +153,8 @@ export function createRefineLab(input: {
       classIds: input.classIds,
       className: input.className,
       notify: (message) => { status.textContent = message; },
-      preprocessingPresets: () => preprocessingPresets
+      preprocessingPresets: () => preprocessingPresets,
+      imageFolder: input.imageFolder
     }
   });
   editor.onTargetsChange(() => {

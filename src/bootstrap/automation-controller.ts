@@ -64,7 +64,7 @@ export interface AutomationWindow {
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
   dispatchEvent(event: Event): boolean;
   URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
-  openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
+  openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind, startIn?: FileSystemDirectoryHandle | null) => Promise<EasyLabelingLibraryFile | null>;
   listEasyLabelingLibraryFiles?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile[]>;
   saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
 }
@@ -1783,7 +1783,7 @@ export function createAutomationController(input: {
         }
         clearSettingsError();
         void (async () => {
-          const file = await input.windowRef.openEasyLabelingLibraryFile?.("preset");
+          const file = await input.windowRef.openEasyLabelingLibraryFile?.("preset", input.state.session.imageFolderHandle as FileSystemDirectoryHandle | null);
           if (file) {
             await importPresetFileContents(file.contents);
           }
@@ -2063,7 +2063,7 @@ export function createAutomationController(input: {
         }
         setLayoutSetupError(null);
         void (async () => {
-          const file = await input.windowRef.openEasyLabelingLibraryFile?.("layout");
+          const file = await input.windowRef.openEasyLabelingLibraryFile?.("layout", input.state.session.imageFolderHandle as FileSystemDirectoryHandle | null);
           if (file) {
             await importLayoutFileContents(file.contents);
           }

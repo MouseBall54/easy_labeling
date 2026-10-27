@@ -27,6 +27,8 @@ export interface RefineEditorStore {
   notify(message: string): void;
   /** Preprocess panel presets that Processed refinement can be pinned to. */
   preprocessingPresets?(): { name: string; config: Record<string, unknown> }[];
+  /** Folder of the open images; the preset file dialog starts in its settings folder. */
+  imageFolder?(): FileSystemDirectoryHandle | null;
 }
 
 /** "all" edits the rule every side shares; a side edits that side's own rule only. */
@@ -559,7 +561,7 @@ export function createRefineEditor(input: {
       } else if (action === "export") void exportPresets().catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to save presets"));
       else if (action === "import") {
         if (!windowRef.openEasyLabelingLibraryFile) { ref<HTMLInputElement>("presetFile").click(); return; }
-        void windowRef.openEasyLabelingLibraryFile("refine")
+        void windowRef.openEasyLabelingLibraryFile("refine", store.imageFolder?.())
           .then((file) => { if (file) importPresetText(file.contents); })
           .catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to load presets"));
       }

@@ -15,7 +15,8 @@ declare global {
     bootstrap: typeof bootstrap;
     showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
     getEasyLabelingSampleDirectory?: () => Promise<FileSystemDirectoryHandle>;
-    openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile | null>;
+    /** Desktop only: the dialog starts in `startIn/.easy-labeling` (or `startIn`), else the profile folder. */
+    openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind, startIn?: FileSystemDirectoryHandle | null) => Promise<EasyLabelingLibraryFile | null>;
     listEasyLabelingLibraryFiles?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile[]>;
     getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
     saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;

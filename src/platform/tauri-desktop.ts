@@ -136,7 +136,7 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     return createDirectoryHandle(selected);
   };
 
-  window.openEasyLabelingLibraryFile = (kind) => call<EasyLabelingLibraryFile | null>("open_library_file", { kind });
+  window.openEasyLabelingLibraryFile = (kind, startIn) => call<EasyLabelingLibraryFile | null>("open_library_file", { kind, folder: (startIn && directoryPaths.get(startIn)) ?? null });
   window.listEasyLabelingLibraryFiles = (kind) => call<EasyLabelingLibraryFile[]>("list_library_files", { kind });
   window.saveEasyLabelingLibraryFile = (options) => call<{ filePath: string } | null>("save_library_file", { options });
   window.getEasyLabelingProfileDirectory = async (kind) => createDirectoryHandle(await call<NativeEntry>("profile_directory", { kind }));

@@ -816,7 +816,7 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   el("loadYoloePresetBtn").addEventListener("click", () => {
     const opener = documentRef.defaultView!.openEasyLabelingLibraryFile;
     if (!opener) { el<HTMLInputElement>("yoloePresetFileInput").click(); return; }
-    void opener("yoloe").then((file) => { if (file) loadPreset(file, file.filePath); }).catch((error: Error) => message(status, error.message));
+    void opener("yoloe", state.session.imageFolderHandle as FileSystemDirectoryHandle | null).then((file) => { if (file) loadPreset(file, file.filePath); }).catch((error: Error) => message(status, error.message));
   });
   el("yoloePresetFileInput").addEventListener("change", () => {
     const input = el<HTMLInputElement>("yoloePresetFileInput"), file = input.files?.[0]; input.value = "";

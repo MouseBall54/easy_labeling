@@ -37,6 +37,19 @@ async function ensureProfileDirectory(kind) {
   return directoryPath;
 }
 
+/** The image folder's `.easy-labeling` settings folder, else the image folder; null when neither exists. */
+async function datasetLibraryDirectory(folderPath) {
+  if (typeof folderPath !== "string" || !folderPath) return null;
+  for (const candidate of [path.join(folderPath, ".easy-labeling"), folderPath]) {
+    try {
+      if ((await fs.stat(candidate)).isDirectory()) return candidate;
+    } catch {
+      // Missing: try the next candidate.
+    }
+  }
+  return null;
+}
+
 async function resolveBundledDirectory(...segments) {
   const unpackedPath = path.join(process.resourcesPath, "app.asar.unpacked", ...segments);
   try {
@@ -115,8 +128,9 @@ function registerIpcHandlers() {
     await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
     return targetPath;
   });
-  ipcMain.handle(OPEN_LIBRARY_FILE_CHANNEL, async (_event, kind) => {
-    const directoryPath = await ensureProfileDirectory(kind);
+  ipcMain.handle(OPEN_LIBRARY_FILE_CHANNEL, async (_event, kind, folderPath) => {
+    const profilePath = await ensureProfileDirectory(kind);
+    const directoryPath = await datasetLibraryDirectory(folderPath) ?? profilePath;
     const result = await dialog.showOpenDialog({
       defaultPath: directoryPath,
       properties: ["openFile"],

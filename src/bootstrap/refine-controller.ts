@@ -465,6 +465,7 @@ export function createRefineController(input: {
         cropImage: (image, rect, source, processing) => getService().crop(image, rect, imageInput(source, processing)),
         loadPreprocessingPresets: () => loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null)
           .then((presets) => presets.map((preset) => ({ name: preset.name, config: { ...preset.config } }))),
+        imageFolder: () => input.state.session.imageFolderHandle as FileSystemDirectoryHandle | null,
         allBoxes: () => rects().map(toBox),
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),
