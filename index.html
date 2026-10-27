@@ -863,11 +863,13 @@
                         <div id="refineLabReadout" class="refine-lab-readout" role="status" aria-live="polite"></div>
                     </section>
                     <section class="refine-lab-settings-column" aria-label="Settings">
+                        <div id="refineLabPresetBanner" class="refine-lab-preset-banner" role="note" hidden></div>
                         <div id="refineLabEditor"></div>
                     </section>
                 </div>
                 <div class="modal-footer">
                     <span id="refineLabStatus" class="me-auto small text-muted" role="status"></span>
+                    <label id="refineLabPresetSyncRow" class="form-check small mb-0" title="Save settings also writes the edited values into the preset you loaded" hidden><input id="refineLabPresetSync" type="checkbox" class="form-check-input" checked> <span id="refineLabPresetSyncText"></span></label>
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button id="refineLabSaveBtn" type="button" class="btn btn-outline-primary">Save settings</button>
                     <button id="refineLabApplyBtn" type="button" class="btn btn-primary">Save &amp; refine these boxes</button>

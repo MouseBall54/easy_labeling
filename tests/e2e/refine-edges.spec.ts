@@ -721,3 +721,63 @@ test("presets: profile-folder refine presets join the dataset's list without bei
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"rangeOut":33');
   expect((await settingsFile(page))?.presets).toEqual([]);
 });
+
+test("presets: Save settings updates the loaded preset, and the Run-with preset opens in the Lab for editing", async ({ page }) => {
+  test.setTimeout(120_000);
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  type Saved = { activePreset: string | null; default: { rangeOut: number }; classes: Record<string, unknown>; presets: { name: string; params: { rangeOut: number } }[] };
+  const saved = async () => (await settingsFile(page)) as unknown as Saved;
+  const presetRange = async (name: string) => (await saved())?.presets.find((preset) => preset.name === name)?.params.rangeOut;
+  const syncRow = page.locator("#refineLabPresetSyncRow");
+
+  // A preset saved (or applied) in the Lab is updated by Save settings while the box is ticked.
+  await openLab(page);
+  await expect(syncRow).toBeHidden();
+  await lab(page).locator('[data-ref="presetName"]').fill("Tuned");
+  await lab(page).locator('[data-act="savePreset"]').click();
+  await expect(syncRow).toBeVisible();
+  await expect(syncRow).toContainText('Also update preset "Tuned"');
+  await page.locator("#refineLabField-rangeOut").fill("21");
+  await saveLab(page);
+  await expect.poll(() => presetRange("Tuned")).toBe(21);
+  expect((await saved()).default.rangeOut).toBe(21);
+
+  // Unticked, only the settings change.
+  await openLab(page);
+  await lab(page).locator('[data-ref="presetSelect"]').selectOption("Tuned");
+  await page.locator("#refineLabField-rangeOut").fill("25");
+  await page.locator("#refineLabPresetSync").uncheck();
+  await saveLab(page);
+  await expect.poll(async () => (await saved())?.default.rangeOut).toBe(25);
+  expect(await presetRange("Tuned")).toBe(21);
+
+  // Run with a preset: the Lab edits that preset for every class and leaves class settings alone.
+  await page.locator("#refineRunPresetSelect").selectOption("Tuned");
+  await openLab(page);
+  await expect(page.locator("#refineLabPresetBanner")).toContainText('Run with "Tuned"');
+  await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeHidden();
+  await expect(syncRow).toBeHidden();
+  await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("21");
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((dark) => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = dark; toggle.dispatchEvent(new Event("change", { bubbles: true })); }, theme === "dark");
+    await page.locator("#refineLabPresetBanner").evaluate((element) => element.scrollIntoView({ block: "start" }));
+    await page.locator(".refine-lab-settings-column").screenshot({ path: `test-results/refine-lab-run-with-${theme}.png` });
+  }
+  await page.evaluate(() => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = false; toggle.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.locator("#refineLabField-rangeOut").fill("30");
+  await saveLab(page);
+  await expect.poll(() => presetRange("Tuned")).toBe(30);
+  const after = await saved();
+  expect(after.default.rangeOut).toBe(25);
+  expect(after.activePreset).toBe("Tuned");
+  await expect(page.locator("#refineRunPresetDetail")).toContainText("out 30 px");
+
+  // Back on class settings, the Lab edits them again.
+  await page.locator("#refineRunPresetSelect").selectOption("");
+  await openLab(page);
+  await expect(page.locator("#refineLabPresetBanner")).toBeHidden();
+  await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeVisible();
+  await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("25");
+});

@@ -49,6 +49,10 @@ export interface RefineEditor {
   targets(): "default" | string[];
   setTargets(classIds: readonly string[]): void;
   onTargetsChange(listener: () => void): void;
+  /** Fires when a preset is applied or saved: the edited values now stand for that preset. */
+  onPresetChange(listener: (name: string, target: "default" | string[]) => void): void;
+  /** Locked: only the default is edited (class chips hidden), e.g. while editing the Run-with preset. */
+  setClassesLocked(locked: boolean): void;
 }
 
 type FieldKey = Exclude<keyof RefineParams, "sides">;
@@ -223,6 +227,8 @@ export function createRefineEditor(input: {
   let selected = new Set<string>(); // empty = editing the default
   let scope: RefineEditScope = "all";
   const targetListeners: (() => void)[] = [];
+  const presetListeners: ((name: string, target: "default" | string[]) => void)[] = [];
+  let classesLocked = false;
   const scopeListeners: ((scope: RefineEditScope) => void)[] = [];
   const setScope = (next: RefineEditScope): void => {
     if (next === scope) return;
@@ -293,8 +299,11 @@ export function createRefineEditor(input: {
       fragment.appendChild(chip(classId, name ? `${classId} ${name}` : classId));
     }
     ref("chips").replaceChildren(fragment);
+    ref("chips").hidden = classesLocked;
+    root.querySelector<HTMLElement>('[data-act="all"]')!.hidden = classesLocked;
     const t = targets();
-    ref("hint").textContent = t === "default"
+    ref("hint").textContent = classesLocked ? "Editing the preset; it applies to every class."
+      : t === "default"
       ? "Editing the default for every class without its own value."
       : `Editing class ${t.join(", ")}${t.length > 1 ? " together; differing values show as mixed" : ""}.`;
   };
@@ -330,6 +339,7 @@ export function createRefineEditor(input: {
     const t = targets();
     setDoc(applyRefinePreset(docNow, name, t, allPresets(docNow)));
     ref<HTMLSelectElement>("presetSelect").value = name;
+    presetListeners.forEach((listener) => listener(name, t));
     store.notify(`Applied "${name}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
   };
   // Loading a file applies its first preset right away.
@@ -566,6 +576,7 @@ export function createRefineEditor(input: {
         setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
         nameInput.value = "";
         ref<HTMLSelectElement>("presetSelect").value = name;
+        presetListeners.forEach((listener) => listener(name, t));
         store.notify(`Saved preset "${name}"${Array.isArray(t) && t.length > 1 ? ` from class ${t[0]}` : ""}.`);
       } else if (action === "export") void exportPresets().catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to save presets"));
       else if (action === "import") {
@@ -606,6 +617,12 @@ export function createRefineEditor(input: {
     onScopeChange(listener) { scopeListeners.push(listener); },
     targets,
     setTargets(classIds) { selected = new Set(classIds); targetsChanged(); },
-    onTargetsChange(listener) { targetListeners.push(listener); }
+    onTargetsChange(listener) { targetListeners.push(listener); },
+    onPresetChange(listener) { presetListeners.push(listener); },
+    setClassesLocked(locked) {
+      classesLocked = locked;
+      if (locked) selected = new Set();
+      targetsChanged();
+    }
   };
 }

@@ -13,7 +13,7 @@ import {
   type RefineSide,
   type RefineSideDiagnostics
 } from "../domain/refine/edge-refine.js";
-import { resolveRefineParams, type RefineImageSource, type RefinePreset, type RefineProcessing, type RefineSettingsDocument } from "../domain/refine/settings.js";
+import { applyRefinePreset, mergeRefinePresets, resolveRefineParams, saveRefinePreset, type RefineImageSource, type RefinePreset, type RefineProcessing, type RefineSettingsDocument } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
 
@@ -159,6 +159,49 @@ export function createRefineLab(input: {
       profilePresets: input.profilePresets
     }
   });
+  /**
+   * Preset the edited values stand for. `runWith`: the pane's Run-with preset, opened for editing; class
+   * settings stay as they were and Save writes only the preset. Otherwise a preset applied or saved here,
+   * which Save also updates while "Also update preset" is ticked.
+   */
+  let presetEdit: { name: string; target: "default" | string[]; runWith: boolean } | null = null;
+  const presetBanner = byId<HTMLElement>("refineLabPresetBanner");
+  const presetSyncRow = byId<HTMLElement>("refineLabPresetSyncRow");
+  const presetSync = byId<HTMLInputElement>("refineLabPresetSync");
+  const renderPresetEdit = (): void => {
+    presetBanner.hidden = !presetEdit?.runWith;
+    presetBanner.textContent = presetEdit?.runWith
+      ? `Run with "${presetEdit.name}": edits here update this preset, which refines every class. To edit class settings, choose Class settings under Run with in the Refine pane.`
+      : "";
+    presetSyncRow.hidden = !presetEdit || presetEdit.runWith;
+    byId("refineLabPresetSyncText").textContent = presetEdit ? `Also update preset "${presetEdit.name}"` : "";
+  };
+  editor.onPresetChange((name, target) => {
+    if (presetEdit?.runWith) return; // values loaded from another preset still save into the Run-with preset
+    presetEdit = { name, target, runWith: false };
+    presetSync.checked = true;
+    renderPresetEdit();
+  });
+  /** Saves the draft, writing the edited values into the preset being edited (see presetEdit). */
+  const commit = (): void => {
+    let next = draft;
+    if (presetEdit && (presetEdit.runWith || presetSync.checked)) {
+      const { name, target } = presetEdit;
+      const datasetOwned = next.presets.some((preset) => preset.name === name);
+      const updated = saveRefinePreset(next, name, target === "default" ? next.default : resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing });
+      // Only an edited preset is written (an untouched profile preset stays out of the dataset).
+      const before = mergeRefinePresets(next.presets, input.profilePresets()).find((preset) => preset.name === name);
+      const after = updated.presets.find((preset) => preset.name === name);
+      // Presets saved before image sources existed compare on their params alone.
+      const key = (preset: RefinePreset | undefined, image: boolean): string => JSON.stringify(preset && [preset.params, image ? [preset.imageSource, preset.processing ?? null] : null]);
+      if (key(before, Boolean(before?.imageSource)) !== key(after, Boolean(before?.imageSource))) {
+        next = updated;
+        if (!datasetOwned) input.notify(`Saved "${name}" to this dataset's presets; the profile folder file is unchanged.`);
+      }
+    }
+    if (presetEdit?.runWith) next = { ...input.getSettings(), presets: next.presets };
+    input.saveSettings(next);
+  };
   editor.onTargetsChange(() => {
     if (source.value === "classes") loadCases();
   });
@@ -791,11 +834,11 @@ export function createRefineLab(input: {
   modalElement.addEventListener("shown.bs.modal", schedule);
   new ResizeObserver(schedule).observe(zoom);
   byId("refineLabSaveBtn").addEventListener("click", () => {
-    input.saveSettings(draft);
+    commit();
     modal.hide();
   });
   byId("refineLabApplyBtn").addEventListener("click", () => {
-    input.saveSettings(draft);
+    commit();
     modal.hide();
     input.refineOnCanvas(cases.map((c) => c.id));
   });
@@ -803,7 +846,14 @@ export function createRefineLab(input: {
   return {
     open(): void {
       if (!input.getImage()) { input.notify("Open an image in the Detection workflow first."); return; }
-      draft = input.getSettings();
+      const saved = input.getSettings();
+      const presets = mergeRefinePresets(saved.presets, input.profilePresets());
+      const run = saved.activePreset ? presets.find((preset) => preset.name === saved.activePreset) : undefined;
+      // With a Run-with preset the Lab edits that preset: every class previews with it, as runs do.
+      draft = run ? applyRefinePreset({ ...saved, classes: {} }, run.name, "default", presets) : saved;
+      presetEdit = run ? { name: run.name, target: "default", runWith: true } : null;
+      editor.setClassesLocked(Boolean(run));
+      renderPresetEdit();
       void input.loadPreprocessingPresets().then((presets) => { preprocessingPresets = presets; editor.render(); }).catch(() => undefined);
       const selection = input.collectCases("selection", []);
       source.value = selection.length ? "selection" : "classes";

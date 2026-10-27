@@ -4537,6 +4537,16 @@ body.dark-mode .loading-overlay {
     display: none;
 }
 
+.refine-lab-preset-banner {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--workbench-primary);
+    border-radius: var(--radius-sm);
+    background: var(--workbench-primary-soft);
+    color: var(--workbench-text);
+    font-size: var(--fs-caption);
+}
+
 .refine-class-chips {
     display: flex;
     flex-wrap: wrap;

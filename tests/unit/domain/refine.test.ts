@@ -309,9 +309,9 @@ describe("domain/refine/settings", () => {
   });
 
   it("lists profile-folder presets after the dataset's own and applies them without saving them", () => {
-    const dataset = saveRefinePreset(createRefineSettings(), "Shared", { rangeOut: 12 });
+    const dataset = saveRefinePreset(createRefineSettings(), "Shared", normalizeRefineParams({ rangeOut: 12 }));
     const files = [
-      { name: "presets.json", contents: serializeRefinePresets(saveRefinePreset(saveRefinePreset(createRefineSettings(), "Shared", { rangeOut: 30 }), "Wide", { rangeOut: 40 }).presets) },
+      { name: "presets.json", contents: serializeRefinePresets(saveRefinePreset(saveRefinePreset(createRefineSettings(), "Shared", normalizeRefineParams({ rangeOut: 30 })), "Wide", normalizeRefineParams({ rangeOut: 40 })).presets) },
       { name: "broken.json", contents: "{" }
     ];
     const profile = parseRefinePresetFiles(files);
