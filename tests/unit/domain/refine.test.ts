@@ -17,6 +17,8 @@ import {
   createRefineSettings,
   deleteRefinePreset,
   importRefinePresets,
+  mergeRefinePresets,
+  parseRefinePresetFiles,
   saveRefinePreset,
   refinePresetLabel,
   serializeRefinePresets,
@@ -304,6 +306,23 @@ describe("domain/refine/settings", () => {
     const imported = importRefinePresets(deleteRefinePreset(doc, "Fin top"), text);
     expect(imported.count).toBe(1);
     expect(parseRefineSettings(JSON.stringify(imported.doc)).presets.map((p) => p.name)).toEqual(["Fin top"]);
+  });
+
+  it("lists profile-folder presets after the dataset's own and applies them without saving them", () => {
+    const dataset = saveRefinePreset(createRefineSettings(), "Shared", { rangeOut: 12 });
+    const files = [
+      { name: "presets.json", contents: serializeRefinePresets(saveRefinePreset(saveRefinePreset(createRefineSettings(), "Shared", { rangeOut: 30 }), "Wide", { rangeOut: 40 }).presets) },
+      { name: "broken.json", contents: "{" }
+    ];
+    const profile = parseRefinePresetFiles(files);
+    expect(profile.presets.map((p) => p.name)).toEqual(["Shared", "Wide"]);
+    expect(profile.errors).toHaveLength(1);
+    expect(profile.errors[0]).toMatch(/^broken\.json: /);
+    const merged = mergeRefinePresets(dataset.presets, profile.presets);
+    expect(merged.map((p) => [p.name, p.params.rangeOut])).toEqual([["Shared", 12], ["Wide", 40]]);
+    const applied = applyRefinePreset(dataset, "Wide", "default", merged);
+    expect(applied.default.rangeOut).toBe(40);
+    expect(applied.presets.map((p) => p.name)).toEqual(["Shared"]);
   });
 
   it("inherits, reports and resets per-side rules for classes and the default", () => {

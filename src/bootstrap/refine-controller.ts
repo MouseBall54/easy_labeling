@@ -2,12 +2,15 @@ import type { AppState } from "../app/state.js";
 import { REFINE_SIDES, type RefineBoxInput, type RefineParams, type RefineRect, type RefineResult } from "../domain/refine/edge-refine.js";
 import {
   createRefineSettings,
+  mergeRefinePresets,
+  parseRefinePresetFiles,
   parseRefineSettings,
   resolveRefineParams,
   serializeRefineSettings,
   REFINE_SETTINGS_FILE,
   refinePresetLabel,
   type RefineImageSource,
+  type RefinePreset,
   type RefineProcessing,
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
@@ -78,6 +81,19 @@ export function createRefineController(input: {
   let service: RefineService | null = null;
   let settings: RefineSettingsDocument = createRefineSettings();
   let settingsFolder: unknown = undefined;
+  /** Presets saved as files in the profile folder (desktop); shown after the dataset's own, never saved into it. */
+  let profilePresets: RefinePreset[] = [];
+  const allPresets = (): RefinePreset[] => mergeRefinePresets(settings.presets, profilePresets);
+  const refreshProfilePresets = async (): Promise<void> => {
+    if (!windowRef.listEasyLabelingLibraryFiles) return;
+    try {
+      const { presets, errors } = parseRefinePresetFiles(await windowRef.listEasyLabelingLibraryFiles("refine"));
+      profilePresets = presets;
+      if (errors.length) input.uiManager.notify(`Some saved refine preset files were skipped:\n${errors.join("\n")}`, 8000);
+    } catch (error: unknown) {
+      input.uiManager.notify(`Unable to scan saved refine presets: ${error instanceof Error ? error.message : String(error)}`, 6000);
+    }
+  };
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const records = new Map<string, RefineRecord>();
   const manual = new Set<string>();
@@ -101,7 +117,7 @@ export function createRefineController(input: {
    * saved class settings. Presets saved before image sources existed keep the current image settings.
    */
   const runConfig = (): { params(classId: string): RefineParams; image: RefineImageInput; label: string } => {
-    const preset = settings.activePreset ? settings.presets.find((item) => item.name === settings.activePreset) : undefined;
+    const preset = settings.activePreset ? allPresets().find((item) => item.name === settings.activePreset) : undefined;
     if (preset) {
       const source = preset.imageSource ?? settings.imageSource;
       const processing = preset.imageSource ? preset.processing ?? null : settings.processing;
@@ -171,10 +187,12 @@ export function createRefineController(input: {
     byId("refineSettingsSummary").textContent = `Class settings: image ${settings.imageSource === "processed" ? "Processed" : "Original"}${processing} · `
       + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
     // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
-    const active = settings.presets.find((preset) => preset.name === settings.activePreset);
+    const presets = allPresets();
+    const datasetNames = new Set(settings.presets.map((preset) => preset.name));
+    const active = presets.find((preset) => preset.name === settings.activePreset);
     const runSelect = byId<HTMLSelectElement>("refineRunPresetSelect");
-    runSelect.replaceChildren(new Option("Class settings", ""), ...settings.presets.map((preset) => {
-      const option = new Option(refinePresetLabel(preset), preset.name);
+    runSelect.replaceChildren(new Option("Class settings", ""), ...presets.map((preset) => {
+      const option = new Option(`${refinePresetLabel(preset)}${datasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name);
       option.title = describePreset(preset);
       return option;
     }));
@@ -182,7 +200,7 @@ export function createRefineController(input: {
     runSelect.title = active ? "Every class is refined with this preset; class settings are left unchanged" : "Each class uses its own settings";
     byId("refineRunPresetDetail").textContent = active
       ? describePreset(active)
-      : `${own ? `${own} class${own === 1 ? "" : "es"} with own rules` : "Default rule for every class"}${settings.presets.length ? "" : " · save presets in Refine Lab to switch here"}`;
+      : `${own ? `${own} class${own === 1 ? "" : "es"} with own rules` : "Default rule for every class"}${presets.length ? "" : " · save presets in Refine Lab to switch here"}`;
     const select = byId<HTMLSelectElement>("refineClassSelect");
     const previous = select.value;
     const ids = classIds();
@@ -208,6 +226,7 @@ export function createRefineController(input: {
         if (!isNotFoundError(error)) input.uiManager.notify("Refine settings were invalid; defaults are in use.", 5000);
       }
     }
+    await refreshProfilePresets();
     renderPane();
   };
   const changeSettings = (next: RefineSettingsDocument): void => {
@@ -450,7 +469,8 @@ export function createRefineController(input: {
   const openLab = (): void => {
     if (!isDetection()) return;
     // The lab is loaded on first use to keep app start-up light.
-    void Promise.all([loadSettings(), import("./refine-lab.js")]).then(([, { createRefineLab }]) => {
+    // Rescan the profile folder so preset files added since show up in the Lab.
+    void Promise.all([loadSettings().then(refreshProfilePresets).then(renderPane), import("./refine-lab.js")]).then(([, { createRefineLab }]) => {
       lab ??= createRefineLab({
         documentRef: doc,
         windowRef,
@@ -466,6 +486,7 @@ export function createRefineController(input: {
         loadPreprocessingPresets: () => loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null)
           .then((presets) => presets.map((preset) => ({ name: preset.name, config: { ...preset.config } }))),
         imageFolder: () => input.state.session.imageFolderHandle as FileSystemDirectoryHandle | null,
+        profilePresets: () => profilePresets,
         allBoxes: () => rects().map(toBox),
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),

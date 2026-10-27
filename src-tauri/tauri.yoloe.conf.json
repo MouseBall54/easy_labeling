@@ -1,7 +1,7 @@
 {
   "productName": "Easy Labeling YOLOE-26",
   "mainBinaryName": "Easy Labeling YOLOE-26",
-  "version": "2.17.1",
+  "version": "2.18.0",
   "identifier": "com.easylabeling.yoloe26",
   "plugins": {
     "updater": { "endpoints": ["https://github.com/MouseBall54/easy_labeling/releases/latest/download/latest-yoloe.json"] }

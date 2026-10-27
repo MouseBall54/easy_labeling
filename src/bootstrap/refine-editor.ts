@@ -6,6 +6,7 @@ import {
   createRefineSettings,
   deleteRefinePreset,
   importRefinePresets,
+  mergeRefinePresets,
   refineOverriddenKeys,
   resetRefineSettings,
   resolveRefineParams,
@@ -15,6 +16,7 @@ import {
   sideHasOwnRule,
   updateRefineSettings,
   type RefineParamsPatch,
+  type RefinePreset,
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
@@ -29,6 +31,8 @@ export interface RefineEditorStore {
   preprocessingPresets?(): { name: string; config: Record<string, unknown> }[];
   /** Folder of the open images; the preset file dialog starts in its settings folder. */
   imageFolder?(): FileSystemDirectoryHandle | null;
+  /** Presets saved as files in the profile folder; listed after the dataset's own, never saved into it. */
+  profilePresets?(): RefinePreset[];
 }
 
 /** "all" edits the rule every side shares; a side edits that side's own rule only. */
@@ -296,11 +300,14 @@ export function createRefineEditor(input: {
   };
 
   // ---------------------------------------------------------------- presets
+  const allPresets = (doc = store.getDoc()): RefinePreset[] => mergeRefinePresets(doc.presets, store.profilePresets?.() ?? []);
   const renderPresets = (): void => {
     const select = ref<HTMLSelectElement>("presetSelect");
     const previous = select.value;
-    const presets = store.getDoc().presets;
-    select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""), ...presets.map((preset) => new Option(refinePresetLabel(preset), preset.name)));
+    const own = new Set(store.getDoc().presets.map((preset) => preset.name));
+    const presets = allPresets();
+    select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""),
+      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${own.has(preset.name) ? "" : " (profile)"}`, preset.name)));
     select.value = presets.some((preset) => preset.name === previous) ? previous : "";
   };
   const exportPresets = async (): Promise<void> => {
@@ -321,7 +328,7 @@ export function createRefineEditor(input: {
   /** Applies a preset to the edited classes (or the default) and keeps it chosen in the list. */
   const applyPreset = (name: string, docNow = store.getDoc()): void => {
     const t = targets();
-    setDoc(applyRefinePreset(docNow, name, t));
+    setDoc(applyRefinePreset(docNow, name, t, allPresets(docNow)));
     ref<HTMLSelectElement>("presetSelect").value = name;
     store.notify(`Applied "${name}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
   };
@@ -548,7 +555,9 @@ export function createRefineEditor(input: {
         if (!presetName) { store.notify("Choose a preset to apply."); return; }
         applyPreset(presetName);
       } else if (action === "deletePreset") {
-        if (presetName) setDoc(deleteRefinePreset(store.getDoc(), presetName));
+        if (presetName && !store.getDoc().presets.some((preset) => preset.name === presetName)) {
+          store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / Refine Presets); delete it there.`);
+        } else if (presetName) setDoc(deleteRefinePreset(store.getDoc(), presetName));
       } else if (action === "savePreset") {
         const nameInput = ref<HTMLInputElement>("presetName");
         const name = nameInput.value.trim() || presetName;

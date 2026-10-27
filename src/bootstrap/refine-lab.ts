@@ -13,7 +13,7 @@ import {
   type RefineSide,
   type RefineSideDiagnostics
 } from "../domain/refine/edge-refine.js";
-import { resolveRefineParams, type RefineImageSource, type RefineProcessing, type RefineSettingsDocument } from "../domain/refine/settings.js";
+import { resolveRefineParams, type RefineImageSource, type RefinePreset, type RefineProcessing, type RefineSettingsDocument } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
 
@@ -109,6 +109,7 @@ export function createRefineLab(input: {
   cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource, processing: RefineProcessing | null): Promise<GrayImage & { x0: number; y0: number }>;
   loadPreprocessingPresets(): Promise<{ name: string; config: Record<string, unknown> }[]>;
   imageFolder(): FileSystemDirectoryHandle | null;
+  profilePresets(): RefinePreset[];
   allBoxes(): RefineBoxInput[];
   classIds(): string[];
   className(classId: string): string | undefined;
@@ -154,7 +155,8 @@ export function createRefineLab(input: {
       className: input.className,
       notify: (message) => { status.textContent = message; },
       preprocessingPresets: () => preprocessingPresets,
-      imageFolder: input.imageFolder
+      imageFolder: input.imageFolder,
+      profilePresets: input.profilePresets
     }
   });
   editor.onTargetsChange(() => {

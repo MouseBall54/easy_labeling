@@ -700,3 +700,24 @@ test("refine: boxes whose area changes past the limit are outlined red and queue
   await expect(page.locator("#refineReviewCounter")).toContainText("0 to review");
   await expect.poll(redPixels).toBe(0);
 });
+
+test("presets: profile-folder refine presets join the dataset's list without being saved into it", async ({ page }) => {
+  test.setTimeout(90_000);
+  // Desktop shell stand-in: one refine preset file in the profile folder, nothing for the other kinds.
+  await page.addInitScript(() => {
+    const file = { schemaVersion: 1, kind: "easy-labeling-refine-presets", presets: [{ name: "Profile wide", params: { rangeOut: 33 } }] };
+    Reflect.set(window, "listEasyLabelingLibraryFiles", async (kind: string) => (kind === "refine"
+      ? [{ name: "wide.json", filePath: "wide.json", contents: JSON.stringify(file) }]
+      : []));
+  });
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineRunPresetSelect option", { hasText: "Profile wide (profile)" })).toHaveCount(1);
+  await openLab(page);
+  await lab(page).locator('[data-ref="presetSelect"]').selectOption("Profile wide");
+  await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("33");
+  await saveLab(page);
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"rangeOut":33');
+  expect((await settingsFile(page))?.presets).toEqual([]);
+});

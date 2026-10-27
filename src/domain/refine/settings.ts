@@ -257,8 +257,8 @@ export function deleteRefinePreset(doc: RefineSettingsDocument, name: string): R
  * Pins the target to the preset: classes store every key, so later default edits do not drift them.
  * A preset that carries an image source also restores the image source and its processing.
  */
-export function applyRefinePreset(doc: RefineSettingsDocument, name: string, target: "default" | readonly string[]): RefineSettingsDocument {
-  const preset = doc.presets.find((item) => item.name === name);
+export function applyRefinePreset(doc: RefineSettingsDocument, name: string, target: "default" | readonly string[], presets: readonly RefinePreset[] = doc.presets): RefineSettingsDocument {
+  const preset = presets.find((item) => item.name === name);
   if (!preset) return doc;
   const image = preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : {};
   if (target === "default") return { ...doc, ...image, default: normalizeRefineParams(preset.params) };
@@ -282,6 +282,22 @@ export function importRefinePresets(doc: RefineSettingsDocument, text: string): 
     next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined);
   }
   return { doc: next, count: presets.length, names: presets.map((preset) => preset.name) };
+}
+
+/** Presets in profile-folder files (presets files or whole refine-settings.json); unreadable files are reported. */
+export function parseRefinePresetFiles(files: readonly { name: string; contents: string }[]): { presets: RefinePreset[]; errors: string[] } {
+  let doc = createRefineSettings();
+  const errors: string[] = [];
+  for (const file of files) {
+    try { doc = importRefinePresets(doc, file.contents).doc; } catch (error: unknown) { errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  return { presets: doc.presets, errors };
+}
+
+/** The dataset's presets, then profile-folder presets whose names the dataset does not use. */
+export function mergeRefinePresets(dataset: readonly RefinePreset[], profile: readonly RefinePreset[]): RefinePreset[] {
+  const names = new Set(dataset.map((preset) => preset.name));
+  return [...dataset, ...profile.filter((preset) => !names.has(preset.name))];
 }
 
 /** "Refine preset · Processed (SEM fins)" style label for preset lists. */
