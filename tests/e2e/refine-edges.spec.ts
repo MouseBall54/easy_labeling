@@ -254,6 +254,37 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await page.locator("#refineRunPresetSelect").selectOption("");
   await openLab(page);
   await expect(page.locator("#refineLabField-polarity")).toHaveValue("brightInside");
+
+  // Choosing a preset applies it at once, without pressing Apply.
+  await page.locator("#refineLabField-polarity").selectOption("auto");
+  await lab(page).locator('[data-ref="presetSelect"]').selectOption("Bright fins");
+  await expect(page.locator("#refineLabField-polarity")).toHaveValue("brightInside");
+
+  // Zoom view: the wheel zooms around the pointer, dragging pans without picking a side, double-click fits.
+  const fitButton = page.locator("#refineLabFitBtn");
+  const viewBox = (await zoom.boundingBox())!;
+  const [cx, cy] = [viewBox.x + viewBox.width / 2, viewBox.y + viewBox.height / 2];
+  await expect(fitButton).toBeDisabled();
+  const fitted = await zoom.screenshot();
+  await page.mouse.move(cx, cy);
+  await page.mouse.wheel(0, -500);
+  await expect(fitButton).toBeEnabled();
+  await expect(fitButton).toContainText(/\d+% · Fit/);
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((dark) => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = dark; toggle.dispatchEvent(new Event("change", { bubbles: true })); }, theme === "dark");
+    await lab(page).locator(".refine-lab-view-column").screenshot({ path: `test-results/refine-lab-zoomed-${theme}.png` });
+  }
+  await page.evaluate(() => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = false; toggle.dispatchEvent(new Event("change", { bubbles: true })); });
+  const zoomed = await zoom.screenshot();
+  expect(Buffer.compare(zoomed, fitted)).not.toBe(0);
+  const sideBefore = await page.locator("#refineLabSideTabs [aria-pressed=true]").getAttribute("data-side");
+  await page.mouse.down();
+  await page.mouse.move(cx + 60, cy + 10, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Buffer.compare(await zoom.screenshot(), zoomed) !== 0).toBe(true);
+  await expect(page.locator("#refineLabSideTabs [aria-pressed=true]")).toHaveAttribute("data-side", sideBefore!);
+  await zoom.dblclick({ position: { x: viewBox.width / 2, y: viewBox.height / 2 } });
+  await expect(fitButton).toBeDisabled();
 });
 
 test("refine: per-side edge rules, use-for-all-sides, and remembered search range opacity", async ({ page }) => {

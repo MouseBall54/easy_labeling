@@ -282,6 +282,10 @@ export function createRefineLab(input: {
 
   /** Search bands as drawn in the zoom view (CSS px), for click-to-edit. */
   let zoomBands: { side: RefineSide; x: number; y: number; w: number; h: number }[] = [];
+  /** Zoom view scale (CSS px per crop pixel) and centre in crop coordinates; null fits the case. */
+  type View = { s: number; cx: number; cy: number };
+  let view: View | null = null;
+  let fit: View = { s: 1, cx: 0, cy: 0 };
 
   /** Draws the crop around the case and returns the crop->screen mapping. */
   const drawCase = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, width: number, height: number, detail: boolean) => {
@@ -316,15 +320,20 @@ export function createRefineLab(input: {
       }
     }
     // The view is not clipped to the image: ranges reaching past the border stay visible over a hatched area.
-    const [vx, vy, vw, vh] = [vx0, vy0, vx1 - vx0, vy1 - vy0];
-    const s = Math.min(width / vw, height / vh);
-    const ox = (width - vw * s) / 2;
-    const oy = (height - vh * s) / 2;
-    const X = (x: number): number => ox + (x - vx) * s;
-    const Y = (y: number): number => oy + (y - vy) * s;
-    if (vx < c.imageBounds.x0 || vy < c.imageBounds.y0 || vx1 > c.imageBounds.x1 || vy1 > c.imageBounds.y1) {
+    const [vw, vh] = [vx1 - vx0, vy1 - vy0];
+    const fitScale = Math.min(width / vw, height / vh);
+    // The zoom view follows the user's zoom/pan, kept in image pixels so edits and re-crops hold the same spot.
+    const [dx, dy] = [c.box.x0 - c.local.x0, c.box.y0 - c.local.y0];
+    if (detail) fit = { s: fitScale, cx: vx0 + vw / 2 + dx, cy: vy0 + vh / 2 + dy };
+    const { s, cx, cy } = detail && view ? { ...view, cx: view.cx - dx, cy: view.cy - dy } : { s: fitScale, cx: vx0 + vw / 2, cy: vy0 + vh / 2 };
+    const X = (x: number): number => width / 2 + (x - cx) * s;
+    const Y = (y: number): number => height / 2 + (y - cy) * s;
+    if (detail && view) {
       context.fillStyle = hatch(context);
-      context.fillRect(ox, oy, vw * s, vh * s);
+      context.fillRect(0, 0, width, height);
+    } else if (vx0 < c.imageBounds.x0 || vy0 < c.imageBounds.y0 || vx1 > c.imageBounds.x1 || vy1 > c.imageBounds.y1) {
+      context.fillStyle = hatch(context);
+      context.fillRect(X(vx0), Y(vy0), vw * s, vh * s);
     }
     context.imageSmoothingEnabled = false;
     context.drawImage(c.pixels, X(0), Y(0), c.img.width * s, c.img.height * s);
@@ -664,25 +673,80 @@ export function createRefineLab(input: {
     const elapsed = performance.now() - started;
     renderCases();
     sideTabs.querySelectorAll<HTMLButtonElement>("[data-side]").forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.side === activeSide)));
-    const context = fitCanvas(zoom);
     const c = cases[active];
-    if (!c) { readout.textContent = ""; fitCanvas(profile); return; }
-    drawCase(context, c, results[active], zoom.clientWidth, zoom.clientHeight, true);
+    if (!c) { fitCanvas(zoom); readout.textContent = ""; fitCanvas(profile); return; }
+    drawZoom();
     drawProfile(c, results[active]);
     const flagged = results.filter((r) => r.result?.flagged).length;
     status.textContent = `${cases.length} cases · ${flagged} to review · ${elapsed.toFixed(1)} ms`;
   }
 
+  /** Redraws only the zoom view from the last results (zoom and pan need no new refinement). */
+  function drawZoom(): void {
+    viewFrame = 0;
+    const context = fitCanvas(zoom);
+    const c = cases[active];
+    if (c && results[active]) drawCase(context, c, results[active], zoom.clientWidth, zoom.clientHeight, true);
+    fitButton.disabled = !view;
+    fitButton.textContent = view ? `${Math.round((view.s / fit.s) * 100)}% · Fit` : "Fit";
+  }
+
   function schedule(): void {
     if (!frame) frame = input.windowRef.requestAnimationFrame(render);
   }
+  let viewFrame = 0;
+  const scheduleView = (): void => {
+    if (!frame && !viewFrame) viewFrame = input.windowRef.requestAnimationFrame(drawZoom);
+  };
 
   casesList.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLElement>(".refine-lab-case");
     if (!button) return;
     active = Number(button.dataset.index);
+    view = null;
     schedule();
   });
+
+  // Zoom view: wheel zooms around the pointer, dragging pans, double-click or Fit returns to the whole case.
+  const fitButton = byId<HTMLButtonElement>("refineLabFitBtn");
+  fitButton.addEventListener("click", () => { view = null; scheduleView(); });
+  zoom.addEventListener("wheel", (event) => {
+    if (!cases[active]) return;
+    event.preventDefault();
+    const rect = zoom.getBoundingClientRect();
+    const current = view ?? fit;
+    const s = Math.min(fit.s * 64, Math.max(fit.s * 0.5, current.s * Math.exp(-event.deltaY * 0.0015)));
+    // Keep the image pixel under the pointer in place.
+    const px = event.clientX - rect.left - rect.width / 2;
+    const py = event.clientY - rect.top - rect.height / 2;
+    view = { s, cx: current.cx + px / current.s - px / s, cy: current.cy + py / current.s - py / s };
+    scheduleView();
+  }, { passive: false });
+  let drag: { x: number; y: number; moved: boolean } | null = null;
+  let dragged = false;
+  zoom.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 && event.button !== 1) return;
+    drag = { x: event.clientX, y: event.clientY, moved: false };
+    dragged = false;
+    zoom.setPointerCapture(event.pointerId);
+    if (event.button === 1) event.preventDefault();
+  });
+  zoom.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const [mx, my] = [event.clientX - drag.x, event.clientY - drag.y];
+    if (!drag.moved && Math.hypot(mx, my) < 4) return;
+    drag.moved = true;
+    const current = view ?? fit;
+    view = { ...current, cx: current.cx - mx / current.s, cy: current.cy - my / current.s };
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    zoom.style.cursor = "grabbing";
+    scheduleView();
+  });
+  const endDrag = (): void => { dragged = Boolean(drag?.moved); drag = null; };
+  zoom.addEventListener("pointerup", endDrag);
+  zoom.addEventListener("pointercancel", endDrag);
+  zoom.addEventListener("dblclick", () => { view = null; scheduleView(); });
   sideTabs.addEventListener("click", (event) => {
     const side = (event.target as HTMLElement).closest<HTMLElement>("[data-side]")?.dataset.side as RefineSide | undefined;
     if (side) { activeSide = side; schedule(); }
@@ -690,6 +754,7 @@ export function createRefineLab(input: {
   // Clicking the zoom view picks the nearest side for the profile.
   // Clicking a search band opens that side's Edge rule; elsewhere it only switches the profile to the nearest side.
   zoom.addEventListener("click", (event) => {
+    if (dragged) { dragged = false; return; }
     const rect = zoom.getBoundingClientRect();
     const px = event.clientX - rect.left;
     const py = event.clientY - rect.top;
@@ -708,6 +773,7 @@ export function createRefineLab(input: {
     schedule();
   });
   zoom.addEventListener("mousemove", (event) => {
+    if (drag?.moved) return;
     const rect = zoom.getBoundingClientRect();
     const px = event.clientX - rect.left;
     const py = event.clientY - rect.top;
@@ -738,6 +804,7 @@ export function createRefineLab(input: {
       const selection = input.collectCases("selection", []);
       source.value = selection.length ? "selection" : "classes";
       active = 0;
+      view = null;
       // Edits start on the Default; a class chip then specialises one class on top of it.
       editor.setTargets([]);
       loadCases();

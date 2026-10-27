@@ -273,7 +273,7 @@ export function serializeRefinePresets(presets: readonly RefinePreset[]): string
 }
 
 /** Accepts a presets file or a whole refine-settings.json; imported names replace existing ones. */
-export function importRefinePresets(doc: RefineSettingsDocument, text: string): { doc: RefineSettingsDocument; count: number } {
+export function importRefinePresets(doc: RefineSettingsDocument, text: string): { doc: RefineSettingsDocument; count: number; names: string[] } {
   const parsed: unknown = JSON.parse(text);
   const presets = parsePresetList((parsed as { presets?: unknown } | null)?.presets);
   if (!presets.length) throw new Error("No refine presets found in the file");
@@ -281,7 +281,7 @@ export function importRefinePresets(doc: RefineSettingsDocument, text: string): 
   for (const preset of presets) {
     next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined);
   }
-  return { doc: next, count: presets.length };
+  return { doc: next, count: presets.length, names: presets.map((preset) => preset.name) };
 }
 
 /** "Refine preset · Processed (SEM fins)" style label for preset lists. */

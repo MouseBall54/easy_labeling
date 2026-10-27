@@ -165,7 +165,7 @@ function markup(prefix: string): string {
       </div>
       <div class="input-group input-group-sm">
         <select class="form-select" data-ref="presetSelect" aria-label="Refine preset"></select>
-        <button type="button" class="btn btn-outline-primary" data-act="applyPreset" title="Apply to the edited classes (or the default)">Apply</button>
+        <button type="button" class="btn btn-outline-primary" data-act="applyPreset" title="Apply again to the edited classes (or the default); choosing a preset applies it">Apply</button>
         <button type="button" class="btn btn-outline-danger" data-act="deletePreset" title="Delete the chosen preset" aria-label="Delete the chosen preset"><i class="bi bi-trash" aria-hidden="true"></i></button>
       </div>
       <div class="input-group input-group-sm mt-1">
@@ -316,10 +316,18 @@ export function createRefineEditor(input: {
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   };
+  /** Applies a preset to the edited classes (or the default) and keeps it chosen in the list. */
+  const applyPreset = (name: string, docNow = store.getDoc()): void => {
+    const t = targets();
+    setDoc(applyRefinePreset(docNow, name, t));
+    ref<HTMLSelectElement>("presetSelect").value = name;
+    store.notify(`Applied "${name}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
+  };
+  // Loading a file applies its first preset right away.
   const importPresetText = (text: string): void => {
-    const { doc: next, count } = importRefinePresets(store.getDoc(), text);
-    setDoc(next);
-    store.notify(`Loaded ${count} preset${count === 1 ? "" : "s"}.`);
+    const { doc: next, count, names } = importRefinePresets(store.getDoc(), text);
+    applyPreset(names[0]!, next);
+    if (count > 1) store.notify(`Loaded ${count} presets; applied "${names[0]}".`);
   };
 
   // ---------------------------------------------------------------- fields
@@ -536,8 +544,7 @@ export function createRefineEditor(input: {
       else if (action === "reset") setDoc(t === "default" ? { ...store.getDoc(), default: createRefineSettings().default } : resetRefineSettings(store.getDoc(), t));
       else if (action === "applyPreset") {
         if (!presetName) { store.notify("Choose a preset to apply."); return; }
-        setDoc(applyRefinePreset(store.getDoc(), presetName, t));
-        store.notify(`Applied "${presetName}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
+        applyPreset(presetName);
       } else if (action === "deletePreset") {
         if (presetName) setDoc(deleteRefinePreset(store.getDoc(), presetName));
       } else if (action === "savePreset") {
@@ -559,6 +566,12 @@ export function createRefineEditor(input: {
     } catch (error: unknown) {
       store.notify(error instanceof Error ? error.message : String(error));
     }
+  });
+  // Choosing a preset applies it at once; Apply re-applies it after further edits.
+  ref<HTMLSelectElement>("presetSelect").addEventListener("change", (event) => {
+    const name = (event.target as HTMLSelectElement).value;
+    if (!name) return;
+    try { applyPreset(name); } catch (error: unknown) { store.notify(error instanceof Error ? error.message : String(error)); }
   });
   ref<HTMLInputElement>("presetFile").addEventListener("change", (event) => {
     const fileInput = event.target as HTMLInputElement;

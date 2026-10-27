@@ -4821,6 +4821,7 @@ body.dark-mode .loading-overlay {
     border-radius: var(--radius-sm);
     background: #111417;
     cursor: crosshair;
+    touch-action: none;
 }
 
 .refine-lab-profile {

@@ -855,9 +855,10 @@
                                 <button type="button" class="btn btn-outline-secondary" data-side="B">Bottom</button>
                             </div>
                             <label class="refine-lab-opacity" title="Search range fill opacity"><span>Range opacity</span><input id="refineLabBandOpacity" type="range" class="form-range" min="0" max="100" step="5" value="35"></label>
+                            <button id="refineLabFitBtn" type="button" class="btn btn-sm btn-outline-secondary" title="Show the whole case (double-click the view). Wheel zooms, drag pans." disabled>Fit</button>
                             <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review</span>
                         </div>
-                        <canvas id="refineLabZoom" class="refine-lab-zoom" aria-label="Zoomed case with original and refined box"></canvas>
+                        <canvas id="refineLabZoom" class="refine-lab-zoom" title="Wheel: zoom · drag: pan · double-click: fit" aria-label="Zoomed case with original and refined box"></canvas>
                         <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Mean brightness and its change across the chosen edge"></canvas>
                         <div id="refineLabReadout" class="refine-lab-readout" role="status" aria-live="polite"></div>
                     </section>
