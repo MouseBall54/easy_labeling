@@ -1060,6 +1060,9 @@ export function createSegmentationCanvasWorkflow(
   };
 
   const prepareEdgeSamImage = async (): Promise<void> => {
+    // Encoding runs the EdgeSAM model on the GPU and reads back the whole image, so only
+    // AI Select in the active Segmentation workflow pays for it (not every image switch).
+    if (!workflowActive || document?.activeTool !== "ai-select") return;
     const service = deps.edgeSamService;
     const input = getImageInput(edgeSamInputSource);
     if (!service || !input) return;
@@ -1603,6 +1606,7 @@ export function createSegmentationCanvasWorkflow(
         }
       }
       doc.setActiveTool(tool);
+      if (tool === "ai-select") void prepareEdgeSamImage();
       requestOverlayRender({
         forceMaskFull: true,
         forceSelectionFull: true,
@@ -2640,6 +2644,7 @@ export function createSegmentationCanvasWorkflow(
         if (hasSrView) refreshViewSource();
         else renderSrRoiOverlay();
         if (polygonPoints.length > 0) renderPolygonPreview();
+        void prepareEdgeSamImage();
       }
       canvas.requestRenderAll();
     }

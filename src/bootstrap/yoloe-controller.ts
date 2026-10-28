@@ -228,6 +228,12 @@ export function bindYoloeControls(input: { state: AppState; documentRef: Documen
   const drawPreview = (): void => {
     if (!setupOpen && preview && preview.image !== state.session.currentImage) clearPreview();
     if (drawing && referenceImage !== (setupOpen ? sampleImage : state.session.currentImage)) stopDrawing();
+    // Runs after every canvas render; outside the YOLOE task the overlay stays hidden, so skip the forced layout.
+    if (!setupOpen && documentRef.querySelector(".app-workspace")?.getAttribute("data-active-task") !== "yoloe") {
+      if (drawing) stopDrawing();
+      overlay.hidden = true;
+      return;
+    }
     const canvas = canvasController.raw.canvas;
     const parent = canvas.upperCanvasEl?.getBoundingClientRect?.();
     const container = overlay.parentElement!.getBoundingClientRect();

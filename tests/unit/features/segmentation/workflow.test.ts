@@ -315,6 +315,14 @@ describe("features/segmentation/workflow", () => {
       );
       controller.setBackgroundImage(source);
       await Promise.resolve();
+      // EdgeSAM encodes only for AI Select in the active Segmentation workflow.
+      expect(edgeSamService.prepareImage).not.toHaveBeenCalled();
+      controller.setWorkflowActive?.(false);
+      controller.setSegmentationTool?.("ai-select");
+      await Promise.resolve();
+      expect(edgeSamService.prepareImage).not.toHaveBeenCalled();
+      controller.setWorkflowActive?.(true);
+      await Promise.resolve();
       expect(edgeSamService.prepareImage).toHaveBeenLastCalledWith(expect.objectContaining({ cacheKey: "local-image:1:original" }));
 
       const callsBeforeViewChange = edgeSamService.prepareImage.mock.calls.length;
@@ -717,6 +725,7 @@ describe("features/segmentation/workflow", () => {
       const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentImage: { width: 4, height: 4 } }), createDeps({ superResolutionService, edgeSamService }));
       const source = { width: 4, height: 4, rgba: sourcePixels } as unknown as CanvasImageSource;
       controller.setBackgroundImage(source);
+      controller.setSegmentationTool?.("ai-select");
       expect(controller.resetSegmentationSrRoi?.()).toBe(false);
 
       expect(controller.beginSegmentationSrRoiSelection?.()).toBe(true);
