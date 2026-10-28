@@ -171,7 +171,7 @@ Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기
 - 클래스 변경: `Ctrl+B` 또는 더블클릭
 - 삭제: `Delete` / `Backspace`
 - 이동: 화살표(1px), `Shift+화살표`(10px)
-- 정렬/분배: `Alt+Shift+L/R/T/D/H/V`
+- 정렬/분배: `Alt+Shift+L/R/T/D/H/V`, 열/행 가운데 `Alt+Shift+C/M`, 행 세트별 열 가운데 `Alt+Shift+S`
 
 ## Segmentation 중심
 

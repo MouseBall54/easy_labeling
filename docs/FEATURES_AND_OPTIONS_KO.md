@@ -273,6 +273,8 @@ Layout은 여러 Detection 박스의 클래스, 크기, 순서, 상대 위치를
 - Move selection의 X/Y는 선택한 모든 박스를 지정 픽셀만큼 함께 이동한다.
 - 레이아웃에서 생성된 박스만을 위한 기능이 아니라 현재 선택된 일반 박스에도 동작한다.
 - Align은 2개 이상 선택된 박스의 좌/우/상/하 경계를 맞춘다.
+- 열별 가운데 정렬은 중심 X가 박스 폭 중간값의 절반 이내인 박스를 한 열로 묶고, 각 열의 평균 중심 X에 맞춘다. 행별 가운데 정렬은 같은 방식으로 중심 Y를 맞춘다.
+- 행 세트별 열 가운데 정렬은 열 위치가 같은 행끼리 세트로 묶은 뒤(예: 1·2·5·6행과 3·4·7·8행), 세트마다 열 중심을 따로 맞춘다. 세트 간 어긋남이 박스 폭의 약 1/4보다 작으면 한 세트로 묶인다.
 - Distribute는 여러 박스의 가로 또는 세로 간격을 균등하게 배치한다.
 - 화살표 키는 1픽셀, Shift+화살표는 10픽셀 이동한다.
 
@@ -490,6 +492,8 @@ Electron 기본 대화상자 위치:
 | Detection | `Arrow` | 선택 박스 1px 이동 |
 | Detection | `Shift+Arrow` | 선택 박스 10px 이동 |
 | Detection | `Alt+Shift+L/R/T/D` | 좌/우/상/하 정렬 |
+| Detection | `Alt+Shift+C/M` | 열별/행별 가운데 정렬 |
+| Detection | `Alt+Shift+S` | 행 세트별 열 가운데 정렬 |
 | Detection | `Alt+Shift+H/V` | 가로/세로 균등 분배 |
 | Template Setup | `Ctrl+Q` | Template ROI/Edit ROI 전환 |
 | Template Setup | `Ctrl+휠` | 포인터 기준 확대/축소 |

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ARRANGE_SHORTCUTS } from "../../../src/bootstrap/event-manager-adapter.js";
 import { resolveRefineShortcut } from "../../../src/bootstrap/refine-controller.js";
 
 const key = (code: string, modifiers: Partial<Record<"ctrlKey" | "metaKey" | "altKey" | "shiftKey", boolean>> = {}) =>
@@ -23,5 +24,11 @@ describe("bootstrap/refine-controller shortcuts", () => {
       key("KeyE", { metaKey: true }), key("KeyN", { altKey: true })
     ];
     for (const event of taken) expect(resolveRefineShortcut(event)).toBeNull();
+  });
+
+  it("keeps Alt+Shift arrange keys clear of refine keys and of each other", () => {
+    const codes = Object.keys(ARRANGE_SHORTCUTS);
+    expect(new Set(Object.values(ARRANGE_SHORTCUTS)).size).toBe(codes.length);
+    for (const code of codes) expect(resolveRefineShortcut(key(code, { altKey: true, shiftKey: true }))).toBeNull();
   });
 });

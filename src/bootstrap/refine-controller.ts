@@ -32,7 +32,7 @@ export type RefineShortcut = "toggle" | "refineSelected" | "refineAll" | "nextRe
 
 /**
  * Global refine keys (detection workflow, any inspector tab). Physical key codes so they also work with the
- * Korean IME active. Kept clear of: A/D (images), Q, B, 0-9, Ctrl+*, Alt+Shift+L/R/T/D/H/V (arrange), Shift+1-3.
+ * Korean IME active. Kept clear of: A/D (images), Q, B, 0-9, Ctrl+*, Alt+Shift+L/R/T/D/C/S/M/H/V (arrange), Shift+1-3.
  */
 export function resolveRefineShortcut(event: Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): RefineShortcut | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null;

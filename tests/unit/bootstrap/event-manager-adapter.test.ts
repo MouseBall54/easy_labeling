@@ -1599,6 +1599,7 @@ describe("bootstrap/event-manager-adapter", () => {
         ctrlKey: false,
         metaKey: false,
         key,
+        code: `Key${key}`,
         target: new FakeHtmlElement(),
         preventDefault
       });
@@ -1609,6 +1610,9 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(dispatchShortcut("R")).toHaveBeenCalledTimes(1);
     expect(dispatchShortcut("T")).toHaveBeenCalledTimes(1);
     expect(dispatchShortcut("D")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("C")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("S")).toHaveBeenCalledTimes(1);
+    expect(dispatchShortcut("M")).toHaveBeenCalledTimes(1);
     expect(dispatchShortcut("H")).toHaveBeenCalledTimes(1);
     expect(dispatchShortcut("V")).toHaveBeenCalledTimes(1);
 
@@ -1616,8 +1620,24 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.alignSelectionRight).toHaveBeenCalledTimes(1);
     expect(rawController.alignSelectionTop).toHaveBeenCalledTimes(1);
     expect(rawController.alignSelectionBottom).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionColumnCenters).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionRowSetColumnCenters).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionRowCenters).toHaveBeenCalledTimes(1);
     expect(rawController.distributeSelectionHorizontally).toHaveBeenCalledTimes(1);
     expect(rawController.distributeSelectionVertically).toHaveBeenCalledTimes(1);
+
+    // Korean IME reports a Hangul key; the physical code still routes the shortcut.
+    windowRef.keydownListener?.({
+      altKey: true,
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      key: "ㅊ",
+      code: "KeyC",
+      target: new FakeHtmlElement(),
+      preventDefault: vi.fn()
+    });
+    expect(rawController.alignSelectionColumnCenters).toHaveBeenCalledTimes(2);
 
     const preventDefault = vi.fn();
     windowRef.keydownListener?.({

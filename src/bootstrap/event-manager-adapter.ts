@@ -109,6 +109,19 @@ function resolveImagePixelPoint(input: {
   return scenePoint;
 }
 
+// Alt+Shift arrange keys, matched on physical codes so they work with the Korean IME.
+export const ARRANGE_SHORTCUTS = {
+  KeyL: "alignSelectionLeft",
+  KeyR: "alignSelectionRight",
+  KeyT: "alignSelectionTop",
+  KeyD: "alignSelectionBottom",
+  KeyC: "alignSelectionColumnCenters",
+  KeyS: "alignSelectionRowSetColumnCenters",
+  KeyM: "alignSelectionRowCenters",
+  KeyH: "distributeSelectionHorizontally",
+  KeyV: "distributeSelectionVertically"
+} as const;
+
 export function createEventManagerAdapter(input: {
   state: AppState;
   uiManager: RuntimeUiManager;
@@ -2813,38 +2826,12 @@ export function createEventManagerAdapter(input: {
         }
 
         if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
-          const key = event.key.toLowerCase();
-          switch (key) {
-            case "l":
-              event.preventDefault();
-              input.canvasController.raw.alignSelectionLeft();
-              syncToolbarActionState();
-              return;
-            case "r":
-              event.preventDefault();
-              input.canvasController.raw.alignSelectionRight();
-              syncToolbarActionState();
-              return;
-            case "t":
-              event.preventDefault();
-              input.canvasController.raw.alignSelectionTop();
-              syncToolbarActionState();
-              return;
-            case "d":
-              event.preventDefault();
-              input.canvasController.raw.alignSelectionBottom();
-              syncToolbarActionState();
-              return;
-            case "h":
-              event.preventDefault();
-              input.canvasController.raw.distributeSelectionHorizontally();
-              syncToolbarActionState();
-              return;
-            case "v":
-              event.preventDefault();
-              input.canvasController.raw.distributeSelectionVertically();
-              syncToolbarActionState();
-              return;
+          const action = ARRANGE_SHORTCUTS[event.code as keyof typeof ARRANGE_SHORTCUTS];
+          if (action) {
+            event.preventDefault();
+            input.canvasController.raw[action]();
+            syncToolbarActionState();
+            return;
           }
         }
 
