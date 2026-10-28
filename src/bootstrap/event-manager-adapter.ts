@@ -490,6 +490,9 @@ export function createEventManagerAdapter(input: {
         (elements.alignRightBtn as HTMLButtonElement).disabled = alignDisabled;
         (elements.alignTopBtn as HTMLButtonElement).disabled = alignDisabled;
         (elements.alignBottomBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.alignColumnCentersBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.alignRowSetColumnCentersBtn as HTMLButtonElement).disabled = alignDisabled;
+        (elements.alignRowCentersBtn as HTMLButtonElement).disabled = alignDisabled;
         (elements.distributeHorizontalBtn as HTMLButtonElement).disabled = distributeDisabled;
         (elements.distributeVerticalBtn as HTMLButtonElement).disabled = distributeDisabled;
         elements.moveSelectedBoxesBtn.disabled = actionableCount < 1;
@@ -2147,6 +2150,18 @@ export function createEventManagerAdapter(input: {
       });
       elements.alignBottomBtn.addEventListener("click", () => {
         input.canvasController.raw.alignSelectionBottom();
+        syncToolbarActionState();
+      });
+      elements.alignColumnCentersBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionColumnCenters();
+        syncToolbarActionState();
+      });
+      elements.alignRowSetColumnCentersBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionRowSetColumnCenters();
+        syncToolbarActionState();
+      });
+      elements.alignRowCentersBtn.addEventListener("click", () => {
+        input.canvasController.raw.alignSelectionRowCenters();
         syncToolbarActionState();
       });
       elements.distributeHorizontalBtn.addEventListener("click", () => {

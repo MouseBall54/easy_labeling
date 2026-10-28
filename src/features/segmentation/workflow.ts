@@ -1509,6 +1509,18 @@ export function createSegmentationCanvasWorkflow(
       return;
     },
 
+    alignSelectionColumnCenters(): void {
+      return;
+    },
+
+    alignSelectionRowSetColumnCenters(): void {
+      return;
+    },
+
+    alignSelectionRowCenters(): void {
+      return;
+    },
+
     distributeSelectionHorizontally(): void {
       return;
     },

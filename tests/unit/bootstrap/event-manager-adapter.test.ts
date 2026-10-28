@@ -142,6 +142,9 @@ function createElements() {
     alignRightBtn: new FakeHtmlElement(),
     alignTopBtn: new FakeHtmlElement(),
     alignBottomBtn: new FakeHtmlElement(),
+    alignColumnCentersBtn: new FakeHtmlElement(),
+    alignRowSetColumnCentersBtn: new FakeHtmlElement(),
+    alignRowCentersBtn: new FakeHtmlElement(),
     distributeHorizontalBtn: new FakeHtmlElement(),
     distributeVerticalBtn: new FakeHtmlElement(),
     moveSelectedBoxesBtn: new FakeHtmlElement(),
@@ -306,6 +309,9 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     alignSelectionRight: vi.fn(),
     alignSelectionTop: vi.fn(),
     alignSelectionBottom: vi.fn(),
+    alignSelectionColumnCenters: vi.fn(),
+    alignSelectionRowSetColumnCenters: vi.fn(),
+    alignSelectionRowCenters: vi.fn(),
     distributeSelectionHorizontally: vi.fn(),
     distributeSelectionVertically: vi.fn(),
     selectAllLabels: vi.fn(),
@@ -949,6 +955,9 @@ describe("bootstrap/event-manager-adapter", () => {
     elements.alignRightBtn.dispatch("click", {});
     elements.alignTopBtn.dispatch("click", {});
     elements.alignBottomBtn.dispatch("click", {});
+    elements.alignColumnCentersBtn.dispatch("click", {});
+    elements.alignRowSetColumnCentersBtn.dispatch("click", {});
+    elements.alignRowCentersBtn.dispatch("click", {});
     elements.distributeHorizontalBtn.dispatch("click", {});
     elements.distributeVerticalBtn.dispatch("click", {});
 
@@ -956,6 +965,9 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(rawController.alignSelectionRight).toHaveBeenCalledTimes(1);
     expect(rawController.alignSelectionTop).toHaveBeenCalledTimes(1);
     expect(rawController.alignSelectionBottom).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionColumnCenters).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionRowSetColumnCenters).toHaveBeenCalledTimes(1);
+    expect(rawController.alignSelectionRowCenters).toHaveBeenCalledTimes(1);
     expect(rawController.distributeSelectionHorizontally).toHaveBeenCalledTimes(1);
     expect(rawController.distributeSelectionVertically).toHaveBeenCalledTimes(1);
   });

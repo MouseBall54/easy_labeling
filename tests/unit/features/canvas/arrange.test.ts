@@ -4,6 +4,8 @@ import {
   calculateSelectionBounds,
   extractVisibleRectSelection,
   planEdgeAlignment,
+  planGroupedCenterAlignment,
+  planRowSetColumnCenterAlignment,
   planEqualEdgeGapDistribution,
   sortRectGeometrically
 } from "../../../../src/features/canvas/arrange.js";
@@ -121,6 +123,70 @@ describe("features/canvas/arrange", () => {
     expect(plannedLowerMiddle.left).toBe(5);
     expect(gapOne).toBeCloseTo(gapTwo, 8);
     expect(gapTwo).toBeCloseTo(gapThree, 8);
+  });
+
+  it("centers each column and row of a jittered grid on its own mean center", () => {
+    // 2 columns x 2 rows of 20x20 boxes; centers jitter by a few px within each group.
+    const rects = [
+      createRect({ left: 10, top: 12, width: 20, height: 20, labelClass: "r0c0" }),
+      createRect({ left: 104, top: 8, width: 20, height: 20, labelClass: "r0c1" }),
+      createRect({ left: 14, top: 98, width: 20, height: 20, labelClass: "r1c0" }),
+      createRect({ left: 100, top: 106, width: 20, height: 20, labelClass: "r1c1" })
+    ];
+    const summarize = (plan: ReturnType<typeof planGroupedCenterAlignment>) =>
+      Object.fromEntries(plan.map((entry) => [entry.rect.labelClass, [entry.left, entry.top]]));
+
+    expect(summarize(planGroupedCenterAlignment(rects, "column"))).toEqual({
+      r0c0: [12, 12],
+      r1c0: [12, 98],
+      r0c1: [102, 8],
+      r1c1: [102, 106]
+    });
+    expect(summarize(planGroupedCenterAlignment(rects, "row"))).toEqual({
+      r0c0: [10, 10],
+      r0c1: [104, 10],
+      r1c0: [14, 102],
+      r1c1: [100, 102]
+    });
+    expect(planGroupedCenterAlignment([rects[0]!], "column")).toEqual([]);
+  });
+
+  it("centers columns per row set when row pairs are staggered by less than half a box", () => {
+    // Rows 1-2 and 5-6 share columns A; rows 3-4 and 7-8 sit 15px right (columns B).
+    // Plain column grouping (tolerance 20px for 40px boxes) would merge A and B.
+    const jitter = [2, -3, 1, -2, 3, -1, 0, 2];
+    const rects = Array.from({ length: 8 }, (_, row) => row).flatMap((row) => {
+      const set = row % 4 < 2 ? "A" : "B";
+      return [0, 1, 2].map((column) =>
+        createRect({
+          left: 80 + column * 100 + (set === "B" ? 15 : 0) + (jitter[(row + column) % 8] ?? 0),
+          top: row * 60,
+          width: 40,
+          height: 40,
+          labelClass: `${set}${column}`
+        })
+      );
+    });
+    const centersByLabel = (plan: ReturnType<typeof planRowSetColumnCenterAlignment>) => {
+      const centers = new Map<string, Set<number>>();
+      plan.forEach((entry) => {
+        const label = String(entry.rect.labelClass);
+        centers.set(label, (centers.get(label) ?? new Set<number>()).add(entry.left + 20));
+      });
+      return Object.fromEntries([...centers].map(([label, values]) => [label, [...values]]));
+    };
+
+    const centers = centersByLabel(planRowSetColumnCenterAlignment(rects));
+    expect(Object.values(centers).every((values) => values.length === 1)).toBe(true);
+    expect(centers).toEqual({
+      A0: [100.25],
+      A1: [199.25],
+      A2: [300.25],
+      B0: [115.25],
+      B1: [216.25],
+      B2: [315.25]
+    });
+    expect(new Set(planGroupedCenterAlignment(rects, "column").map((entry) => entry.left)).size).toBe(3);
   });
 
   it("returns no-op plans for insufficient selection sizes", () => {

@@ -171,6 +171,9 @@ export interface CanvasController {
   alignSelectionRight(): void;
   alignSelectionTop(): void;
   alignSelectionBottom(): void;
+  alignSelectionColumnCenters(): void;
+  alignSelectionRowSetColumnCenters(): void;
+  alignSelectionRowCenters(): void;
   distributeSelectionHorizontally(): void;
   distributeSelectionVertically(): void;
   captureHistoryBaseline(): CanvasHistoryGestureBaseline;

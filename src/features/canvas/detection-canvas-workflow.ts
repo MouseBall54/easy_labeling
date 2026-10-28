@@ -23,8 +23,10 @@ import {
   extractVisibleRectSelection,
   getRectBounds,
   planEdgeAlignment,
+  planGroupedCenterAlignment,
+  planRowSetColumnCenterAlignment,
   planEqualEdgeGapDistribution,
-  type ArrangeEdge
+  type ArrangePositionPlan
 } from "./arrange.js";
 import {
   areRectSnapshotsEqual,
@@ -256,7 +258,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     return { left, top };
   };
 
-  const applyEdgeAlignment = (edge: ArrangeEdge): void => {
+  const applyAlignmentPlan = (planFor: (rects: FabricRectLike[]) => ArrangePositionPlan[]): void => {
     const activeObject = canvas.getActiveObject();
     const selectedRects = extractVisibleRectSelection(activeObject);
     if (selectedRects.length < 2) {
@@ -266,7 +268,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     const selectionBefore = captureSelectionSnapshot();
     const before = captureRectSnapshots();
 
-    const plan = planEdgeAlignment(selectedRects, edge);
+    const plan = planFor(selectedRects);
     if (plan.length === 0) {
       return;
     }
@@ -1660,19 +1662,31 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     alignSelectionLeft(): void {
-      applyEdgeAlignment("left");
+      applyAlignmentPlan((rects) => planEdgeAlignment(rects, "left"));
     },
 
     alignSelectionRight(): void {
-      applyEdgeAlignment("right");
+      applyAlignmentPlan((rects) => planEdgeAlignment(rects, "right"));
     },
 
     alignSelectionTop(): void {
-      applyEdgeAlignment("top");
+      applyAlignmentPlan((rects) => planEdgeAlignment(rects, "top"));
     },
 
     alignSelectionBottom(): void {
-      applyEdgeAlignment("bottom");
+      applyAlignmentPlan((rects) => planEdgeAlignment(rects, "bottom"));
+    },
+
+    alignSelectionColumnCenters(): void {
+      applyAlignmentPlan((rects) => planGroupedCenterAlignment(rects, "column"));
+    },
+
+    alignSelectionRowSetColumnCenters(): void {
+      applyAlignmentPlan(planRowSetColumnCenterAlignment);
+    },
+
+    alignSelectionRowCenters(): void {
+      applyAlignmentPlan((rects) => planGroupedCenterAlignment(rects, "row"));
     },
 
     distributeSelectionHorizontally(): void {
