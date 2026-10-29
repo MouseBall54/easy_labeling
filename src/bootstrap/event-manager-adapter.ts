@@ -2177,6 +2177,14 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.alignSelectionRowCenters();
         syncToolbarActionState();
       });
+      // Dragging redoes the last center alignment live; releasing commits it as one undo step.
+      const applyCenterTolerance = (commit: boolean): void => {
+        elements.alignCenterToleranceValue.textContent = `${elements.alignCenterToleranceInput.value}%`;
+        input.canvasController.raw.setCenterAlignmentTolerance(Number(elements.alignCenterToleranceInput.value) / 100, commit);
+        syncToolbarActionState();
+      };
+      elements.alignCenterToleranceInput.addEventListener("input", () => applyCenterTolerance(false));
+      elements.alignCenterToleranceInput.addEventListener("change", () => applyCenterTolerance(true));
       elements.distributeHorizontalBtn.addEventListener("click", () => {
         input.canvasController.raw.distributeSelectionHorizontally();
         syncToolbarActionState();

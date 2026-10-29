@@ -174,6 +174,8 @@ export interface CanvasController {
   alignSelectionColumnCenters(): void;
   alignSelectionRowSetColumnCenters(): void;
   alignSelectionRowCenters(): void;
+  /** Sets the center-grouping tolerance (fraction of the median box size) and redoes the last center alignment with it. */
+  setCenterAlignmentTolerance(toleranceScale: number, commit: boolean): void;
   distributeSelectionHorizontally(): void;
   distributeSelectionVertically(): void;
   captureHistoryBaseline(): CanvasHistoryGestureBaseline;

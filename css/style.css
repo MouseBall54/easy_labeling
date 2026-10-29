@@ -315,6 +315,35 @@ body {
     display: block;
 }
 
+.arrange-panel-section .arrange-controls {
+    display: grid;
+    gap: 6px;
+}
+
+.arrange-panel-section .arrange-row {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+}
+
+.arrange-panel-section .arrange-row-label {
+    margin: 0;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-badge);
+}
+
+.arrange-panel-section .arrange-tolerance-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.arrange-panel-section .arrange-tolerance-control .section-value {
+    min-width: 3.2em;
+    text-align: right;
+}
+
 .arrange-panel-section .arrange-controls-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

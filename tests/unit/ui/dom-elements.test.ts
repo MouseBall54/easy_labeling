@@ -56,6 +56,8 @@ const REQUIRED_IDS = [
   "alignColumnCentersBtn",
   "alignRowSetColumnCentersBtn",
   "alignRowCentersBtn",
+  "alignCenterToleranceInput",
+  "alignCenterToleranceValue",
   "distributeHorizontalBtn",
   "distributeVerticalBtn",
   "selectionMoveXInput",

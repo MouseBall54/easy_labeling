@@ -58,6 +58,8 @@ export interface UiDomElements {
   alignColumnCentersBtn: HTMLElement;
   alignRowSetColumnCentersBtn: HTMLElement;
   alignRowCentersBtn: HTMLElement;
+  alignCenterToleranceInput: HTMLInputElement;
+  alignCenterToleranceValue: HTMLElement;
   distributeHorizontalBtn: HTMLElement;
   distributeVerticalBtn: HTMLElement;
   selectionMoveXInput: HTMLInputElement;
@@ -395,6 +397,8 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     alignColumnCentersBtn: requireById<HTMLElement>(documentRef, "alignColumnCentersBtn"),
     alignRowSetColumnCentersBtn: requireById<HTMLElement>(documentRef, "alignRowSetColumnCentersBtn"),
     alignRowCentersBtn: requireById<HTMLElement>(documentRef, "alignRowCentersBtn"),
+    alignCenterToleranceInput: requireById<HTMLInputElement>(documentRef, "alignCenterToleranceInput"),
+    alignCenterToleranceValue: requireById<HTMLElement>(documentRef, "alignCenterToleranceValue"),
     distributeHorizontalBtn: requireById<HTMLElement>(documentRef, "distributeHorizontalBtn"),
     distributeVerticalBtn: requireById<HTMLElement>(documentRef, "distributeVerticalBtn"),
     selectionMoveXInput: requireById<HTMLInputElement>(documentRef, "selectionMoveXInput"),

@@ -185,33 +185,43 @@ function planCentersOnGroupMeans(groups: readonly CenterGroup[], byColumn: boole
   );
 }
 
-// Groups boxes into columns (or rows) whose centers lie within half the median
-// box size, then moves each box onto its group's mean center.
-export function planGroupedCenterAlignment(rects: readonly FabricRectLike[], groupBy: "column" | "row"): ArrangePositionPlan[] {
+// Default group tolerance as a fraction of the median box size.
+export const DEFAULT_CENTER_TOLERANCE_SCALE = 0.5;
+
+// Groups boxes into columns (or rows) whose centers lie within toleranceScale times
+// the median box size, then moves each box onto its group's mean center.
+export function planGroupedCenterAlignment(
+  rects: readonly FabricRectLike[],
+  groupBy: "column" | "row",
+  toleranceScale = DEFAULT_CENTER_TOLERANCE_SCALE
+): ArrangePositionPlan[] {
   if (rects.length < 2) {
     return [];
   }
 
   const byColumn = groupBy === "column";
   const items = toCenteredRects(rects);
-  const tolerance = median(items.map(({ bounds }) => (byColumn ? bounds.width : bounds.height))) / 2;
+  const tolerance = median(items.map(({ bounds }) => (byColumn ? bounds.width : bounds.height))) * toleranceScale;
   return planCentersOnGroupMeans(clusterByCenter(items, (item) => (byColumn ? item.cx : item.cy), tolerance), byColumn);
 }
 
 // Column centering for staggered layouts: rows are grouped into sets whose
 // columns line up (rows 1-2 and 5-6 vs rows 3-4 and 7-8), and columns are
 // centered within each set instead of across the whole selection.
-export function planRowSetColumnCenterAlignment(rects: readonly FabricRectLike[]): ArrangePositionPlan[] {
+export function planRowSetColumnCenterAlignment(
+  rects: readonly FabricRectLike[],
+  toleranceScale = DEFAULT_CENTER_TOLERANCE_SCALE
+): ArrangePositionPlan[] {
   if (rects.length < 2) {
     return [];
   }
 
   const items = toCenteredRects(rects);
-  const columnTolerance = median(items.map(({ bounds }) => bounds.width)) / 2;
-  const rows = clusterByCenter(items, (item) => item.cy, median(items.map(({ bounds }) => bounds.height)) / 2);
+  const columnTolerance = median(items.map(({ bounds }) => bounds.width)) * toleranceScale;
+  const rows = clusterByCenter(items, (item) => item.cy, median(items.map(({ bounds }) => bounds.height)) * toleranceScale);
 
-  // ponytail: a row joins the set its boxes sit closest to on average (within a quarter
-  // box width); sets offset by less than that plus the jitter still merge.
+  // ponytail: a row joins the set its boxes sit closest to on average (within half the
+  // column tolerance); sets offset by less than that plus the jitter still merge.
   const sets: CenteredRect[][] = [];
   rows.forEach(({ members }) => {
     let bestSet: CenteredRect[] | undefined;

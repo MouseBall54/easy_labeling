@@ -20,6 +20,7 @@ import {
 } from "./fabric-types.js";
 import { normalizeFilterClassKey } from "../../ui/filter-state.js";
 import {
+  DEFAULT_CENTER_TOLERANCE_SCALE,
   extractVisibleRectSelection,
   getRectBounds,
   planEdgeAlignment,
@@ -258,21 +259,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     return { left, top };
   };
 
-  const applyAlignmentPlan = (planFor: (rects: FabricRectLike[]) => ArrangePositionPlan[]): void => {
-    const activeObject = canvas.getActiveObject();
-    const selectedRects = extractVisibleRectSelection(activeObject);
-    if (selectedRects.length < 2) {
-      return;
-    }
-
-    const selectionBefore = captureSelectionSnapshot();
-    const before = captureRectSnapshots();
-
-    const plan = planFor(selectedRects);
-    if (plan.length === 0) {
-      return;
-    }
-
+  const moveRectsToPlan = (plan: readonly ArrangePositionPlan[]): number => {
     let movedCount = 0;
     plan.forEach(({ rect, left, top }) => {
       const bounds = getRectBounds(rect);
@@ -291,8 +278,20 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       controller.updateLabelText(rect);
       movedCount += 1;
     });
+    return movedCount;
+  };
 
-    if (movedCount === 0) {
+  const applyAlignmentPlan = (planFor: (rects: FabricRectLike[]) => ArrangePositionPlan[]): void => {
+    const activeObject = canvas.getActiveObject();
+    const selectedRects = extractVisibleRectSelection(activeObject);
+    if (selectedRects.length < 2) {
+      return;
+    }
+
+    const selectionBefore = captureSelectionSnapshot();
+    const before = captureRectSnapshots();
+
+    if (moveRectsToPlan(planFor(selectedRects)) === 0) {
       return;
     }
 
@@ -308,6 +307,76 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       selectionBefore,
       selectionAfter
     });
+  };
+
+  type CenterPlanner = (rects: FabricRectLike[], toleranceScale: number) => ArrangePositionPlan[];
+  type RectPositions = Map<FabricRectLike, Pick<FabricRectLike, "left" | "top" | "originalYolo">>;
+  const positionsOf = (rects: readonly FabricRectLike[]): RectPositions =>
+    new Map(rects.map((rect) => [rect, { left: rect.left, top: rect.top, originalYolo: rect.originalYolo }]));
+
+  let centerToleranceScale = DEFAULT_CENTER_TOLERANCE_SCALE;
+  // The last grouped-center alignment, kept so a tolerance change can redo it from the
+  // positions the boxes had before it. Any other move of those boxes ends the session.
+  let centerSession: {
+    planFor: CenterPlanner;
+    origins: RectPositions;
+    applied: RectPositions;
+    pendingBefore: { rects: CanvasHistoryRectSnapshot[]; selection: CanvasHistorySelectionPayload } | null;
+  } | null = null;
+
+  const applyCenterAlignment = (planFor: CenterPlanner): void => {
+    const rects = extractVisibleRectSelection(canvas.getActiveObject());
+    const origins = positionsOf(rects);
+    applyAlignmentPlan((selected) => planFor(selected, centerToleranceScale));
+    centerSession = rects.length < 2 ? null : { planFor, origins, applied: positionsOf(rects), pendingBefore: null };
+  };
+
+  // Live updates (commit = false) only move and render; the commit pushes one undo step
+  // covering every update since the last commit.
+  const reapplyCenterAlignment = (commit: boolean): void => {
+    const session = centerSession;
+    if (!session) {
+      return;
+    }
+
+    const rects = extractVisibleRectSelection(canvas.getActiveObject());
+    const unchanged =
+      rects.length === session.applied.size &&
+      rects.every((rect) => {
+        const applied = session.applied.get(rect);
+        return applied?.left === rect.left && applied.top === rect.top;
+      });
+    if (!unchanged) {
+      centerSession = null;
+      return;
+    }
+
+    session.pendingBefore ??= { rects: captureRectSnapshots(), selection: captureSelectionSnapshot() };
+    rects.forEach((rect) => {
+      const origin = session.origins.get(rect);
+      if (origin && (origin.left !== rect.left || origin.top !== rect.top)) {
+        rect.set({ left: origin.left, top: origin.top });
+        rect.originalYolo = origin.originalYolo;
+        rect.setCoords();
+        controller.updateLabelText(rect);
+      }
+    });
+    moveRectsToPlan(session.planFor(rects, centerToleranceScale));
+    session.applied = positionsOf(rects);
+    canvas.requestRenderAll();
+
+    if (!commit) {
+      return;
+    }
+
+    deps.updateLabelList();
+    pushHistoryIfRectsChanged({
+      before: session.pendingBefore.rects,
+      after: captureRectSnapshots(),
+      selectionBefore: session.pendingBefore.selection,
+      selectionAfter: captureSelectionSnapshot()
+    });
+    session.pendingBefore = null;
   };
 
   const restoreSelectionFromPayload = (payload: CanvasHistorySelectionPayload): void => {
@@ -1678,15 +1747,20 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     },
 
     alignSelectionColumnCenters(): void {
-      applyAlignmentPlan((rects) => planGroupedCenterAlignment(rects, "column"));
+      applyCenterAlignment((rects, scale) => planGroupedCenterAlignment(rects, "column", scale));
     },
 
     alignSelectionRowSetColumnCenters(): void {
-      applyAlignmentPlan(planRowSetColumnCenterAlignment);
+      applyCenterAlignment(planRowSetColumnCenterAlignment);
     },
 
     alignSelectionRowCenters(): void {
-      applyAlignmentPlan((rects) => planGroupedCenterAlignment(rects, "row"));
+      applyCenterAlignment((rects, scale) => planGroupedCenterAlignment(rects, "row", scale));
+    },
+
+    setCenterAlignmentTolerance(toleranceScale: number, commit: boolean): void {
+      centerToleranceScale = toleranceScale;
+      reapplyCenterAlignment(commit);
     },
 
     distributeSelectionHorizontally(): void {

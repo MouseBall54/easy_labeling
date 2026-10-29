@@ -145,6 +145,8 @@ function createElements() {
     alignColumnCentersBtn: new FakeHtmlElement(),
     alignRowSetColumnCentersBtn: new FakeHtmlElement(),
     alignRowCentersBtn: new FakeHtmlElement(),
+    alignCenterToleranceInput: new FakeHtmlElement(),
+    alignCenterToleranceValue: new FakeHtmlElement(),
     distributeHorizontalBtn: new FakeHtmlElement(),
     distributeVerticalBtn: new FakeHtmlElement(),
     moveSelectedBoxesBtn: new FakeHtmlElement(),
@@ -312,6 +314,7 @@ function createRawController(rawCanvas: ReturnType<typeof createRawCanvas>) {
     alignSelectionColumnCenters: vi.fn(),
     alignSelectionRowSetColumnCenters: vi.fn(),
     alignSelectionRowCenters: vi.fn(),
+    setCenterAlignmentTolerance: vi.fn(),
     distributeSelectionHorizontally: vi.fn(),
     distributeSelectionVertically: vi.fn(),
     selectAllLabels: vi.fn(),
@@ -960,7 +963,15 @@ describe("bootstrap/event-manager-adapter", () => {
     elements.alignRowCentersBtn.dispatch("click", {});
     elements.distributeHorizontalBtn.dispatch("click", {});
     elements.distributeVerticalBtn.dispatch("click", {});
+    elements.alignCenterToleranceInput.value = "75";
+    elements.alignCenterToleranceInput.dispatch("input", {});
+    elements.alignCenterToleranceInput.dispatch("change", {});
 
+    expect(rawController.setCenterAlignmentTolerance.mock.calls).toEqual([
+      [0.75, false],
+      [0.75, true]
+    ]);
+    expect(elements.alignCenterToleranceValue.textContent).toBe("75%");
     expect(rawController.alignSelectionLeft).toHaveBeenCalledTimes(1);
     expect(rawController.alignSelectionRight).toHaveBeenCalledTimes(1);
     expect(rawController.alignSelectionTop).toHaveBeenCalledTimes(1);

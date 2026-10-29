@@ -665,6 +665,38 @@ describe("features/canvas/canvas-controller", () => {
     expect(updateLabelList).toHaveBeenCalledTimes(1);
   });
 
+  it("redoes the last center alignment from the original positions when the group range changes", () => {
+    const fabric = createFakeFabricRuntime();
+    const controller = createCanvasController(createState(), createDeps({ fabric }));
+    // Column centers 20, 32 and 80 with 20px wide boxes: the default range (10px) keeps all apart.
+    const rectA = createRect({ left: 10, top: 0, width: 20, height: 10, labelClass: "A" });
+    const rectB = createRect({ left: 22, top: 20, width: 20, height: 10, labelClass: "B" });
+    const rectC = createRect({ left: 70, top: 40, width: 20, height: 10, labelClass: "C" });
+    controller.canvas.add(rectA, rectB, rectC);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection([rectA, rectB, rectC], { canvas: controller.canvas }));
+    const lefts = () => [rectA.left, rectB.left, rectC.left];
+
+    controller.alignSelectionColumnCenters();
+    expect(lefts()).toEqual([10, 22, 70]);
+
+    controller.setCenterAlignmentTolerance(0.75, false);
+    expect(lefts()).toEqual([16, 16, 70]);
+    expect(controller.canUndo()).toBe(false);
+
+    controller.setCenterAlignmentTolerance(0.5, true);
+    expect(lefts()).toEqual([10, 22, 70]);
+    expect(controller.canUndo()).toBe(false);
+
+    controller.setCenterAlignmentTolerance(0.75, true);
+    expect(lefts()).toEqual([16, 16, 70]);
+    controller.undo();
+    expect(lefts()).toEqual([10, 22, 70]);
+
+    // Undo moved the boxes, so the session is over: a range change only applies to the next click.
+    controller.setCenterAlignmentTolerance(1, true);
+    expect(lefts()).toEqual([10, 22, 70]);
+  });
+
   it("no-ops edge alignment when active visible selection has fewer than two rects", () => {
     const fabric = createFakeFabricRuntime();
     const updateLabelList = vi.fn();

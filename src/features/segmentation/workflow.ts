@@ -1524,6 +1524,10 @@ export function createSegmentationCanvasWorkflow(
       return;
     },
 
+    setCenterAlignmentTolerance(): void {
+      return;
+    },
+
     distributeSelectionHorizontally(): void {
       return;
     },

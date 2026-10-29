@@ -543,16 +543,32 @@
                     <section id="inspectorTransformPane" class="inspector-pane" data-inspector-pane="transform" hidden>
                         <section class="inspector-section arrange-panel-section" data-ui="arrange-controls">
                             <div class="section-heading-row"><h3>Align</h3><span class="section-value">2+ boxes</span></div>
-                            <div class="arrange-controls-grid" role="group" aria-label="Align selected boxes">
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignLeftBtn" data-ui="arrange-align-left" title="Align left (Alt+Shift+L)" aria-label="Align left" disabled><i class="bi bi-align-start" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRightBtn" data-ui="arrange-align-right" title="Align right (Alt+Shift+R)" aria-label="Align right" disabled><i class="bi bi-align-end" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignTopBtn" data-ui="arrange-align-top" title="Align top (Alt+Shift+T)" aria-label="Align top" disabled><i class="bi bi-align-top" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignBottomBtn" data-ui="arrange-align-bottom" title="Align bottom (Alt+Shift+D)" aria-label="Align bottom" disabled><i class="bi bi-align-bottom" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignColumnCentersBtn" data-ui="arrange-align-column-centers" title="Center each column (boxes grouped by center X) (Alt+Shift+C)" aria-label="Center each column (boxes grouped by center X)" disabled><i class="bi bi-align-center" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRowSetColumnCentersBtn" data-ui="arrange-align-row-set-column-centers" title="Center columns per row set (staggered rows keep their own columns) (Alt+Shift+S)" aria-label="Center columns per row set" disabled><i class="bi bi-columns-gap" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRowCentersBtn" data-ui="arrange-align-row-centers" title="Center each row (boxes grouped by center Y) (Alt+Shift+M)" aria-label="Center each row (boxes grouped by center Y)" disabled><i class="bi bi-align-middle" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeHorizontalBtn" data-ui="arrange-distribute-horizontal" title="Distribute horizontally (Alt+Shift+H)" aria-label="Distribute horizontally" disabled><i class="bi bi-distribute-horizontal" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeVerticalBtn" data-ui="arrange-distribute-vertical" title="Distribute vertically (Alt+Shift+V)" aria-label="Distribute vertically" disabled><i class="bi bi-distribute-vertical" aria-hidden="true"></i></button>
+                            <div class="arrange-controls" role="group" aria-label="Align selected boxes">
+                                <div class="arrange-row"><span class="arrange-row-label">Edges</span>
+                                    <div class="arrange-controls-grid">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignLeftBtn" data-ui="arrange-align-left" title="Align left (Alt+Shift+L)" aria-label="Align left" disabled><i class="bi bi-align-start" aria-hidden="true"></i></button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRightBtn" data-ui="arrange-align-right" title="Align right (Alt+Shift+R)" aria-label="Align right" disabled><i class="bi bi-align-end" aria-hidden="true"></i></button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignTopBtn" data-ui="arrange-align-top" title="Align top (Alt+Shift+T)" aria-label="Align top" disabled><i class="bi bi-align-top" aria-hidden="true"></i></button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignBottomBtn" data-ui="arrange-align-bottom" title="Align bottom (Alt+Shift+D)" aria-label="Align bottom" disabled><i class="bi bi-align-bottom" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
+                                <div class="arrange-row"><span class="arrange-row-label">Centers</span>
+                                    <div class="arrange-controls-grid">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignColumnCentersBtn" data-ui="arrange-align-column-centers" title="Center each column (boxes grouped by center X) (Alt+Shift+C)" aria-label="Center each column (boxes grouped by center X)" disabled><i class="bi bi-align-center" aria-hidden="true"></i></button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRowSetColumnCentersBtn" data-ui="arrange-align-row-set-column-centers" title="Center columns per row set (staggered rows keep their own columns) (Alt+Shift+S)" aria-label="Center columns per row set" disabled><i class="bi bi-columns-gap" aria-hidden="true"></i></button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="alignRowCentersBtn" data-ui="arrange-align-row-centers" title="Center each row (boxes grouped by center Y) (Alt+Shift+M)" aria-label="Center each row (boxes grouped by center Y)" disabled><i class="bi bi-align-middle" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
+                                <div class="arrange-row arrange-tolerance-row" title="How far box centers may sit apart and still share a row or column, as a percentage of the median box size (default 50%). Drag it after a center alignment to redo that alignment live.">
+                                    <label class="arrange-row-label" for="alignCenterToleranceInput">Range</label>
+                                    <div class="arrange-tolerance-control"><input id="alignCenterToleranceInput" type="range" class="form-range" min="10" max="150" step="5" value="50" aria-label="Center group range"><span id="alignCenterToleranceValue" class="section-value">50%</span></div>
+                                </div>
+                                <div class="arrange-row"><span class="arrange-row-label">Distribute</span>
+                                    <div class="arrange-controls-grid">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeHorizontalBtn" data-ui="arrange-distribute-horizontal" title="Distribute horizontally (Alt+Shift+H)" aria-label="Distribute horizontally" disabled><i class="bi bi-distribute-horizontal" aria-hidden="true"></i></button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="distributeVerticalBtn" data-ui="arrange-distribute-vertical" title="Distribute vertically (Alt+Shift+V)" aria-label="Distribute vertically" disabled><i class="bi bi-distribute-vertical" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
                             </div>
                             <div class="selection-move-controls">
                                 <div class="automation-coordinate-grid">
