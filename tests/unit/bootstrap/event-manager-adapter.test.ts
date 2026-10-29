@@ -660,6 +660,58 @@ describe("bootstrap/event-manager-adapter", () => {
     expect(windowRef.dispatchedEvents.filter((type) => type === "easy-labeling:toggle-template-pointer-mode")).toHaveLength(2);
   });
 
+  it("waits for the native Processed image on Q, applies only the latest switch, and stays synchronous without it", async () => {
+    const state = createInitialAppState();
+    const elements = createElements();
+    const windowRef = new FakeWindow();
+    const rawController = createRawController(createRawCanvas());
+    let viewSource: "original" | "processed" = "original";
+    const resolvers: Array<(value: boolean) => void> = [];
+    let native = true;
+    const setView = vi.fn((next: "original" | "processed") => {
+      const changed = next !== viewSource;
+      viewSource = next;
+      return changed;
+    });
+    Object.assign(rawController, {
+      getSegmentationViewSource: () => viewSource,
+      setSegmentationViewSource: setView,
+      prepareSegmentationProcessedImage: vi.fn(() => (native ? new Promise<boolean>((resolve) => resolvers.push(resolve)) : null))
+    });
+    const notify = vi.fn();
+    // The view sync after a switch runs instanceof checks against DOM classes Node lacks.
+    for (const name of ["HTMLElement", "HTMLSelectElement", "HTMLInputElement", "HTMLButtonElement"]) {
+      if (!(name in globalThis)) vi.stubGlobal(name, class {});
+    }
+    createEventManagerAdapter({
+      state,
+      uiManager: { elements, notify, renderImageList: vi.fn(), updateLabelList: vi.fn(), updateMouseCoords: vi.fn(), hideMouseCoords: vi.fn(), togglePanel: vi.fn(), applyDarkMode: vi.fn() } as unknown as Parameters<typeof createEventManagerAdapter>[0]["uiManager"],
+      fileSystem: {} as unknown as Parameters<typeof createEventManagerAdapter>[0]["fileSystem"],
+      canvasController: { setMode: vi.fn(), raw: rawController } as unknown as Parameters<typeof createEventManagerAdapter>[0]["canvasController"],
+      windowRef
+    }).bindEventListeners();
+    const pressQ = () => windowRef.keydownListener?.({ ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, key: "q", target: new FakeHtmlElement(), preventDefault: vi.fn() });
+
+    // Two presses while the first image is still computing: only the second switch applies.
+    pressQ();
+    pressQ();
+    expect(setView).not.toHaveBeenCalled();
+    resolvers.forEach((resolve) => resolve(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(setView.mock.calls).toEqual([["processed"]]);
+    expect(notify).not.toHaveBeenCalled();
+
+    // Back to Original needs no native work.
+    pressQ();
+    expect(setView).toHaveBeenLastCalledWith("original");
+
+    // Web and Electron builds: nothing to wait for, so the switch happens within the key press.
+    native = false;
+    pressQ();
+    expect(setView).toHaveBeenLastCalledWith("processed");
+    vi.unstubAllGlobals();
+  });
+
   it("prevents the browser default for Ctrl+B and routes to label editing", () => {
     const state = createInitialAppState();
     const elements = createElements();

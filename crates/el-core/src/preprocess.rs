@@ -139,6 +139,12 @@ pub fn preprocess_gray(source: Vec<f32>, width: usize, height: usize, config: &P
     gray.par_iter().zip(gradient.par_iter()).map(|(&g, &e)| (g as f64 * (1.0 - w) + e as f64 * w) as f32).collect()
 }
 
+/// Luma of RGBA pixels as `toGrayscale` in preprocessing.ts computes it: the same f64 sum, in the same
+/// order, stored as f32 (a Float32Array element).
+pub fn rgba_luma(rgba: &[u8]) -> Vec<f32> {
+    rgba.as_chunks::<4>().0.par_iter().map(|p| (p[0] as f64 * 0.2126 + p[1] as f64 * 0.7152 + p[2] as f64 * 0.0722) as f32).collect()
+}
+
 /// Rounds and clamps a processed image to bytes, as the refine worker does.
 pub fn to_bytes(values: &[f32]) -> Vec<u8> {
     values.par_iter().map(|&v| js_round(v as f64).clamp(0.0, 255.0) as u8).collect()

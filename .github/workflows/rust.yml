@@ -13,6 +13,7 @@ on:
       - "scripts/migration/**"
       - "src/features/segmentation/preprocessing.ts"
       - "src/features/segmentation/gray-filters.ts"
+      - "src/features/segmentation/native-preprocessing.ts"
       - "src/domain/refine/**"
       - "tests/unit/native/**"
       - ".github/workflows/rust.yml"

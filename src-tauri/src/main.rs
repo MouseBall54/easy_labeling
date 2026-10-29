@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod native;
+mod shared_buffer;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -535,7 +536,11 @@ fn main() {
             fs_same_entry,
             native::refine_load_image,
             native::refine_run,
-            native::refine_crop
+            native::refine_crop,
+            native::preprocess_view_load,
+            shared_buffer::shared_buffer_open,
+            native::preprocess_view_run,
+            native::preprocess_view_run_shared
         ])
         .setup(|app| {
             let is_yoloe = app.config().identifier == YOLOE_IDENTIFIER;

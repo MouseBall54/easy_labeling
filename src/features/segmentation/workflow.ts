@@ -34,6 +34,7 @@ import {
 import {
   DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG,
   getSegmentationPreprocessingKey,
+  keepsColour,
   normalizeSegmentationPreprocessingConfig,
   preprocessSegmentationImage,
   type SegmentationImageSourceMode,
@@ -41,6 +42,7 @@ import {
   type SegmentationProcessingOrder,
   type SegmentationViewSourceMode
 } from "./preprocessing.js";
+import { createNativeViewPreprocessor } from "./native-preprocessing.js";
 import {
   getWorkingImageOriginalRect,
   isOriginalPointInWorkingImage,
@@ -136,6 +138,9 @@ export function createSegmentationCanvasWorkflow(
   let originalImageData: ImageData | null = null;
   const srImages = new Map<string, SegmentationImageInput>();
   const processedImages = new Map<string, SegmentationImageInput>();
+  // Desktop app: Processed-view pixels computed in Rust ahead of ensureProcessedImage (by its cache key).
+  const nativeViewPreprocessor = createNativeViewPreprocessor();
+  const nativeProcessedRgba = new Map<string, Uint8ClampedArray>();
   let srRoi: WorkingImageRect | null = null;
   let srRoiSelectionStart: CanvasPoint | null = null;
   let isSelectingSrRoi = false;
@@ -366,6 +371,15 @@ export function createSegmentationCanvasWorkflow(
     processedImages.clear();
   };
 
+  /** The base image the Processed view starts from, or null when it comes from the SR model (Processed -> AI). */
+  const getProcessedBase = (baseSource: "original" | "sr-roi"): SegmentationImageInput | null => {
+    if (baseSource === "sr-roi" && processingOrder === "processed-first") return null;
+    return baseSource === "sr-roi" ? getSrImageInput() : getOriginalImageInput();
+  };
+
+  const getProcessedCacheKey = (base: SegmentationImageInput, config: SegmentationPreprocessingConfig): string =>
+    `${base.descriptor.cacheKey}:processed:${getSegmentationPreprocessingKey(config)}`;
+
   const removeSrRoiOverlay = (): void => {
     if (!srRoiOverlayObject) return;
     canvas.remove(srRoiOverlayObject);
@@ -494,13 +508,14 @@ export function createSegmentationCanvasWorkflow(
 
   const ensureProcessedImage = (baseSource: "original" | "sr-roi"): SegmentationImageInput | null => {
     if (baseSource === "sr-roi" && processingOrder === "processed-first") return getProcessedFirstImage();
-    const base = baseSource === "sr-roi" ? getSrImageInput() : getOriginalImageInput();
+    const base = getProcessedBase(baseSource);
     if (!base || typeof globalThis.document === "undefined") return null;
-    const preprocessingKey = getSegmentationPreprocessingKey(preprocessingConfig);
-    const cacheKey = `${base.descriptor.cacheKey}:processed:${preprocessingKey}`;
+    const cacheKey = getProcessedCacheKey(base, preprocessingConfig);
     const cached = processedImages.get(cacheKey);
     if (cached) return cached;
-    const rgba = preprocessSegmentationImage({ width: base.descriptor.width, height: base.descriptor.height, rgba: base.rgba }, preprocessingConfig);
+    const prepared = nativeProcessedRgba.get(cacheKey);
+    nativeProcessedRgba.delete(cacheKey);
+    const rgba = prepared ?? preprocessSegmentationImage({ width: base.descriptor.width, height: base.descriptor.height, rgba: base.rgba }, preprocessingConfig);
     const canvasElement = createCanvasImageSource(base.descriptor.width, base.descriptor.height, rgba);
     if (!canvasElement) return null;
     canvasElement.dataset.preprocessingKey = cacheKey;
@@ -1167,6 +1182,7 @@ export function createSegmentationCanvasWorkflow(
       originalImageSource = null;
       originalImageData = null;
       clearProcessedImageCache();
+      nativeProcessedRgba.clear();
       srImages.clear();
       srRoi = null;
       srRoiSelectionStart = null;
@@ -1209,6 +1225,7 @@ export function createSegmentationCanvasWorkflow(
       imageSourceKey = `${(image as { src?: string }).src ?? "local-image"}:${imageSourceRevision}`;
       originalImageData = null;
       clearProcessedImageCache();
+      nativeProcessedRgba.clear();
       srImages.clear();
       srRoi = null;
       srRoiSelectionStart = null;
@@ -2116,6 +2133,31 @@ export function createSegmentationCanvasWorkflow(
       srRoiPreviewObject.set("visible", !enabled && !labelOnlyViewEnabled);
       canvas.requestRenderAll();
       return true;
+    },
+
+    prepareSegmentationProcessedImage(config?: Partial<SegmentationPreprocessingConfig>): Promise<boolean> | null {
+      const preprocessor = nativeViewPreprocessor;
+      if (!preprocessor) return null;
+      const next = config ? normalizeSegmentationPreprocessingConfig({ ...preprocessingConfig, ...config }) : preprocessingConfig;
+      const base = getProcessedBase(preprocessingSource);
+      if (!base || keepsColour(next)) return null;
+      const cacheKey = getProcessedCacheKey(base, next);
+      if (processedImages.has(cacheKey) || nativeProcessedRgba.has(cacheKey)) return null;
+      const input = { width: base.descriptor.width, height: base.descriptor.height, rgba: base.rgba };
+      return preprocessor.preprocess(base.descriptor.cacheKey, input, next).then(
+        (rgba) => {
+          // A result for a replaced image matches no cache key.
+          if (!rgba || getProcessedBase(preprocessingSource)?.descriptor.cacheKey !== base.descriptor.cacheKey) return false;
+          nativeProcessedRgba.set(cacheKey, rgba);
+          // Superseded results (full-size RGBA each) are not kept beyond the latest two.
+          while (nativeProcessedRgba.size > 2) nativeProcessedRgba.delete(nativeProcessedRgba.keys().next().value!);
+          return true;
+        },
+        (error: unknown) => {
+          console.warn("Native preprocessing failed; using the TS path.", error);
+          return false;
+        }
+      );
     },
 
     setSegmentationPreprocessingConfig(config: Partial<SegmentationPreprocessingConfig>): boolean {

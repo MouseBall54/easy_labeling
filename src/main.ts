@@ -68,6 +68,9 @@ interface TestApi {
     visible: boolean;
   } | null;
   getSegmentationViewSource(): string | null;
+  getSegmentationPreprocessingConfig(): Record<string, unknown> | null;
+  /** The element of the base image object (the shown Original or Processed image). */
+  getCanvasBackgroundElement(): CanvasImageSource | null;
   getSegmentationEdgeSamInputSource(): string | null;
   getSegmentationSuperpixelInputSource(): string | null;
   isSegmentationSrRoiSelecting(): boolean;
@@ -292,6 +295,12 @@ function bootstrapBrowserRuntime(): void {
     getSegmentationSrRoi: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationSrRoi?.() ?? null,
     getSegmentationSrPreviewInfo: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationSrPreviewInfo?.() ?? null,
     getSegmentationViewSource: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationViewSource?.() ?? null,
+    getSegmentationPreprocessingConfig: () => ({ ...(runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationPreprocessingConfig?.() }),
+    getCanvasBackgroundElement: () => {
+      const baseImage = (runtimeCanvasController.raw.getObjects("image") as Array<{ _isBaseImage?: boolean; getElement?(): CanvasImageSource }>)
+        .find((object) => object._isBaseImage);
+      return baseImage?.getElement?.() ?? null;
+    },
     getSegmentationEdgeSamInputSource: () => runtimeCanvasController.raw.getSegmentationEdgeSamInputSource?.() ?? null,
     getSegmentationSuperpixelInputSource: () => runtimeCanvasController.raw.getSegmentationSuperpixelInputSource?.() ?? null,
     isSegmentationSrRoiSelecting: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).isSegmentationSrRoiSelecting?.() ?? false,

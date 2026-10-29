@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import zlib from "node:zlib";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
 import { launchDesktop as launch } from "./fixtures/tauri-app.js";
@@ -176,3 +177,112 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
   }
 });
 
+
+/** An 8-bit gray PNG (SEM-like bright blocks on a sloped, noisy background). */
+function grayPng(width: number, height: number): Buffer {
+  let seed = 3;
+  const random = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+  const raw = Buffer.alloc((width + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const block = x % 64 > 12 && x % 64 < 52 && y % 48 > 9 && y % 48 < 40 ? 110 : 0;
+      raw[y * (width + 1) + 1 + x] = Math.max(0, Math.min(255, Math.round(50 + (x * 40) / width + block + (random() - 0.5) * 40)));
+    }
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth; colour type 0 (gray), default compression/filter/interlace
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+test("Tauri Processed view is computed natively, matches the TS result and keeps the UI thread free", async () => {
+  test.setTimeout(240_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "sem");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "sem.png"), grayPng(4096, 3072));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("sem.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden();
+
+    // Runs `trigger` and waits for `done`, recording main-thread long tasks meanwhile.
+    const measure = (step: "view" | "heavy") => page.evaluate(async (which) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const longTasks: number[] = [];
+      const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => longTasks.push(entry.duration)));
+      observer.observe({ type: "longtask" });
+      const started = performance.now();
+      if (which === "view") {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+      } else {
+        (document.getElementById("segmentationPreprocessFlattenInput") as HTMLInputElement).value = "200";
+        const diffusion = document.getElementById("segmentationPreprocessDiffusionInput") as HTMLInputElement;
+        diffusion.value = "20";
+        diffusion.dispatchEvent(new Event("change"));
+      }
+      const done = () => which === "view"
+        ? api.getSegmentationViewSource() === "processed"
+        : api.getSegmentationPreprocessingConfig().flattenSigma === 200 && api.getSegmentationPreprocessingConfig().diffusionIterations === 20;
+      while (!done()) await new Promise((resolve) => setTimeout(resolve, 5));
+      const elapsed = performance.now() - started;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      observer.disconnect();
+      return { elapsed, maxLongTask: Math.max(0, ...longTasks) };
+    }, step);
+
+    // Keep the original pixels to compute the TS reference and timing in the same page afterwards.
+    await page.evaluate(() => {
+      const element = Reflect.get(window, "__easyLabelingTestApi").getCanvasBackgroundElement() as HTMLImageElement;
+      const canvas = document.createElement("canvas");
+      canvas.width = element.naturalWidth || element.width;
+      canvas.height = element.naturalHeight || element.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(element, 0, 0);
+      Reflect.set(window, "__originalRgba", context.getImageData(0, 0, canvas.width, canvas.height));
+    });
+    const view = await measure("view");
+    const heavy = await measure("heavy");
+
+    const check = await page.evaluate(async () => {
+      const load = (file: string): Promise<any> => import(file);
+      const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const original = Reflect.get(window, "__originalRgba") as ImageData;
+      const hash = async (bytes: Uint8ClampedArray) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const element = api.getCanvasBackgroundElement() as HTMLCanvasElement;
+      const shown = element.getContext("2d")!.getImageData(0, 0, element.width, element.height).data;
+      const config = normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig());
+      const started = performance.now();
+      const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, config);
+      const tsMs = performance.now() - started;
+      const defaultStarted = performance.now();
+      preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, normalizeSegmentationPreprocessingConfig({}));
+      const tsDefaultMs = performance.now() - defaultStarted;
+      return { same: await hash(shown) === await hash(expected), size: [element.width, element.height], tsMs, tsDefaultMs };
+    });
+    console.log(`4096x3072 Processed view, default config: native ${view.elapsed.toFixed(0)} ms (longest UI task ${view.maxLongTask.toFixed(0)} ms), TS on the UI thread ${check.tsDefaultMs.toFixed(0)} ms`);
+    console.log(`4096x3072 flatten 200 + diffusion 20: native ${heavy.elapsed.toFixed(0)} ms (longest UI task ${heavy.maxLongTask.toFixed(0)} ms), TS on the UI thread ${check.tsMs.toFixed(0)} ms`);
+    expect(check.size).toEqual([4096, 3072]);
+    expect(check.same).toBe(true);
+    // The UI thread only converts and copies pixels; the filters run in Rust.
+    expect(heavy.maxLongTask).toBeLessThan(check.tsMs / 2);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});

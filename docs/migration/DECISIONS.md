@@ -47,6 +47,35 @@
 - 상태: 승인 (2026-10-29, 진행 순서 승인에 포함)
 - 근거: 5,000박스 파싱 1.8ms로 이식 이득이 없고, `toFixed(15)` 출력의 바이트 호환 위험만 생긴다.
 
+### D-006 큰 픽셀 데이터는 WebView2 SharedBuffer로 주고받는다
+- 상태: 승인 (2026-10-29, 1단계 구현 중 측정으로 결정)
+- 배경:
+  - raw invoke 바디(JS→Rust)는 약 17MB/s였다. 50MB RGBA에 약 3초가 걸렸다.
+  - wry가 바디를 1KB씩 읽는 것이 원인으로 보여 4MB로 키워 봤지만 그대로였다. 병목은 WebView2의 요청 바디 전달 자체다.
+  - 그 결과 4096×3072 Processed 첫 전환이 5.9초로 TS보다 느렸다.
+- 결정:
+  - `src-tauri/src/shared_buffer.rs`: Rust가 `CreateSharedBuffer`로 공유 메모리를 만들어 `PostSharedBufferToScript`로 페이지에 보낸다.
+    - 업로드는 페이지가 그 메모리에 직접 쓴다.
+    - 다운로드는 Rust가 채워서 보낸다.
+  - COM 객체는 창 스레드(`with_webview`)에서만 다룬다.
+  - 런타임이 지원하지 않거나 10초 안에 버퍼가 오지 않으면 raw 경로로 돌아간다.
+  - 페이지가 버린 업로드 버퍼는 최대 4개만 남긴다.
+- 근거: 50MB 업로드가 약 3초에서 0.13초로 줄었다.
+- 영향:
+  - Windows(WebView2) 전용 `unsafe` 코드가 생겼다(`SAFETY` 주석 있음).
+  - refine 이미지 업로드(`refine_load_image`)도 같은 경로를 쓴다.
+  - 이후 단계(TIFF 디코드 결과 등)도 이 경로를 기본으로 쓴다.
+
+### D-007 Processed 보기: 동기 API는 그대로, 비동기 준비 단계를 앞에 둔다
+- 상태: 승인 (2026-10-29)
+- 배경: `ensureProcessedImage`와 보기·설정 setter는 동기 함수이고 호출부가 많다. 전부 비동기로 바꾸면 영향 범위가 크다.
+- 결정:
+  - `prepareSegmentationProcessedImage(config?)`가 네이티브로 계산해 캐시를 채우고, 이어지는 동기 호출은 그 캐시를 먼저 쓴다.
+  - 기다릴 것이 없으면 `null`을 돌려준다. 그러면 웹·Electron에서는 이전과 똑같이 동기로 동작한다.
+  - 보기 전환과 설정 적용은 번호표(ticket) 방식으로 마지막 요청만 반영한다.
+  - 네이티브 오류가 나면 TS로 계산한다.
+- 남은 일: 자동화(템플릿 매칭)의 Processed 입력(`automation-controller.ts:210`)과 슈퍼픽셀·EdgeSAM의 processed 입력은 보기가 Original일 때 여전히 TS로 동기 계산한다.
+
 ### D-005 이식 순서와 데이터 포맷
 - 상태: 승인 (2026-10-29, 사용자 선택)
 - 실제 데이터: TIFF 8bit gray, JPG/PNG. 16bit TIFF는 대상이 아니다.

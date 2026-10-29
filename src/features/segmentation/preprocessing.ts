@@ -87,6 +87,11 @@ function hasGrayFilters(config: SegmentationPreprocessingConfig): boolean {
     || config.claheClip > 0 || config.levelsClip > 0;
 }
 
+/** True when preprocessSegmentationImage keeps colour (Original mode, tone curve only) instead of the gray path. */
+export function keepsColour(config: SegmentationPreprocessingConfig): boolean {
+  return config.mode === "original" && !hasGrayFilters(config);
+}
+
 function finiteIn(value: number | undefined, low: number, high: number, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : fallback;
 }
@@ -221,7 +226,7 @@ export function preprocessSegmentationImage(
     throw new Error("segmentation preprocessing image dimensions are invalid");
   }
   const config = normalizeSegmentationPreprocessingConfig(requestedConfig);
-  if (config.mode === "original" && !hasGrayFilters(config)) {
+  if (keepsColour(config)) {
     // Original mode keeps colour: the tone curve is applied per channel.
     const curve = toneCurve(config);
     const rgba = new Uint8ClampedArray(input.rgba);

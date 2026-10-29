@@ -88,3 +88,24 @@ fn golden_refine() {
     }
     assert!(failures.is_empty(), "{} of {} refine cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+
+/// The Processed view: RGBA -> luma -> preprocess -> bytes must equal the gray channel that
+/// preprocessSegmentationImage writes, byte for byte (the desktop app shows these bytes).
+#[test]
+fn golden_view() {
+    let cases: Vec<PreprocessCase> = read_json("view/cases.json");
+    assert!(!cases.is_empty());
+    let mut failures = Vec::new();
+    for case in &cases {
+        let rgba = read_bytes(&format!("view/{}", case.input));
+        let expected = read_bytes(&format!("view/{}", case.output));
+        let luma = preprocess::rgba_luma(&rgba);
+        let actual = preprocess::to_bytes(&preprocess::preprocess_gray(luma, case.width, case.height, &case.config));
+        assert_eq!(expected.len(), actual.len() * 4, "{}: size", case.name);
+        let differing: Vec<usize> = actual.iter().enumerate().filter(|(i, v)| expected[i * 4] != **v).map(|(i, _)| i).collect();
+        if let Some(&first) = differing.first() {
+            failures.push(format!("{}: {} pixels differ, first at {first} ({} != {})", case.name, differing.len(), actual[first], expected[first * 4]));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} view cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}

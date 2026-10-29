@@ -31,16 +31,25 @@ fn raw_body(request: &Request<'_>) -> CommandResult<Vec<u8>> {
     }
 }
 
+/// The uploaded bytes: from the shared buffer named by `x-shared-buffer` (fast, see shared_buffer.rs),
+/// else the raw invoke body.
+async fn upload_body(window: &tauri::WebviewWindow, request: &Request<'_>) -> CommandResult<Vec<u8>> {
+    match request.headers().get("x-shared-buffer").and_then(|value| value.to_str().ok()) {
+        Some(id) => crate::shared_buffer::take(window, id.parse().map_err(|_| "Invalid shared buffer id")?).await,
+        None => raw_body(request),
+    }
+}
+
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> CommandResult<T> + Send + 'static) -> CommandResult<T> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub async fn refine_load_image(request: Request<'_>) -> CommandResult<()> {
+pub async fn refine_load_image(window: tauri::WebviewWindow, request: Request<'_>) -> CommandResult<()> {
     let key = crate::percent_decode(header(&request, "x-key")?)?;
     let width: usize = header(&request, "x-width")?.parse().map_err(|_| "Invalid width")?;
     let height: usize = header(&request, "x-height")?.parse().map_err(|_| "Invalid height")?;
-    let gray = raw_body(&request)?;
+    let gray = upload_body(&window, &request).await?;
     if gray.len() != width * height {
         return Err("Refine image size does not match its dimensions".into());
     }
@@ -125,4 +134,56 @@ pub async fn refine_crop(key: String, rect: CropRect, source: RefineSource) -> C
         Ok(Response::new(out))
     })
     .await
+}
+
+// Processed view: the frontend uploads the image once (RGBA, keyed per image); each settings change then
+// sends only the key and config. Separate from the refine image, which the refine worker keys itself.
+struct ViewImage {
+    key: String,
+    luma: Arc<Vec<f32>>,
+    width: usize,
+    height: usize,
+}
+
+static VIEW_IMAGE: Mutex<Option<ViewImage>> = Mutex::new(None);
+
+/// The error preprocess_view_run returns when another image (or none) is loaded; the frontend re-uploads.
+const VIEW_NOT_LOADED: &str = "View image is not loaded";
+
+#[tauri::command]
+pub async fn preprocess_view_load(window: tauri::WebviewWindow, request: Request<'_>) -> CommandResult<()> {
+    let key = crate::percent_decode(header(&request, "x-key")?)?;
+    let width: usize = header(&request, "x-width")?.parse().map_err(|_| "Invalid width")?;
+    let height: usize = header(&request, "x-height")?.parse().map_err(|_| "Invalid height")?;
+    let rgba = upload_body(&window, &request).await?;
+    if rgba.len() != width * height * 4 {
+        return Err("View image size does not match its dimensions".into());
+    }
+    let luma = blocking(move || Ok(preprocess::rgba_luma(&rgba))).await?;
+    *VIEW_IMAGE.lock().map_err(|error| error.to_string())? = Some(ViewImage { key, luma: Arc::new(luma), width, height });
+    Ok(())
+}
+
+/// Processed gray bytes (row-major, one per pixel) of the loaded view image.
+async fn view_bytes(key: String, config: preprocess::PreprocessConfig) -> CommandResult<Vec<u8>> {
+    blocking(move || {
+        let (luma, width, height) = {
+            let guard = VIEW_IMAGE.lock().map_err(|error| error.to_string())?;
+            let image = guard.as_ref().filter(|image| image.key == key).ok_or(VIEW_NOT_LOADED)?;
+            (image.luma.clone(), image.width, image.height)
+        };
+        Ok(preprocess::to_bytes(&preprocess::preprocess_gray(luma.as_ref().clone(), width, height, &config)))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn preprocess_view_run(key: String, config: preprocess::PreprocessConfig) -> CommandResult<Response> {
+    Ok(Response::new(view_bytes(key, config).await?))
+}
+
+/// Like preprocess_view_run, but posts the bytes in a shared buffer and returns its id.
+#[tauri::command]
+pub async fn preprocess_view_run_shared(window: tauri::WebviewWindow, key: String, config: preprocess::PreprocessConfig) -> CommandResult<u64> {
+    crate::shared_buffer::post(&window, view_bytes(key, config).await?).await
 }

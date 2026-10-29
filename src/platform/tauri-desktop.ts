@@ -118,7 +118,59 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     return handle as unknown as FileSystemDirectoryHandle;
   }
 
-  window.easyLabelingNative = Object.freeze({ invoke: call });
+  // Large uploads go through WebView2 shared memory (see src-tauri/src/shared_buffer.rs): raw invoke
+  // bodies cross WebView2 at ~17 MB/s. Rust posts the buffer; it can arrive before or after open resolves.
+  // Ids are unique across both directions (one Rust counter).
+  interface SharedBufferEvent { additionalData?: { easyLabelingUpload?: number; easyLabelingDownload?: number }; getBuffer(): ArrayBuffer }
+  const webview = (window as unknown as { chrome?: { webview?: { addEventListener(type: string, listener: (event: SharedBufferEvent) => void): void; releaseBuffer?(buffer: ArrayBuffer): void } } }).chrome?.webview;
+  const arrived = new Map<number, ArrayBuffer>();
+  const waiting = new Map<number, (buffer: ArrayBuffer) => void>();
+  webview?.addEventListener("sharedbufferreceived", (event) => {
+    const id = event.additionalData?.easyLabelingUpload ?? event.additionalData?.easyLabelingDownload;
+    if (typeof id !== "number") return;
+    const buffer = event.getBuffer();
+    const resolve = waiting.get(id);
+    waiting.delete(id);
+    if (resolve) resolve(buffer);
+    else arrived.set(id, buffer);
+  });
+  // A buffer that never arrives must not hang its caller: give up so it falls back to a raw transfer.
+  const bufferFor = async (id: number): Promise<ArrayBuffer> => {
+    const ready = arrived.get(id);
+    arrived.delete(id);
+    if (ready) return ready;
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        waiting.delete(id);
+        reject(new Error("Shared buffer did not arrive"));
+      }, 10_000);
+      waiting.set(id, (buffer) => {
+        clearTimeout(timer);
+        resolve(buffer);
+      });
+    });
+  };
+  /** Copies `bytes` into a new shared buffer and returns its id for a command's `x-shared-buffer` header. */
+  async function upload(bytes: Uint8Array): Promise<number> {
+    if (!webview) throw new Error("Shared buffers need WebView2");
+    const id = await call<number>("shared_buffer_open", { size: bytes.byteLength });
+    const buffer = await bufferFor(id);
+    new Uint8Array(buffer).set(bytes);
+    webview.releaseBuffer?.(buffer);
+    return id;
+  }
+  /** Runs a command that answers with a shared-buffer id and hands its bytes to `use`, then releases them. */
+  async function download<T>(command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => T): Promise<T> {
+    if (!webview) throw new Error("Shared buffers need WebView2");
+    const buffer = await bufferFor(await call<number>(command, args));
+    try {
+      return use(new Uint8Array(buffer));
+    } finally {
+      webview.releaseBuffer?.(buffer);
+    }
+  }
+
+  window.easyLabelingNative = Object.freeze(webview ? { invoke: call, upload, download } : { invoke: call });
 
   window.easyLabelingDesktop = Object.freeze({
     readYoloeModel: __EASY_LABELING_IS_YOLOE__

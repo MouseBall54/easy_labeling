@@ -1383,12 +1383,22 @@ export function createEventManagerAdapter(input: {
           viewSrButton?.setAttribute("aria-expanded", "false");
         }
       };
+      // Every view switch takes a ticket; a Processed switch still waiting for its native image gives up
+      // when a later switch has been requested meanwhile.
+      let viewSwitchTicket = 0;
       viewOriginalButton?.addEventListener("click", () => {
+        viewSwitchTicket += 1;
         preprocessingController().setSegmentationViewSource?.("original");
         syncSegmentationViewSource("original");
         syncSuperResolutionControls();
       });
-      viewProcessedButton?.addEventListener("click", () => {
+      viewProcessedButton?.addEventListener("click", async () => {
+        const ticket = ++viewSwitchTicket;
+        const preparing = preprocessingController().prepareSegmentationProcessedImage?.();
+        if (preparing) {
+          await preparing;
+          if (ticket !== viewSwitchTicket) return;
+        }
         const currentSource = preprocessingController().getSegmentationViewSource?.();
         const changed = preprocessingController().setSegmentationViewSource?.("processed");
         if (changed === false && currentSource !== "processed") {
@@ -1397,6 +1407,24 @@ export function createEventManagerAdapter(input: {
         syncSegmentationViewSource(changed === false && currentSource !== "processed" ? currentSource : "processed");
         syncSuperResolutionControls();
       });
+      /** Q: Original <-> Processed. In the desktop app the processed image is computed natively first. */
+      const toggleProcessedView = async (): Promise<void> => {
+        const ticket = ++viewSwitchTicket;
+        const nextSource = preprocessingController().getSegmentationViewSource?.() === "processed" ? "original" : "processed";
+        // Without native preprocessing nothing is awaited and the switch stays synchronous.
+        const preparing = nextSource === "processed" ? preprocessingController().prepareSegmentationProcessedImage?.() : null;
+        if (preparing) {
+          await preparing;
+          if (ticket !== viewSwitchTicket) return;
+        }
+        const changed = preprocessingController().setSegmentationViewSource?.(nextSource);
+        if (changed === false) {
+          input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
+          return;
+        }
+        syncSegmentationViewSource(nextSource);
+        syncSuperResolutionControls();
+      };
       const setSuperResolutionPickerVisible = (visible: boolean): void => {
         const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
         const button = segmentationDocument?.getElementById("segmentationViewSrBtn");
@@ -1580,6 +1608,7 @@ export function createEventManagerAdapter(input: {
               input.uiManager.notify("AI image could not be created.", 4000);
             }
             if (preprocessingController().getSegmentationSuperResolutionMode?.() !== "off") {
+              viewSwitchTicket += 1;
               preprocessingController().setSegmentationViewSource?.("sr-roi");
               preprocessingController().focusSegmentationSrRoi?.();
               setSuperResolutionPickerVisible(false);
@@ -1599,6 +1628,7 @@ export function createEventManagerAdapter(input: {
             input.uiManager.notify("AI image could not be created.", 4000);
             return;
           }
+          viewSwitchTicket += 1;
           preprocessingController().setSegmentationViewSource?.("sr-roi");
           preprocessingController().focusSegmentationSrRoi?.();
           setSuperResolutionPickerVisible(false);
@@ -1629,6 +1659,7 @@ export function createEventManagerAdapter(input: {
           if (willOpen) picker?.querySelector<HTMLButtonElement>("[data-segmentation-sr-mode]")?.focus();
           return;
         }
+        viewSwitchTicket += 1;
         preprocessingController().setSegmentationViewSource?.("sr-roi");
         syncSegmentationViewSource();
         syncSuperResolutionControls();
@@ -1702,13 +1733,15 @@ export function createEventManagerAdapter(input: {
       };
       const preprocessPresetSelect = preprocessElement("PresetSelect");
       let applyingPreprocessPreset = false;
-      const applyPreprocessing = (): void => {
+      // Only the latest change applies when an earlier one is still being computed natively.
+      let preprocessApplyTicket = 0;
+      const applyPreprocessing = async (): Promise<void> => {
         // A hand-made change no longer matches the chosen preset.
         if (!applyingPreprocessPreset && preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = "";
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
           || !(preprocessBlurInput instanceof HTMLInputElement)
           || !(preprocessEdgeWeightInput instanceof HTMLInputElement)) return;
-        const changed = preprocessingController().setSegmentationPreprocessingConfig?.({
+        const config: Partial<SegmentationPreprocessingConfig> = {
           mode: preprocessModeSelect.value as import("../features/segmentation/preprocessing.js").SegmentationPreprocessMode,
           blurStrength: Number.parseInt(preprocessBlurInput.value, 10),
           edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100,
@@ -1718,9 +1751,19 @@ export function createEventManagerAdapter(input: {
             const slider = preprocessElement(`${field.id}Input`);
             return slider instanceof HTMLInputElement ? [[field.key, Number(slider.value) / field.scale]] : [];
           }))
-        });
+        };
         syncFilterLabels();
         if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
+        const ticket = ++preprocessApplyTicket;
+        // Desktop app: compute the visible Processed image natively first; elsewhere this stays synchronous.
+        const preparing = preprocessingController().getSegmentationViewSource?.() === "processed"
+          ? preprocessingController().prepareSegmentationProcessedImage?.(config)
+          : null;
+        if (preparing) {
+          await preparing;
+          if (ticket !== preprocessApplyTicket) return;
+        }
+        const changed = preprocessingController().setSegmentationPreprocessingConfig?.(config);
         if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
         syncProcessingPipeline();
       };
@@ -1750,7 +1793,8 @@ export function createEventManagerAdapter(input: {
           if (slider instanceof HTMLInputElement) slider.value = String(Math.round(config[field.key] * field.scale));
         }
         applyingPreprocessPreset = true;
-        try { applyPreprocessing(); } finally { applyingPreprocessPreset = false; }
+        // The preset flag is read before applyPreprocessing first awaits.
+        try { void applyPreprocessing(); } finally { applyingPreprocessPreset = false; }
         if (preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = presetName;
       };
       preprocessElement("ResetBtn")?.addEventListener("click", () => setPreprocessPanel(DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG));
@@ -2742,14 +2786,7 @@ export function createEventManagerAdapter(input: {
           && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
           && event.key.toLowerCase() === "q") {
           event.preventDefault();
-          const nextSource = preprocessingController().getSegmentationViewSource?.() === "processed" ? "original" : "processed";
-          const changed = preprocessingController().setSegmentationViewSource?.(nextSource);
-          if (changed === false) {
-            input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
-            return;
-          }
-          syncSegmentationViewSource(nextSource);
-          syncSuperResolutionControls();
+          void toggleProcessedView();
           return;
         }
 
@@ -2763,14 +2800,7 @@ export function createEventManagerAdapter(input: {
         if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
           if (event.key.toLowerCase() === "q") {
             event.preventDefault();
-            const nextSource = preprocessingController().getSegmentationViewSource?.() === "processed" ? "original" : "processed";
-            const changed = preprocessingController().setSegmentationViewSource?.(nextSource);
-            if (changed === false) {
-              input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
-              return;
-            }
-            syncSegmentationViewSource(nextSource);
-            syncSuperResolutionControls();
+            void toggleProcessedView();
             return;
           }
           if (event.key === "Enter" && applyAiPreview()) {

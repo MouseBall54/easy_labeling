@@ -360,6 +360,58 @@ describe("features/segmentation/workflow", () => {
     }
   });
 
+  it("shows the natively prepared Processed image instead of recomputing it in TS", async () => {
+    const sourcePixels = new Uint8ClampedArray(16 * 16 * 4).fill(120);
+    const source = { width: 16, height: 16, rgba: sourcePixels };
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        createElement: () => {
+          let pixels = new Uint8ClampedArray(sourcePixels);
+          const context = {
+            drawImage: (image: typeof source) => { pixels = new Uint8ClampedArray(image.rgba); },
+            getImageData: () => ({ width: 16, height: 16, data: new Uint8ClampedArray(pixels) }),
+            createImageData: () => ({ width: 16, height: 16, data: new Uint8ClampedArray(16 * 16 * 4) }),
+            putImageData: (imageData: { data: Uint8ClampedArray }) => { pixels = new Uint8ClampedArray(imageData.data); }
+          };
+          return { width: 16, height: 16, dataset: {}, getContext: () => context };
+        }
+      }
+    });
+    // Rust answers 200 for every pixel; the TS path would give another value for this flat image.
+    const invoke = vi.fn(async (command: string) => (command === "preprocess_view_run" ? new Uint8Array(256).fill(200).buffer : undefined));
+    vi.stubGlobal("window", { easyLabelingNative: { invoke } });
+    const edgeSamService = {
+      prepareImage: vi.fn(async () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 1, message: null })),
+      decode: vi.fn(), clear: vi.fn(), dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 1, message: null })
+    };
+    try {
+      const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentImage: { width: 16, height: 16 } }), createDeps({ edgeSamService }));
+      controller.setBackgroundImage(source);
+      controller.setSegmentationTool?.("ai-select");
+
+      const preparing = controller.prepareSegmentationProcessedImage?.({ median: true });
+      expect(preparing).not.toBeNull();
+      await expect(preparing).resolves.toBe(true);
+      expect(invoke.mock.calls.map(([command]) => command)).toEqual(["preprocess_view_load", "preprocess_view_run"]);
+      // The prepared config is not applied yet: the following synchronous calls pick the result up.
+      expect(controller.setSegmentationPreprocessingConfig?.({ median: true })).toBe(true);
+      expect(controller.setSegmentationViewSource?.("processed")).toBe(true);
+      await Promise.resolve();
+      const rgba = (edgeSamService.prepareImage.mock.calls.at(-1) as unknown as [{ cacheKey: string; rgba: Uint8ClampedArray }])[0];
+      expect(rgba.cacheKey).toContain(":processed:");
+      expect([...rgba.rgba.slice(0, 4)]).toEqual([200, 200, 200, 120]);
+      // Already prepared (now cached): nothing to wait for.
+      expect(controller.prepareSegmentationProcessedImage?.()).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+      else Reflect.deleteProperty(globalThis, "document");
+    }
+  });
+
   it("activates segmentation explicitly and paints/erases through the document-backed workflow", async () => {
     const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentMode: "draw" }), createDeps());
     controller.setBackgroundImage({ width: 32, height: 24 });

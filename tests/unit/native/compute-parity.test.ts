@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { normalizeRefineParams, refineBoxes, type RefineBoxInput } from "../../../src/domain/refine/edge-refine.js";
-import { normalizeSegmentationPreprocessingConfig, preprocessGray, type SegmentationPreprocessingConfig } from "../../../src/features/segmentation/preprocessing.js";
+import { keepsColour, normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../../../src/features/segmentation/preprocessing.js";
+import { grayBytesToRgba } from "../../../src/features/segmentation/native-preprocessing.js";
 
 // The desktop app runs Rust ports of these algorithms (crates/el-core). Build the CLI with
 // `cargo build --release -p el-core` to run these checks.
@@ -73,6 +74,25 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
     for (let i = 0; i < expected.length; i += 1) worst = Math.max(worst, Math.abs(actual[i] - expected[i]));
     expect(worst).toBeLessThanOrEqual(1e-3);
   });
+
+  // The desktop Processed view: Rust gray bytes + grayBytesToRgba must equal preprocessSegmentationImage exactly.
+  const colourRandom = seeded(5);
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  image.forEach((value, index) => {
+    rgba.set([value + (colourRandom() - 0.5) * 60, value + (colourRandom() - 0.5) * 60, value, index % 11 === 0 ? 90 : 255], index * 4);
+  });
+  it.each(configs.filter((config) => !keepsColour(normalizeSegmentationPreprocessingConfig(config))).map((config) => [JSON.stringify(config), config] as const))(
+    "processed view %s",
+    (_label, requested) => {
+      const config = normalizeSegmentationPreprocessingConfig(requested);
+      const expected = preprocessSegmentationImage({ width, height, rgba }, config);
+      const gray = new Uint8Array(runCli("view", { width, height, config }, new Uint8Array(rgba.buffer.slice(0))));
+      const actual = grayBytesToRgba(gray, rgba);
+      expect(actual.length).toBe(expected.length);
+      const firstDifference = actual.findIndex((value, index) => value !== expected[index]);
+      expect(firstDifference).toBe(-1);
+    }
+  );
 
   const gray = Uint8Array.from(image, (value) => Math.max(0, Math.min(255, Math.round(value))));
   const random = seeded(11);

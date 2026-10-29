@@ -5,7 +5,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeSegmentationPreprocessingConfig, preprocessGray } from "../../dist/features/segmentation/preprocessing.js";
+import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage } from "../../dist/features/segmentation/preprocessing.js";
 import { normalizeRefineParams, refineBoxes } from "../../dist/domain/refine/edge-refine.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -85,6 +85,44 @@ function writePreprocess() {
       const outputFile = `${name}-${width}x${height}.f32`;
       writeFileSync(path.join(dir, outputFile), bytesOf(output));
       cases.push({ name: `${name}-${width}x${height}`, width, height, input: inputFile, config, output: outputFile });
+    }
+  }
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases, null, 1));
+  return cases.length;
+}
+
+/** The Processed view (preprocessSegmentationImage): RGBA in, RGBA out, for configs that take the gray path. */
+function writeView() {
+  const dir = path.join(fixtures, "view");
+  mkdirSync(dir, { recursive: true });
+  const [width, height] = [96, 72];
+  const random = seeded(31);
+  const luma = syntheticImage(width, height, 33, 16, 12);
+  // A colour image with uneven alpha, and the gray (R = G = B) image SEM data gives.
+  const colour = new Uint8ClampedArray(width * height * 4);
+  const gray = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    const v = luma[i];
+    colour.set([v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, i % 7 === 0 ? 128 : 255], i * 4);
+    gray.set([v, v, v, 255], i * 4);
+  }
+  const configs = {
+    "median": { mode: "original", median: true },
+    "clahe-contrast": { mode: "original", claheClip: 2, contrast: 1.4, gamma: 0.8 },
+    "edge": { mode: "edge", blurStrength: 2 },
+    "edge-blend": { mode: "edge-blend" },
+    "everything": { mode: "edge-blend", edgeWeight: 0.3, median: true, destripe: "rows", flattenSigma: 60, diffusionIterations: 3, claheClip: 3, levelsClip: 0.5, contrast: 1.2, gamma: 1.3 }
+  };
+  const cases = [];
+  for (const [inputName, rgba] of [["colour", colour], ["gray", gray]]) {
+    const inputFile = `input-${inputName}-${width}x${height}.u8`;
+    writeFileSync(path.join(dir, inputFile), bytesOf(rgba));
+    for (const [name, requested] of Object.entries(configs)) {
+      const config = normalizeSegmentationPreprocessingConfig(requested);
+      const output = preprocessSegmentationImage({ width, height, rgba }, config);
+      const outputFile = `${name}-${inputName}.u8`;
+      writeFileSync(path.join(dir, outputFile), bytesOf(output));
+      cases.push({ name: `${name}-${inputName}`, width, height, input: inputFile, config, output: outputFile });
     }
   }
   writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases, null, 1));
@@ -172,6 +210,7 @@ function writeBenchInputs() {
   // Processed-view configs (a typical one and the heavy one from the audit's preprocess-view scenario).
   writeFileSync(path.join(dir, "refine-params.json"), JSON.stringify({ 0: normalizeRefineParams({}), 1: normalizeRefineParams({ crit: "thr" }) }));
   writeFileSync(path.join(dir, "preprocess-configs.json"), JSON.stringify({
+    default: normalizeSegmentationPreprocessingConfig({}),
     typical: normalizeSegmentationPreprocessingConfig({ mode: "original", median: true, claheClip: 2 }),
     heavy: normalizeSegmentationPreprocessingConfig({ mode: "original", flattenSigma: 200, diffusionIterations: 20 })
   }));
@@ -180,6 +219,7 @@ function writeBenchInputs() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   console.log(`preprocess cases: ${writePreprocess()}`);
+  console.log(`view cases: ${writeView()}`);
   console.log(`refine cases: ${writeRefine()}`);
   if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);
 }

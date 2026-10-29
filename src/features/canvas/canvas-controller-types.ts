@@ -221,6 +221,13 @@ export interface CanvasController {
   getEdgeSamStatus?(): EdgeSamStatus;
   getSegmentationPreprocessingConfig?(): SegmentationPreprocessingConfig;
   setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
+  /**
+   * Desktop app: computes the Processed view for the current config merged with `config` in Rust, off the UI
+   * thread, so the following synchronous view/config call finds it ready. Null when there is nothing to wait
+   * for (no native bridge, no image, already cached): callers then stay synchronous. Resolves false when native
+   * work did not produce the image (colour-keeping config, native error): the synchronous call then uses TS.
+   */
+  prepareSegmentationProcessedImage?(config?: Partial<SegmentationPreprocessingConfig>): Promise<boolean> | null;
   setSegmentationPreprocessingSource?(source: "original" | "sr-roi"): boolean;
   getSegmentationPreprocessingSource?(): "original" | "sr-roi";
   /** Sets whether Processed uses the AI ROI and in which order the two steps run; may run AI first. */

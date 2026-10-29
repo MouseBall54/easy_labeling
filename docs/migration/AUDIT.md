@@ -49,7 +49,7 @@
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | 0) 기반 정비 | **완료 (2026-10-29, `rust-migration` 브랜치, 미커밋)** | 아래 목록 참고 |
-| 1) Processed 보기 전처리 네이티브 | 대기 | 근거 측정 완료: TS 359ms~5.0s(메인 스레드) vs Rust 65ms~0.94s ([BENCH.md](BENCH.md)) |
+| 1) Processed 보기 전처리 네이티브 | **완료 (2026-10-29, 미커밋, v2.22.0)** | 4096×3072 무거운 설정에서 UI 정지 5.8s → 최대 0.2s. 결과는 TS와 바이트 단위로 동일. SharedBuffer 전송(D-006), 비동기 준비 단계(D-007) |
 | 2) 폴더 Review 네이티브 | 대기 | |
 | 3) TIFF 8bit gray 디코드 네이티브 | 대기 | |
 
@@ -72,6 +72,24 @@
   - `verify` 스킬에 Rust 단계를 추가했다.
   - 훅: `rust-fmt.mjs`를 추가했고, `target/` 편집을 차단하며, 버전 알림이 Rust 경로도 보게 했다.
   - 킷의 `migration-audit` 스킬은 이 문서로 대체했다. `tauri-shell` 스킬은 Electron 정리 단계에서 필요할 때 넣는다.
+
+1단계에서 한 일:
+- el-core에 `rgba_luma`(JS `toGrayscale`와 같은 f64 연산 순서)를 추가했다.
+- Tauri command를 추가했다: `preprocess_view_load`, `preprocess_view_run`, `preprocess_view_run_shared`, `shared_buffer_open`.
+- TS:
+  - `src/features/segmentation/native-preprocessing.ts`: 브리지. 이미지당 1회 업로드하고, 공유 버퍼가 실패하면 raw로, 네이티브가 실패하면 TS로 돌아간다.
+  - 워크플로의 `prepareSegmentationProcessedImage`.
+  - 이벤트 핸들러: Q, Processed 버튼, 설정 적용.
+- 동등성:
+  - 골든 `golden_view`: 10건 바이트 동일.
+  - CLI parity `processed view`: 11건 바이트 동일.
+  - 앱 e2e: 4096×3072 화면 출력의 SHA-256이 TS 결과와 같다.
+- 테스트:
+  - 브리지 단위 8개.
+  - 워크플로 통합 1개.
+  - Q 경합 1개(대기 중 두 번 누르면 마지막 요청만 반영, 네이티브가 없으면 동기 유지).
+  - 데스크톱 e2e 1개.
+- 부수 효과: refine 이미지 업로드도 공유 버퍼로 옮겼다. raw 업로드는 12.6MB에 약 0.65s였다. 공유 버퍼로 바꾼 뒤의 refine 업로드는 직접 재지 않았고, 같은 경로의 50MB 측정이 0.13s다. 네이티브와 JS refine이 일치하는지는 데스크톱 e2e로 확인했다.
 
 ## 핫스팟 (예상 영향 큰 순)
 

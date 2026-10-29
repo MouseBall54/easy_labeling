@@ -28,6 +28,10 @@ declare global {
     /** Desktop (Tauri) only: calls a Rust command; raw byte bodies pass headers alongside. */
     easyLabelingNative?: {
       invoke<T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }): Promise<T>;
+      /** Copies bytes into WebView2 shared memory; pass the id as a command's `x-shared-buffer` header. */
+      upload?(bytes: Uint8Array): Promise<number>;
+      /** Runs a command answering with a shared-buffer id; `use` reads the bytes before they are released. */
+      download?<T>(command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => T): Promise<T>;
     };
   }
 
