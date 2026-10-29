@@ -147,3 +147,36 @@ fn golden_js_semantics() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[derive(serde::Deserialize)]
+struct TiffCase {
+    file: String,
+    native: bool,
+    width: Option<u32>,
+    height: Option<u32>,
+    expected: Option<String>,
+}
+
+/// Natively decoded TIFF pixels equal tiff.js's, byte for byte; files outside the native scope
+/// are left to tiff.js (decode_gray8 returns None).
+#[test]
+fn golden_tiff() {
+    let cases: Vec<TiffCase> = read_json("tiff/cases.json");
+    let mut failures = Vec::new();
+    for case in &cases {
+        let decoded = el_core::tiff_gray::decode_gray8(std::io::Cursor::new(read_bytes(&format!("tiff/{}", case.file))));
+        match (case.native, decoded) {
+            (true, Some(image)) => {
+                let expected = read_bytes(&format!("tiff/{}", case.expected.as_deref().expect("native cases have pixels")));
+                if (Some(image.width), Some(image.height)) != (case.width, case.height) || image.pixels != expected {
+                    let first = image.pixels.iter().zip(&expected).position(|(a, e)| a != e);
+                    failures.push(format!("{}: {}x{}, first differing pixel {first:?}", case.file, image.width, image.height));
+                }
+            }
+            (true, None) => failures.push(format!("{}: expected a native decode, got the tiff.js fallback", case.file)),
+            (false, Some(_)) => failures.push(format!("{}: expected the tiff.js fallback, got a native decode", case.file)),
+            (false, None) => {}
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

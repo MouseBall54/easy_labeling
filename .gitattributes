@@ -5,3 +5,6 @@ assets/models/yoloe26/**/*.data binary -filter
 # Raw pixel fixtures for the Rust golden tests (no line-ending conversion).
 *.f32 binary
 *.u8 binary
+*.gray binary
+*.tif binary
+*.tiff binary

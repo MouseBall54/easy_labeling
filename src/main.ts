@@ -42,6 +42,8 @@ interface TestApi {
   getReviewFindings(): Record<string, unknown>;
   /** Per-image label/mask status behind the image list (box counts included). */
   getImageWorkflowStatuses(): Record<string, unknown>;
+  /** Decodes an image of the open folder with the app's decoder (as automation and image loading do). */
+  decodeImageForTest(name: string): Promise<HTMLImageElement>;
   getActiveSelectionBounds(): {
     left: number;
     top: number;
@@ -225,6 +227,11 @@ function bootstrapBrowserRuntime(): void {
     refreshReviewFindings: () => (appResult.app.fileSystem as RuntimeFileSystem).refreshReviewFindings(),
     getReviewFindings: () => Object.fromEntries(appResult.app.state.session.reviewFindings),
     getImageWorkflowStatuses: () => Object.fromEntries(appResult.app.state.session.imageWorkflowStatus),
+    decodeImageForTest: async (name: string) => {
+      const handle = appResult.app.state.session.imageFiles.find((file) => file.name === name);
+      if (!handle) throw new Error(`No image named ${name}`);
+      return (appResult.app.fileSystem as RuntimeFileSystem).decodeImageForAutomation(handle as unknown as Parameters<RuntimeFileSystem["decodeImageForAutomation"]>[0]);
+    },
     getReviewSummary: () => {
       const imageName = appResult.app.state.session.currentImageFile?.name;
       return {

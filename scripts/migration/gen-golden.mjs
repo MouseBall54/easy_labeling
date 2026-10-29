@@ -2,7 +2,8 @@
 // Run after `npm run build`: node scripts/migration/gen-golden.mjs
 // Small fixtures go to crates/el-bench/fixtures/<module>/ (committed); --bench also writes the
 // SEM-sized benchmark inputs to crates/el-bench/fixtures/generated/ (git-ignored).
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage } from "../../dist/features/segmentation/preprocessing.js";
@@ -215,6 +216,52 @@ function writeReview() {
   return cases.length;
 }
 
+/** tiff.js (the app's TIFF decoder) loaded in Node; readRGBAImage is what toCanvas draws. */
+function loadTiffJs() {
+  const shim = { exports: {} };
+  const source = readFileSync(path.join(root, "node_modules/tiff.js/tiff.min.js"), "utf8");
+  new Function("module", "exports", "require", "process", source)(shim, shim.exports, createRequire(import.meta.url), process);
+  const Tiff = shim.exports.Tiff ?? shim.exports;
+  Tiff.initialize?.({ TOTAL_MEMORY: 64 * 1024 * 1024 });
+  return Tiff;
+}
+
+/**
+ * Expected pixels of the TIFF inputs in fixtures/tiff/ (written by make-tiff-fixtures.py): tiff.js output,
+ * stored as one gray byte per pixel when it is gray (R = G = B, opaque).
+ */
+function writeTiff() {
+  const dir = path.join(fixtures, "tiff");
+  const Tiff = loadTiffJs();
+  const inputs = JSON.parse(readFileSync(path.join(dir, "inputs.json"), "utf8"));
+  const cases = inputs.map((input) => {
+    const bytes = readFileSync(path.join(dir, input.file));
+    let tiff = null;
+    try {
+      tiff = new Tiff({ buffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) });
+      const [width, height] = [tiff.width(), tiff.height()];
+      const rgba = new Uint8Array(tiff.readRGBAImage());
+      const gray = new Uint8Array(width * height);
+      let isGray = true;
+      for (let index = 0; index < gray.length; index += 1) {
+        const [r, g, b, a] = rgba.subarray(index * 4, index * 4 + 4);
+        isGray &&= r === g && g === b && a === 255;
+        gray[index] = r;
+      }
+      const expected = isGray ? input.file.replace(/\.tif$/, ".gray") : null;
+      if (expected) writeFileSync(path.join(dir, expected), gray);
+      return { ...input, width, height, tiffjs: isGray ? "gray" : "colour", expected };
+    } catch (error) {
+      // tiff.js throws Tiff.Exception objects with a `message` field.
+      return { ...input, tiffjs: `error: ${error?.message ?? String(error)}`, expected: null };
+    } finally {
+      tiff?.close?.();
+    }
+  });
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases, null, 1));
+  return cases.length;
+}
+
 function writeRefine() {
   const dir = path.join(fixtures, "refine");
   mkdirSync(dir, { recursive: true });
@@ -309,5 +356,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`view cases: ${writeView()}`);
   console.log(`review cases: ${writeReview()}`);
   console.log(`refine cases: ${writeRefine()}`);
+  console.log(`tiff cases: ${writeTiff()}`);
   if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);
 }

@@ -63,6 +63,28 @@
 
 중간 결과(2026-10-30): 라벨 박스 수 스캔(`refreshImageWorkflowStatus`)이 TS로 남아 있었을 때 네이티브 Review는 913~1,040ms였다. 대부분이 TXT를 IPC로 다시 읽는 시간이었다. 스캔을 Rust로 옮긴 뒤 323~351ms가 됐다.
 
+### 3단계: TIFF 8bit gray 디코드 (2026-10-30)
+
+앱의 실제 디코더(`decodeImageForAutomation`)로 쟀다. 같은 앱에서 네이티브로 한 번, `easyLabelingNativeOff = ["tiff"]`로 tiff.js 경로를 한 번 돌렸고, 3회 중앙값이다. UI는 그 사이 가장 긴 long task다.
+
+| 입력 | tiff.js (TS 경로) | 네이티브 | 배수 |
+|---|---|---|---:|
+| 2048×1536 무압축 | 279ms (UI 0) | 90ms (UI 0) | 3.1x |
+| 2048×1536 LZW | 450ms (UI 104) | 94ms (UI 0) | 4.8x |
+| 2048×1536 LZW + predictor | 407ms (UI 149) | 91ms (UI 0) | 4.5x |
+| 2048×1536 Deflate | 474ms (UI 191) | 59ms (UI 0) | 8.0x |
+| 2048×1536 PackBits | 336ms (UI 52) | 93ms (UI 0) | 3.6x |
+| 4096×3072 무압축 | 1,270ms (UI 211) | 184ms (UI 0) | 6.9x |
+| 4096×3072 LZW | 1,462ms (UI 502) | 340ms (UI 0) | 4.3x |
+| 4096×3072 LZW + predictor | 1,685ms (UI 538) | 323ms (UI 0) | 5.2x |
+| 4096×3072 Deflate | 1,387ms (UI 388) | 247ms (UI 0) | 5.6x |
+| 4096×3072 PackBits | 1,396ms (UI 237) | 206ms (UI 0) | 6.8x |
+
+- 입력: PIL로 만든 SEM 형태 합성 이미지(노이즈가 많아 압축률은 낮다)이고, 픽셀은 모두 같다.
+- 데스크톱 e2e(`tauri-desktop.spec.ts`)의 무압축 측정값: 2048은 39~42ms 대 302~362ms, 4096은 129~159ms 대 1,189~1,242ms.
+- 기준값 분해(TS 경로, 4096 무압축): 파일 읽기 IPC 241ms + tiff.js 88ms + PNG 재인코드 635ms + img 디코드 258ms. 네이티브는 읽기와 PNG 단계를 없애고, 디코드를 UI 스레드 밖에서 한다.
+- 영향: 폴더 Review의 TS 경로 측정값도 바뀌었다(60장 TIFF 26초 → 14.5초). 이 측정은 review·label-scan만 끄기 때문에, 크기 확인 디코드에 이제 네이티브 TIFF가 쓰인다. 2단계 표의 TS 값은 3단계 이전 기준이다.
+
 측정 조건 (2026-10-29):
 - 장비: i5-8600K 6코어/6스레드, Windows 10.
 - 측정 중 다른 프로세스의 CPU 사용 약 20~30%(svchost, docker 등)가 있었다. 절대값은 그만큼 보수적이고, TS와 Rust는 같은 조건에서 연달아 쟀다.

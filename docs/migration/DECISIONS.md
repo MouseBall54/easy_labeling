@@ -103,6 +103,23 @@
   - Rust 순수 로직은 el-core 모듈(파일 I/O 허용, Tauri 의존 없음)에 두고, src-tauri에는 얇은 command만 기능별 파일로 둔다.
 - 근거: Tauri `Channel`은 `@tauri-apps/api` 없이 쓰려면 내부 직렬화 형식에 의존해야 해서, 진행률은 조회 방식으로 받는다.
 
+### D-010 TIFF 8bit gray 디코드 (3단계)
+- 상태: 승인 (2026-10-30, 사용자 선택)
+- 범위:
+  - 첫 페이지가 8bit 회색(MinIsBlack/MinIsWhite) 1채널, 부호 없는 정수, Orientation이 없거나 1인 파일.
+  - 압축: 무압축·LZW(predictor 포함)·Deflate·PackBits, strip과 tile 모두.
+  - 그 밖(RGB, 16bit, JPEG 압축, 팔레트, 알파, 회전 태그, 손상 파일)은 지금처럼 tiff.js가 처리한다.
+- 디코더: `tiff` 크레이트 0.11(MIT, image-rs), `deflate`·`lzw` 기능만 켠다.
+- 전달 방식:
+  - Rust가 파일을 직접 읽어(`pathOf`) 디코드하고, 8bit 회색 팔레트 BMP로 감싸 공유 버퍼로 넘긴다.
+  - 페이지는 지금처럼 `<img>`로 디코드하므로 HTMLImageElement 계약과 소비처는 그대로다.
+  - 이것으로 파일 읽기 IPC와 PNG 재인코드가 사라진다.
+- 정답: tiff.js(`TIFFReadRGBAImageOriented`, 앱의 `toCanvas`와 같은 함수)를 Node에서 돌린 결과다. 화면 픽셀은 앱 e2e에서 tiff.js 경로와 바이트 단위로 비교한다.
+- 보류: 디코드한 픽셀을 Rust에 남겨 Processed 보기·refine 업로드를 생략하는 일은 다음 단계에서 측정 후 결정한다.
+- 기준값 (Tauri 앱, TS 경로, 3회 중앙값):
+  - 2048×1536: 읽기 48~106ms + 디코드 235~323ms. 이 중 PNG 재인코드가 120~231ms다.
+  - 4096×3072: 읽기 204~305ms + 디코드 870~1,145ms. 이 중 PNG 재인코드가 542~635ms다.
+
 ### D-005 이식 순서와 데이터 포맷
 - 상태: 승인 (2026-10-29, 사용자 선택)
 - 실제 데이터: TIFF 8bit gray, JPG/PNG. 16bit TIFF는 대상이 아니다.

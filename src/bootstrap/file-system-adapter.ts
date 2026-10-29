@@ -382,7 +382,8 @@ export function createFileSystemAdapter(input: {
     const file = await fileHandle.getFile();
     const cached = imageDimensions.get(fileHandle);
     if (cached && cached.size === file.size && cached.lastModified === file.lastModified) return cached;
-    const image = await decodeImage({
+    // TIFFs keep their own handle, so the desktop app can decode them natively from its path.
+    const image = await decodeImage(/\.(tif|tiff)$/i.test(fileHandle.name) ? fileHandle : {
       kind: "file",
       name: fileHandle.name,
       getFile: async () => file,

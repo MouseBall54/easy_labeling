@@ -5,6 +5,7 @@ mod jobs;
 mod native;
 mod review;
 mod shared_buffer;
+mod tiff_image;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -545,6 +546,8 @@ fn main() {
             jobs::job_cancel,
             review::review_folder,
             review::label_row_counts,
+            tiff_image::tiff_bmp,
+            tiff_image::tiff_bmp_shared,
             native::preprocess_view_run,
             native::preprocess_view_run_shared
         ])

@@ -51,7 +51,7 @@
 | 0) 기반 정비 | **완료 (2026-10-29, `rust-migration` 브랜치, 미커밋)** | 아래 목록 참고 |
 | 1) Processed 보기 전처리 네이티브 | **완료 (2026-10-29, 미커밋, v2.22.0)** | 4096×3072 무거운 설정에서 UI 정지 5.8s → 최대 0.2s. 결과는 TS와 바이트 단위로 동일. SharedBuffer 전송(D-006), 비동기 준비 단계(D-007) |
 | 2) 폴더 Review 네이티브 | **완료 (2026-10-30, 미커밋, v2.23.0)** | 60장 × 5,000박스 TIFF: 26~28초 → 0.35초. 결과·이미지 상태가 TS와 동일. 라벨 박스 수 스캔도 네이티브(D-008). 확장 구조 정리(D-009) |
-| 3) TIFF 8bit gray 디코드 네이티브 | 대기 | |
+| 3) TIFF 8bit gray 디코드 네이티브 | **완료 (2026-10-30, 미커밋, v2.24.0)** | 4096×3072 TIFF 열기: 1.27~1.69초 → 0.18~0.34초, UI 정지 0. 픽셀은 tiff.js와 바이트 단위로 동일(D-010) |
 
 0단계에서 한 일:
 - 크레이트 구조: `src-tauri/compute` → `crates/el-core`(패키지 `el-core`). 루트 워크스페이스(`Cargo.toml`, `Cargo.lock`)로 바꿨고 빌드 출력은 루트 `target/`이다. 바뀐 경로를 반영했다(parity 테스트, e2e 3개, 릴리스 스크립트, README, AGENTS.md, `.gitignore`, vite watch).
@@ -113,6 +113,20 @@
   - Rust: 단위 8개, jobs 1개.
   - TS: 브리지 단위 5개.
   - 데스크톱 e2e 3개(동등성, TIFF·PNG 성능, 앱 안 취소).
+
+3단계에서 한 일:
+- el-core:
+  - `tiff_gray.rs`: `tiff` 크레이트, 8bit gray 범위 판정.
+  - `bmp.rs`: 8bit 회색 팔레트 BMP.
+- src-tauri `tiff_image.rs`: `tiff_bmp`, `tiff_bmp_shared` command. 범위 밖 파일이면 `NOT_NATIVE`를 돌려준다.
+- TS:
+  - `src/features/images/native-tiff.ts`
+  - `image-decoder.ts`가 tiff.js보다 먼저 네이티브를 시도한다.
+  - `readImageDimensions`가 TIFF는 원래 핸들을 넘긴다.
+- 동등성:
+  - 골든 `golden_tiff` 14건: 압축 5종, strip, tile, WhiteIsZero, 두 페이지, 그리고 tiff.js로 넘겨야 할 5종. 정답은 Node에서 돌린 tiff.js 결과다(`scripts/migration/make-tiff-fixtures.py`가 입력을 만든다).
+  - 일부러 구현을 틀리게 바꿔 골든이 실패하는 것을 확인했다.
+  - 앱 e2e: 15개 파일에서 네이티브와 tiff.js의 화면 픽셀 해시가 같고, 네이티브는 예상한 파일에서만 쓰였다.
 
 ## 핫스팟 (예상 영향 큰 순)
 

@@ -390,3 +390,89 @@ for (const format of ["tif", "png"] as const) {
     }
   });
 }
+
+test("Tauri decodes 8-bit gray TIFFs natively with the pixels tiff.js shows", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "tiff");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  // The golden inputs (every compression, strips, tiles, WhiteIsZero, pages, and files left to tiff.js)
+  // plus SEM-sized uncompressed scans; the damaged file stays in the Rust golden test.
+  const fixtures = path.join(root, "crates/el-bench/fixtures/tiff");
+  const inputs = (JSON.parse(await readFile(path.join(fixtures, "inputs.json"), "utf8")) as Array<{ file: string; native: boolean }>)
+    .filter((input) => input.file !== "truncated.tif");
+  for (const input of inputs) await copyFile(path.join(fixtures, input.file), path.join(dataset, input.file));
+  await writeFile(path.join(dataset, "sem-2048.tif"), grayTiff(2048, 1536));
+  await writeFile(path.join(dataset, "sem-4096.tif"), grayTiff(4096, 3072));
+  const files = [...inputs, { file: "sem-2048.tif", native: true }, { file: "sem-4096.tif", native: true }];
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).not.toBe("");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+
+    const results = await page.evaluate(async (names) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      // Count native TIFF decodes (successful ones; Rust declines files outside its scope) through a stand-in bridge.
+      const bridge = window.easyLabelingNative!;
+      let nativeDecodes = 0;
+      window.easyLabelingNative = {
+        ...bridge,
+        download: async (command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => unknown) => {
+          const result = await bridge.download!(command, args, use as never);
+          if (command === "tiff_bmp_shared") nativeDecodes += 1;
+          return result;
+        }
+      } as typeof bridge;
+      const decode = async (name: string) => {
+        const before = nativeDecodes;
+        const times: number[] = [];
+        let image: HTMLImageElement | null = null;
+        for (let run = 0; run < (name.startsWith("sem-") ? 3 : 1); run += 1) {
+          const started = performance.now();
+          image = await api.decodeImageForTest(name);
+          times.push(performance.now() - started);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = image!.naturalWidth;
+        canvas.height = image!.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(image!, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(pixels)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+        return { size: `${canvas.width}x${canvas.height}`, digest, native: nativeDecodes > before, ms: times.sort((a, b) => a - b)[Math.floor(times.length / 2)]! };
+      };
+      try {
+        const out = [];
+        for (const name of names) {
+          window.easyLabelingNativeOff = [];
+          const native = await decode(name);
+          window.easyLabelingNativeOff = ["tiff"];
+          const tiffJs = await decode(name);
+          out.push({ name, native, tiffJs });
+        }
+        return out;
+      } finally {
+        window.easyLabelingNativeOff = [];
+        window.easyLabelingNative = bridge;
+      }
+    }, files.map((file) => file.file));
+
+    for (const [index, result] of results.entries()) {
+      expect.soft(result.native.native, `${result.name} decoded natively`).toBe(files[index]!.native);
+      expect.soft(result.tiffJs.native, `${result.name} with the switch off`).toBe(false);
+      expect.soft(result.native.size, result.name).toBe(result.tiffJs.size);
+      expect.soft(result.native.digest, `${result.name} pixels`).toBe(result.tiffJs.digest);
+    }
+    for (const result of results.filter((entry) => entry.name.startsWith("sem-"))) {
+      console.log(`${result.name}: native ${result.native.ms.toFixed(0)} ms, tiff.js ${result.tiffJs.ms.toFixed(0)} ms`);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});

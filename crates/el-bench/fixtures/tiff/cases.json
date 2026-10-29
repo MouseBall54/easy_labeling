@@ -1,0 +1,126 @@
+[
+ {
+  "file": "pil-none.tif",
+  "native": true,
+  "note": "Pillow, raw",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "pil-none.gray"
+ },
+ {
+  "file": "pil-lzw.tif",
+  "native": true,
+  "note": "Pillow, tiff_lzw",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "pil-lzw.gray"
+ },
+ {
+  "file": "pil-lzw-predictor.tif",
+  "native": true,
+  "note": "Pillow, tiff_lzw",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "pil-lzw-predictor.gray"
+ },
+ {
+  "file": "pil-deflate.tif",
+  "native": true,
+  "note": "Pillow, tiff_adobe_deflate",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "pil-deflate.gray"
+ },
+ {
+  "file": "pil-packbits.tif",
+  "native": true,
+  "note": "Pillow, packbits",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "pil-packbits.gray"
+ },
+ {
+  "file": "strips-5-rows.tif",
+  "native": true,
+  "note": "uncompressed, 5 rows per strip (last strip short)",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "strips-5-rows.gray"
+ },
+ {
+  "file": "tiles-16.tif",
+  "native": true,
+  "note": "uncompressed 16x16 tiles, partial edge tiles",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "tiles-16.gray"
+ },
+ {
+  "file": "min-is-white.tif",
+  "native": true,
+  "note": "photometric WhiteIsZero (shown inverted)",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "min-is-white.gray"
+ },
+ {
+  "file": "two-pages.tif",
+  "native": true,
+  "note": "first page is shown",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "two-pages.gray"
+ },
+ {
+  "file": "orientation-3.tif",
+  "native": false,
+  "note": "rotated: tiff.js flips it, left to tiff.js",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "orientation-3.gray"
+ },
+ {
+  "file": "rgb.tif",
+  "native": false,
+  "note": "RGB, left to tiff.js",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "colour",
+  "expected": null
+ },
+ {
+  "file": "gray16.tif",
+  "native": false,
+  "note": "16-bit, left to tiff.js",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "gray",
+  "expected": "gray16.gray"
+ },
+ {
+  "file": "gray-alpha.tif",
+  "native": false,
+  "note": "gray + alpha, left to tiff.js",
+  "width": 37,
+  "height": 23,
+  "tiffjs": "colour",
+  "expected": null
+ },
+ {
+  "file": "truncated.tif",
+  "native": false,
+  "note": "damaged file, left to tiff.js",
+  "tiffjs": "error: The function TIFFOpen returns NULL",
+  "expected": null
+ }
+]

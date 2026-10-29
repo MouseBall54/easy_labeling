@@ -6,7 +6,7 @@ TS 구현의 출력을 정답으로 저장한 데이터입니다. Rust(`crates/e
 
 ```bash
 npm run build                                # dist/ 의 TS 구현을 쓴다
-node scripts/migration/gen-golden.mjs        # preprocess/, view/, review/, refine/ (커밋 대상)
+node scripts/migration/gen-golden.mjs        # preprocess/, view/, review/, refine/, tiff/ 정답 (커밋 대상)
 node scripts/migration/gen-golden.mjs --bench   # generated/ 벤치 입력 (커밋 안 함, 약 30MB)
 ```
 
@@ -24,7 +24,8 @@ node scripts/migration/gen-golden.mjs --bench   # generated/ 벤치 입력 (커�
 | `preprocess/` | `preprocessGray`: 96×72 합성 이미지에 설정 13종, 1×23·23×1·1×1 경계 이미지에 2종. 입력과 출력은 f32 LE(`Float32Array` 그대로) | 픽셀별 \|차이\| ≤ 1e-3 (`compute-parity.test.ts`와 같음) |
 | `view/` | Processed 보기(`preprocessSegmentationImage`의 gray 경로): 96×72 컬러(알파 섞임)·회색 RGBA 입력에 설정 5종. 입력과 출력은 RGBA u8 | Rust의 luma → 전처리 → 바이트 출력이 TS 출력의 gray 채널과 **바이트 단위로 동일** |
 | `review/` | `inspectDetectionLabels`: 600박스 조밀 텍스트 2종, 이상한 필드·공백(BOM, NBSP, NEL, 탭, CR, `0.5abc`, `Infinity`, `0x10` 등), 임계값 0·1, 1×1 이미지, 빈 텍스트 등 9건과 각 텍스트의 행 수(`parseYoloRows(text,1,1).length`). `js.json`은 `parseFloat` 32건과 `Number#toString` 20건의 JS 결과(f64 비트) | 결과 JSON과 행 수가 **완전히 동일**. JS 숫자는 비트 단위 |
+| `tiff/` | 입력은 `scripts/migration/make-tiff-fixtures.py`로 만든 37×23 TIFF 14개다(커밋 대상, 다시 만들 때만 Python과 Pillow가 필요). 압축 5종, strip, tile, WhiteIsZero, 두 페이지, 그리고 tiff.js로 넘겨야 할 회전·RGB·16bit·알파·손상 파일. 정답 `.gray`는 Node에서 돌린 tiff.js의 `readRGBAImage` 결과다 | 네이티브 대상은 픽셀이 **바이트 단위로 동일**, 대상이 아닌 파일은 Rust가 None을 반환 |
 | `refine/` | `refineBoxes`: 203×151에 15박스 × 파라미터 13종, 빈 입력, 경계 케이스(이미지 밖·경계 걸침·폭 0·1px·파라미터 없는 클래스), 384×288에 576박스 × 2종. 이미지는 u8 gray, 결과는 `cases.json`의 `expected` | JSON 구조·키·문자열·불리언은 동일, 숫자는 \|차이\| < 0.5e-9 (`toBeCloseTo(x, 9)`) |
 | `generated/` | 벤치 입력: 2048×1536과 4096×3072 이미지, 박스 500·1000개 | 벤치 전용 |
 
-`*.f32`, `*.u8`은 `.gitattributes`에서 binary로 지정했습니다. 줄바꿈 변환이 픽셀 바이트를 바꾸지 않게 하기 위해서입니다.
+`*.f32`, `*.u8`, `*.gray`, `*.tif`는 `.gitattributes`에서 binary로 지정했습니다. 줄바꿈 변환이 픽셀 바이트를 바꾸지 않게 하기 위해서입니다.

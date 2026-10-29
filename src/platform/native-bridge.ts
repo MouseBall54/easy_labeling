@@ -4,7 +4,7 @@
  * sends that feature down its TS path). Every native feature keeps a working TS path: the web build has
  * no Rust, so callers fall back to it whenever this returns null or a call fails.
  */
-export type NativeFeature = "preprocessing" | "refine" | "review" | "label-scan";
+export type NativeFeature = "preprocessing" | "refine" | "review" | "label-scan" | "tiff";
 
 export interface NativeJobOptions {
   onProgress?(done: number, total: number): void;
