@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage } from "../../dist/features/segmentation/preprocessing.js";
 import { normalizeRefineParams, refineBoxes } from "../../dist/domain/refine/edge-refine.js";
+import { inspectDetectionLabels } from "../../dist/features/review/quality.js";
+import { parseYoloRows } from "../../dist/domain/yolo/yolo.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtures = path.join(root, "crates/el-bench/fixtures");
@@ -129,6 +131,90 @@ function writeView() {
   return cases.length;
 }
 
+const float64Hex = (value) => {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  return view.getBigUint64(0).toString(16).padStart(16, "0");
+};
+
+/** Dense YOLO text in the app's 15-decimal format with near duplicates, small boxes and one box past the edge. */
+export function denseYolo(count, seed) {
+  const random = seeded(seed);
+  const columns = Math.ceil(Math.sqrt(count));
+  const lines = [];
+  for (let index = 0; index < count; index += 1) {
+    const cx = ((index % columns) + 0.5 + (random() - 0.5) * 0.2) / columns;
+    const cy = (Math.floor(index / columns) + 0.5 + (random() - 0.5) * 0.2) / columns;
+    const size = index % 97 === 0 ? 0.0004 : 0.5 / columns;
+    lines.push(`${index % 3} ${cx.toFixed(15)} ${cy.toFixed(15)} ${size.toFixed(15)} ${size.toFixed(15)}`);
+    if (index % 53 === 0) lines.push(`${index % 3} ${(cx + 0.00001).toFixed(15)} ${cy.toFixed(15)} ${size.toFixed(15)} ${size.toFixed(15)}`);
+  }
+  lines.push("1 0.999000000000000 0.500000000000000 0.010000000000000 0.010000000000000");
+  return `${lines.join("\n")}\n`;
+}
+
+/** inspectDetectionLabels on dense and malformed label text, plus the JS number semantics it relies on. */
+function writeReview() {
+  const dir = path.join(fixtures, "review");
+  mkdirSync(dir, { recursive: true });
+  const defaults = { minimumBoxSizePx: 4, duplicateIouThreshold: 0.9, requiredClassIds: [] };
+  const messy = [
+    "\uFEFF0 0.5 0.5 0.1 0.1",
+    "0  0.5 0.5 0.1 0.1",
+    "0\t0.5 0.5 0.1 0.1",
+    "1 0.5abc 0.5 0.1 0.1\r",
+    "2 .5 .5 .1 .1",
+    "3 1e-1 5E-1 1e0 1e0",
+    "4 Infinity 0.5 0.1 0.1",
+    "5 NaN 0.5 0.1 0.1",
+    "6 0.5 0.5",
+    "7",
+    "8 -0.1 0.5 0.1 0.1",
+    "9 0.5 0.5 -0.1 0.1",
+    "10 0.5 0.5 0 0",
+    "\u00A0 11 0.5 0.5 0.1 0.1",
+    "12\u0085 0.5 0.5 0.1 0.1",
+    "x 0x10 0.5 0.1 0.1",
+    "\uD55C\uAE00 0.5 0.5 0.1 0.1",
+    "13 0.5 0.5 0.1 0.1 extra fields",
+    "  ",
+    "\r",
+    "0 0.5 0.5 0.1 0.1",
+    "0 +0.5 0.50 1e-1 0.1e0"
+  ].join("\n");
+  const tiny = ["0 0.1 0.1 0.05 0.05", "0 0.9 0.9 0.05 0.05", "1 0.5 0.5 0.2 0.2", "0 NaN 0.5 0.1 0.1", "0 0.1 0.1 0.05 0.05"].join("\n");
+  const cases = [
+    ["dense-600-defaults", denseYolo(600, 1), 2048, 1536, defaults],
+    ["dense-600-required-fractional-min", denseYolo(600, 2), 2048, 1536, { minimumBoxSizePx: 2.5, duplicateIouThreshold: 0.5, requiredClassIds: ["0", "5", "12"] }],
+    ["messy-fields", messy, 640, 480, { minimumBoxSizePx: 1e21, duplicateIouThreshold: 0.9, requiredClassIds: ["7", "13", "99"] }],
+    ["threshold-zero", tiny, 100, 100, { minimumBoxSizePx: 1, duplicateIouThreshold: 0, requiredClassIds: [] }],
+    ["threshold-one", tiny, 100, 100, { minimumBoxSizePx: 1, duplicateIouThreshold: 1, requiredClassIds: ["1"] }],
+    ["one-pixel-image", tiny, 1, 1, defaults],
+    ["empty", "", 1, 1, defaults],
+    ["blank-lines", "\n \r\n\t\n\uFEFF\n", 1, 1, { ...defaults, requiredClassIds: ["0"] }],
+    ["crlf", "0 0.5 0.5 0.1 0.1\r\n0 0.5 0.5 0.1 0.1\r\n", 300, 200, defaults]
+  ].map(([name, text, width, height, settings]) => ({
+    name,
+    text,
+    width,
+    height,
+    settings,
+    expected: inspectDetectionLabels({ yoloText: text, imageWidth: width, imageHeight: height, settings }),
+    // The label count the image list shows (refreshImageWorkflowStatus).
+    rows: parseYoloRows(text, 1, 1).length
+  }));
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
+  const floats = ["0.5", "  \uFEFF\u00A01.25abc", "5.", ".5", "-.5e1x", "1e", "1e+", "2E-1", "+Infinityx", "-Infinity", "1e400", "0x10", "1_000", "007", "", ".", "-", "abc",
+    "undefined", "\u00851", "e5", "+.e1", "-0", "0.000000000000000000001", "123456789012345678901234567890", "4.9e-324", "2.2250738585072011e-308", "0.1000000000000000055511151231257827",
+    "\u20281", "\u30001.5", "\u180E1", "1.7976931348623159e308"];
+  const numbers = [4, 2.5, 0.1 + 0.2, 1e21, 123456789012345680000, 1.5e-7, 0.000001, 1e-7, -0, -12.5, 5e-324, Number.MAX_VALUE, 100, Infinity, -Infinity, NaN, 1 / 3, 1e20, 1.25e-6, 9007199254740993];
+  writeFileSync(path.join(dir, "js.json"), JSON.stringify({
+    parseFloat: floats.map((input) => ({ input, bits: float64Hex(parseFloat(input)) })),
+    numberToString: numbers.map((value) => ({ bits: float64Hex(value), text: String(value) }))
+  }, null, 1));
+  return cases.length;
+}
+
 function writeRefine() {
   const dir = path.join(fixtures, "refine");
   mkdirSync(dir, { recursive: true });
@@ -208,6 +294,7 @@ function writeBenchInputs() {
   writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 1));
   // Normalized settings shared by the Rust and TS benches: default refine params for classes 0/1, and the
   // Processed-view configs (a typical one and the heavy one from the audit's preprocess-view scenario).
+  writeFileSync(path.join(dir, "review-5000.txt"), denseYolo(5000, 1));
   writeFileSync(path.join(dir, "refine-params.json"), JSON.stringify({ 0: normalizeRefineParams({}), 1: normalizeRefineParams({ crit: "thr" }) }));
   writeFileSync(path.join(dir, "preprocess-configs.json"), JSON.stringify({
     default: normalizeSegmentationPreprocessingConfig({}),
@@ -220,6 +307,7 @@ function writeBenchInputs() {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   console.log(`preprocess cases: ${writePreprocess()}`);
   console.log(`view cases: ${writeView()}`);
+  console.log(`review cases: ${writeReview()}`);
   console.log(`refine cases: ${writeRefine()}`);
   if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);
 }

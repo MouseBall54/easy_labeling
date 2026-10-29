@@ -1,7 +1,9 @@
 // Tauri shell for Easy Labeling: the Rust counterpart of electron/main.cjs + preload.cjs.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod jobs;
 mod native;
+mod review;
 mod shared_buffer;
 
 use serde::{Deserialize, Serialize};
@@ -539,6 +541,10 @@ fn main() {
             native::refine_crop,
             native::preprocess_view_load,
             shared_buffer::shared_buffer_open,
+            jobs::job_progress,
+            jobs::job_cancel,
+            review::review_folder,
+            review::label_row_counts,
             native::preprocess_view_run,
             native::preprocess_view_run_shared
         ])

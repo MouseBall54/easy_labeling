@@ -109,3 +109,41 @@ fn golden_view() {
     }
     assert!(failures.is_empty(), "{} of {} view cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+
+/// Review findings must equal the TS output exactly (strings, order, numbers).
+#[test]
+fn golden_review() {
+    let cases: Vec<el_bench::ReviewCase> = read_json("review/cases.json");
+    assert!(cases.iter().any(|case| case.text.lines().count() >= 500), "fixtures need a 500+ box case");
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|case| {
+            let actual = serde_json::to_value(el_core::review::inspect_detection_labels(&case.text, case.width, case.height, &case.settings))
+                .expect("finding serializes");
+            let rows = el_core::review_folder::count_label_rows(&case.text);
+            (actual != case.expected || rows != case.rows)
+                .then(|| format!("{}: rows {rows} (ts {})\n  rust {actual}\n  ts   {}", case.name, case.rows, case.expected))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{} of {} review cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+/// parseFloat and Number#toString, bit for bit, against values JS produced.
+#[test]
+fn golden_js_semantics() {
+    let cases: el_bench::JsCases = read_json("review/js.json");
+    let mut failures = Vec::new();
+    for case in &cases.parse_float {
+        let (expected, actual) = (el_bench::f64_from_hex(&case.bits), el_core::js::parse_float(&case.input));
+        if !(expected.to_bits() == actual.to_bits() || (expected.is_nan() && actual.is_nan())) {
+            failures.push(format!("parseFloat({:?}) = {actual:e}, JS {expected:e}", case.input));
+        }
+    }
+    for case in &cases.number_to_string {
+        let actual = el_core::js::number_to_string(el_bench::f64_from_hex(&case.bits));
+        if actual != case.text {
+            failures.push(format!("String({}) = {actual:?}, JS {:?}", case.bits, case.text));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

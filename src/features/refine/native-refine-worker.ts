@@ -1,3 +1,4 @@
+import { getNativeBridge } from "../../platform/native-bridge.js";
 import { getSegmentationPreprocessingKey, normalizeSegmentationPreprocessingConfig, type SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
 
 /** The slice of the Worker API refine-service.ts uses. */
@@ -16,7 +17,7 @@ type RefineSourceMessage = { kind: "original" } | { kind: "processed"; config?: 
  * Returns null outside the desktop app.
  */
 export function createNativeRefineWorker(createDecoder: () => Worker): RefineWorkerLike | null {
-  const native = globalThis.window?.easyLabelingNative;
+  const native = getNativeBridge("refine");
   if (!native) return null;
   // Keys are per service; the session keeps two services from reading each other's image.
   const session = Math.random().toString(36).slice(2);
@@ -65,12 +66,7 @@ export function createNativeRefineWorker(createDecoder: () => Worker): RefineWor
         work = ready = (async () => {
           await decode({ type: "image", key: message.key, bitmap: message.bitmap }, transfer);
           const { gray, width, height } = await decode({ type: "gray", key: message.key }) as { gray: Uint8Array; width: number; height: number };
-          const headers = { "x-key": encodeURIComponent(key), "x-width": String(width), "x-height": String(height) };
-          // Shared memory when available (a raw body crosses WebView2 at ~17 MB/s), else the raw body.
-          const shared = native.upload ? await native.upload(gray).catch(() => null) : null;
-          await (shared === null
-            ? native.invoke("refine_load_image", gray, { headers })
-            : native.invoke("refine_load_image", new Uint8Array(0), { headers: { ...headers, "x-shared-buffer": String(shared) } }));
+          await native.sendBytes("refine_load_image", gray, { "x-key": encodeURIComponent(key), "x-width": String(width), "x-height": String(height) });
           return null;
         })();
       } else if (message.type === "refine") {

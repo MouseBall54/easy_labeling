@@ -76,6 +76,33 @@
   - 네이티브 오류가 나면 TS로 계산한다.
 - 남은 일: 자동화(템플릿 매칭)의 Processed 입력(`automation-controller.ts:210`)과 슈퍼픽셀·EdgeSAM의 processed 입력은 보기가 Original일 때 여전히 TS로 동기 계산한다.
 
+### D-008 폴더 Review와 박스 수 스캔을 네이티브로
+- 상태: 승인 (2026-10-30, 2단계)
+- 결정:
+  - Review는 Rust가 라벨을 직접 읽고 크기는 헤더로 판단해 이미지별로 병렬 검사한다.
+  - 크기를 헤더로 확정할 수 없는 이미지는 null로 돌려주고, 그 이미지만 TS가 디코드해 검사한다. 해당 경우: GIF, eXIf가 있는 PNG, 알 수 없거나 손상된 파일.
+  - 라벨 파일 읽기 오류나 네이티브 오류가 나면 폴더 전체를 TS 경로로 처리한다.
+  - 박스 수 스캔(`refreshImageWorkflowStatus`)도 같은 방식으로 Rust가 센다.
+- 바이트 동일성을 위해 지킨 것:
+  - JS `parseFloat`와 trim 공백 집합(U+FEFF 포함, U+0085 제외).
+  - `Number#toString`(메시지 안 숫자 표기).
+  - NaN을 전파하는 `Math.min/max`.
+  - `File.text()`의 BOM 제거.
+- 중복 검사 최적화: 임계값 > 0이면 IoU > 0이 필요하므로 x 구간 겹침이 필요조건이다. left로 정렬한 뒤 `left_j < right_i`인 쌍만 검사한다. 결과는 모든 쌍 비교와 같고, 출력 순서도 같게 다시 정렬한다. 임계값이 0이면 모든 쌍을 비교한다.
+- 확인된 브라우저 동작: Chromium(WebView2)은 JPEG EXIF 회전 6을 크기에 반영한다(650×1157). 앱 e2e로 확인했다.
+- 알려진 차이(의도된 것): tiff.js가 디코드하지 못하는 TIFF도 헤더가 정상이면 네이티브는 검사 결과를 낸다. TS 경로였다면 Review 전체가 실패했을 경우다.
+
+### D-009 네이티브 기능 확장 구조
+- 상태: 승인 (2026-10-30, 사용자 요청: 기능을 계속 덧붙일 예정)
+- 결정:
+  - TS 기능 코드는 `src/platform/native-bridge.ts`의 `getNativeBridge(feature)`만 쓴다.
+    - 바이트 송수신: 공유 버퍼를 쓰고, 실패하면 raw로 돌아간다.
+    - 작업: 진행률은 조회(poll)로 받고, 취소는 `jobs.rs`로 처리한다.
+    - 경로: `pathOf(handle)`로 파일 핸들의 네이티브 경로를 얻는다.
+  - 기능별 끄기 스위치 `window.easyLabelingNativeOff`를 둔다. e2e에서 같은 앱의 TS 결과와 비교할 때와 문제를 해결할 때 쓴다.
+  - Rust 순수 로직은 el-core 모듈(파일 I/O 허용, Tauri 의존 없음)에 두고, src-tauri에는 얇은 command만 기능별 파일로 둔다.
+- 근거: Tauri `Channel`은 `@tauri-apps/api` 없이 쓰려면 내부 직렬화 형식에 의존해야 해서, 진행률은 조회 방식으로 받는다.
+
 ### D-005 이식 순서와 데이터 포맷
 - 상태: 승인 (2026-10-29, 사용자 선택)
 - 실제 데이터: TIFF 8bit gray, JPG/PNG. 16bit TIFF는 대상이 아니다.

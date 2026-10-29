@@ -57,3 +57,38 @@ pub struct BenchInput {
     pub boxes: String,
     pub count: usize,
 }
+
+#[derive(Deserialize)]
+pub struct ReviewCase {
+    pub name: String,
+    pub text: String,
+    pub width: f64,
+    pub height: f64,
+    pub settings: el_core::review::ReviewSettings,
+    pub expected: serde_json::Value,
+    pub rows: usize,
+}
+
+/// JS results recorded by gen-golden.mjs; floats as big-endian IEEE-754 bit patterns in hex.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsCases {
+    pub parse_float: Vec<ParseFloatCase>,
+    pub number_to_string: Vec<NumberToStringCase>,
+}
+
+#[derive(Deserialize)]
+pub struct ParseFloatCase {
+    pub input: String,
+    pub bits: String,
+}
+
+#[derive(Deserialize)]
+pub struct NumberToStringCase {
+    pub bits: String,
+    pub text: String,
+}
+
+pub fn f64_from_hex(bits: &str) -> f64 {
+    f64::from_bits(u64::from_str_radix(bits, 16).unwrap_or_else(|error| panic!("{bits}: {error}")))
+}

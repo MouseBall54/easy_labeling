@@ -22,16 +22,26 @@ Finish each step before starting the next. Read `docs/migration/AUDIT.md` and `D
 - Measure the TS path with `/perf-baseline` before writing Rust.
 
 ## 4. Rust implementation (`crates/el-core/src/<module>.rs`)
-- Pure functions, no UI/Tauri dependencies. Errors as `thiserror` types or `Result<_, String>` at the command layer; no `unwrap` outside tests and the parity CLI.
-- Write it plainly first (`rust-perf`), optimise only what the bench shows.
-- Golden test `golden_<module>` in `crates/el-bench/tests/golden.rs`; state float tolerances next to the constant.
-- Where the existing parity test covers the algorithm, extend `tests/unit/native/compute-parity.test.ts` and the `compute-cli` ops too.
+- Pure logic, no UI/Tauri dependencies (file I/O is fine, see `review_folder.rs`). Errors as a small enum with Display or `Result<_, String>` at the command layer; no `unwrap` outside tests and the parity CLI.
+- Where the TS code relies on JS semantics, use `el_core::js` (`parse_float`, `trim`/`is_whitespace`, `number_to_string`, NaN-propagating `min`/`max`) and `js_round` in `gray.rs`; never the Rust equivalents.
+- Write it plainly first (`rust-perf`), optimise only what the bench shows. Keep the plain version as a test oracle for any pruned/clever one (see `duplicate_pairs_all` in `review.rs`).
+- Golden test `golden_<module>` in `crates/el-bench/tests/golden.rs`; state tolerances next to the constant (exact equality whenever the output is text or bytes). Break the code on purpose once and see the golden fail.
+- For text inputs, add a `compute-cli` op and a randomized differential case in `tests/unit/native/compute-parity.test.ts`.
 
 ## 5. Boundary
-- Expose through a Tauri command in `src-tauri/src/` following `rust-ts-bridge` (raw bytes, state resident in Rust, batched calls).
+- A thin command file in `src-tauri/src/<feature>.rs`, registered in `main.rs`, following `rust-ts-bridge`.
+- Work over ~100 ms: `spawn_blocking` + `jobs::Job` (progress via `advance`, stop on `cancelled()`, return `jobs::CANCELLED`).
+- Megabytes: `shared_buffer.rs` (`upload_body` in, `shared_buffer::post` out) with the raw path kept.
+- Files the page already has handles for: pass native paths (`pathOf`), let Rust read them, instead of shipping bytes.
 
 ## 6. Switch-over
-- The TS implementation stays: the web (GitHub Pages) and Electron builds have no Rust. Pick the native path only when `window.easyLabelingNative` exists (see how `src/features/refine/refine-service.ts` picks `createNativeRefineWorker`). For new ports, also fall back to the TS path when a native call fails, so a Rust bug degrades to the old speed instead of a broken feature.
+- The TS implementation stays: the web (GitHub Pages) and Electron builds have no Rust.
+- Add the feature name to `NativeFeature` in `src/platform/native-bridge.ts` and call through `getNativeBridge("<feature>")` only (`sendBytes`, `receiveBytes`, `runJob`, `pathOf`).
+- Fall back to the TS path on null and on any native error (a Rust bug must degrade to the old speed, not break the feature). Partial fallbacks are fine: return null per item the native side cannot decide (as `review_folder` does for images whose size needs a decode).
+- Keep synchronous TS APIs synchronous when nothing native is pending (see `prepareSegmentationProcessedImage` returning null).
+
+## 6a. Desktop e2e
+- In `tests/e2e/tauri-desktop.spec.ts`, run the feature natively, then with `window.easyLabelingNativeOff = ["<feature>"]` in the same app, and compare the full results (see `reviewBothWays`). Include the awkward inputs from the golden set, a fallback case, and SEM-sized data with timings for BENCH.md.
 
 ## 7. Verify and record
 - `/verify` (Rust steps included), then `/perf-baseline` for the after numbers.

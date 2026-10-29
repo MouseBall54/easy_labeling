@@ -27,7 +27,7 @@ YOLOE-26 ONNX 버전의 사용법과 모델 갱신 방법은 [YOLOE-26 GPU/CPU �
 
 ## Windows 설치형 앱(Tauri / Rust)
 
-Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기능은 같은 `dist/` 웹 코드를 Windows WebView2에서 그대로 실행하고, 폴더 읽기/쓰기·대화상자·프로필 라이브러리·저장 안 한 변경 확인은 Rust가 처리합니다. Refine(박스 경계 맞춤)과 그 전처리 필터는 Rust 네이티브로 실행해 같은 결과를 더 빠르게 냅니다(2048×1536, 600박스 기준 약 4~5배). Processed 보기(Q)도 Rust가 백그라운드에서 계산합니다. 결과는 웹 버전과 픽셀 단위로 같고, 큰 이미지에 무거운 필터를 걸어도 화면이 멈추지 않습니다(4096×3072, Flatten σ200 + Denoise 20 기준: 웹·Electron은 약 5.8초 정지, 설치형은 정지 최대 0.2초에 약 1.5초 후 표시). Rust와 TS를 옮기는 진행 상황은 [docs/migration](docs/migration/AUDIT.md)에 있습니다.
+Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기능은 같은 `dist/` 웹 코드를 Windows WebView2에서 그대로 실행하고, 폴더 읽기/쓰기·대화상자·프로필 라이브러리·저장 안 한 변경 확인은 Rust가 처리합니다. Refine(박스 경계 맞춤)과 그 전처리 필터는 Rust 네이티브로 실행해 같은 결과를 더 빠르게 냅니다(2048×1536, 600박스 기준 약 4~5배). Processed 보기(Q)도 Rust가 백그라운드에서 계산합니다. 결과는 웹 버전과 픽셀 단위로 같고, 큰 이미지에 무거운 필터를 걸어도 화면이 멈추지 않습니다(4096×3072, Flatten σ200 + Denoise 20 기준: 웹·Electron은 약 5.8초 정지, 설치형은 정지 최대 0.2초에 약 1.5초 후 표시). Review의 전체 라벨 검사도 Rust가 파일을 직접 읽어 병렬로 처리합니다. 결과는 웹 버전과 같습니다(2048×1536 TIFF 60장, 이미지당 5,000박스 기준: 약 27초 → 약 0.35초). 네이티브로 처리할 수 없는 경우(GIF 등)는 기존 방식으로 자동 처리합니다. Rust와 TS를 옮기는 진행 상황은 [docs/migration](docs/migration/AUDIT.md)에 있습니다.
 
 개발 PC에 Node.js 22.12 이상과 Rust(stable, `rustup`)를 준비하고 `npm ci`를 실행한 뒤 아래 명령으로 설치파일을 만듭니다.
 

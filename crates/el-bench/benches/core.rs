@@ -43,4 +43,12 @@ fn benches(c: &mut Criterion) {
 }
 
 criterion_group!(core, benches);
-criterion_main!(core);
+criterion_main!(core, review_group);
+
+fn review(c: &mut Criterion) {
+    let text = String::from_utf8(read_bytes("generated/review-5000.txt")).expect("utf-8");
+    let settings = el_core::review::ReviewSettings { minimum_box_size_px: 4.0, duplicate_iou_threshold: 0.9, required_class_ids: vec![] };
+    c.bench_function("review/5000-boxes", |b| b.iter(|| el_core::review::inspect_detection_labels(black_box(&text), 2048.0, 1536.0, &settings)));
+}
+
+criterion_group!(review_group, review);

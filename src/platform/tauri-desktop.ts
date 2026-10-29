@@ -60,8 +60,12 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     }
   }
 
+  // Native paths behind the handles this script creates, so Rust can read the same files directly.
+  const filePaths = new WeakMap<object, string>();
+  const directoryPaths = new WeakMap<object, string>();
+
   function createFileHandle({ path, name }: NativeEntry) {
-    return {
+    const handle = {
       kind: "file" as const,
       name,
       async getFile(): Promise<File> {
@@ -89,9 +93,10 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
         };
       }
     };
+    filePaths.set(handle, path);
+    return handle;
   }
 
-  const directoryPaths = new WeakMap<object, string>();
 
   function createDirectoryHandle({ path, name }: NativeEntry): FileSystemDirectoryHandle {
     const handle = {
@@ -170,7 +175,10 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     }
   }
 
-  window.easyLabelingNative = Object.freeze(webview ? { invoke: call, upload, download } : { invoke: call });
+  const pathOf = (handle: unknown): string | null =>
+    handle !== null && typeof handle === "object" ? filePaths.get(handle) ?? directoryPaths.get(handle) ?? null : null;
+
+  window.easyLabelingNative = Object.freeze(webview ? { invoke: call, upload, download, pathOf } : { invoke: call, pathOf });
 
   window.easyLabelingDesktop = Object.freeze({
     readYoloeModel: __EASY_LABELING_IS_YOLOE__

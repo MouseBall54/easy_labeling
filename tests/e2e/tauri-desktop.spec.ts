@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import zlib from "node:zlib";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
+import { grayPng, grayTiff, withExifOrientation, withPngExif, writeReviewDataset, yoloLabels } from "./fixtures/review-dataset.js";
 import { launchDesktop as launch } from "./fixtures/tauri-app.js";
 
 // Drives the real Tauri executable (npm run tauri:dev, or EASY_LABELING_TAURI_EXE) through WebView2's CDP port.
@@ -178,32 +178,6 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
 });
 
 
-/** An 8-bit gray PNG (SEM-like bright blocks on a sloped, noisy background). */
-function grayPng(width: number, height: number): Buffer {
-  let seed = 3;
-  const random = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
-  const raw = Buffer.alloc((width + 1) * height);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const block = x % 64 > 12 && x % 64 < 52 && y % 48 > 9 && y % 48 < 40 ? 110 : 0;
-      raw[y * (width + 1) + 1 + x] = Math.max(0, Math.min(255, Math.round(50 + (x * 40) / width + block + (random() - 0.5) * 40)));
-    }
-  }
-  const chunk = (type: string, data: Buffer) => {
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(data.length);
-    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(zlib.crc32(body));
-    return Buffer.concat([length, body, crc]);
-  };
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header[8] = 8; // bit depth; colour type 0 (gray), default compression/filter/interlace
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
-}
-
 test("Tauri Processed view is computed natively, matches the TS result and keeps the UI thread free", async () => {
   test.setTimeout(240_000);
   const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
@@ -286,3 +260,133 @@ test("Tauri Processed view is computed natively, matches the TS result and keeps
     await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   }
 });
+
+/**
+ * Runs the folder review on the native path, then with the native review and label scan switched off;
+ * returns both runs' findings and image statuses (sorted JSON) and times.
+ */
+async function reviewBothWays(page: Page) {
+  return page.evaluate(async () => {
+    const api = Reflect.get(window, "__easyLabelingTestApi");
+    const sorted = (record: Record<string, unknown>) => JSON.stringify(Object.keys(record).sort().map((name) => [name, record[name]]));
+    const run = async () => {
+      const started = performance.now();
+      await api.refreshReviewFindings();
+      const ms = performance.now() - started;
+      return { ms, json: sorted(api.getReviewFindings()), statuses: sorted(api.getImageWorkflowStatuses()) };
+    };
+    const native = await run();
+    window.easyLabelingNativeOff = ["review", "label-scan"];
+    try {
+      return { native, ts: await run() };
+    } finally {
+      window.easyLabelingNativeOff = [];
+    }
+  });
+}
+
+test("Tauri folder review in Rust gives the TS findings, with decoder fallbacks and unsaved edits", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "review");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  const write = (name: string, data: Buffer | string) => writeFile(path.join(dataset, name), data);
+  for (let index = 0; index < 3; index += 1) {
+    await write(`a_png_${index}.png`, grayPng(2048, 1536, index + 1));
+    await write(`label/a_png_${index}.txt`, yoloLabels(5000, index + 1));
+    await write(`b_tif_${index}.tif`, grayTiff(2048, 1536, index + 7));
+    await write(`label/b_tif_${index}.txt`, yoloLabels(5000, index + 7));
+  }
+  // EXIF orientation 6: the browser reports 650x1157, so a 0.004-wide box is 2.6 px (small), not 4.6 px.
+  await write("c_rotated.jpg", withExifOrientation(await readFile(path.join(root, "assets/sample/sample_1.jpg")), 6));
+  await write("label/c_rotated.txt", "0 0.5 0.5 0.004 0.5\n");
+  // eXIf in a PNG: Rust leaves the size to the TS decoder for this image only.
+  await write("d_exif.png", withPngExif(grayPng(300, 200)));
+  await write("label/d_exif.txt", "0 0.5 0.5 0.01 0.5\n");
+  await write("e_no_label.png", grayPng(64, 64));
+  await write("f_messy.png", grayPng(640, 480));
+  await write("label/f_messy.txt", "﻿0 0.5 0.5 0.1 0.1\r\n0  0.5 0.5 0.1 0.1\r\n1 0.5abc .5 1e-1 0.1\r\nx NaN 0.5\r\n  2 0.99 0.5 0.1 0.1\r\n");
+  await write("g_empty.png", grayPng(64, 64));
+  await write("label/g_empty.txt", "");
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("a_png_0.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    // Unsaved edits on the open image: both paths must review them instead of its 5,000-box file.
+    await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").seedDetectionBoxesForTest(3));
+    await expect.poll(() => rectCount(page)).toBe(3);
+
+    const { native, ts } = await reviewBothWays(page);
+    const findings = Object.fromEntries(JSON.parse(native.json)) as Record<string, { issues: Array<{ type: string; rectIndexes: number[] }> }>;
+    expect(Object.keys(findings)).toHaveLength(11);
+    expect(native.json).toBe(ts.json);
+      expect(native.statuses).toBe(ts.statuses);
+    expect(findings["c_rotated.jpg"]!.issues.map((issue) => issue.type)).toEqual(["small-box"]);
+    expect(findings["d_exif.png"]!.issues.map((issue) => issue.type)).toEqual(["small-box"]);
+    expect(findings["a_png_0.png"]!.issues.every((issue) => issue.rectIndexes.every((index) => index < 3))).toBe(true);
+    expect(findings["a_png_1.png"]!.issues.length).toBeGreaterThan(10);
+    console.log(`11-image review: native ${native.ms.toFixed(0)} ms, TS ${ts.ms.toFixed(0)} ms`);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+for (const format of ["tif", "png"] as const) {
+  test(`Tauri folder review of 60 ${format.toUpperCase()} images with 5,000 boxes each: native vs TS`, async () => {
+    test.setTimeout(600_000);
+    const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+    const dataset = path.join(sandbox, "review");
+    await writeReviewDataset(dataset, { images: 60, boxes: 5000, format });
+    const app = await launchDesktop(sandbox, [dataset]);
+    try {
+      const { page } = app;
+      await page.locator("#selectImageFolderBtn").click();
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 120_000 }).toBe(`img_000.${format}`);
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 120_000 });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+
+      // Cancelling the Rust job: the review of the folder is too quick to stop from the UI (~0.1 s), so ask
+      // for the 60 images ten times over and cancel once the job reports progress. The job ends early,
+      // unregisters itself, and a normal review still runs afterwards.
+      const names = Array.from({ length: 60 }, (_, index) => `img_${String(index).padStart(3, "0")}.${format}`);
+      const images = Array.from({ length: 10 }, () => names.map((name) => ({ name, path: path.join(dataset, name), editedText: null }))).flat();
+      const stopped = await page.evaluate(async ({ images, labelFolder }) => {
+        const native = window.easyLabelingNative!;
+        const jobId = "e2e-cancel";
+        const settings = { minimumBoxSizePx: 4, duplicateIouThreshold: 0.9, requiredClassIds: [] };
+        const started = performance.now();
+        let settled = false;
+        const running = native.invoke("review_folder", { request: { jobId, labelFolder, images, settings } })
+          .then(() => "finished", (error: unknown) => String((error as Error)?.message ?? error))
+          .finally(() => { settled = true; });
+        let progress: { done: number; total: number } | null = null;
+        while (!settled && !(progress && progress.done > 0)) {
+          progress = await native.invoke<{ done: number; total: number } | null>("job_progress", { id: jobId });
+        }
+        await native.invoke("job_cancel", { id: jobId });
+        const outcome = await running;
+        return { outcome, ms: performance.now() - started, progress, after: await native.invoke("job_progress", { id: jobId }) };
+      }, { images, labelFolder: path.join(dataset, "label") });
+      expect(stopped.outcome).toContain("Native job cancelled");
+      expect(stopped.progress?.total).toBe(600);
+      expect(stopped.progress!.done).toBeLessThan(600);
+      expect(stopped.after).toBeNull();
+
+      const { native, ts } = await reviewBothWays(page);
+      expect(native.json).toBe(ts.json);
+      expect(native.statuses).toBe(ts.statuses);
+      expect(errors).toEqual([]);
+      console.log(`60 ${format} x 5,000 boxes review: native ${native.ms.toFixed(0)} ms, TS ${ts.ms.toFixed(0)} ms; cancelled 600-image job after ${stopped.ms.toFixed(0)} ms (${stopped.progress?.done}/600 done at cancel)`);
+    } finally {
+      await app.close();
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+    }
+  });
+}

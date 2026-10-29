@@ -50,7 +50,7 @@
 |---|---|---|
 | 0) 기반 정비 | **완료 (2026-10-29, `rust-migration` 브랜치, 미커밋)** | 아래 목록 참고 |
 | 1) Processed 보기 전처리 네이티브 | **완료 (2026-10-29, 미커밋, v2.22.0)** | 4096×3072 무거운 설정에서 UI 정지 5.8s → 최대 0.2s. 결과는 TS와 바이트 단위로 동일. SharedBuffer 전송(D-006), 비동기 준비 단계(D-007) |
-| 2) 폴더 Review 네이티브 | 대기 | |
+| 2) 폴더 Review 네이티브 | **완료 (2026-10-30, 미커밋, v2.23.0)** | 60장 × 5,000박스 TIFF: 26~28초 → 0.35초. 결과·이미지 상태가 TS와 동일. 라벨 박스 수 스캔도 네이티브(D-008). 확장 구조 정리(D-009) |
 | 3) TIFF 8bit gray 디코드 네이티브 | 대기 | |
 
 0단계에서 한 일:
@@ -90,6 +90,29 @@
   - Q 경합 1개(대기 중 두 번 누르면 마지막 요청만 반영, 네이티브가 없으면 동기 유지).
   - 데스크톱 e2e 1개.
 - 부수 효과: refine 이미지 업로드도 공유 버퍼로 옮겼다. raw 업로드는 12.6MB에 약 0.65s였다. 공유 버퍼로 바꾼 뒤의 refine 업로드는 직접 재지 않았고, 같은 경로의 50MB 측정이 0.13s다. 네이티브와 JS refine이 일치하는지는 데스크톱 e2e로 확인했다.
+
+2단계에서 한 일:
+- el-core:
+  - `js.rs`: JS 의미론. `parseFloat`, trim 공백 집합, `Number#toString`, NaN을 전파하는 min/max.
+  - `yolo.rs`: `parseYoloRows`.
+  - `review.rs`: `inspectDetectionLabels`. 클래스를 정수로 바꾸고, 임계값이 0보다 크면 x 스윕으로 후보 쌍만 검사한다.
+  - `image_info.rs`: 헤더로 크기를 읽는다. JPEG EXIF 회전은 반영하고, TIFF는 tiff.js처럼 회전을 무시한다. 확실하지 않으면 None.
+  - `review_folder.rs`: 폴더 병렬 검사와 박스 수 스캔.
+- src-tauri:
+  - `jobs.rs`: 작업 진행률·취소 레지스트리.
+  - `review.rs`: `review_folder`, `label_row_counts` command.
+- TS:
+  - `src/platform/native-bridge.ts`: 공통 브리지. 기존 전처리·refine도 이 모듈로 옮겼다.
+  - `refreshReviewFindings`, `refreshImageWorkflowStatus` 연결. 네이티브가 `null`을 준 이미지와 오류는 TS 경로로 처리한다.
+- 동등성:
+  - 골든 `golden_review` 9건, `golden_js_semantics` 52건(비트 단위).
+  - CLI 차분 테스트: 무작위 라벨 300개 × 설정 3종.
+  - 앱 e2e: 네이티브와 TS의 결과·상태 JSON이 같다. EXIF JPEG, eXIf PNG 폴백, 저장 안 한 편집, BOM·CRLF 라벨 포함.
+  - 일부러 구현을 틀리게 바꿔 골든이 실패하는 것도 확인했다.
+- 테스트:
+  - Rust: 단위 8개, jobs 1개.
+  - TS: 브리지 단위 5개.
+  - 데스크톱 e2e 3개(동등성, TIFF·PNG 성능, 앱 안 취소).
 
 ## 핫스팟 (예상 영향 큰 순)
 

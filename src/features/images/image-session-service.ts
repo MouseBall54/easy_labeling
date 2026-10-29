@@ -30,6 +30,7 @@ import {
 import type { DirectoryHandleLike, FileHandleLike } from "../../types/files.js";
 import type { WorkflowType } from "../../types/labels.js";
 import type { SegmentationExternalFormat } from "../../domain/annotations/segmentation-format.js";
+import { getNativeBridge } from "../../platform/native-bridge.js";
 
 const DEFAULT_CLASS_INFO_YAML = [0, 1, 2, 3, 4]
   .map((classId) => `${classId}: class ${classId}`)
@@ -152,6 +153,22 @@ async function getOrCreateNestedDirectoryHandle(directoryHandle: DirectoryHandle
   return current;
 }
 
+/**
+ * Desktop app: label rows per `.txt` file, counted in Rust (crates/el-core/src/review_folder.rs) instead of
+ * reading every file over IPC. Null when there is no native side or it failed: the caller counts in TS.
+ */
+async function readDetectionBoxCountsNatively(labelFolder: DirectoryHandleLike | null): Promise<Map<string, number> | null> {
+  const native = getNativeBridge("label-scan");
+  const folder = native && labelFolder ? native.pathOf(labelFolder) : null;
+  if (!native || !folder) return null;
+  try {
+    return new Map(Object.entries(await native.invoke<Record<string, number>>("label_row_counts", { folder })));
+  } catch (error) {
+    console.warn("Native label scan failed; reading the files in TS.", error);
+    return null;
+  }
+}
+
 async function listFileNames(directoryHandle: DirectoryHandleLike | null, predicate?: (fileName: string) => boolean): Promise<Set<string>> {
   if (!directoryHandle) {
     return new Set<string>();
@@ -268,16 +285,21 @@ export function createImageSessionService(
 
     async refreshImageWorkflowStatus(signal?: AbortSignal): Promise<void> {
       throwIfOperationCancelled(signal);
-      const detectionAnnotationFileNames = await listFileNames(state.labelFolderHandle, (fileName) => fileName.endsWith(".txt"));
-      const detectionBoxCounts = new Map<string, number>();
-      await Promise.all([...detectionAnnotationFileNames].map(async (fileName) => {
-        if (!state.labelFolderHandle) {
-          return;
-        }
-        const yoloText = await readTextFileByName(state.labelFolderHandle, fileName);
-        throwIfOperationCancelled(signal);
-        detectionBoxCounts.set(fileName, parseYoloRows(yoloText, 1, 1).length);
-      }));
+      const countInTs = async (): Promise<Map<string, number>> => {
+        const counts = new Map<string, number>();
+        const detectionAnnotationFileNames = await listFileNames(state.labelFolderHandle, (fileName) => fileName.endsWith(".txt"));
+        await Promise.all([...detectionAnnotationFileNames].map(async (fileName) => {
+          if (!state.labelFolderHandle) {
+            return;
+          }
+          const yoloText = await readTextFileByName(state.labelFolderHandle, fileName);
+          throwIfOperationCancelled(signal);
+          counts.set(fileName, parseYoloRows(yoloText, 1, 1).length);
+        }));
+        return counts;
+      };
+      const detectionBoxCounts = await readDetectionBoxCountsNatively(state.labelFolderHandle) ?? await countInTs();
+      throwIfOperationCancelled(signal);
       const segmentationAnnotationPaths = await listRelativeFilePaths(state.segmentationLabelFolderHandle ?? state.imageFolderHandle, ["mask"], (fileName) => {
         return fileName.endsWith(".png");
       });

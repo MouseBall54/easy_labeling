@@ -25,6 +25,8 @@ declare global {
       getGpuName?: (vendor: string, device: string) => Promise<string | null>;
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
     };
+    /** Features to keep on their TS path even in the desktop app (see src/platform/native-bridge.ts). */
+    easyLabelingNativeOff?: string[];
     /** Desktop (Tauri) only: calls a Rust command; raw byte bodies pass headers alongside. */
     easyLabelingNative?: {
       invoke<T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }): Promise<T>;
@@ -32,6 +34,8 @@ declare global {
       upload?(bytes: Uint8Array): Promise<number>;
       /** Runs a command answering with a shared-buffer id; `use` reads the bytes before they are released. */
       download?<T>(command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => T): Promise<T>;
+      /** The native path of a file or directory handle from the desktop file system, else null. */
+      pathOf?(handle: unknown): string | null;
     };
   }
 

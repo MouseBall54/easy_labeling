@@ -45,6 +45,14 @@ Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chr
 - No speed claims without a `docs/migration/BENCH.md` row measured on the same inputs (Rust `--release`, TS from `dist/`).
 - Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p el-core -p el-bench`; CI runs them in `.github/workflows/rust.yml`. `rustfmt.toml` keeps the long-line style of the existing ports.
 - `unwrap`/`expect` only in tests and `compute-cli`; `unsafe` needs a reason comment and review. Pixels never cross the Tauri boundary as JSON or base64.
+- Adding a native feature (the `port-module` skill has the full steps):
+  - el-core module for the logic. Reuse `js.rs` wherever the TS code leans on JS semantics (`parseFloat`, trim, number formatting, NaN in `Math.min/max`).
+  - A thin command file in `src-tauri/src/`, registered in `main.rs`. Long work goes through `jobs.rs` (progress, cancel); megabytes go through `shared_buffer.rs`.
+  - TS goes only through `getNativeBridge("<feature>")` (`src/platform/native-bridge.ts`; add the feature name there) and falls back to the TS path on null or error.
+  - Prove it three ways:
+    - a golden fixture from the TS code;
+    - a `compute-cli` differential test with random inputs when inputs are text;
+    - a `tests/e2e/tauri-desktop.spec.ts` test comparing the native and TS results in the same app, switching the feature off with `window.easyLabelingNativeOff = ["<feature>"]`.
 
 ## Versioning
 

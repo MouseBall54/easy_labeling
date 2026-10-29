@@ -31,7 +31,8 @@ import { getSubdirectoryHandle } from "../platform/file-system-access.js";
 import { inspectDetectionLabels } from "../features/review/quality.js";
 import { createReviewStateDocument, parseReviewStateDocument } from "../features/review/review-state.js";
 import type { ReviewImageStatus } from "../features/review/types.js";
-import type { ReviewSettings } from "../features/review/types.js";
+import type { ReviewFinding, ReviewSettings } from "../features/review/types.js";
+import { getNativeBridge, NativeJobCancelledError } from "../platform/native-bridge.js";
 import { createBundledSampleDirectory } from "../features/sample/sample-test-directory.js";
 import {
   markDocumentSaveError,
@@ -685,6 +686,43 @@ export function createFileSystemAdapter(input: {
     input.state.session.reviewFindings.set(file.name, inspectDetectionLabels({ yoloText, imageWidth: width, imageHeight: height, settings: input.state.session.reviewState.settings }));
   };
 
+  /**
+   * Desktop app: reviews the whole folder in Rust (crates/el-core/src/review_folder.rs), same findings as
+   * the loop below. Null entries (sizes that need a full decode) and a null result (no native side,
+   * unknown paths, or a native error) are left to that TS loop.
+   */
+  const reviewFolderNatively = async (
+    files: readonly FileSystemFileHandle[],
+    labelFolder: DirectoryHandleLike | null,
+    settings: ReviewSettings,
+    signal: AbortSignal,
+    operation: RuntimeOperationHandle | undefined
+  ): Promise<ReadonlyArray<ReviewFinding | null> | null> => {
+    const native = getNativeBridge("review");
+    if (!native || files.length === 0) return null;
+    const labelFolderPath = labelFolder ? native.pathOf(labelFolder) : null;
+    const paths = files.map((file) => native.pathOf(file));
+    if ((labelFolder && !labelFolderPath) || paths.some((path) => path === null)) return null;
+    const currentName = input.state.session.currentImageFile?.name;
+    try {
+      return await native.runJob<Array<ReviewFinding | null>>("review_folder", (jobId) => ({
+        request: {
+          jobId,
+          labelFolder: labelFolderPath,
+          images: files.map((file, index) => ({ name: file.name, path: paths[index], editedText: file.name === currentName ? currentEditedReviewText() : null })),
+          settings
+        }
+      }), {
+        signal,
+        onProgress: (done, total) => operation?.update({ detail: `Checking labels (${done}/${total})`, current: done, total })
+      });
+    } catch (error) {
+      if (signal.aborted || error instanceof NativeJobCancelledError) throw error;
+      console.warn("Native review failed; checking on the TS path.", error);
+      return null;
+    }
+  };
+
   const refreshReviewFindings = async (parentSignal?: AbortSignal): Promise<void> => {
     if (reviewScan && !reviewScan.controller.signal.aborted) return reviewScan.promise;
     const controller = new AbortController();
@@ -709,8 +747,14 @@ export function createFileSystemAdapter(input: {
         const findings = new Map();
         const labelFolder = input.state.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
         await imageSessionService.refreshImageWorkflowStatus(signal);
+        const nativeFindings = await reviewFolderNatively(files, labelFolder, settings, signal, operation);
         for (const [index, imageFile] of files.entries()) {
           throwIfOperationCancelled(signal);
+          const nativeFinding = nativeFindings?.[index];
+          if (nativeFinding) {
+            findings.set(imageFile.name, nativeFinding);
+            continue;
+          }
           operation?.update({ detail: `Checking ${imageFile.name}`, current: index, total: files.length });
           const editedText = imageFile.name === input.state.session.currentImageFile?.name ? currentEditedReviewText() : null;
           let yoloText = editedText ?? "";

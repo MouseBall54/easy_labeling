@@ -37,6 +37,11 @@ interface TestApi {
   }>;
   getSelectedRectIds(): string[];
   getReviewSummary(): { minimumBoxSizePx: number; findingCount: number };
+  /** Runs the whole-folder label review (the Review task's check). */
+  refreshReviewFindings(): Promise<void>;
+  getReviewFindings(): Record<string, unknown>;
+  /** Per-image label/mask status behind the image list (box counts included). */
+  getImageWorkflowStatuses(): Record<string, unknown>;
   getActiveSelectionBounds(): {
     left: number;
     top: number;
@@ -217,6 +222,9 @@ function bootstrapBrowserRuntime(): void {
     },
     getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
     getSuperResolutionStatus: () => runtimeCanvasController.getSuperResolutionStatus(),
+    refreshReviewFindings: () => (appResult.app.fileSystem as RuntimeFileSystem).refreshReviewFindings(),
+    getReviewFindings: () => Object.fromEntries(appResult.app.state.session.reviewFindings),
+    getImageWorkflowStatuses: () => Object.fromEntries(appResult.app.state.session.imageWorkflowStatus),
     getReviewSummary: () => {
       const imageName = appResult.app.state.session.currentImageFile?.name;
       return {
