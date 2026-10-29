@@ -15,7 +15,7 @@ try {
   const changed = git("status", "--porcelain", "--untracked-files=all")
     .split("\n").map((line) => line.slice(3).trim().replace(/^"|"$/g, "")).filter(Boolean)
     .map((file) => file.includes(" -> ") ? file.split(" -> ")[1] : file);
-  const shipped = changed.filter((file) => /^(src|workers|electron|css)\//.test(file) || /^(index|privacy|privacy_ko)\.html$/.test(file));
+  const shipped = changed.filter((file) => /^(src|workers|electron|css|crates\/el-core|src-tauri)\//.test(file) || /^(index|privacy|privacy_ko)\.html$/.test(file));
   if (!shipped.length) process.exit(0);
   const current = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
   const committed = JSON.parse(git("show", "HEAD:package.json")).version;

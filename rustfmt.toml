@@ -1,0 +1,4 @@
+# Matches the hand-written style of the existing ports (and the TS code): long lines, compact bodies.
+max_width = 160
+use_small_heuristics = "Max"
+newline_style = "Native"

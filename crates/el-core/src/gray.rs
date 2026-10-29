@@ -6,11 +6,16 @@ use rayon::prelude::*;
 /// JavaScript Math.round: halves round towards +infinity.
 pub fn js_round(value: f64) -> f64 {
     let floor = value.floor();
-    if value - floor >= 0.5 { floor + 1.0 } else { floor }
+    if value - floor >= 0.5 {
+        floor + 1.0
+    } else {
+        floor
+    }
 }
 
 fn clamp_byte(value: f64) -> f64 {
-    if value < 0.0 { 0.0 } else if value > 255.0 { 255.0 } else { value }
+    // NaN stays NaN, like the JS comparisons this mirrors.
+    value.clamp(0.0, 255.0)
 }
 
 fn bin(value: f32) -> usize {
@@ -106,10 +111,7 @@ fn blur_line(line: &[f32], r: usize, padded: &mut [f32], out: &mut [f32]) {
 
 fn blur_rows(src: &[f32], width: usize, r: usize) -> Vec<f32> {
     let mut out = vec![0f32; src.len()];
-    out.par_chunks_mut(width).zip(src.par_chunks(width)).for_each_init(
-        || vec![0f32; width + 2 * r + 2],
-        |padded, (row, line)| blur_line(line, r, padded, row),
-    );
+    out.par_chunks_mut(width).zip(src.par_chunks(width)).for_each_init(|| vec![0f32; width + 2 * r + 2], |padded, (row, line)| blur_line(line, r, padded, row));
     out
 }
 
@@ -188,7 +190,11 @@ pub fn anisotropic_diffusion(src: &[f32], width: usize, height: usize, iteration
         // `| 0` in JS truncates towards zero.
         let i = (d.abs() * STEPS) as usize;
         let v = if i < SIZE { flux[i] as f64 } else { 0.0 };
-        if d < 0.0 { -v } else { v }
+        if d < 0.0 {
+            -v
+        } else {
+            v
+        }
     };
     let mut current = src.to_vec();
     let mut next = vec![0f32; src.len()];

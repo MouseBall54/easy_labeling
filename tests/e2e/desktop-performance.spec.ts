@@ -8,7 +8,7 @@ import { launchDesktop } from "./fixtures/tauri-app.js";
 // Compares the Electron shell with the Tauri build on the same dist/: label loading, image
 // navigation, Layout Apply/undo and saving at bulk box counts. Timings are logged, not asserted.
 const root = path.resolve(".");
-const tauriExe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "src-tauri/target/debug/easy-labeling.exe");
+const tauriExe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "target/debug/easy-labeling.exe");
 const counts = (process.env.DESKTOP_PERF_COUNTS ?? "4000,5000,10000").split(",").map(Number);
 // The test windows sit behind other windows; keep Chromium from throttling them like the foreground app it measures.
 const throttleFlags = ["--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"];

@@ -1,7 +1,7 @@
 // Parity-test entry point: `compute-cli <op> <request.json> <input.bin> <output>`.
 //   preprocess: request { width, height, config }, input f32 LE luma, output f32 LE
 //   refine:     request { width, height, boxes, paramsByClass, neighbours }, input u8 gray, output JSON
-use easy_labeling_compute::{preprocess, refine};
+use el_core::{preprocess, refine};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -23,7 +23,7 @@ fn main() {
     let started = std::time::Instant::now();
     let output = match args[1].as_str() {
         "preprocess" => {
-            let values: Vec<f32> = input.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+            let values: Vec<f32> = input.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
             let out = preprocess::preprocess_gray(values, request.width, request.height, request.config.as_ref().unwrap());
             out.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()
         }

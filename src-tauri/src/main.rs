@@ -75,11 +75,12 @@ fn sanitize_suggested_file_name(file_name: &str) -> String {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "easy-labeling.json".into());
-    let safe: String = base
-        .chars()
-        .map(|c| if "<>:\"/\\|?*".contains(c) || (c as u32) < 0x20 { '-' } else { c })
-        .collect();
-    if safe.to_lowercase().ends_with(".json") { safe } else { format!("{safe}.json") }
+    let safe: String = base.chars().map(|c| if "<>:\"/\\|?*".contains(c) || (c as u32) < 0x20 { '-' } else { c }).collect();
+    if safe.to_lowercase().ends_with(".json") {
+        safe
+    } else {
+        format!("{safe}.json")
+    }
 }
 
 #[derive(Serialize)]
@@ -117,10 +118,7 @@ async fn pick_directory(app: AppHandle, window: WebviewWindow, id: Option<String
     if id.as_deref() == Some("class-info") {
         dialog = dialog.set_directory(ensure_profile_directory(&app, "class-info")?);
     }
-    Ok(dialog
-        .blocking_pick_folder()
-        .and_then(|picked| picked.into_path().ok())
-        .map(|path| entry(path, true)))
+    Ok(dialog.blocking_pick_folder().and_then(|picked| picked.into_path().ok()).map(|path| entry(path, true)))
 }
 
 #[tauri::command]
@@ -154,13 +152,7 @@ async fn sample_directory(app: AppHandle) -> CommandResult<Entry> {
 async fn open_library_file(app: AppHandle, window: WebviewWindow, kind: String, folder: Option<String>) -> CommandResult<Option<LibraryFile>> {
     let profile = ensure_profile_directory(&app, &kind)?;
     let directory = folder.as_deref().and_then(dataset_library_directory).unwrap_or(profile);
-    let picked = app
-        .dialog()
-        .file()
-        .set_parent(&window)
-        .set_directory(directory)
-        .add_filter("Easy Labeling JSON", &["json"])
-        .blocking_pick_file();
+    let picked = app.dialog().file().set_parent(&window).set_directory(directory).add_filter("Easy Labeling JSON", &["json"]).blocking_pick_file();
     match picked.and_then(|file| file.into_path().ok()) {
         Some(path) => read_library_file(path).map(Some),
         None => Ok(None),
@@ -260,10 +252,7 @@ async fn get_gpu_name(vendor: String, device: String) -> Option<String> {
         "apple" => 0x106b,
         _ => return None,
     };
-    let device_id = device
-        .strip_prefix("0x")
-        .or_else(|| device.strip_prefix("0X"))
-        .and_then(|hex| u32::from_str_radix(hex, 16).ok());
+    let device_id = device.strip_prefix("0x").or_else(|| device.strip_prefix("0X")).and_then(|hex| u32::from_str_radix(hex, 16).ok());
     let matches: Vec<String> = gpu_adapters()
         .into_iter()
         .filter(|(vendor, device, _)| *vendor == vendor_id && device_id.is_none_or(|id| id == *device))
@@ -348,11 +337,8 @@ async fn fs_child(base: String, name: String, directory: bool, create: bool) -> 
             if !create {
                 return Err(format!("NotFoundError: {label} not found: {name}"));
             }
-            let created = if directory {
-                fs::create_dir_all(&target)
-            } else {
-                target.parent().map_or(Ok(()), fs::create_dir_all).and_then(|_| fs::write(&target, []))
-            };
+            let created =
+                if directory { fs::create_dir_all(&target) } else { target.parent().map_or(Ok(()), fs::create_dir_all).and_then(|_| fs::write(&target, [])) };
             created.map_err(|error| io_error(error, label))?;
             Ok(entry(target, directory))
         }
@@ -462,21 +448,21 @@ fn serve_frontend(window: &WebviewWindow, frontend: PathBuf) -> tauri::Result<()
 }
 
 fn classic_script(source: &str, is_yoloe: bool) -> String {
-    let body: String = source.lines().filter(|line| line.trim() != "export {};").collect::<Vec<_>>().join("
-");
-    format!("{{
+    let body: String = source.lines().filter(|line| line.trim() != "export {};").collect::<Vec<_>>().join(
+        "
+",
+    );
+    format!(
+        "{{
 const __EASY_LABELING_IS_YOLOE__ = {is_yoloe};
 {body}
 }}
-")
+"
+    )
 }
 
 fn ask(app: &AppHandle, title: &str, message: String, accept: &str, decline: &str) -> bool {
-    let mut dialog = app
-        .dialog()
-        .message(message)
-        .title(title)
-        .buttons(MessageDialogButtons::OkCancelCustom(accept.into(), decline.into()));
+    let mut dialog = app.dialog().message(message).title(title).buttons(MessageDialogButtons::OkCancelCustom(accept.into(), decline.into()));
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.parent(&window);
     }
@@ -626,9 +612,12 @@ mod tests {
 
     #[test]
     fn desktop_script_becomes_a_classic_script() {
-        let script = classic_script("(() => {})();
+        let script = classic_script(
+            "(() => {})();
 export {};
-", true);
+",
+            true,
+        );
         assert!(!script.contains("export"));
         assert!(script.contains("const __EASY_LABELING_IS_YOLOE__ = true;"));
     }

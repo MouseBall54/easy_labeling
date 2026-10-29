@@ -85,13 +85,13 @@ fn normalized_sobel(gray: &[f32], width: usize, height: usize) -> Vec<f32> {
             let down = (y + 1).min(height - 1) * width;
             let g = |i: usize| gray[i] as f64;
             let mut maximum = 0f64;
-            for x in 0..width {
+            for (x, out) in row.iter_mut().enumerate() {
                 let l = x.saturating_sub(1);
                 let r = (x + 1).min(width - 1);
                 let gx = -g(up + l) + g(up + r) - 2.0 * g(mid + l) + 2.0 * g(mid + r) - g(down + l) + g(down + r);
                 let gy = -g(up + l) - 2.0 * g(up + x) - g(up + r) + g(down + l) + 2.0 * g(down + x) + g(down + r);
                 let value = (gx * gx + gy * gy).sqrt();
-                row[x] = value as f32;
+                *out = value as f32;
                 maximum = maximum.max(value);
             }
             maximum
@@ -136,10 +136,7 @@ pub fn preprocess_gray(source: Vec<f32>, width: usize, height: usize, config: &P
         return gradient;
     }
     let w = config.edge_weight;
-    gray.par_iter()
-        .zip(gradient.par_iter())
-        .map(|(&g, &e)| (g as f64 * (1.0 - w) + e as f64 * w) as f32)
-        .collect()
+    gray.par_iter().zip(gradient.par_iter()).map(|(&g, &e)| (g as f64 * (1.0 - w) + e as f64 * w) as f32).collect()
 }
 
 /// Rounds and clamps a processed image to bytes, as the refine worker does.

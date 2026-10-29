@@ -8,7 +8,7 @@ import { launchDesktop as launch } from "./fixtures/tauri-app.js";
 
 // Drives the real Tauri executable (npm run tauri:dev, or EASY_LABELING_TAURI_EXE) through WebView2's CDP port.
 const root = path.resolve(".");
-const exe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "src-tauri/target/debug/Easy Labeling.exe");
+const exe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "target/debug/Easy Labeling.exe");
 test.skip(!existsSync(exe), `Tauri executable not built: ${exe}`);
 const launchDesktop = (sandbox: string, pickDirectories: string[]) => launch(exe, sandbox, pickDirectories);
 

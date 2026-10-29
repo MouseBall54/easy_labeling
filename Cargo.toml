@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/el-core", "crates/el-bench", "src-tauri"]
+
+# Thin LTO: fat LTO with one codegen unit needed >1.2 GB for one rustc and ~25 min per installer.
+[profile.release]
+lto = "thin"
+opt-level = 3
+
+# Debug desktop builds (npm run tauri:dev, used by the e2e specs) optimise every dependency, so IPC
+# transfers and the pixel algorithms run at release speed.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Workspace members are not covered by "*".
+[profile.dev.package.el-core]
+opt-level = 3

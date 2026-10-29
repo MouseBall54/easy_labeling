@@ -206,7 +206,8 @@ fn side_params(p: &RefineParams, side: Side) -> SideParams {
 }
 
 fn gauss_kernel(sigma: f64) -> Vec<f32> {
-    if !(sigma > 0.0) {
+    // NaN sigma means no smoothing, like the JS `!(sigma > 0)`.
+    if sigma.is_nan() || sigma <= 0.0 {
         return vec![1.0];
     }
     let radius = (sigma * 3.0).ceil() as i64;
@@ -289,15 +290,19 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
     if range < 1e-6 {
         return None;
     }
-    let mut dd: Vec<f32> = (1..raw.len().saturating_sub(1))
-        .map(|i| (raw[i + 1] as f64 - 2.0 * raw[i] as f64 + raw[i - 1] as f64).abs() as f32)
-        .collect();
+    let mut dd: Vec<f32> = (1..raw.len().saturating_sub(1)).map(|i| (raw[i + 1] as f64 - 2.0 * raw[i] as f64 + raw[i - 1] as f64).abs() as f32).collect();
     sort_f32(&mut dd);
     let noise = if dd.is_empty() { 0.0 } else { dd[dd.len() >> 1] as f64 / (0.6745 * 6f64.sqrt()) };
     let snr = range / (noise + 0.5);
     let ws = n as f64 * 0.35;
     // edgeWeight: distance to the current edge, or 1 everywhere when nearWeight is off.
-    let weight = |i: i64| if near { (-((i as f64 - c) * (i as f64 - c)) / (2.0 * ws * ws)).exp() } else { 1.0 };
+    let weight = |i: i64| {
+        if near {
+            (-((i as f64 - c) * (i as f64 - c)) / (2.0 * ws * ws)).exp()
+        } else {
+            1.0
+        }
+    };
     let mut pos: Option<f64> = None;
     let polar = context.filter(|ctx| ctx.polarity != 0);
 
@@ -306,7 +311,11 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
         let after = step - before;
         let gradient = |i: i64| {
             let g = at((i + after).min(n - 1)) - at((i - before).max(0));
-            if sign == 0 { g.abs() } else { (sign as f64 * g).max(0.0) }
+            if sign == 0 {
+                g.abs()
+            } else {
+                (sign as f64 * g).max(0.0)
+            }
         };
         let mut best = 0.0;
         let mut best_index = -1;
@@ -331,7 +340,13 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
             let a = at(i) - level;
             let b = at(i + 1) - level;
             let direction = b - a;
-            let direction_sign = if direction > 0.0 { 1 } else if direction < 0.0 { -1 } else { 0 };
+            let direction_sign = if direction > 0.0 {
+                1
+            } else if direction < 0.0 {
+                -1
+            } else {
+                0
+            };
             if a * b <= 0.0 && a != b && (sign == 0 || direction_sign == sign) {
                 let x = i as f64 + a / (a - b);
                 let d = (x - c).abs();
@@ -448,7 +463,13 @@ fn measure_context(img: &GrayImage, rect: &Rect, range_out: f64, context_ring: f
     }
     let inside = median(&mut inner);
     let outside = median(&mut outer);
-    let polarity = if (inside - outside).abs() < 4.0 { 0 } else if inside > outside { 1 } else { -1 };
+    let polarity = if (inside - outside).abs() < 4.0 {
+        0
+    } else if inside > outside {
+        1
+    } else {
+        -1
+    };
     Some(EdgeContext { inside, outside, polarity })
 }
 
@@ -460,13 +481,21 @@ fn neighbour_limit(rect: &Rect, side: Side, neighbours: &[Rect]) -> f64 {
                 if rect.y1.min(n.y1) - rect.y0.max(n.y0) <= 0.0 {
                     continue;
                 }
-                if side == Side::R { n.x0 - rect.x1 } else { rect.x0 - n.x1 }
+                if side == Side::R {
+                    n.x0 - rect.x1
+                } else {
+                    rect.x0 - n.x1
+                }
             }
             Side::T | Side::B => {
                 if rect.x1.min(n.x1) - rect.x0.max(n.x0) <= 0.0 {
                     continue;
                 }
-                if side == Side::B { n.y0 - rect.y1 } else { rect.y0 - n.y1 }
+                if side == Side::B {
+                    n.y0 - rect.y1
+                } else {
+                    rect.y0 - n.y1
+                }
             }
         };
         if gap >= 0.0 {
@@ -481,7 +510,11 @@ fn is_vertical(side: Side) -> bool {
 }
 
 fn outward(side: Side) -> i64 {
-    if matches!(side, Side::R | Side::B) { 1 } else { -1 }
+    if matches!(side, Side::R | Side::B) {
+        1
+    } else {
+        -1
+    }
 }
 
 struct SideWindow {
@@ -537,11 +570,7 @@ fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbo
     let run_lengths: Vec<usize> = runs.iter().map(|&(from, to)| (to - from + 1) as usize).collect();
     // Inward search may run through the centre up to MIN_SIZE short of the opposite side.
     let range_in = (p.range_in.min(thickness.floor() - MIN_SIZE)).max(1.0) as i64;
-    let range_out = if p.avoid_neighbors {
-        (p.range_out.min(neighbour_limit(rect, side, neighbours).floor())).max(1.0) as i64
-    } else {
-        p.range_out as i64
-    };
+    let range_out = if p.avoid_neighbors { (p.range_out.min(neighbour_limit(rect, side, neighbours).floor())).max(1.0) as i64 } else { p.range_out as i64 };
     let base = js_round(p0) as i64 - if outward(side) > 0 { range_in } else { range_out };
     SideWindow { positions, run_lengths, base, n: (range_in + range_out + 1) as usize, c: p0 - 0.5 - base as f64 }
 }
@@ -572,7 +601,16 @@ fn resolve_polarity(p: &SideParams, context: Option<EdgeContext>) -> i32 {
 /// searchRange: edge search over positions [start, end) of the window, split into segments.
 #[allow(clippy::too_many_arguments)]
 /// Returns (edge position, confidence, strength).
-fn search_range(img: &GrayImage, w: &SideWindow, side: Side, p: &SideParams, sign: i32, context: Option<EdgeContext>, start: usize, end: usize) -> Option<(f64, f64, f64)> {
+fn search_range(
+    img: &GrayImage,
+    w: &SideWindow,
+    side: Side,
+    p: &SideParams,
+    sign: i32,
+    context: Option<EdgeContext>,
+    start: usize,
+    end: usize,
+) -> Option<(f64, f64, f64)> {
     let out = outward(side);
     let kernel = gauss_kernel(p.sigma);
     let total = end - start;
@@ -581,7 +619,7 @@ fn search_range(img: &GrayImage, w: &SideWindow, side: Side, p: &SideParams, sig
     for k in 0..segments {
         let from = start + k * total / segments;
         let to = (from + 1).max(start + (k + 1) * total / segments);
-        let profile = sample_profile(img, &w, is_vertical(side), from, to);
+        let profile = sample_profile(img, w, is_vertical(side), from, to);
         if let Some(edge) = find_edge(&profile, &smooth(&profile, &kernel), &p.crit, out, w.c, sign, context, p.grad_step as i64, p.near_weight) {
             found.push(edge);
         }
@@ -663,8 +701,8 @@ fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbou
     let weak_sides: Vec<Side> = SIDES.iter().copied().filter(|side| side_conf.get(side).copied().unwrap_or(1.0) < params.review_below).collect();
     let before = (start.x1 - start.x0) * (start.y1 - start.y0);
     let area_change = if before > 0.0 { (current.x1 - current.x0) * (current.y1 - current.y0) / before - 1.0 } else { 0.0 };
-    let area_flagged = (params.area_grow_limit > 0.0 && area_change > params.area_grow_limit)
-        || (params.area_shrink_limit > 0.0 && -area_change > params.area_shrink_limit);
+    let area_flagged =
+        (params.area_grow_limit > 0.0 && area_change > params.area_grow_limit) || (params.area_shrink_limit > 0.0 && -area_change > params.area_shrink_limit);
     // JS reports sideConf in insertion order (L, R, T, B), which BTreeMap's Side order reproduces.
     let conf = if side_conf.is_empty() { 1.0 } else { side_conf.values().copied().fold(f64::INFINITY, f64::min) };
     RefineResult {
@@ -690,7 +728,9 @@ pub fn refine_boxes(img: &GrayImage, boxes: &[BoxInput], params_by_class: &HashM
             let nearby: Vec<Rect> = if params.avoid_neighbors {
                 neighbours
                     .iter()
-                    .filter(|n| n.id != input.id && n.x1 >= input.x0 - reach && n.x0 <= input.x1 + reach && n.y1 >= input.y0 - reach && n.y0 <= input.y1 + reach)
+                    .filter(|n| {
+                        n.id != input.id && n.x1 >= input.x0 - reach && n.x0 <= input.x1 + reach && n.y1 >= input.y0 - reach && n.y0 <= input.y1 + reach
+                    })
                     .map(BoxInput::rect)
                     .collect()
             } else {
@@ -764,7 +804,5 @@ fn check_peers(results: &mut [RefineResult], members: &[usize], tolerance: f64, 
 
 /// toGray in edge-refine.ts: BT.601 integer weights.
 pub fn to_gray(rgba: &[u8]) -> Vec<u8> {
-    rgba.par_chunks_exact(4)
-        .map(|p| ((77 * p[0] as u32 + 150 * p[1] as u32 + 29 * p[2] as u32) >> 8) as u8)
-        .collect()
+    rgba.par_chunks_exact(4).map(|p| ((77 * p[0] as u32 + 150 * p[1] as u32 + 29 * p[2] as u32) >> 8) as u8).collect()
 }

@@ -19,11 +19,17 @@ The shared project rules above come from `AGENTS.md` (also read by Codex). Edit 
 | `testing-and-release` | Test structure, e2e API, build and packaging details |
 | `/verify` | Pick and run the checks a change needs, and read the results correctly |
 | `/e2e-full` | Full sequential e2e run with baseline comparison |
+| `/port-module` | Port one TS module to `crates/el-core` (golden fixtures, bench, Tauri path, TS kept) |
+| `/perf-baseline` | Same-input TS/Rust measurements appended to `docs/migration/BENCH.md` |
+| `rust-ts-bridge`, `rust-perf` | Tauri boundary rules; Rust performance patterns |
+
+Agent `rust-perf-reviewer` (`.claude/agents/`) reviews a finished port read-only.
 
 ## Hooks (`.claude/settings.json`)
 
-- `PreToolUse` on file edits: `.claude/hooks/guard-generated.mjs` denies edits under `dist/`, `vendor/`, `node_modules/`, `release/`, `test-results/`, `output/`. Change the source instead (for scratch files use the session scratchpad).
-- `Stop`: `.claude/hooks/version-reminder.mjs` blocks once when shipped files changed but `package.json` kept its version. Bump per AGENTS.md "Versioning", or state why this change ships no new version.
+- `PreToolUse` on file edits: `.claude/hooks/guard-generated.mjs` denies edits under `dist/`, `vendor/`, `node_modules/`, `release/`, `test-results/`, `output/`, `target/`. Change the source instead (for scratch files use the session scratchpad).
+- `PostToolUse` on file edits: `.claude/hooks/rust-fmt.mjs` runs `rustfmt` on an edited `.rs` file.
+- `Stop`: `.claude/hooks/version-reminder.mjs` blocks once when shipped files (including `crates/el-core/`, `src-tauri/`) changed but `package.json` kept its version. Bump per AGENTS.md "Versioning", or state why this change ships no new version.
 
 ## Working on this Windows checkout
 

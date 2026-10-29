@@ -17,8 +17,8 @@ npm run test:e2e            # build + playwright (chromium)
 npm start                   # build + vite on :4173
 npm run electron:dist:win   # NSIS installer -> release/
 npm run electron:dist:yoloe:win   # YOLOE-26 variant installer (electron-builder.yoloe.cjs)
-npm run tauri:dev           # Rust/Tauri desktop exe (debug, no installer) -> src-tauri/target/debug/
-npm run tauri:dist:win      # Tauri NSIS installer -> src-tauri/target/release/bundle/nsis/ (needs Rust)
+npm run tauri:dev           # Rust/Tauri desktop exe (debug, no installer) -> target/debug/
+npm run tauri:dist:win      # Tauri NSIS installer -> target/release/bundle/nsis/ (needs Rust)
 npm run tauri:dist:yoloe:win   # Tauri YOLOE-26 variant (src-tauri/tauri.yoloe.conf.json)
 npm run release:tauri         # signed Tauri installers + GitHub release with the update feeds (latest.json, latest-yoloe.json)
 ```
@@ -34,8 +34,17 @@ Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chr
 - **Feature map:** Detection canvas `features/canvas/`; Segmentation `features/segmentation/`; image preprocessing `features/segmentation/preprocessing.ts` + `gray-filters.ts` (used by the canvas Processed view, Refine, EdgeSAM, superpixels and automation); edge refinement `domain/refine/` + `features/refine/` + `bootstrap/refine-*.ts` + `workers/refine-worker.js`; template matching `features/automation/`; EdgeSAM / super-resolution / YOLO(E) inference under `features/` with ONNX workers.
 - **On-disk formats** (per image folder): `label/<image>.txt` (YOLO), `mask/<image>.png` + `.seg.json`, class files `.yaml` (simple `id: name` lines). Tool settings live in `<image folder>/.easy-labeling/`: `refine-settings.json`, `preprocessing-presets.json`, `automation-library.json`, `segmentation-tool-presets.json`, `review-state.json`. Changing any of these formats needs a parser that still reads the old shape.
 - **Electron** (`electron/*.cjs`) loads the same `dist/` + `index.html`, polyfills `showDirectoryPicker`, and exposes profile libraries (`Template Presets`, `Layouts`, `YOLOE Presets`, `Refine Presets`, `Class Info`) shared across datasets.
-- **Tauri** (`src-tauri/`) is the Rust desktop shell with the same contract: `src/platform/tauri-desktop.ts` is the preload counterpart (window globals over Rust commands in `src-tauri/src/main.rs`; it must stay a classic script with no imports), `scripts/stage-tauri-frontend.mjs` stages the served files into `src-tauri/frontend/`, which ships as a bundle resource that WebView2 serves from disk at `https://app.localhost` (Tauri's own asset protocol runs on the window thread and stalled IPC while large vendor files loaded). Refine runs natively there: `src-tauri/compute` ports `gray-filters.ts`, `preprocessGray` and `edge-refine.ts`, reached through `src/features/refine/native-refine-worker.ts`; keep the ports in step with the TS code (`tests/unit/native/compute-parity.test.ts` compares them once `cargo build --release -p easy-labeling-compute` has built the CLI). Template matching and ONNX stay on OpenCV.js / onnxruntime-web: native versions measured slower through WebView2 IPC.
+- **Tauri** (`src-tauri/`) is the Rust desktop shell with the same contract: `src/platform/tauri-desktop.ts` is the preload counterpart (window globals over Rust commands in `src-tauri/src/main.rs`; it must stay a classic script with no imports), `scripts/stage-tauri-frontend.mjs` stages the served files into `src-tauri/frontend/`, which ships as a bundle resource that WebView2 serves from disk at `https://app.localhost` (Tauri's own asset protocol runs on the window thread and stalled IPC while large vendor files loaded). Refine runs natively there: `crates/el-core` ports `gray-filters.ts`, `preprocessGray` and `edge-refine.ts`, reached through `src/features/refine/native-refine-worker.ts`; keep the ports in step with the TS code (`tests/unit/native/compute-parity.test.ts` compares them once `cargo build --release -p el-core` has built the CLI). Template matching and ONNX stay on OpenCV.js / onnxruntime-web: native versions measured slower through WebView2 IPC.
 - **GitHub Pages** serves from `/easy_labeling/`: asset paths in `index.html` stay relative (`dist/main.js`, never `/dist/...`). See `GITHUB_PAGES_GUIDELINES.md`.
+
+## Rust core (incremental migration)
+
+- Cargo workspace at the repo root: `crates/el-core` (pure Rust, no UI/Tauri dependencies; `compute-cli` is its parity-test binary), `crates/el-bench` (golden tests + criterion benches), `src-tauri` (the shell, the only crate that talks to the frontend). Build output is the root `target/`.
+- Plan, decisions and numbers: `docs/migration/AUDIT.md`, `DECISIONS.md`, `BENCH.md`. Native code runs only in the Tauri app; the web and Electron builds keep the TS implementations, so a port never deletes the TS code and both must agree.
+- The TS implementation is the reference. Golden fixtures come from it (`npm run build && node scripts/migration/gen-golden.mjs`) into `crates/el-bench/fixtures/`; `cargo test -p el-bench` checks Rust against them. Never widen a tolerance or regenerate fixtures to make Rust pass.
+- No speed claims without a `docs/migration/BENCH.md` row measured on the same inputs (Rust `--release`, TS from `dist/`).
+- Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p el-core -p el-bench`; CI runs them in `.github/workflows/rust.yml`. `rustfmt.toml` keeps the long-line style of the existing ports.
+- `unwrap`/`expect` only in tests and `compute-cli`; `unsafe` needs a reason comment and review. Pixels never cross the Tauri boundary as JSON or base64.
 
 ## Versioning
 

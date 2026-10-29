@@ -33,12 +33,12 @@ Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기
 
 | 설치 버전 | 설치파일 빌드 명령 | 출력 위치 |
 | --- | --- | --- |
-| 일반 버전 | `npm run tauri:dist:win` | `src-tauri/target/release/bundle/nsis/` |
-| YOLOE-26 버전 | `npm run tauri:dist:yoloe:win` | `src-tauri/target/release/bundle/nsis/` |
+| 일반 버전 | `npm run tauri:dist:win` | `target/release/bundle/nsis/` |
+| YOLOE-26 버전 | `npm run tauri:dist:yoloe:win` | `target/release/bundle/nsis/` |
 
 설치파일 하나에 앱, 샘플 데이터셋, 모델, WebView2 오프라인 설치본이 모두 들어 있어 인터넷 없이 설치·실행됩니다. 프로필 라이브러리는 Electron 버전과 같은 `문서\Easy Labeling\` 폴더를 사용합니다.
 
-- 설치 없이 실행 파일만 빌드(디버그): `npm run tauri:dev` → `src-tauri/target/debug/Easy Labeling.exe`
+- 설치 없이 실행 파일만 빌드(디버그): `npm run tauri:dev` → `target/debug/Easy Labeling.exe`
 - 데스크톱 e2e: `npx playwright test tests/e2e/tauri-desktop.spec.ts --project=chromium` (위 실행 파일 사용)
 
 ### 다운로드와 자동 업데이트(GitHub Releases)

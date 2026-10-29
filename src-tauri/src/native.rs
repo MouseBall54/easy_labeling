@@ -1,7 +1,7 @@
-// Native refine: box refinement and its preprocessing run in Rust (src-tauri/compute) instead of the
+// Native refine: box refinement and its preprocessing run in Rust (crates/el-core) instead of the
 // refine worker. src/features/refine/native-refine-worker.ts keeps the worker's message protocol.
 
-use easy_labeling_compute::{preprocess, refine};
+use el_core::{preprocess, refine};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

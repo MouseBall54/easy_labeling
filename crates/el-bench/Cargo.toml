@@ -1,0 +1,20 @@
+[package]
+name = "el-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Golden equivalence tests (fixtures/ generated from the TS implementations) and criterion benches
+# for crates/el-core. See fixtures/README.md.
+
+[dependencies]
+el-core = { path = "../el-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "core"
+harness = false

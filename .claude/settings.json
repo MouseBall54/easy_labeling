@@ -16,7 +16,22 @@
       "Bash(git log *)",
       "Bash(git show *)",
       "Bash(git branch --show-current)",
-      "Bash(node .claude/hooks/*)"
+      "Bash(node .claude/hooks/*)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo check *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo test *)",
+      "Bash(cargo build *)",
+      "Bash(cargo bench *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo metadata *)",
+      "Bash(node scripts/migration/*)",
+      "Bash(node scripts/bench/*)"
+    ],
+    "ask": [
+      "Bash(cargo add *)",
+      "Bash(cargo remove *)",
+      "Bash(npm install *)"
     ]
   },
   "hooks": {
@@ -39,6 +54,18 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/version-reminder.mjs\"",
             "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust-fmt.mjs\"",
+            "timeout": 30
           }
         ]
       }

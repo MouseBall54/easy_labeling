@@ -8,7 +8,7 @@ import { launchDesktop } from "./fixtures/tauri-app.js";
 // The Tauri YOLOE-26 build (npx tauri build --debug --no-bundle --config src-tauri/tauri.yoloe.conf.json,
 // or EASY_LABELING_TAURI_YOLOE_EXE for an installed copy) reads the bundled ONNX models through Rust.
 const root = path.resolve(".");
-const exe = process.env.EASY_LABELING_TAURI_YOLOE_EXE ?? path.join(root, "src-tauri/target/debug/Easy Labeling YOLOE-26.exe");
+const exe = process.env.EASY_LABELING_TAURI_YOLOE_EXE ?? path.join(root, "target/debug/Easy Labeling YOLOE-26.exe");
 test.skip(!existsSync(exe), `Tauri YOLOE executable not built: ${exe}`);
 
 test("Tauri YOLOE-26 build loads bundled models and predicts from visual examples", async () => {

@@ -6,9 +6,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import { normalizeRefineParams, refineBoxes, type RefineBoxInput } from "../../../src/domain/refine/edge-refine.js";
 import { normalizeSegmentationPreprocessingConfig, preprocessGray, type SegmentationPreprocessingConfig } from "../../../src/features/segmentation/preprocessing.js";
 
-// The desktop app runs Rust ports of these algorithms (src-tauri/compute). Build the CLI with
-// `cargo build --release -p easy-labeling-compute` (in src-tauri) to run these checks.
-const cli = [process.env.EASY_LABELING_COMPUTE_CLI ?? "", "src-tauri/target/release/compute-cli.exe", "src-tauri/target/release/compute-cli"].filter(Boolean)
+// The desktop app runs Rust ports of these algorithms (crates/el-core). Build the CLI with
+// `cargo build --release -p el-core` to run these checks.
+const cli = [process.env.EASY_LABELING_COMPUTE_CLI ?? "", "target/release/compute-cli.exe", "target/release/compute-cli"].filter(Boolean)
   .map((file) => path.resolve(file))
   .find((file) => existsSync(file));
 const scratch = mkdtempSync(path.join(os.tmpdir(), "compute-parity-"));

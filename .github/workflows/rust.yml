@@ -1,0 +1,93 @@
+name: Rust
+
+# Runs when the Rust code or the TS algorithms it ports change (the TS code stays the reference
+# for the web and Electron builds, so both sides are checked against each other).
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rustfmt.toml"
+      - "crates/**"
+      - "src-tauri/**"
+      - "scripts/migration/**"
+      - "src/features/segmentation/preprocessing.ts"
+      - "src/features/segmentation/gray-filters.ts"
+      - "src/domain/refine/**"
+      - "tests/unit/native/**"
+      - ".github/workflows/rust.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (core and bench)
+        run: cargo clippy -p el-core -p el-bench --all-targets -- -D warnings
+
+      - name: Tests (golden fixtures)
+        run: cargo test -p el-core -p el-bench
+
+      - name: Build compute CLI
+        run: cargo build --release -p el-core
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Golden fixtures match the TS code
+        run: |
+          npm run build
+          node scripts/migration/gen-golden.mjs
+          git diff --exit-code -- crates/el-bench/fixtures
+
+      - name: TS parity with the Rust CLI
+        run: npx vitest run tests/unit/native/compute-parity.test.ts
+
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      # tauri-build checks the bundle resources, so stage the frontend first.
+      - name: Stage frontend
+        run: |
+          npm run build
+          node scripts/stage-tauri-frontend.mjs
+
+      - name: Clippy (Tauri app)
+        run: cargo clippy -p easy-labeling --all-targets -- -D warnings

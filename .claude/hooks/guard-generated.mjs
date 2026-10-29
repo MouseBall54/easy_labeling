@@ -8,7 +8,9 @@ const GENERATED = {
   "node_modules/": "installed dependencies",
   "release/": "electron-builder output",
   "test-results/": "Playwright output",
-  "output/": "local verification output (gitignored)"
+  "output/": "local verification output (gitignored)",
+  "target/": "Cargo build output",
+  "crates/el-bench/fixtures/generated/": "bench inputs from scripts/migration/gen-golden.mjs --bench"
 };
 
 let input = {};
