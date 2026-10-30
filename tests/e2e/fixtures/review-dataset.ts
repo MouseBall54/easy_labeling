@@ -3,7 +3,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 
 /** SEM-like 8-bit gray pixels: bright blocks on a sloped, noisy background. */
-function grayPixels(width: number, height: number, seed: number): Uint8Array {
+export function grayPixels(width: number, height: number, seed: number): Uint8Array {
   let state = seed;
   const random = () => ((state = (Math.imul(state, 1103515245) + 12345) >>> 0) / 4294967296);
   const pixels = new Uint8Array(width * height);
@@ -17,9 +17,14 @@ function grayPixels(width: number, height: number, seed: number): Uint8Array {
 }
 
 export function grayPng(width: number, height: number, seed = 3): Buffer {
-  const pixels = grayPixels(width, height, seed);
-  const raw = Buffer.alloc((width + 1) * height);
-  for (let y = 0; y < height; y += 1) raw.set(pixels.subarray(y * width, (y + 1) * width), y * (width + 1) + 1);
+  return encodePng(grayPixels(width, height, seed), width, height, 1);
+}
+
+/** A PNG of row-major pixels: 1 channel (gray) or 4 (RGBA). */
+export function encodePng(pixels: Uint8Array, width: number, height: number, channels: 1 | 4): Buffer {
+  const rowBytes = width * channels;
+  const raw = Buffer.alloc((rowBytes + 1) * height);
+  for (let y = 0; y < height; y += 1) raw.set(pixels.subarray(y * rowBytes, (y + 1) * rowBytes), y * (rowBytes + 1) + 1);
   const chunk = (type: string, data: Buffer) => {
     const length = Buffer.alloc(4);
     length.writeUInt32BE(data.length);
@@ -31,7 +36,8 @@ export function grayPng(width: number, height: number, seed = 3): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
-  header[8] = 8; // bit depth; colour type 0 (gray)
+  header[8] = 8; // bit depth
+  header[9] = channels === 4 ? 6 : 0; // colour type: RGBA or gray
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
 }
 

@@ -550,6 +550,8 @@ fn main() {
             review::label_row_counts,
             tiff_image::tiff_bmp,
             tiff_image::tiff_bmp_shared,
+            tiff_image::tiff_gray,
+            tiff_image::tiff_gray_shared,
             native::preprocess_view_run,
             native::preprocess_view_run_shared
         ])

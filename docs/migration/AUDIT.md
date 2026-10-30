@@ -52,7 +52,8 @@
 | 1) Processed 보기 전처리 네이티브 | **완료 (2026-10-29, `151b90bf`, v2.22.0)** | 4096×3072 무거운 설정에서 UI 정지 5.8s → 최대 0.2s. 결과는 TS와 바이트 단위로 동일. SharedBuffer 전송(D-006), 비동기 준비 단계(D-007) |
 | 2) 폴더 Review 네이티브 | **완료 (2026-10-30, `ca97e6d0`, v2.23.0)** | 60장 × 5,000박스 TIFF: 26~28초 → 0.35초. 결과·이미지 상태가 TS와 동일. 라벨 박스 수 스캔도 네이티브(D-008). 확장 구조 정리(D-009) |
 | 3) TIFF 8bit gray 디코드 네이티브 | **완료 (2026-10-30, `434182dd`, v2.24.0)** | 4096×3072 TIFF 열기: 1.27~1.69초 → 0.18~0.34초, UI 정지 0. 픽셀은 tiff.js와 바이트 단위로 동일(D-010) |
-| 4) 네이티브 TIFF 픽셀을 Rust에 상주 | **완료 (2026-10-30, 미커밋, v2.25.0)** | 4096×3072 TIFF: Processed 첫 전환 0.81초 → 0.62초(메인 스레드 픽셀 추출 0.26~0.44초 제거), 첫 refine 0.38~0.47초 → 0.02~0.04초. 결과는 업로드 경로와 동일(D-011) |
+| 4) 네이티브 TIFF 픽셀을 Rust에 상주 | **완료 (2026-10-30, `e3934366`, v2.25.0)** | 4096×3072 TIFF: Processed 첫 전환 0.81초 → 0.62초(메인 스레드 픽셀 추출 0.26~0.44초 제거), 첫 refine 0.38~0.47초 → 0.02~0.04초. 결과는 업로드 경로와 동일(D-011) |
+| 5) 자동화 입력 준비 네이티브 + Processed 표시를 `<img>`로 | **완료 (2026-10-30, 미커밋, v2.26.0)** | 자동화 Processed 입력: UI 정지 0.24~0.30초 → 0, 배치 2.0초 → 1.0~1.15초(2048×1536 3장). Processed 전환의 가장 긴 UI 정지: TIFF 193~233ms → 73~143ms. 결과는 TS와 동일. 이미지 전환은 main 대비 느려지지 않음(D-012) |
 
 0단계에서 한 일:
 - 크레이트 구조: `src-tauri/compute` → `crates/el-core`(패키지 `el-core`). 루트 워크스페이스(`Cargo.toml`, `Cargo.lock`)로 바꿨고 빌드 출력은 루트 `target/`이다. 바뀐 경로를 반영했다(parity 테스트, e2e 3개, 릴리스 스크립트, README, AGENTS.md, `.gitignore`, vite watch).
@@ -142,6 +143,21 @@
 - 동등성:
   - 앱 e2e: 같은 4096×3072 TIFF를 상주 경로와 업로드 경로(`easyLabelingNativeOff = ["tiff"]`)로 열어, Processed 화면이 TS 결과와 같고 refine(원본·Processed·crop)이 TS worker 결과와 같은지 본다. 각 경로가 어느 command를 썼는지도 확인한다.
 - 테스트: 브리지 단위 2개, refine-service 단위 3개(상주, 실패 시 bitmap, 네이티브 refine을 끄면 bitmap), Rust 단위 1개, 데스크톱 e2e 1개. 일부러 구현을 틀리게 바꿔 refine-service 테스트가 실패하는 것을 확인했다.
+
+5단계에서 한 일:
+- src-tauri `tiff_image.rs`: `tiff_gray`, `tiff_gray_shared`(상주 TIFF의 회색 바이트).
+- TS:
+  - `src/features/images/gray-image.ts`: 회색 BMP 작성(`bmp.rs`와 같은 형식), `<img>` 디코드, 불투명 판정.
+  - `native-preprocessing.ts`: 결과를 RGBA 대신 회색 바이트로 돌려준다.
+  - 워크플로: 불투명한 Processed 보기는 디코드된 `<img>`로 보여 주고, RGBA는 필요할 때 만든다. 투명 픽셀이 있으면 캔버스로 그린다.
+  - `src/features/automation/native-automation-pixels.ts`: 자동화 대상 이미지(Processed 입력, 네이티브 TIFF의 Original 입력)를 Rust에서 준비한다.
+  - 자동화 컨트롤러·배치: 대상 이미지 준비를 비동기로 바꿨다. 템플릿 편집기는 원본을 먼저 보여 주고 Processed로 바꾼다(`replaceImage`).
+- 동등성 (앱 e2e, 같은 앱에서 네이티브와 TS 비교):
+  - 자동화: Original·Processed 입력 각각, 현재 이미지 실행의 박스 좌표와 배치 dry-run 결과(파일별 상태·점수·좌표·매칭 수)가 같다. 템플릿 편집기의 최종 표시가 같다.
+  - Processed 보기: PNG·TIFF의 화면 픽셀 해시가 TS 결과와 같고 `<img>`로 표시된다. 투명 PNG는 캔버스로 남고 픽셀이 같다.
+  - 투명 이미지에서도 네이티브와 TS의 RGBA가 정확히 같다는 것을 일회성 측정으로 확인했다(기본, median, edge).
+- 이미지 전환: `tests/e2e/tauri-image-switch.spec.ts`(TIFF·PNG·JPG 4096×3072, 다음·이전 6회)로 main(`34611885`) 앱과 비교했다. 회귀 없음.
+- 테스트: 단위 9개(BMP 2, 불투명 1, 자동화 픽셀 5, 워크플로 1), 데스크톱 e2e 2개(자동화, 투명 PNG). 기존 e2e 2개는 `<img>` 표시를 확인하도록 고쳤다.
 
 ## 핫스팟 (예상 영향 큰 순)
 

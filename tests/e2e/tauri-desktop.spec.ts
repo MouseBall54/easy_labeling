@@ -4,7 +4,7 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node
 import os from "node:os";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
-import { grayPng, grayTiff, withExifOrientation, withPngExif, writeReviewDataset, yoloLabels } from "./fixtures/review-dataset.js";
+import { encodePng, grayPixels, grayPng, grayTiff, withExifOrientation, withPngExif, writeReviewDataset, yoloLabels } from "./fixtures/review-dataset.js";
 import { launchDesktop as launch } from "./fixtures/tauri-app.js";
 
 // Drives the real Tauri executable (npm run tauri:dev, or EASY_LABELING_TAURI_EXE) through WebView2's CDP port.
@@ -237,8 +237,13 @@ test("Tauri Processed view is computed natively, matches the TS result and keeps
       const api = Reflect.get(window, "__easyLabelingTestApi");
       const original = Reflect.get(window, "__originalRgba") as ImageData;
       const hash = async (bytes: Uint8ClampedArray) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))).map((b) => b.toString(16).padStart(2, "0")).join("");
-      const element = api.getCanvasBackgroundElement() as HTMLCanvasElement;
-      const shown = element.getContext("2d")!.getImageData(0, 0, element.width, element.height).data;
+      // The shown image: an <img> (opaque natively processed views) or a canvas; read either back the same way.
+      const element = api.getCanvasBackgroundElement() as HTMLImageElement | HTMLCanvasElement;
+      const shownCanvas = document.createElement("canvas");
+      shownCanvas.width = element instanceof HTMLImageElement ? element.naturalWidth : element.width;
+      shownCanvas.height = element instanceof HTMLImageElement ? element.naturalHeight : element.height;
+      shownCanvas.getContext("2d")!.drawImage(element, 0, 0);
+      const shown = shownCanvas.getContext("2d")!.getImageData(0, 0, shownCanvas.width, shownCanvas.height).data;
       const config = normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig());
       const started = performance.now();
       const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, config);
@@ -246,12 +251,14 @@ test("Tauri Processed view is computed natively, matches the TS result and keeps
       const defaultStarted = performance.now();
       preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, normalizeSegmentationPreprocessingConfig({}));
       const tsDefaultMs = performance.now() - defaultStarted;
-      return { same: await hash(shown) === await hash(expected), size: [element.width, element.height], tsMs, tsDefaultMs };
+      return { same: await hash(shown) === await hash(expected), size: [shownCanvas.width, shownCanvas.height], shownAs: element.tagName, tsMs, tsDefaultMs };
     });
     console.log(`4096x3072 Processed view, default config: native ${view.elapsed.toFixed(0)} ms (longest UI task ${view.maxLongTask.toFixed(0)} ms), TS on the UI thread ${check.tsDefaultMs.toFixed(0)} ms`);
     console.log(`4096x3072 flatten 200 + diffusion 20: native ${heavy.elapsed.toFixed(0)} ms (longest UI task ${heavy.maxLongTask.toFixed(0)} ms), TS on the UI thread ${check.tsMs.toFixed(0)} ms`);
     expect(check.size).toEqual([4096, 3072]);
     expect(check.same).toBe(true);
+    // An opaque natively processed view is shown as a decoded <img>, not drawn into a canvas on the UI thread.
+    expect(check.shownAs).toBe("IMG");
     // The UI thread only converts and copies pixels; the filters run in Rust.
     expect(heavy.maxLongTask).toBeLessThan(check.tsMs / 2);
     expect(errors).toEqual([]);
@@ -517,7 +524,11 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
 
         const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
         const hash = async (bytes: Uint8ClampedArray) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))).map((b) => b.toString(16).padStart(2, "0")).join("");
-        const shownCanvas = api.getCanvasBackgroundElement() as HTMLCanvasElement;
+        const shownElement = api.getCanvasBackgroundElement() as HTMLImageElement | HTMLCanvasElement;
+        const shownCanvas = document.createElement("canvas");
+        shownCanvas.width = shownElement instanceof HTMLImageElement ? shownElement.naturalWidth : shownElement.width;
+        shownCanvas.height = shownElement instanceof HTMLImageElement ? shownElement.naturalHeight : shownElement.height;
+        shownCanvas.getContext("2d")!.drawImage(shownElement, 0, 0);
         const shown = shownCanvas.getContext("2d")!.getImageData(0, 0, shownCanvas.width, shownCanvas.height).data;
         const canvas = document.createElement("canvas");
         canvas.width = image.naturalWidth;
@@ -555,6 +566,7 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
           maxLongTask: Math.max(0, ...longTasks),
           viewCommands,
           viewSame: await hash(shown) === await hash(expected),
+          shownAs: shownElement.tagName,
           refineCommands,
           nativeRefine,
           workerRefine
@@ -572,6 +584,7 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
     const uploaded = await run(["tiff"]);
     for (const outcome of [resident, uploaded]) {
       expect(outcome.viewSame).toBe(true);
+      expect(outcome.shownAs).toBe("IMG");
       expect(outcome.viewCommands).toContain("preprocess_view_run_shared");
       expect(outcome.nativeRefine.onOriginal).toHaveLength(40);
       for (const key of ["onOriginal", "onProcessed"] as const) {
@@ -595,6 +608,214 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
       console.log(`4096x3072 TIFF ${name}: Processed ${outcome.viewMs.toFixed(0)} ms (longest UI task ${outcome.maxLongTask.toFixed(0)} ms), first refine ${outcome.nativeRefine.firstMs.toFixed(0)} ms`);
     }
   } finally {
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri Processed view of a transparent PNG stays a canvas with the TS pixels", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "alpha");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  // Gray content with an alpha ramp in the left half: the gray <img> cannot carry it, so the canvas path stays.
+  const [width, height] = [640, 480];
+  const gray = grayPixels(width, height, 5);
+  const rgba = new Uint8Array(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    rgba.fill(gray[index]!, index * 4, index * 4 + 3);
+    rgba[index * 4 + 3] = index % width < width / 2 ? 80 + (index % 160) : 255;
+  }
+  await writeFile(path.join(dataset, "alpha.png"), encodePng(rgba, width, height, 4));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("alpha.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    const check = await page.evaluate(async () => {
+      const load = (file: string): Promise<any> => import(file);
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const image = api.getCanvasBackgroundElement() as HTMLImageElement;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+      while (api.getSegmentationViewSource() !== "processed") await new Promise((resolve) => setTimeout(resolve, 5));
+      const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+      const readBack = (source: CanvasImageSource, w: number, h: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(source, 0, 0);
+        return context.getImageData(0, 0, w, h);
+      };
+      const original = readBack(image, image.naturalWidth, image.naturalHeight);
+      const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig()));
+      // The view canvas holds the RGBA through putImageData; the TS result goes through the same kind of canvas
+      // (willReadFrequently, as the workflow creates it) so alpha premultiplication rounds both alike.
+      const expectedCanvas = document.createElement("canvas");
+      expectedCanvas.width = original.width;
+      expectedCanvas.height = original.height;
+      const expectedContext = expectedCanvas.getContext("2d", { willReadFrequently: true })!;
+      expectedContext.putImageData(new ImageData(expected, original.width, original.height), 0, 0);
+      const shownElement = api.getCanvasBackgroundElement() as HTMLCanvasElement;
+      const shown = shownElement.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, original.width, original.height).data;
+      const reference = expectedContext.getImageData(0, 0, original.width, original.height).data;
+      let differing = 0;
+      for (let index = 0; index < shown.length; index += 1) if (shown[index] !== reference[index]) differing += 1;
+      return { shownAs: shownElement.tagName, differing, transparent: original.data.some((value, index) => index % 4 === 3 && value < 255) };
+    });
+    expect(check.transparent).toBe(true);
+    expect(check.shownAs).toBe("CANVAS");
+    expect(check.differing).toBe(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri automation prepares Original and Processed inputs natively with the TS matches", async () => {
+  test.setTimeout(900_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "automation");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await mkdir(path.join(dataset, ".easy-labeling"), { recursive: true });
+  const [width, height] = [2048, 1536];
+  await writeFile(path.join(dataset, "img_0.tif"), grayTiff(width, height, 1));
+  await writeFile(path.join(dataset, "img_1.tif"), grayTiff(width, height, 2));
+  await writeFile(path.join(dataset, "img_2.png"), grayPng(width, height, 3));
+  // The template is a crop of img_0; the other images hold similar blocks with other noise.
+  const roi = { x: 300, y: 200, width: 96, height: 72 };
+  const source = grayPixels(width, height, 1);
+  const crop = new Uint8Array(roi.width * roi.height);
+  for (let y = 0; y < roi.height; y += 1) crop.set(source.subarray((roi.y + y) * width + roi.x, (roi.y + y) * width + roi.x + roi.width), y * roi.width);
+  const now = "2026-10-30T00:00:00.000Z";
+  await writeFile(path.join(dataset, ".easy-labeling", "automation-library.json"), JSON.stringify({
+    schemaVersion: 2,
+    layouts: [],
+    templates: [{
+      schemaVersion: 1, id: "template-1", name: "Block", sourceImageName: "img_0.tif", sourceImageSize: { width, height }, roi,
+      pngDataUrl: `data:image/png;base64,${encodePng(crop, roi.width, roi.height, 1).toString("base64")}`,
+      preprocessing: { grayscale: true, gaussianBlurEnabled: false, blurKernelSize: 3, blurSigma: 0, gaussianNoiseEnabled: false, gaussianNoiseSigma: 0, gaussianNoiseSeed: 1 },
+      createdAt: now, updatedAt: now
+    }],
+    presets: [{
+      schemaVersion: 2, id: "preset-1", name: "Blocks", templateId: "template-1", layoutId: null, outputMode: "multiple-detection-boxes",
+      relationOffset: { x: 0, y: 0 }, manualOffset: { x: 0, y: 0 },
+      matching: { minimumScore: 0.5, searchRoi: null, mode: "accurate" },
+      multipleDetection: { classId: "0", maximumDetections: 12, strictNonOverlap: true, nmsIouThreshold: 0.3, paddingX: 0, paddingY: 0 },
+      existingLabelsPolicy: "replace", createdAt: now, updatedAt: now
+    }]
+  }));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("img_0.tif");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    await page.locator("#taskAutomateBtn").click();
+    await expect(page.locator("#automationPresetSelect option[value='preset-1']")).toHaveCount(1);
+    await page.locator("#automationPresetSelect").selectOption("preset-1");
+    // A Processed input that takes the TS path seconds on this size.
+    await page.evaluate(() => {
+      (document.getElementById("segmentationPreprocessFlattenInput") as HTMLInputElement).value = "100";
+      const diffusion = document.getElementById("segmentationPreprocessDiffusionInput") as HTMLInputElement;
+      diffusion.value = "10";
+      diffusion.dispatchEvent(new Event("change"));
+    });
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationPreprocessingConfig().diffusionIterations)).toBe(10);
+
+    // Runs the preset on the current image, a dry-run batch and opens the template editor, all with the
+    // given input source and native features off; returns what each produced and how long the UI stalled.
+    const runAll = (mode: "original" | "processed", off: string[]) => page.evaluate(async ({ mode, off }) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      // Fails with the step's name instead of hanging until the test timeout.
+      const until = async (condition: () => boolean, step: string) => {
+        const deadline = performance.now() + 120_000;
+        while (!condition()) {
+          if (performance.now() > deadline) throw new Error(`${mode} with native off [${off.join()}]: timed out waiting for ${step}`);
+          await sleep(10);
+        }
+      };
+      const measure = async (step: string, action: () => void, done: () => boolean) => {
+        const tasks: number[] = [];
+        const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => tasks.push(entry.duration)));
+        observer.observe({ type: "longtask" });
+        const started = performance.now();
+        action();
+        await until(done, step);
+        const ms = performance.now() - started;
+        await sleep(100);
+        observer.disconnect();
+        return { ms: Math.round(ms), longestTask: Math.round(Math.max(0, ...tasks)) };
+      };
+      window.easyLabelingNativeOff = off;
+      const select = document.getElementById("detectionAutomationInputSelect") as HTMLSelectElement;
+      select.value = mode;
+      select.dispatchEvent(new Event("change"));
+
+      const panel = document.getElementById("activeOperationPanel")!;
+      let operation = "idle";
+      const watcher = new MutationObserver(() => { operation = panel.hidden ? (operation === "running" ? "done" : operation) : "running"; });
+      watcher.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
+      const current = await measure("the current-image run", () => (document.getElementById("runAutomationCurrentBtn") as HTMLButtonElement).click(), () => operation === "done");
+      watcher.disconnect();
+      const boxes = JSON.stringify((api.getRectGeometries() as Array<Record<string, unknown>>).map(({ annotationId: _, ...box }) => box));
+
+      document.getElementById("runAutomationBatchBtn")!.click();
+      const dryRun = document.getElementById("batchDryRunToggle") as HTMLInputElement;
+      if (!dryRun.checked) dryRun.click();
+      const stage = document.getElementById("automationBatchStage")!;
+      const summary = document.getElementById("automationBatchResultSummary")!;
+      stage.textContent = "";
+      summary.textContent = "";
+      const batch = await measure("the batch", () => document.getElementById("confirmAutomationBatchBtn")!.click(),
+        () => stage.textContent!.includes("Batch complete") && summary.textContent!.includes("Processed 3"));
+      const rows = [...document.querySelectorAll("#automationBatchResultList .automation-batch-result-row")].map((row) => ({
+        file: row.querySelector(".automation-result-file")?.textContent ?? "",
+        state: row.querySelector(".automation-result-state")?.textContent ?? "",
+        metrics: [...row.querySelectorAll(".automation-result-metric")].map((metric) => metric.textContent ?? "").filter((text) => !/ms\b/.test(text)),
+        imageDataMs: Number(/ImageData ([\d.]+) ms/.exec(row.querySelector<HTMLElement>(".automation-result-state")?.title ?? "")?.[1] ?? NaN)
+      }));
+
+      // Bootstrap ignores a close while the modal is still fading in: wait for its shown event first.
+      const modal = document.getElementById("templateMatchingModal")!;
+      let modalShown = false;
+      modal.addEventListener("shown.bs.modal", () => { modalShown = true; }, { once: true });
+      const label = document.getElementById("templateMatchingInputSource")!;
+      label.textContent = "";
+      const editor = await measure("the template editor image", () => document.getElementById("openTemplateMatchingBtn")!.click(),
+        () => label.textContent === `Base input: ${mode === "processed" ? "Processed" : "Original"}`);
+      const labels = label.textContent;
+      await until(() => modalShown, "the template editor to open");
+      const close = [...modal.querySelectorAll<HTMLButtonElement>(".modal-footer button")].find((button) => button.textContent?.trim() === "Close");
+      close?.click();
+      await until(() => !modal.classList.contains("show"), "the template editor to close");
+      window.easyLabelingNativeOff = [];
+      return { current, boxes, batch, rows, editor, labels, summary: summary.textContent };
+    }, { mode, off });
+
+    for (const mode of ["original", "processed"] as const) {
+      const native = await runAll(mode, []);
+      const ts = await runAll(mode, ["preprocessing", "tiff"]);
+      expect(JSON.parse(native.boxes).length, `${mode}: boxes on the current image`).toBeGreaterThan(0);
+      expect(native.boxes, `${mode}: current-image boxes`).toBe(ts.boxes);
+      expect(native.rows.map(({ imageDataMs: _, ...row }) => row), `${mode}: batch results`).toEqual(ts.rows.map(({ imageDataMs: _, ...row }) => row));
+      expect(native.rows.some((row) => row.state.includes("match")), `${mode}: batch matched something`).toBe(true);
+      expect(native.labels).toBe(ts.labels);
+      const imageData = (rows: typeof native.rows) => rows.map((row) => `${row.file} ${row.imageDataMs.toFixed(0)}`).join(", ");
+      console.log(`${mode}: current native ${native.current.ms} ms (UI ${native.current.longestTask}) vs TS ${ts.current.ms} ms (UI ${ts.current.longestTask}); `
+        + `batch native ${native.batch.ms} ms (UI ${native.batch.longestTask}) vs TS ${ts.batch.ms} ms (UI ${ts.batch.longestTask}); `
+        + `editor native ${native.editor.ms} ms (UI ${native.editor.longestTask}) vs TS ${ts.editor.ms} ms (UI ${ts.editor.longestTask})`);
+      console.log(`${mode}: batch ImageData native [${imageData(native.rows)}] vs TS [${imageData(ts.rows)}]`);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
     await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   }
 });

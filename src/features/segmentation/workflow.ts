@@ -42,7 +42,8 @@ import {
   type SegmentationProcessingOrder,
   type SegmentationViewSourceMode
 } from "./preprocessing.js";
-import { createNativeViewPreprocessor, type NativeViewSource } from "./native-preprocessing.js";
+import { createNativeViewPreprocessor, grayBytesToRgba, type NativeViewSource } from "./native-preprocessing.js";
+import { grayImageElement, isOpaque } from "../images/gray-image.js";
 import { nativeTiffPathOf } from "../images/native-tiff.js";
 import {
   getWorkingImageOriginalRect,
@@ -139,9 +140,10 @@ export function createSegmentationCanvasWorkflow(
   let originalImageData: ImageData | null = null;
   const srImages = new Map<string, SegmentationImageInput>();
   const processedImages = new Map<string, SegmentationImageInput>();
-  // Desktop app: Processed-view pixels computed in Rust ahead of ensureProcessedImage (by its cache key).
+  // Desktop app: Processed views computed in Rust ahead of ensureProcessedImage (by its cache key): the gray
+  // bytes, the source alpha when it is not opaque, and for opaque sources the view already decoded as an <img>.
   const nativeViewPreprocessor = createNativeViewPreprocessor();
-  const nativeProcessedRgba = new Map<string, Uint8ClampedArray>();
+  const nativeProcessed = new Map<string, { gray: Uint8Array; sourceRgba?: Uint8ClampedArray; image: HTMLImageElement | null }>();
   let srRoi: WorkingImageRect | null = null;
   let srRoiSelectionStart: CanvasPoint | null = null;
   let isSelectingSrRoi = false;
@@ -522,27 +524,30 @@ export function createSegmentationCanvasWorkflow(
     const cacheKey = getProcessedCacheKey({ descriptor }, preprocessingConfig);
     const cached = processedImages.get(cacheKey);
     if (cached) return cached;
-    const prepared = nativeProcessedRgba.get(cacheKey);
-    nativeProcessedRgba.delete(cacheKey);
-    // A natively prepared view needs no original pixels (for a native TIFF they were never extracted).
-    let rgba = prepared;
-    if (!rgba) {
-      const base = getProcessedBase(baseSource);
-      if (!base) return null;
-      rgba = preprocessSegmentationImage({ width: descriptor.width, height: descriptor.height, rgba: base.rgba }, preprocessingConfig);
-    }
-    const canvasElement = createCanvasImageSource(descriptor.width, descriptor.height, rgba);
-    if (!canvasElement) return null;
-    canvasElement.dataset.preprocessingKey = cacheKey;
-    const processed: SegmentationImageInput = {
-      source: canvasElement,
-      rgba,
-      descriptor: {
-        ...descriptor,
-        source: baseSource === "sr-roi" ? "sr-roi-processed" : "original-processed",
-        cacheKey
-      }
+    const prepared = nativeProcessed.get(cacheKey);
+    nativeProcessed.delete(cacheKey);
+    const processedDescriptor: WorkingImageDescriptor = {
+      ...descriptor,
+      source: baseSource === "sr-roi" ? "sr-roi-processed" : "original-processed",
+      cacheKey
     };
+    let processed: SegmentationImageInput;
+    if (prepared?.image) {
+      // Shown as the decoded <img>; the RGBA (EdgeSAM, superpixels) is built only when one of them asks.
+      let rgba: Uint8ClampedArray | null = null;
+      processed = { source: prepared.image, get rgba() { return rgba ??= grayBytesToRgba(prepared.gray); }, descriptor: processedDescriptor };
+    } else {
+      // A natively prepared view needs no original pixels (for a native TIFF they were never extracted).
+      let rgba = prepared ? grayBytesToRgba(prepared.gray, prepared.sourceRgba) : null;
+      if (!rgba) {
+        const base = getProcessedBase(baseSource);
+        if (!base) return null;
+        rgba = preprocessSegmentationImage({ width: descriptor.width, height: descriptor.height, rgba: base.rgba }, preprocessingConfig);
+      }
+      const canvasElement = createCanvasImageSource(descriptor.width, descriptor.height, rgba);
+      if (!canvasElement) return null;
+      processed = { source: canvasElement, rgba, descriptor: processedDescriptor };
+    }
     processedImages.set(cacheKey, processed);
     return processed;
   };
@@ -1197,7 +1202,7 @@ export function createSegmentationCanvasWorkflow(
       originalImageSource = null;
       originalImageData = null;
       clearProcessedImageCache();
-      nativeProcessedRgba.clear();
+      nativeProcessed.clear();
       srImages.clear();
       srRoi = null;
       srRoiSelectionStart = null;
@@ -1240,7 +1245,7 @@ export function createSegmentationCanvasWorkflow(
       imageSourceKey = `${(image as { src?: string }).src ?? "local-image"}:${imageSourceRevision}`;
       originalImageData = null;
       clearProcessedImageCache();
-      nativeProcessedRgba.clear();
+      nativeProcessed.clear();
       srImages.clear();
       srRoi = null;
       srRoiSelectionStart = null;
@@ -2157,7 +2162,7 @@ export function createSegmentationCanvasWorkflow(
       const descriptor = getProcessedBaseDescriptor(preprocessingSource);
       if (!descriptor || keepsColour(next)) return null;
       const cacheKey = getProcessedCacheKey({ descriptor }, next);
-      if (processedImages.has(cacheKey) || nativeProcessedRgba.has(cacheKey)) return null;
+      if (processedImages.has(cacheKey) || nativeProcessed.has(cacheKey)) return null;
       // A natively decoded TIFF is read in Rust: no pixel extraction on this thread, no upload.
       const tiffPath = preprocessingSource === "original" ? nativeTiffPathOf(originalImageSource) : null;
       const { width, height } = descriptor;
@@ -2169,13 +2174,18 @@ export function createSegmentationCanvasWorkflow(
         if (!base) return null;
         source = { width, height, rgba: base.rgba };
       }
+      const isCurrent = () => getProcessedBaseDescriptor(preprocessingSource)?.cacheKey === descriptor.cacheKey;
+      const sourceRgba = "rgba" in source && !isOpaque(source.rgba) ? source.rgba : undefined;
       return preprocessor.preprocess(descriptor.cacheKey, source, next).then(
-        (rgba) => {
+        async (gray) => {
           // A result for a replaced image matches no cache key.
-          if (!rgba || getProcessedBaseDescriptor(preprocessingSource)?.cacheKey !== descriptor.cacheKey) return false;
-          nativeProcessedRgba.set(cacheKey, rgba);
-          // Superseded results (full-size RGBA each) are not kept beyond the latest two.
-          while (nativeProcessedRgba.size > 2) nativeProcessedRgba.delete(nativeProcessedRgba.keys().next().value!);
+          if (!gray || !isCurrent()) return false;
+          // An opaque view is decoded by an <img> off this thread; with transparency it is drawn into a canvas.
+          const image = sourceRgba ? null : await grayImageElement(gray, width, height).catch(() => null);
+          if (!isCurrent()) return false;
+          nativeProcessed.set(cacheKey, { gray, sourceRgba, image });
+          // Superseded results (full-size each) are not kept beyond the latest two.
+          while (nativeProcessed.size > 2) nativeProcessed.delete(nativeProcessed.keys().next().value!);
           return true;
         },
         (error: unknown) => {

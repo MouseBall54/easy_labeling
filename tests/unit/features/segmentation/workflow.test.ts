@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createCanvasControllerForWorkflow, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
 import type { FabricCircleLike } from "../../../../src/features/canvas/fabric-types.js";
 import { createFakeFabricRuntime } from "../canvas/test-fakes.js";
+import { rememberNativeTiffPath } from "../../../../src/features/images/native-tiff.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
   return {
@@ -406,6 +407,56 @@ describe("features/segmentation/workflow", () => {
       // Already prepared (now cached): nothing to wait for.
       expect(controller.prepareSegmentationProcessedImage?.()).toBeNull();
     } finally {
+      vi.unstubAllGlobals();
+      if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+      else Reflect.deleteProperty(globalThis, "document");
+    }
+  });
+
+  it("shows a native TIFF's Processed view as a decoded <img> without reading the original pixels back", async () => {
+    const source = { width: 16, height: 16, src: "blob:tiff" };
+    rememberNativeTiffPath(source, "D:/data/a.tif");
+    const getImageData = vi.fn();
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: { createElement: () => ({ width: 16, height: 16, dataset: {}, getContext: () => ({ drawImage: vi.fn(), getImageData, createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }), putImageData: vi.fn() }) }) }
+    });
+    const invoke = vi.fn(async (command: string) => (command === "preprocess_view_run" ? new Uint8Array(256).fill(200).buffer : undefined));
+    const decoded: Array<{ src: string }> = [];
+    class FakeImage {
+      src = "";
+      async decode() { decoded.push(this); }
+    }
+    vi.stubGlobal("window", { easyLabelingNative: { invoke } });
+    vi.stubGlobal("Image", FakeImage);
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bmp");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockReturnValue(undefined);
+    const edgeSamService = {
+      prepareImage: vi.fn(async () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 1, message: null })),
+      decode: vi.fn(), clear: vi.fn(), dispose: vi.fn(),
+      getStatus: () => ({ phase: "ready" as const, backend: "wasm" as const, imageCacheKey: null, encoderRuns: 1, message: null })
+    };
+    try {
+      const controller = createCanvasControllerForWorkflow("segmentation", createState({ currentImage: { width: 16, height: 16 } }), createDeps({ edgeSamService }));
+      controller.setBackgroundImage(source);
+
+      await expect(controller.prepareSegmentationProcessedImage?.({ median: true })).resolves.toBe(true);
+      expect(invoke.mock.calls.map(([command]) => command)).toEqual(["preprocess_view_load_tiff", "preprocess_view_run"]);
+      expect(decoded.map((image) => image.src)).toEqual(["blob:bmp"]);
+      expect(controller.setSegmentationPreprocessingConfig?.({ median: true })).toBe(true);
+      expect(controller.setSegmentationViewSource?.("processed")).toBe(true);
+      const background = (controller.getObjects("image") as Array<{ _isBaseImage?: boolean; element?: unknown }>).find((object) => object._isBaseImage);
+      expect(background?.element).toBe(decoded[0]);
+      expect(getImageData).not.toHaveBeenCalled();
+      controller.setSegmentationTool?.("ai-select");
+      await Promise.resolve();
+      // EdgeSAM still gets the RGBA, built from the gray bytes on demand (opaque: alpha 255).
+      const input = (edgeSamService.prepareImage.mock.calls.at(-1) as unknown as [{ rgba: Uint8ClampedArray }])[0];
+      expect([...input.rgba.slice(0, 4)]).toEqual([200, 200, 200, 255]);
+    } finally {
+      createObjectURL.mockRestore();
+      revokeObjectURL.mockRestore();
       vi.unstubAllGlobals();
       if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
       else Reflect.deleteProperty(globalThis, "document");

@@ -36,11 +36,11 @@ export type NativeViewSource = SegmentationPreprocessingInput | { width: number;
 
 export interface NativeViewPreprocessor {
   /**
-   * The Processed view computed in Rust (crates/el-core), byte-identical to preprocessSegmentationImage.
-   * `key` names the image: the RGBA is uploaded (or the TIFF loaded) once per key and later calls send only the config.
-   * Resolves null for configs that keep colour (they stay on the cheap TS path).
+   * The Processed view's gray bytes computed in Rust (crates/el-core): `grayBytesToRgba` of them is byte-identical
+   * to preprocessSegmentationImage. `key` names the image: the RGBA is uploaded (or the TIFF loaded) once per key
+   * and later calls send only the config. Resolves null for configs that keep colour (they stay on the cheap TS path).
    */
-  preprocess(key: string, source: NativeViewSource, config: SegmentationPreprocessingConfig): Promise<Uint8ClampedArray | null>;
+  preprocess(key: string, source: NativeViewSource, config: SegmentationPreprocessingConfig): Promise<Uint8Array | null>;
 }
 
 const isNotLoaded = (error: unknown): boolean => errorText(error).includes("View image is not loaded");
@@ -68,8 +68,8 @@ export function createNativeViewPreprocessor(): NativeViewPreprocessor | null {
   return {
     async preprocess(key, source, config) {
       if (keepsColour(config)) return null;
-      const sourceRgba = "rgba" in source ? source.rgba : undefined;
-      const run = () => native.receiveBytes("preprocess_view_run", "preprocess_view_run_shared", { key, config }, (gray) => grayBytesToRgba(gray, sourceRgba), isNotLoaded);
+      // A copy: shared-buffer bytes are released once this callback returns.
+      const run = () => native.receiveBytes("preprocess_view_run", "preprocess_view_run_shared", { key, config }, (gray) => gray.slice(), isNotLoaded);
       await load(key, source, false);
       try {
         return await run();

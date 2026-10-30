@@ -15,7 +15,10 @@ import {
   upsertById
 } from "../features/automation/automation-library-service.js";
 import { cropImageElementToPngDataUrl, imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
-import { preprocessSegmentationImage } from "../features/segmentation/preprocessing.js";
+import { canPreprocessNatively, nativeAutomationPixels, type NativeAutomationPixels } from "../features/automation/native-automation-pixels.js";
+import { grayImageElement, isOpaque } from "../features/images/gray-image.js";
+import { grayBytesToRgba } from "../features/segmentation/native-preprocessing.js";
+import { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
 import { parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
 import {
@@ -215,9 +218,21 @@ export function createAutomationController(input: {
     return createNativeImageData(data, imageData.width, imageData.height);
   };
 
-  const createAutomationWorkspaceImage = (image: HTMLImageElement): CanvasImageSource => {
-    if (getAutomationInputSource() === "original") return image;
-    const imageData = prepareAutomationImageData(imageElementToImageData(image, input.documentRef));
+  /** The Preprocess panel's config when automation reads the Processed input, else null. */
+  const automationProcessing = (): SegmentationPreprocessingConfig | null => getAutomationInputSource() === "processed"
+    ? normalizeSegmentationPreprocessingConfig(input.canvasController.raw.getSegmentationPreprocessingConfig?.())
+    : null;
+
+  const nativePixelsImageData = (pixels: NativeAutomationPixels): ImageData =>
+    new ImageData(grayBytesToRgba(pixels.gray, pixels.sourceRgba) as Uint8ClampedArray<ArrayBuffer>, pixels.width, pixels.height);
+
+  /** The image automation matches against: natively when the desktop app can (see native-automation-pixels.ts). */
+  const prepareAutomationTarget = async (image: HTMLImageElement): Promise<ImageData> => {
+    const pixels = await nativeAutomationPixels(image, automationProcessing(), input.documentRef);
+    return pixels ? nativePixelsImageData(pixels) : prepareAutomationImageData(imageElementToImageData(image, input.documentRef));
+  };
+
+  const imageDataCanvas = (imageData: ImageData): HTMLCanvasElement => {
     const canvas = input.documentRef.createElement("canvas");
     canvas.width = imageData.width;
     canvas.height = imageData.height;
@@ -227,9 +242,41 @@ export function createAutomationController(input: {
     return canvas;
   };
 
+  const createAutomationWorkspaceImage = (image: HTMLImageElement): CanvasImageSource => {
+    if (getAutomationInputSource() === "original") return image;
+    return imageDataCanvas(prepareAutomationImageData(imageElementToImageData(image, input.documentRef)));
+  };
+
+  /** The Processed workspace image from native pixels: an opaque one as a decoded <img>, else a canvas. */
+  const nativeWorkspaceImage = (pixels: NativeAutomationPixels): Promise<CanvasImageSource> =>
+    !pixels.sourceRgba || isOpaque(pixels.sourceRgba)
+      ? grayImageElement(pixels.gray, pixels.width, pixels.height)
+      : Promise.resolve(imageDataCanvas(nativePixelsImageData(pixels)));
+
+  let workspaceImageToken = 0;
   const setTemplateWorkspaceImage = (image: HTMLImageElement, roi: PixelRect | null = null): void => {
-    workspace.setImage(createAutomationWorkspaceImage(image), roi);
-    elements.templateMatchingInputSource.textContent = `Base input: ${getAutomationInputSource() === "processed" ? "Processed" : "Original"}`;
+    const token = ++workspaceImageToken;
+    const processing = automationProcessing();
+    const setLabel = (text: string): void => { elements.templateMatchingInputSource.textContent = `Base input: ${text}`; };
+    if (!processing || !canPreprocessNatively(processing)) {
+      workspace.setImage(createAutomationWorkspaceImage(image), roi);
+      setLabel(processing ? "Processed" : "Original");
+      return;
+    }
+    // Desktop app: show the original at once and swap in the Processed image when Rust has computed it.
+    workspace.setImage(image, roi);
+    setLabel("Processed (preparing...)");
+    void nativeAutomationPixels(image, processing, input.documentRef)
+      .then((pixels) => pixels ? nativeWorkspaceImage(pixels) : createAutomationWorkspaceImage(image))
+      .catch((error: unknown) => {
+        console.warn("Native Processed workspace image failed; using the TS path.", error);
+        return createAutomationWorkspaceImage(image);
+      })
+      .then((processed) => {
+        if (token !== workspaceImageToken) return;
+        workspace.replaceImage(processed);
+        setLabel("Processed");
+      });
   };
 
   const prepareMatchingEngine = (): Promise<void> => {
@@ -1009,7 +1056,7 @@ export function createAutomationController(input: {
     throwIfOperationCancelled(operation.signal);
     operation.update({ detail: "Running OpenCV template matching" });
     const result = await matchWithRecovery({
-      target: prepareAutomationImageData(imageElementToImageData(targetImage, input.documentRef)),
+      target: await prepareAutomationTarget(targetImage),
       template: templateImageData,
       preprocessing,
       matching,
@@ -1230,7 +1277,7 @@ export function createAutomationController(input: {
       throwIfOperationCancelled(operation.signal);
       operation.update({ detail: "Running OpenCV template matching" });
       result = await matchWithRecovery({
-        target: prepareAutomationImageData(imageElementToImageData(targetImage, input.documentRef)),
+        target: await prepareAutomationTarget(targetImage),
         template: templateImageData,
         preprocessing: template.preprocessing,
         matching: preset.matching,
@@ -1291,6 +1338,7 @@ export function createAutomationController(input: {
     getLibrary: () => library,
     match: matchWithRecovery,
     prepareImageData: prepareAutomationImageData,
+    prepareTargetImageData: prepareAutomationTarget,
     cancelActiveMatch: () => matchingService?.cancelPending(),
     setRelatedControlsDisabled: (running) => {
       elements.openTemplateMatchingBtn.disabled = running;

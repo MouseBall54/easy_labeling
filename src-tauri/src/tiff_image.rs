@@ -1,7 +1,7 @@
 // TIFF images for the viewer (crates/el-core/src/tiff_gray.rs): Rust reads and decodes the file itself
 // and hands the page an 8-bit gray BMP for its <img>, skipping the file read over IPC and tiff.js's
 // canvas-to-PNG round trip. Files outside the native scope return NOT_NATIVE; the page then uses tiff.js.
-// The last decoded image stays resident, so the Processed view and refine read it instead of an upload.
+// The last decoded image stays resident, so the Processed view, refine and automation read it instead of an upload.
 
 use el_core::tiff_gray::Gray8;
 use std::io::BufReader;
@@ -48,4 +48,20 @@ pub async fn tiff_bmp(path: String) -> CommandResult<Response> {
 #[tauri::command]
 pub async fn tiff_bmp_shared(window: tauri::WebviewWindow, path: String) -> CommandResult<u64> {
     crate::shared_buffer::post(&window, tiff_bmp_bytes(path).await?).await
+}
+
+/// The gray bytes (row-major) of the TIFF at path, for automation's Original input.
+async fn tiff_gray_bytes(path: String) -> CommandResult<Vec<u8>> {
+    tauri::async_runtime::spawn_blocking(move || Ok(resident_gray(&path)?.pixels.clone())).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn tiff_gray(path: String) -> CommandResult<Response> {
+    Ok(Response::new(tiff_gray_bytes(path).await?))
+}
+
+/// Like tiff_gray, but posts the bytes in a shared buffer and returns its id.
+#[tauri::command]
+pub async fn tiff_gray_shared(window: tauri::WebviewWindow, path: String) -> CommandResult<u64> {
+    crate::shared_buffer::post(&window, tiff_gray_bytes(path).await?).await
 }

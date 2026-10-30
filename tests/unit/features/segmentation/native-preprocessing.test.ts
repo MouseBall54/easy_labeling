@@ -55,7 +55,7 @@ describe("native Processed view", () => {
   it("uploads an image once and then sends only the config", async () => {
     const { invoke } = installBridge();
     const preprocessor = createNativeViewPreprocessor()!;
-    expect([...(await preprocessor.preprocess("img-a", input, grayConfig))!]).toEqual([10, 10, 10, 200, 20, 20, 20, 255]);
+    expect([...(await preprocessor.preprocess("img-a", input, grayConfig))!]).toEqual([10, 20]);
     await preprocessor.preprocess("img-a", input, normalizeSegmentationPreprocessingConfig({ mode: "edge" }));
     expect(commands(invoke)).toEqual(["preprocess_view_load", "preprocess_view_run", "preprocess_view_run"]);
   });
@@ -73,7 +73,7 @@ describe("native Processed view", () => {
     const { invoke } = installBridge();
     const preprocessor = createNativeViewPreprocessor()!;
     const tiff = { width: 2, height: 1, tiffPath: "D:/data/a.tif" };
-    expect([...(await preprocessor.preprocess("img-t", tiff, grayConfig))!]).toEqual([10, 10, 10, 255, 20, 20, 20, 255]);
+    expect([...(await preprocessor.preprocess("img-t", tiff, grayConfig))!]).toEqual([10, 20]);
     await preprocessor.preprocess("img-t", tiff, normalizeSegmentationPreprocessingConfig({ mode: "edge" }));
     expect(commands(invoke)).toEqual(["preprocess_view_load_tiff", "preprocess_view_run", "preprocess_view_run"]);
     expect(invoke.mock.calls[0]?.[1]).toEqual({ key: "img-t", path: "D:/data/a.tif" });
@@ -93,7 +93,7 @@ describe("native Processed view", () => {
     const download = vi.fn(async (_command: string, _args: unknown, use: (bytes: Uint8Array) => unknown) => use(new Uint8Array([30, 40])));
     vi.stubGlobal("window", { easyLabelingNative: { invoke, upload, download } });
     const result = await createNativeViewPreprocessor()!.preprocess("img-a", input, grayConfig);
-    expect([...result!]).toEqual([30, 30, 30, 200, 40, 40, 40, 255]);
+    expect([...result!]).toEqual([30, 40]);
     expect(upload).toHaveBeenCalledTimes(1);
     expect(invoke).toHaveBeenCalledWith("preprocess_view_load", new Uint8Array(0), { headers: expect.objectContaining({ "x-shared-buffer": "7" }) });
     expect(download.mock.calls[0]?.[0]).toBe("preprocess_view_run_shared");
@@ -105,7 +105,7 @@ describe("native Processed view", () => {
     native.upload = vi.fn(async () => { throw new Error("no ICoreWebView2_17"); });
     native.download = vi.fn(async () => { throw new Error("no ICoreWebView2_17"); });
     const result = await createNativeViewPreprocessor()!.preprocess("img-a", input, grayConfig);
-    expect([...result!]).toEqual([10, 10, 10, 200, 20, 20, 20, 255]);
+    expect([...result!]).toEqual([10, 20]);
     expect(commands(invoke)).toEqual(["preprocess_view_load", "preprocess_view_run"]);
   });
 

@@ -99,6 +99,39 @@
 - 처음에는 회색→luma 변환을 src-tauri에 두어 이 단계가 120~140ms였다. 디버그 빌드에서 src-tauri는 최적화되지 않기 때문이다. 변환을 el-core(`gray_luma`)로 옮겨 해결했다.
 - 남은 UI 정지(약 0.2초)는 결과가 도착한 뒤의 RGBA 조립과 캔버스 쓰기로, 두 경로에 공통이다.
 
+### 5단계: 자동화 입력 준비 + Processed 표시 (2026-10-30)
+
+자동화는 데스크톱 e2e(`tauri-desktop.spec.ts`)로, 같은 앱에서 네이티브와 TS(`easyLabelingNativeOff = ["preprocessing", "tiff"]`)를 번갈아 쟀다(Original 4회, Processed 2회). 입력은 2048×1536 TIFF 2장과 PNG 1장이고, Processed 설정은 flatten 100 + diffusion 10이다.
+
+| 단계 | TS | 네이티브 |
+|---|---|---|
+| Processed 입력, 현재 이미지 실행 | 484~517ms, UI 정지 290~301ms | 322~333ms, UI 정지 0 |
+| Processed 입력, 배치 3장 (dry run) | 2,005~2,028ms, UI 정지 239~240ms | 1,040~1,150ms, UI 정지 0 |
+| Processed 입력, 템플릿 편집기 이미지 | 202~262ms 동안 UI 정지 | 142~151ms, UI 정지 0 (원본을 먼저 표시) |
+| 배치의 이미지당 준비(ImageData), Processed | TIFF 235~240ms, PNG 210~214ms | TIFF 78~94ms, PNG 153~178ms |
+| 배치의 이미지당 준비(ImageData), Original | TIFF 57~95ms | TIFF 19~32ms (PNG는 같은 TS 경로) |
+| Original 입력, 배치 3장 | 1,507~1,851ms, UI 정지 94~125ms | 840~987ms, UI 정지 0~67ms |
+
+Processed 보기(B)는 4단계와 같은 테스트로 쟀다(4회). 4단계 값은 위 4단계 표다.
+
+| 4096×3072 | 4단계 | 5단계 |
+|---|---|---|
+| TIFF 첫 전환 | 중앙값 615ms | 500~691ms, 중앙값 약 575ms |
+| 그중 가장 긴 UI 정지 | 193~233ms | 73~143ms |
+| PNG, flatten 200 + diffusion 20 적용 시 가장 긴 UI 정지 | 159~236ms | 83~91ms |
+
+- PNG 기본 설정의 첫 전환은 원본 픽셀 추출(127~136ms, 구간 측정)이 남아 가장 긴 UI 정지가 151~197ms다.
+
+이미지 전환(`tests/e2e/tauri-image-switch.spec.ts`, 4096×3072 4장, 다음·이전 6회 중앙값, 디버그 exe):
+
+| 형식 | main `34611885` | 4단계 `e3934366` | 5단계 |
+|---|---|---|---|
+| TIFF | 2,870~3,253ms | 1,190~1,312ms | 1,092~1,119ms |
+| PNG | 1,088~1,396ms | 1,346~1,405ms | 1,116ms (2회) |
+| JPG | 971~1,391ms | 1,062~1,188ms | 946~976ms |
+
+- 같은 시각에 번갈아 잰 값끼리 비교했다(main과 4단계, main과 5단계). PNG·JPG는 잡음 범위 안에서 같다. JPG는 main과 4단계를 번갈아 3회 더 쟀다(main 1,119~1,391ms, 4단계 1,080~1,188ms).
+
 측정 조건 (2026-10-29):
 - 장비: i5-8600K 6코어/6스레드, Windows 10.
 - 측정 중 다른 프로세스의 CPU 사용 약 20~30%(svchost, docker 등)가 있었다. 절대값은 그만큼 보수적이고, TS와 Rust는 같은 조건에서 연달아 쟀다.
