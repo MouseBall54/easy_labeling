@@ -1,7 +1,7 @@
 name: Rust
 
 # Runs when the Rust code or the TS algorithms it ports change (the TS code stays the reference
-# for the web and Electron builds, so both sides are checked against each other).
+# and the web build's implementation, so both sides are checked against each other).
 on:
   pull_request:
     paths:

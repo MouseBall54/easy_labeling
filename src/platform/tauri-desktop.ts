@@ -1,5 +1,5 @@
-// Tauri counterpart of electron/preload.cjs: the same window globals, backed by Rust commands in
-// src-tauri/src/main.rs. The desktop app injects the compiled dist/platform/tauri-desktop.js as an
+// The desktop app's window globals (folder picker, profile libraries, sample folder, close guard, native
+// bridge), backed by Rust commands in src-tauri/src/main.rs. The desktop app injects the compiled dist/platform/tauri-desktop.js as an
 // initialization script (before page scripts) and defines __EASY_LABELING_IS_YOLOE__ around it.
 // It must stay a classic script: no imports, everything inside the IIFE.
 
@@ -227,7 +227,7 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     }
   };
 
-  // Electron shows no page context menu; keep WebView2's only where text editing needs it.
+  // No page context menu, as in a native app; keep WebView2's only where text editing needs it.
   window.addEventListener("contextmenu", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea")))) {

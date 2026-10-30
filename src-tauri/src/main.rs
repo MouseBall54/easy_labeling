@@ -1,4 +1,4 @@
-// Tauri shell for Easy Labeling: the Rust counterpart of electron/main.cjs + preload.cjs.
+// Tauri shell for Easy Labeling: the desktop app's window, file access, profile libraries and native commands.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod jobs;
@@ -8,6 +8,7 @@ mod shared_buffer;
 mod superpixels;
 mod tiff_image;
 
+use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -16,7 +17,6 @@ use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const YOLOE_IDENTIFIER: &str = "com.easylabeling.yoloe26";
 
@@ -114,16 +114,21 @@ fn test_picked_directory() -> Option<PathBuf> {
     next.map(PathBuf::from)
 }
 
+/// E2E seam: the file answered instead of the open and save library file dialogs.
+fn test_picked_file() -> Option<PathBuf> {
+    std::env::var_os("EASY_LABELING_TEST_PICK_FILE").map(PathBuf::from)
+}
+
 #[tauri::command]
 async fn pick_directory(app: AppHandle, window: WebviewWindow, id: Option<String>) -> CommandResult<Option<Entry>> {
     if let Some(path) = test_picked_directory() {
         return Ok(Some(entry(path, true)));
     }
-    let mut dialog = app.dialog().file().set_parent(&window);
+    let mut dialog = FileDialog::new().set_parent(&window);
     if id.as_deref() == Some("class-info") {
         dialog = dialog.set_directory(ensure_profile_directory(&app, "class-info")?);
     }
-    Ok(dialog.blocking_pick_folder().and_then(|picked| picked.into_path().ok()).map(|path| entry(path, true)))
+    Ok(dialog.pick_folder().map(|path| entry(path, true)))
 }
 
 #[tauri::command]
@@ -157,8 +162,10 @@ async fn sample_directory(app: AppHandle) -> CommandResult<Entry> {
 async fn open_library_file(app: AppHandle, window: WebviewWindow, kind: String, folder: Option<String>) -> CommandResult<Option<LibraryFile>> {
     let profile = ensure_profile_directory(&app, &kind)?;
     let directory = folder.as_deref().and_then(dataset_library_directory).unwrap_or(profile);
-    let picked = app.dialog().file().set_parent(&window).set_directory(directory).add_filter("Easy Labeling JSON", &["json"]).blocking_pick_file();
-    match picked.and_then(|file| file.into_path().ok()) {
+    if let Some(path) = test_picked_file() {
+        return read_library_file(path).map(Some);
+    }
+    match FileDialog::new().set_parent(&window).set_directory(directory).add_filter("Easy Labeling JSON", &["json"]).pick_file() {
         Some(path) => read_library_file(path).map(Some),
         None => Ok(None),
     }
@@ -226,16 +233,18 @@ async fn save_library_file(app: AppHandle, window: WebviewWindow, options: SaveL
     let is_yoloe = options.kind == "yoloe";
     let path = if is_yoloe && !options.save_as.unwrap_or(false) {
         Some(existing.unwrap_or(default_path))
+    } else if let Some(path) = test_picked_file() {
+        Some(path)
     } else {
         let start = if is_yoloe { existing.unwrap_or(default_path) } else { default_path };
-        let mut dialog = app.dialog().file().set_parent(&window).add_filter("Easy Labeling JSON", &["json"]);
+        let mut dialog = FileDialog::new().set_parent(&window).add_filter("Easy Labeling JSON", &["json"]);
         if let Some(parent) = start.parent() {
             dialog = dialog.set_directory(parent);
         }
         if let Some(name) = start.file_name() {
             dialog = dialog.set_file_name(name.to_string_lossy());
         }
-        dialog.blocking_save_file().and_then(|file| file.into_path().ok())
+        dialog.save_file()
     };
     let Some(path) = path else { return Ok(None) };
     fs::write(&path, options.contents).map_err(|error| io_error(error, "Library file"))?;
@@ -403,20 +412,15 @@ async fn fs_same_entry(left: String, right: String) -> bool {
 }
 
 fn confirm_close(window: &tauri::Window) {
-    let target = window.clone();
-    window
-        .dialog()
-        .message("There are unsaved annotation changes.\n\nClose Easy Labeling without saving them?")
-        .title("Unsaved changes")
-        .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom("Discard and close".into(), "Cancel".into()))
-        .parent(window)
-        .show(move |discard| {
-            if discard {
-                DOCUMENT_DIRTY.store(false, Ordering::SeqCst);
-                let _ = target.destroy();
-            }
-        });
+    let window = window.clone();
+    // Off the event loop thread, as the close request handler must return.
+    std::thread::spawn(move || {
+        let message = "There are unsaved annotation changes.\n\nClose Easy Labeling without saving them?";
+        if ask(Some(&window), MessageLevel::Warning, "Unsaved changes", message, "Discard and close", "Cancel") {
+            DOCUMENT_DIRTY.store(false, Ordering::SeqCst);
+            let _ = window.destroy();
+        }
+    });
 }
 
 /// The window globals bridge (src/platform/tauri-desktop.ts, compiled into the frontend's dist/). tsc
@@ -466,12 +470,17 @@ const __EASY_LABELING_IS_YOLOE__ = {is_yoloe};
     )
 }
 
-fn ask(app: &AppHandle, title: &str, message: String, accept: &str, decline: &str) -> bool {
-    let mut dialog = app.dialog().message(message).title(title).buttons(MessageDialogButtons::OkCancelCustom(accept.into(), decline.into()));
-    if let Some(window) = app.get_webview_window("main") {
-        dialog = dialog.parent(&window);
+/// A modal question with custom OK/Cancel labels; true when `accept` was chosen.
+fn ask(parent: Option<&tauri::Window>, level: MessageLevel, title: &str, message: &str, accept: &str, decline: &str) -> bool {
+    let mut dialog = MessageDialog::new()
+        .set_level(level)
+        .set_title(title)
+        .set_description(message)
+        .set_buttons(MessageButtons::OkCancelCustom(accept.into(), decline.into()));
+    if let Some(parent) = parent {
+        dialog = dialog.set_parent(parent);
     }
-    dialog.blocking_show()
+    dialog.show() == MessageDialogResult::Custom(accept.into())
 }
 
 /// Startup check against the GitHub release feed (plugins.updater.endpoints). Offline or failing
@@ -486,11 +495,12 @@ async fn update_on_startup(app: AppHandle) -> tauri_plugin_updater::Result<()> {
         "{name} {} is available (installed: {}).\n\nDownload and install it now? The app restarts after the installer finishes.",
         update.version, update.current_version
     );
-    if !ask(&app, "Update available", offer, "Update", "Later") {
+    let window = app.get_webview_window("main");
+    let main_window = window.as_ref().map(|window| window.as_ref().window());
+    if !ask(main_window.as_ref(), MessageLevel::Info, "Update available", &offer, "Update", "Later") {
         return Ok(());
     }
     // The download takes a while (the installer bundles WebView2); show its progress in the title.
-    let window = app.get_webview_window("main");
     let mut received = 0usize;
     let bytes = update
         .download(
@@ -508,8 +518,8 @@ async fn update_on_startup(app: AppHandle) -> tauri_plugin_updater::Result<()> {
     }
     let bytes = bytes?;
     if DOCUMENT_DIRTY.load(Ordering::SeqCst) {
-        let warning = "The update is ready, but there are unsaved annotation changes.\n\nInstall now and discard them?".to_string();
-        if !ask(&app, "Unsaved changes", warning, "Install and close", "Cancel") {
+        let warning = "The update is ready, but there are unsaved annotation changes.\n\nInstall now and discard them?";
+        if !ask(main_window.as_ref(), MessageLevel::Warning, "Unsaved changes", warning, "Install and close", "Cancel") {
             return Ok(());
         }
     }
@@ -518,7 +528,6 @@ async fn update_on_startup(app: AppHandle) -> tauri_plugin_updater::Result<()> {
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Never answers (WebView2 serves https://app.localhost); registering it makes that origin local.
         .register_uri_scheme_protocol("app", |_context, _request| tauri::http::Response::builder().status(404).body(Vec::new()).unwrap())

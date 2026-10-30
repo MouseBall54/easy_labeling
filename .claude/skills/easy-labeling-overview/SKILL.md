@@ -22,7 +22,7 @@ workflows sharing one canvas and one `AppState`:
 
 No backend: it reads/writes an image folder directly via the File System
 Access API (see **app-shell-and-file-io**). It also ships as a Windows
-desktop app via Electron. Default docs/UI language is Korean
+desktop app via Tauri (WebView2). Default docs/UI language is Korean
 (`README.md`, `README.ko.md`).
 
 ## Related skills (pick the deeper one for the actual task)
@@ -35,8 +35,8 @@ desktop app via Electron. Default docs/UI language is Korean
 | `image-preprocessing` | The Processed image: SEM/TEM filters, tone, edge modes, preprocessing presets, cache keys |
 | `automation-template-matching` | Template capture, OpenCV matching (accurate/fast), NMS candidates, box layouts, batch labeling across many images |
 | `ai-preprocessing` | EdgeSAM click/box-prompt segmentation, super-resolution ROI upscale/enhance, ONNX worker plumbing |
-| `app-shell-and-file-io` | Folder open/save flow, label folder creation, class `.yaml` files, sample dataset, Electron shell |
-| `testing-and-release` | Build/typecheck/test/e2e commands, test structure, versioning, Electron packaging |
+| `app-shell-and-file-io` | Folder open/save flow, label folder creation, class `.yaml` files, sample dataset, desktop (Tauri) shell |
+| `testing-and-release` | Build/typecheck/test/e2e commands, test structure, versioning, desktop installers |
 | `verify` / `e2e-full` | `/verify` (checks for the changed area) and `/e2e-full` (whole suite with baseline triage) |
 
 ## Composition root (app-wide architecture)

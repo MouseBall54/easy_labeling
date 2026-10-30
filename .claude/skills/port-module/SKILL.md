@@ -35,7 +35,7 @@ Finish each step before starting the next. Read `docs/migration/AUDIT.md` and `D
 - Files the page already has handles for: pass native paths (`pathOf`), let Rust read them, instead of shipping bytes.
 
 ## 6. Switch-over
-- The TS implementation stays: the web (GitHub Pages) and Electron builds have no Rust.
+- The TS implementation stays: the web (GitHub Pages) build has no Rust.
 - Add the feature name to `NativeFeature` in `src/platform/native-bridge.ts` and call through `getNativeBridge("<feature>")` only (`sendBytes`, `receiveBytes`, `runJob`, `pathOf`).
 - Fall back to the TS path on null and on any native error (a Rust bug must degrade to the old speed, not break the feature). Partial fallbacks are fine: return null per item the native side cannot decide (as `review_folder` does for images whose size needs a decode).
 - Keep synchronous TS APIs synchronous when nothing native is pending (see `prepareSegmentationProcessedImage` returning null).

@@ -89,7 +89,7 @@ around it work).
 ## Gotcha checklist
 
 - All 6 SR models (`cfsr_x2`, `cfsr_x4`, `sfr_{hrsem,hrtem,lrsem,lrtem}`)
-  are bundled into the Electron asar — none are excluded. An earlier
+  ship in the desktop app's `frontend/` folder — none are excluded. An earlier
   package.json rule excluded a since-deleted extraneous file
   (`sfr_hrstem.onnx`, a mis-provided duplicate of `sfr_hrtem.onnx` — see
   `docs/SR_PREPROCESS_IMPLEMENTATION_PLAN.md`); that dead rule has been

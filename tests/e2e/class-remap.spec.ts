@@ -1,7 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 for (const count of [6, 5000]) test(`class ID offset and remapping preserve ${count} boxes, Undo, file data and inactive folders`, async () => {
   test.setTimeout(180_000);
@@ -20,13 +24,12 @@ for (const count of [6, 5000]) test(`class ID offset and remapping preserve ${co
   await writeFile(path.join(labels, "d.txt"), "");
   await writeFile(path.join(labels, "orphan.txt"), original);
   await writeFile(path.join(labels, "classes.yaml"), classes);
-  const classProfile = path.join(dataset, "profiles", "class-info");
-  await mkdir(classProfile, { recursive: true });
-  await writeFile(path.join(classProfile, "classes.yaml"), classes);
-  const electron = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset, comparison]), INFERENCE_TEST_OFFSCREEN: "1" } });
+  const app = await openDesktop([dataset, comparison, dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
+    const classProfile = path.join(app.profiles, "Class Info");
+    await mkdir(classProfile, { recursive: true });
+    await writeFile(path.join(classProfile, "classes.yaml"), classes);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
@@ -256,7 +259,7 @@ for (const count of [6, 5000]) test(`class ID offset and remapping preserve ${co
     await page.locator('label[for="segmentationWorkflowTab"]').click(); await expect(open).toBeHidden();
     expect(errors).toEqual([]);
   } finally {
-    await electron.close();
+    await app.close();
     expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
     expect(path.basename(dataset)).toMatch(/^easy-labeling-class-remap-/);
     await rm(dataset, { recursive: true, force: true });

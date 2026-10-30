@@ -257,7 +257,7 @@ Layout은 여러 Detection 박스의 클래스, 크기, 순서, 상대 위치를
 - 저장된 레이아웃을 선택해 클래스 수, 앵커, 전체 크기, 원본 이미지 크기를 미리 볼 수 있다.
 - New, Duplicate, Rename, Delete로 레이아웃을 관리한다.
 - Save File/Load File로 단일 레이아웃 JSON을 데이터셋 밖에 저장하거나 불러올 수 있다.
-- Electron 앱은 `문서/Easy Labeling/Layouts`와 `문서/Easy Labeling/Template Presets`의 JSON을 자동으로 찾아 선택 목록에 추가한다.
+- 데스크톱 앱은 `문서/Easy Labeling/Layouts`와 `문서/Easy Labeling/Template Presets`의 JSON을 자동으로 찾아 선택 목록에 추가한다.
 - 기본 폴더와 데이터셋의 ID가 같으면 데이터셋의 `.easy-labeling/automation-library.json` 항목이 우선한다.
 - 레이아웃을 삭제하면 그 레이아웃을 참조하는 프리셋도 함께 제거된다.
 
@@ -379,7 +379,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - YAML/YML 클래스 파일이 있는 폴더를 연결한다.
 - 클래스 파일을 선택, 생성, 편집할 수 있다.
 - Class ID는 0과 양의 정수를 사용하며 클래스 이름과 색상 표시를 연결한다.
-- Electron은 사용자 문서 폴더 아래 `Easy Labeling/Class Info`를 시작 시 자동으로 만들고 이 위치의 YAML/YML을 우선 불러온다.
+- 데스크톱 앱은 사용자 문서 폴더 아래 `Easy Labeling/Class Info`를 시작 시 자동으로 만들고 이 위치의 YAML/YML을 우선 불러온다.
 - `Create new class file...`을 선택하고 옆의 보기 버튼을 누르면 기본 위치에 `classes.yaml` 계열 파일을 자동 생성하고 기존 테이블 편집기를 연다.
 - `All classes` 또는 `Ctrl+H`는 현재 이미지의 모든 클래스를 한 번에 숨기거나 다시 표시한다.
 
@@ -466,7 +466,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - Preset 파일은 다른 데이터셋에서 불러와 라이브러리에 병합할 수 있다.
 - 같은 ID가 있으면 해당 항목을 갱신하고, 없으면 추가한다.
 
-Electron 기본 대화상자 위치:
+데스크톱 앱 기본 대화상자 위치:
 
 ```text
 <사용자 문서>/Easy Labeling/Layouts

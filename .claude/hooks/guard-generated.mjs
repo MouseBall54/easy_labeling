@@ -6,7 +6,7 @@ const GENERATED = {
   "dist/": "tsc output of src/ (npm run build regenerates it)",
   "vendor/": "copied from node_modules by scripts/copy-offline-assets.mjs",
   "node_modules/": "installed dependencies",
-  "release/": "electron-builder output",
+  "release/": "old installer output (gitignored)",
   "test-results/": "Playwright output",
   "output/": "local verification output (gitignored)",
   "target/": "Cargo build output",

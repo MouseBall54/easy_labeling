@@ -15,7 +15,7 @@ The shared project rules above come from `AGENTS.md` (also read by Codex). Edit 
 | `image-preprocessing` | Preprocess panel pipeline, SEM/TEM filters, preprocessing presets, consumers |
 | `automation-template-matching` | Template matching, layouts, batch labeling |
 | `ai-preprocessing` | EdgeSAM, super-resolution ONNX models |
-| `app-shell-and-file-io` | Folder I/O, class files, sample dataset, Electron shell |
+| `app-shell-and-file-io` | Folder I/O, class files, sample dataset, desktop (Tauri) shell |
 | `testing-and-release` | Test structure, e2e API, build and packaging details |
 | `/verify` | Pick and run the checks a change needs, and read the results correctly |
 | `/e2e-full` | Full sequential e2e run with baseline comparison |

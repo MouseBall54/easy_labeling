@@ -1,18 +1,18 @@
-import { _electron, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { launchDesktop } from "../tests/e2e/fixtures/tauri-app.ts";
 
 const output = path.resolve("output/yoloe-onnx-validation");
 const cpu = process.env.YOLOE_TEST_CPU === "1";
 await mkdir(output, { recursive: true });
-const executable = path.resolve(process.argv[2] ?? "release/yoloe26/win-unpacked/Easy Labeling YOLOE-26.exe");
+const executable = path.resolve(process.argv[2] ?? "target/release/Easy Labeling YOLOE-26.exe");
 const image = "data:image/png;base64," + (await readFile("tests/e2e/fixtures/yoloe-visual/0-reference.png")).toString("base64");
 const target = "data:image/png;base64," + (await readFile("tests/e2e/fixtures/yoloe-visual/1-target-gray.png")).toString("base64");
-const app = await _electron.launch({ executablePath: executable, args: [`--user-data-dir=${path.join(output, cpu ? "probe-cpu-profile" : "probe-profile")}`,
-  ...(cpu ? ["--disable-gpu", "--disable-software-rasterizer"] : [])],
-  env: { ...process.env, PATH: path.join(process.env.SystemRoot, "System32"), PYTHONHOME: "C:\\no-python", PYTHONPATH: "C:\\no-python" } });
+const app = await launchDesktop(executable, path.join(output, cpu ? "probe-cpu-profile" : "probe-profile"), [], {
+  browserArgs: cpu ? ["--disable-gpu", "--disable-software-rasterizer"] : [], env: { PATH: path.join(process.env.SystemRoot, "System32"), PYTHONHOME: "C:\\no-python", PYTHONPATH: "C:\\no-python" } });
 try {
-  const page = await app.firstWindow();
+  const { page } = app;
   page.on("console", (message) => { if (message.type() === "error") console.log(message.text().slice(0, 600)); });
   const evidence = await page.evaluate(async ({ image, target }) => {
     const { requestYoloe } = await import("./dist/features/inference/yoloe.js");

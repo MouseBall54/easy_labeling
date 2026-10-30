@@ -45,7 +45,7 @@ export interface NativeViewPreprocessor {
 
 const isNotLoaded = (error: unknown): boolean => errorText(error).includes("View image is not loaded");
 
-/** Desktop (Tauri) builds only; null in the web and Electron builds. */
+/** Desktop (Tauri) builds only; null in the web build. */
 export function createNativeViewPreprocessor(): NativeViewPreprocessor | null {
   const native = getNativeBridge("preprocessing");
   if (!native) return null;

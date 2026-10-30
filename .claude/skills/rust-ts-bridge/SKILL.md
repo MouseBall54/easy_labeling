@@ -22,5 +22,5 @@ Goal: the boundary must not eat the Rust gain. Measured history: native template
 - Commands return `Result<T, String>`; never let a panic cross the boundary.
 
 ## Frontend side
-- `src/platform/tauri-desktop.ts` is a classic script (no imports) that exposes window globals; feature code checks for those globals and falls back to the TS implementation, which must keep working for the web and Electron builds.
+- `src/platform/tauri-desktop.ts` is a classic script (no imports) that exposes window globals; feature code checks for those globals and falls back to the TS implementation, which must keep working for the web build.
 - Hand-written TS types for command payloads live next to the caller; keep them in step with the serde structs (camelCase via `#[serde(rename_all = "camelCase")]`).

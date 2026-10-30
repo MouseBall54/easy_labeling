@@ -1,10 +1,14 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, copyFile, writeFile, readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { inferenceModel } from "./fixtures/inference-model.js";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
 
-test("Electron file:// ONNX runtime saves real result files and preserves the source labels", async () => {
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
+
+test("Desktop ONNX runtime saves real result files and preserves the source labels", async () => {
   test.setTimeout(90_000);
   const dataset = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-inference-"));
   const root = path.resolve(".");
@@ -15,15 +19,12 @@ test("Electron file:// ONNX runtime saves real result files and preserves the so
   let legacyName = "class 0";
   for (let layer = 0; layer < 4; layer += 1) legacyName = JSON.stringify(legacyName);
   await writeFile(path.join(dataset, "label/classes.yaml"), `names:\n  0: ${legacyName}\n`);
-  const classProfile = path.join(dataset, "profiles/class-info/classes.yaml");
-  await mkdir(path.dirname(classProfile), { recursive: true });
-  await copyFile(path.join(dataset, "label/classes.yaml"), classProfile);
-  const electron = await _electron.launch({
-    args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_ROOT: root }
-  });
+  const app = await openDesktop([dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
+    const classProfile = path.join(app.profiles, "Class Info", "classes.yaml");
+    await mkdir(path.dirname(classProfile), { recursive: true });
+    await copyFile(path.join(dataset, "label/classes.yaml"), classProfile);
     await page.locator("#selectImageFolderBtn").click();
     const count = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getRectCount?.() ?? -1);
     await expect.poll(count).toBe(2);
@@ -58,7 +59,15 @@ test("Electron file:// ONNX runtime saves real result files and preserves the so
     await expect(page.locator('#select-by-class-dropdown option[value="0"]')).toHaveText("0: class 0");
     await expect(page.locator('#label-list .label-group-name')).toHaveText("0: class 0");
     await writeFile(path.join(dataset, output!, "untouched.txt"), "keep this label\n");
-    await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.seedDetectionBoxesForTest?.(3));
+    // The refresh may still be reloading the image (its progress panel can hide before it shows): seed once it is back.
+    await expect.poll(() => page.evaluate(() => {
+      try {
+        Reflect.get(window, "__easyLabelingTestApi").seedDetectionBoxesForTest(3);
+        return true;
+      } catch {
+        return false;
+      }
+    })).toBe(true);
     await expect.poll(count).toBe(3);
     await page.locator("#runInferenceCurrentBtn").click();
     await expect(page.locator("#runInferenceCurrentBtn")).toBeEnabled();
@@ -89,14 +98,14 @@ test("Electron file:// ONNX runtime saves real result files and preserves the so
     await expect.poll(count).toBe(2);
     await expect(page.locator("#reviewStatusBadge")).toHaveText("Reviewed");
   } finally {
-    await electron.close();
+    await app.close();
     expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
     expect(path.basename(dataset)).toMatch(/^easy-labeling-inference-/);
     await rm(dataset, { recursive: true, force: true });
   }
 });
 
-test("Electron max detections controls current and batch ONNX results, rejects invalid values, and preserves source files", async () => {
+test("Desktop max detections controls current and batch ONNX results, rejects invalid values, and preserves source files", async () => {
   test.setTimeout(180_000);
   const root = path.resolve(".");
   const dataset = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-max-det-"));
@@ -106,12 +115,9 @@ test("Electron max detections controls current and batch ONNX results, rejects i
     await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `${name}.jpg`));
     await writeFile(path.join(dataset, "label", `${name}.txt`), original);
   }
-  const electron = await _electron.launch({
-    args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_OFFSCREEN: "1" }
-  });
+  const app = await openDesktop([dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
@@ -170,7 +176,7 @@ test("Electron max detections controls current and batch ONNX results, rejects i
     expect(await label("image-0")).toEqual(first300.slice(0, 1));
     expect(errors).toEqual([]);
   } finally {
-    await electron.close();
+    await app.close();
     expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
     expect(path.basename(dataset)).toMatch(/^easy-labeling-max-det-/);
     await rm(dataset, { recursive: true, force: true });

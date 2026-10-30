@@ -73,7 +73,7 @@ Then run the specs for the touched area with `npx playwright test <spec> --proje
 | modals, layout, theme, toolbar | `modal-drag`, `ui-consistency`, `ux-stage1`, `ux-stage2` |
 | `main.ts`, `createApp.ts`, `index.html`, `runtime.ts` | `bootstrap-smoke`, `unsupported-env`, `mobile-unsupported` |
 
-Not sure what a file reaches? `grep -rl "<module name>" tests/e2e`.
+Not sure what a file reaches? `grep -rl "<module name>" tests/e2e`. Desktop specs (`label-sources`, `label-fast-load`, `outside-boxes`, `class-remap`, ...) drive the debug exe: rebuild it with `npm run tauri:dev` first, or they test the old `dist/` (or skip when it is missing).
 
 Failures listed under "Known failures" in `AGENTS.md` are baseline, not regressions. Anything else: rerun that spec alone once; if it still fails, check it against the base commit (see e2e-full) before blaming the change.
 
@@ -83,7 +83,7 @@ Take screenshots of the changed UI in light and dark themes (theme toggle or `da
 
 ## 6. Version and leftovers
 
-- Shipped files changed (`src/`, `workers/`, `electron/`, `css/`, `index.html`, `crates/el-core/`, `src-tauri/`): `package.json` must be bumped and `electron-builder.yoloe.cjs` paired (`tests/unit/release/version-pairing.test.ts` checks the pairing; the Stop hook reminds about the bump).
+- Shipped files changed (`src/`, `workers/`, `css/`, `index.html`, `crates/el-core/`, `src-tauri/`): `package.json` must be bumped and `src-tauri/tauri.yoloe.conf.json` paired (`tests/unit/release/version-pairing.test.ts` checks the pairing; the Stop hook reminds about the bump).
 - `git status` again: e2e runs must not leave tracked changes (docs PNGs, fixtures). Revert anything the run produced.
 
 ## Report

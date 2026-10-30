@@ -1,13 +1,14 @@
-import { _electron, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { mkdir, readFile, writeFile, readdir, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import yoloeBuildConfig from "../electron-builder.yoloe.cjs";
 import { encodeSegmentationMaskPng, decodeSegmentationMaskPng } from "../dist/domain/annotations/segmentation-codec.js";
+import { launchDesktop } from "../tests/e2e/fixtures/tauri-app.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const installedExecutable = path.resolve(process.argv[2] ?? "release/yoloe26/win-unpacked/Easy Labeling YOLOE-26.exe");
+const installedExecutable = path.resolve(process.argv[2] ?? "target/release/Easy Labeling YOLOE-26.exe");
+const yoloeVersion = JSON.parse(await readFile(path.join(root, "src-tauri/tauri.yoloe.conf.json"), "utf8")).version;
 const cpu = process.env.YOLOE_TEST_CPU === "1";
 let status = null;
 let model = cpu ? "yoloe-26n-seg" : "yoloe-26s-seg";
@@ -25,8 +26,6 @@ const originals = {
 for (const [name, labels] of Object.entries(originals)) await writeFile(path.join(dataset, "label", name), labels);
 const classes = 'names:\n  5: "person"\n  12: "bus"\n';
 await writeFile(path.join(dataset, "label/classes.yaml"), classes);
-await mkdir(path.join(dataset, "profiles/class-info"), { recursive: true });
-await writeFile(path.join(dataset, "profiles/class-info/classes.yaml"), classes);
 await mkdir(path.join(dataset, "mask"), { recursive: true });
 const originalMasks = new Map();
 for (const name of Object.keys(originals)) {
@@ -37,36 +36,31 @@ for (const name of Object.keys(originals)) {
   originalMasks.set(name.replace(".txt", ".png"), bytes);
   await writeFile(path.join(dataset, "mask", name.replace(".txt", ".png")), bytes);
 }
-const app = await _electron.launch({ ...(installedExecutable ? {
-  executablePath: installedExecutable, args: [`--user-data-dir=${path.join(output, "app-profile")}`,
-    ...(cpu ? ["--disable-gpu", "--disable-software-rasterizer"] : [])]
-} : { args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")] }),
-  env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset,
-    ...(installedExecutable ? { PATH: path.join(process.env.SystemRoot, "System32"),
-      PYTHONHOME: "C:\\missing-python-home", PYTHONPATH: "C:\\missing-python-packages" } : {}) } });
+// The profile libraries live at <sandbox>/profiles (EASY_LABELING_TEST_PROFILE_ROOT), standing in for Documents/Easy Labeling.
+const sandbox = path.join(output, "app-profile");
+const app = await launchDesktop(installedExecutable, sandbox, [dataset], {
+  browserArgs: cpu ? ["--disable-gpu", "--disable-software-rasterizer"] : [],
+  env: { PATH: path.join(process.env.SystemRoot, "System32"), PYTHONHOME: "C:\\missing-python-home", PYTHONPATH: "C:\\missing-python-packages" } });
 const evidence = { runtime: status, model, checks: {}, images: [], errors: [] };
 try {
-  const page = await app.firstWindow();
+  const { page } = app;
   page.setDefaultTimeout(30_000);
   page.on("pageerror", (error) => evidence.errors.push(error.message));
   if (installedExecutable) {
-    evidence.installation = await app.evaluate(({ app, BrowserWindow, ipcMain }, options) => {
-      app.setPath("documents", options.documents);
-      for (const window of BrowserWindow.getAllWindows()) window.showInactive();
-      // Replace only the native directory dialog; use the installed main, preload, IPC and resources.
-      ipcMain.removeHandler("easy-labeling:pick-directory");
-      ipcMain.handle("easy-labeling:pick-directory", () => options.dataset);
-      return { name: app.getName(), version: app.getVersion(), appPath: app.getAppPath(),
-        executable: app.getPath("exe"), userData: app.getPath("userData") };
-    }, { dataset, documents: path.join(output, "documents") });
-    expect(evidence.installation.executable).toBe(installedExecutable);
-    expect(evidence.installation.appPath).toMatch(/app\.asar$/);
-    expect(evidence.installation.version).toBe(yoloeBuildConfig.extraMetadata.version);
-    const resources = await readdir(path.join(path.dirname(installedExecutable), "resources"), { recursive: true });
+    // Only the directory dialog is answered by the e2e seam; the installed binary, IPC and resources are real.
+    const installDir = path.dirname(installedExecutable);
+    const version = execFileSync(path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"), ["-NoProfile", "-Command",
+      `(Get-Item -LiteralPath '${installedExecutable.replaceAll("'", "''")}').VersionInfo.ProductVersion`], { encoding: "utf8", windowsHide: true }).trim();
+    evidence.installation = { executable: installedExecutable, version, url: page.url() };
+    expect(version).toBe(yoloeVersion);
+    expect(page.url()).toBe("https://app.localhost/index.html");
+    const resources = (await Promise.all(["frontend", "sample", "yoloe26"].map(async (folder) =>
+      (await readdir(path.join(installDir, folder), { recursive: true })).map((file) => path.join(folder, file))))).flat();
     expect(resources.some((file) => /(^|[/\\])python(\.exe)?$/i.test(file) || file.endsWith(".pt"))).toBe(false);
     evidence.checks.noPythonOrPtInInstallation = true;
-    expect(page.url()).toContain("/resources/app.asar/index.html");
-    await page.route(/^https?:/, (route) => { evidence.errors.push(`Network request: ${route.request().url()}`); return route.abort(); });
+    // Requests leaving the app: its frontend (app.localhost) and IPC (ipc.localhost) stay local.
+    await page.route((url) => /^https?:/.test(url.href) && !url.hostname.endsWith(".localhost"),
+      (route) => { evidence.errors.push(`Network request: ${route.request().url()}`); return route.abort(); });
     await page.evaluate(() => {
       const OriginalWorker = window.Worker;
       window.Worker = class extends OriginalWorker {
@@ -89,8 +83,7 @@ try {
     evidence.checks.onnxWithoutPythonOrService = true;
     await page.locator("#emptyLoadSampleBtn").click();
     await expect(page.locator("#imageCountBadge")).toHaveText("17", { timeout: 60_000 });
-    const annotations = JSON.parse(await readFile(path.join(path.dirname(installedExecutable),
-      "resources/app.asar.unpacked/assets/sample/annotations.json"), "utf8"));
+    const annotations = JSON.parse(await readFile(path.join(installDir, "sample/annotations.json"), "utf8"));
     for (const image of annotations.images) {
       await page.locator(`#image-list [data-file-name="${image.file}"]`).click();
       await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount()))
@@ -110,7 +103,7 @@ try {
     evidence.checks.bundledSamplesBothModes = annotations.images.length;
     console.log("Installed sample boxes and masks: 17/17 PASS");
     await page.locator('label[for="detectionWorkflowTab"]').click();
-    const classDirectory = path.join(output, "documents/Easy Labeling/Class Info");
+    const classDirectory = path.join(sandbox, "profiles/Class Info");
     await mkdir(classDirectory, { recursive: true });
     await writeFile(path.join(classDirectory, "classes.yaml"), classes);
   }
@@ -175,7 +168,7 @@ try {
   expect(await count()).toBe(2);
   await page.locator("#closeYoloeSetupBtn").click();
   await expect(page.locator("#yoloeSetupModal")).toBeHidden();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2, { timeout: 120_000 });
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2, { timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
   await expect.poll(count).toBe(1);
   const preview = await predictionAfter(() => page.locator("#previewYoloeBtn").click());
@@ -206,19 +199,19 @@ try {
     expect(await readFile(path.join(dataset, "label", name), "utf8")).toBe(originals[name]);
   }
   await expect(page.locator("#yoloePreviewCanvas")).toBeHidden();
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await expect.poll(count).toBe(1);
   await page.locator("#nextImageBtn").click();
   await expect.poll(count).toBe(1);
   await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("1 image(s)", { timeout: 60_000 });
-  await expect(page.locator("#labelSourceSelect option")).toHaveCount(2);
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(2);
   evidence.checks.stableFolderAndSourceRestoration = true;
   await page.locator("#taskReviewBtn").click();
   await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();
   evidence.checks.review = true;
   // Repeat through the standalone tab in Segmentation, using temporary example boxes.
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await page.locator("#prevImageBtn").click();
   await expect(page.locator("#current-image-name")).toHaveText("1-target-gray.png");
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
@@ -255,7 +248,7 @@ try {
   };
   await drawExample("person", [[90, 400], [185, 400], [245, 900], [50, 900]]);
   await drawExample("bus", [[30, 250], [775, 240], [785, 700], [30, 740]]);
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
   expect(await maskBounds()).toEqual(sourceBounds);
   await verifyPopup("segmentation");
   expect(await maskBounds()).toEqual(sourceBounds);
@@ -292,17 +285,17 @@ try {
   // A new target image can legitimately contain no matches, particularly with the smaller n model.
   expect(masks.some(({ pixelsByClass }) => Object.entries(pixelsByClass).some(([id, count]) => Number(id) > 0 && count > 0))).toBe(true);
   expect(await maskBounds()).not.toEqual(targetSourceBounds);
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await expect.poll(maskBounds).toEqual(targetSourceBounds);
-  await page.locator("#labelSourceSelect").selectOption("1");
+  await page.locator('#labelSourceTabs [data-source-index="1"]').click();
   await expect.poll(maskBounds).not.toEqual(targetSourceBounds);
   await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("1 image(s)", { timeout: 60_000 });
-  await expect(page.locator("#labelSourceSelect option")).toHaveCount(2);
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(2);
   await page.locator("#refreshDatasetBtn").click();
   await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
   await expect(page.locator("#imageCountBadge")).toHaveText("3");
-  await expect(page.locator("#labelSourceSelect")).toHaveValue("1");
+  await expect(page.locator("#labelSourceTabs")).toHaveAttribute("data-active-index", "1");
   await expect.poll(maskBounds).not.toEqual(targetSourceBounds);
   const classAt = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationClassAtPoint(10, 200));
   const previousClass = await classAt();
@@ -332,7 +325,7 @@ try {
   evidence.segmentation = { checks: { standaloneTab: true, polygonMaskPrompts: true, drawnExamplesPreservedSource: true, previewPreservedSource: true, fullResolutionMasks: true, originalFilesPreserved: true, sourceSwitchAndRefresh: true, stableFolder: true, brushUndoRedoAndSave: true }, masks, metadata: maskMetadata, previewInstances: maskPreview.detections.length };
   expect(evidence.errors).toEqual([]);
   const childInfo = execFileSync(path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"), ["-NoProfile", "-Command",
-    `$items=Get-CimInstance Win32_Process; $parents=@(${app.process().pid}); $found=@(); do { $next=@($items | Where-Object { $_.ParentProcessId -in $parents -and $_.ProcessId -notin $parents }); $found += $next; $parents=@($next | ForEach-Object { $_.ProcessId }) } while ($parents.Count); ConvertTo-Json -InputObject @($found | Select-Object Name,ProcessId,ParentProcessId) -Compress`], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
+    `$items=Get-CimInstance Win32_Process; $parents=@(${app.pid}); $found=@(); do { $next=@($items | Where-Object { $_.ParentProcessId -in $parents -and $_.ProcessId -notin $parents }); $found += $next; $parents=@($next | ForEach-Object { $_.ProcessId }) } while ($parents.Count); ConvertTo-Json -InputObject @($found | Select-Object Name,ProcessId,ParentProcessId) -Compress`], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
   evidence.childProcesses = JSON.parse(childInfo);
   expect(evidence.childProcesses.some((process) => /python|^uv\.exe$/i.test(process.Name))).toBe(false);
   evidence.checks.noPythonChildProcess = true;
@@ -340,7 +333,7 @@ try {
   console.log(JSON.stringify({ checks: evidence.checks, images: evidence.images, segmentation: evidence.segmentation, gpu: status.gpu }, null, 2));
 } catch (error) {
   evidence.failure = String(error);
-  const page = await app.firstWindow();
+  const { page } = app;
   evidence.failureUi = await page.evaluate(() => ({
     image: document.querySelector("#current-image-name")?.textContent,
     status: document.querySelector("#yoloeRunStatus")?.textContent,

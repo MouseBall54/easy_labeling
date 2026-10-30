@@ -143,7 +143,7 @@
 - 동등성:
   - 앱 e2e: 같은 4096×3072 TIFF를 상주 경로와 업로드 경로(`easyLabelingNativeOff = ["tiff"]`)로 열어, Processed 화면이 TS 결과와 같고 refine(원본·Processed·crop)이 TS worker 결과와 같은지 본다. 각 경로가 어느 command를 썼는지도 확인한다.
 - 테스트: 브리지 단위 2개, refine-service 단위 3개(상주, 실패 시 bitmap, 네이티브 refine을 끄면 bitmap), Rust 단위 1개, 데스크톱 e2e 1개. 일부러 구현을 틀리게 바꿔 refine-service 테스트가 실패하는 것을 확인했다.
-| 6) 슈퍼픽셀 Rust + EdgeSAM·슈퍼픽셀 Processed 입력 + 원본 픽셀 worker + 다음 이미지 미리 디코드 | **완료 (2026-10-30, 미커밋, v2.27.0)** | 슈퍼픽셀 2048×1536: TS 3.1~3.2초(전부 UI 정지) → 0.55~0.82초(UI 정지 66~130ms), 결과 동일. "다음" 이동 약 0.2~0.3초 단축. 템플릿 매칭은 재측정 후 보류(D-013) |
+| 6) 슈퍼픽셀 Rust + EdgeSAM·슈퍼픽셀 Processed 입력 + 원본 픽셀 worker + 다음 이미지 미리 디코드 | **완료 (2026-10-30, `777801e6`, v2.27.0)** | 슈퍼픽셀 2048×1536: TS 3.1~3.2초(전부 UI 정지) → 0.55~0.82초(UI 정지 66~130ms), 결과 동일. "다음" 이동 약 0.2~0.3초 단축. 템플릿 매칭은 재측정 후 보류(D-013) |
 
 5단계에서 한 일:
 - src-tauri `tiff_image.rs`: `tiff_gray`, `tiff_gray_shared`(상주 TIFF의 회색 바이트).
@@ -192,6 +192,21 @@ PR 전 검수 (2026-10-30):
 - 남긴 것(낮음): `refine_load_tiff`가 상주 픽셀을 한 번 복사한다(24MB). 슈퍼픽셀 결과를 꺼낼 때 복사하고, 대체된 실행을 취소하지 않는다.
 - release 빌드: `npm run tauri:dist:win`으로 NSIS 설치 파일(270MB)을 만들었고, 같은 release exe로 데스크톱 e2e 14개가 통과했다. 설치 후 동작은 사용자 환경에서 확인한다.
 - CI: `rust.yml` 감시 경로에 `package-lock.json`(tiff.js 버전이 TIFF 골든을 정한다)과 `superpixels.ts`를 추가했다. fixture 재생성은 바이트 단위로 같다. 실제 CI 실행은 PR에서 확인한다.
+
+| 7) Electron 제거, 데스크톱 앱을 Tauri로 일원화 | **완료 (2026-10-30, 미커밋, v2.27.1)** | Electron 셸·빌드 설정·의존성을 지웠다(package-lock 약 4,200줄 감소). Electron으로 돌던 e2e 8개와 YOLOE 설치본 검증 스크립트 5개를 Tauri로 옮기면서 Tauri 앱의 `confirm` 버그를 찾아 고쳤다(D-014) |
+
+7단계에서 한 일:
+- 지운 것: `electron/`(main, preload, 닫기 컨트롤러), `electron-builder.yoloe.cjs`, `scripts/after-pack.mjs`, `package.json`의 `main`·`build`·`electron:*` 스크립트, 의존성 `electron`·`electron-builder`·`rcedit`와 `global-agent` 스텁, `@electron/*`·`rimraf` override, Electron 테스트 fixture와 닫기 컨트롤러 단위 테스트. 다른 패키지 버전은 바뀌지 않았다.
+- 버그 수정: tauri-plugin-dialog가 페이지에 넣는 스크립트가 `window.confirm`을 비동기 함수로 바꾼다. 반환값(Promise)이 항상 참이라 앱의 확인 창(클래스 ID 일괄 변경, 레이아웃·프리셋 삭제, 경계 밖 박스 정리, 라벨 교체)이 뜨지 않고 바로 진행됐고, 권한이 없어 페이지 오류도 났다. 플러그인을 빼고 `rfd`(플러그인이 안에서 쓰던 라이브러리)로 폴더·파일·메시지 대화상자를 직접 띄운다. WebView2의 동기 `confirm`/`alert`가 그대로 남는다.
+- e2e 이전: `class-remap`, `label-sources`, `label-fast-load`, `label-load-performance`, `outside-boxes`, `layout-outside-boxes`, `inference-electron`(→ `inference-desktop`), `desktop-performance`(Tauri만). 공용 실행기 `openDesktop`(`tests/e2e/fixtures/tauri-app.ts`)은 임시 프로필을 만들고 닫을 때 지운다. 배경 창 스로틀링을 끄는 WebView2 옵션을 기본으로 넣었다. 새 e2e seam `EASY_LABELING_TEST_PICK_FILE`은 라이브러리 열기·저장 대화상자 대신 정해진 파일을 쓴다.
+  - `label-fast-load`는 TS Review worker를 따라가는 스펙이라 `easyLabelingNativeOff = ["review", "label-scan"]`으로 돌린다(네이티브 Review는 `tauri-desktop.spec.ts`가 TS와 비교한다).
+- YOLOE 검증 스크립트(`verify-yoloe-onnx*.mjs`, `verify-yoloe-presets.mjs`, `probe-yoloe-onnx.mjs`, `verify-yoloe.mjs`): Tauri exe(기본값 `target/release/Easy Labeling YOLOE-26.exe`)를 띄운다. 그동안 바뀐 UI(예시 목록 행, 라벨 소스 탭)에 맞췄고, 기대 GPU 이름은 `YOLOE_EXPECT_GPU`로 바꿀 수 있다. Python 비교 서비스(`runtime/yoloe/backend.py`)는 Electron의 `null` origin 대신 `https://app.localhost`를 허용한다.
+- 검증:
+  - 옮긴 e2e 8개 스펙(16개 테스트)과 `tauri-desktop.spec.ts` 14개가 통과했다. 단위 565개(삭제한 닫기 컨트롤러 3개 제외), typecheck, clippy가 통과했다.
+  - 닫기 확인: 저장 안 한 변경이 있을 때 창을 닫으면 "Discard and close / Cancel" 창이 뜨고, Cancel이면 앱이 남고 Discard면 종료된다(UI Automation으로 확인).
+  - 실제 폴더 선택·다른 이름으로 저장·열기 대화상자가 앱 창 위에 뜨고, 취소하면 각각 AbortError·null·null을 돌려준다.
+  - YOLOE-26 릴리스 exe(설치 파일 없이 빌드): probe, 모델 4종 × 2모드, 프리셋 저장·불러오기·재시작 복원·CPU 미리보기, 설치본 검증(버전 2.28.0, Python·.pt 없음, 내장 샘플 17장 두 모드, 추론·마스크·Review)이 통과했다. 외부 네트워크 요청과 페이지 오류는 없었다. `verify-yoloe.mjs`는 CUDA Python 서비스가 필요해 실행하지 못했다.
+- WebView2: 설치 파일은 이미 WebView2 오프라인 설치본을 포함한다(`webviewInstallMode: offlineInstaller`).
 
 ## 핫스팟 (예상 영향 큰 순)
 

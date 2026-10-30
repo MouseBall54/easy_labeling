@@ -1,32 +1,15 @@
-import { _electron, expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { launchDesktop } from "./fixtures/tauri-app.js";
+import { desktopExe, launchDesktop } from "./fixtures/tauri-app.js";
 
-// Compares the Electron shell with the Tauri build on the same dist/: label loading, image
-// navigation, Layout Apply/undo and saving at bulk box counts. Timings are logged, not asserted.
+// Desktop app timings for label loading, image navigation, Layout Apply/undo and saving at bulk box
+// counts. Timings are logged, not asserted.
 const root = path.resolve(".");
-const tauriExe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "target/debug/Easy Labeling.exe");
 const counts = (process.env.DESKTOP_PERF_COUNTS ?? "4000,5000,10000").split(",").map(Number);
-// The test windows sit behind other windows; keep Chromium from throttling them like the foreground app it measures.
-const throttleFlags = ["--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"];
-process.env.EASY_LABELING_TEST_WEBVIEW_ARGS = throttleFlags.join(" ");
-
-async function openShell(shell: "electron" | "tauri", sandbox: string, dataset: string) {
-  // Electron keeps its user data (and V8 code cache) between runs; give WebView2 the same warm profile.
-  if (shell === "tauri") return launchDesktop(tauriExe, path.join(os.tmpdir(), "easy-labeling-perf-tauri-profile"), [dataset]);
-  const electron = await _electron.launch({
-    args: [...throttleFlags, path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset]) }
-  });
-  const page = await electron.firstWindow();
-  // The fixture window starts hidden; a hidden window paints at 1 fps and would skew every timing.
-  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((window) => { window.webContents.setBackgroundThrottling(false); window.showInactive(); }));
-  await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
-  return { page, close: () => electron.close() };
-}
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 // Polls inside the page every 10 ms so the measured time is not rounded up to Playwright's poll steps.
 const until = (page: Page, condition: string) => page.waitForFunction(condition, undefined, { polling: 10, timeout: 300_000 });
@@ -44,9 +27,8 @@ async function timed(page: Page, run: () => Promise<unknown>, done: () => Promis
   });
 }
 
-for (const shell of ["electron", "tauri"] as const) for (const count of counts) {
-  test(`${shell} bulk performance with ${count} boxes`, async ({}, testInfo) => {
-    test.skip(shell === "tauri" && !existsSync(tauriExe), `Tauri executable not built: ${tauriExe}`);
+for (const count of counts) {
+  test(`desktop bulk performance with ${count} boxes`, async ({}, testInfo) => {
     test.setTimeout(900_000);
     const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-perf-"));
     const dataset = path.join(sandbox, "dataset");
@@ -58,7 +40,8 @@ for (const shell of ["electron", "tauri"] as const) for (const count of counts) 
       await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `image-${index}.jpg`));
       await writeFile(path.join(dataset, `label/image-${index}.txt`), text);
     }
-    const app = await openShell(shell, sandbox, dataset);
+    // A WebView2 profile kept between runs keeps its V8 code cache warm, as an installed app's would be.
+    const app = await launchDesktop(desktopExe, path.join(os.tmpdir(), "easy-labeling-perf-tauri-profile"), [dataset]);
     const result: Record<string, number> = {};
     try {
       const { page } = app;
@@ -98,9 +81,9 @@ for (const shell of ["electron", "tauri"] as const) for (const count of counts) 
       result.saveLabels = await timed(page, () => page.locator("#saveLabelsBtn").click(), () => expect.poll(async () =>
         (await readFile(labelFile, "utf8")).trim().split("\n").length, { timeout: 300_000, intervals: [20] }).toBe(count * 2));
       expect(errors).toEqual([]);
-      await testInfo.attach("desktop-performance", { body: JSON.stringify({ shell, count, ...result }), contentType: "application/json" });
+      await testInfo.attach("desktop-performance", { body: JSON.stringify({ count, ...result }), contentType: "application/json" });
     } finally {
-      console.log(JSON.stringify({ shell, count, ...result }));
+      console.log(JSON.stringify({ count, ...result }));
       await app.close();
       await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
     }

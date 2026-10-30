@@ -4,8 +4,8 @@ description: >
   Use when running or writing tests, checking types, building, or packaging
   easy_labeling: npm scripts, vitest unit tests, playwright e2e tests (and
   the window.__easyLabelingTestApi test hooks they drive through), the
-  benchmark script, or Electron packaging (electron-builder, NSIS,
-  after-pack). Also use before considering any src/ change done. Not for
+  benchmark script, or desktop packaging (Tauri NSIS installers, update
+  feeds). Also use before considering any src/ change done. Not for
   feature-specific test content — see the matching workflow skill for what
   a given area's tests actually assert.
 ---
@@ -23,9 +23,10 @@ npm run typecheck              # tsc --noEmit against tsconfig.json (includes te
 npm test                       # = npm run test:unit
 npm run test:unit              # vitest run, tests/unit/**/*.test.ts
 npm run test:e2e               # build + playwright test (chromium project only)
-npm run electron:dev           # build + launch Electron shell
-npm run electron:pack          # build + electron-builder win/x64 unpacked dir
-npm run electron:dist:win      # build + electron-builder NSIS installer -> release/
+npm run tauri:dev              # build + stage + debug desktop exe -> target/debug/ (desktop e2e specs drive it)
+npm run tauri:dist:win         # NSIS installer -> target/release/bundle/nsis/
+npm run tauri:dist:yoloe:win   # YOLOE-26 variant installer
+npm run release:tauri          # signed installers + GitHub release with the update feeds
 npm run benchmark:template-matching  # headless perf benchmark for automation matching
 ```
 
@@ -41,7 +42,7 @@ npx playwright test tests/e2e/segmentation-draw.spec.ts --project=chromium
 
 ## Unit tests (`tests/unit/`, vitest)
 
-Mirrors `src/` structure: `app/`, `bootstrap/`, `domain/`, `electron/`,
+Mirrors `src/` structure: `app/`, `bootstrap/`, `domain/`,
 `features/<name>/`, `platform/`, `ui/`. Config is `vitest.config.ts`
 (include: `tests/unit/**/*.test.ts` only — `tests/e2e/` and
 `tests/performance/` are separate concerns). Notable non-obvious ones:
@@ -56,8 +57,6 @@ Mirrors `src/` structure: `app/`, `bootstrap/`, `domain/`, `electron/`,
 - `tests/unit/performance/detection-bulk-performance.test.ts` — perf
   regression guard for bulk box operations (relevant if you touch
   `history.ts`/`clipboard.ts` batching).
-- `tests/unit/electron/window-close-controller.test.ts` — the
-  unsaved-changes close-guard logic (see app-shell-and-file-io skill).
 
 ## E2E tests (`tests/e2e/`, Playwright)
 
@@ -79,6 +78,15 @@ over scraping the DOM. Spec files map roughly 1:1 to feature areas:
 `layout-management.spec.ts`, `review-queue.spec.ts`,
 `mobile-unsupported.spec.ts`, `unsupported-env.spec.ts`, etc.
 
+Desktop specs (`tauri-desktop`, `tauri-image-switch`, `desktop-performance`,
+`class-remap`, `label-sources`, `label-fast-load`, `label-load-performance`,
+`outside-boxes`, `layout-outside-boxes`, `inference-desktop`) launch
+`target/debug/Easy Labeling.exe` through `tests/e2e/fixtures/tauri-app.ts`
+(`openDesktop`/`launchDesktop`: WebView2 CDP port, temporary profile, e2e
+seams for the folder picker, library file dialogs and profile root) and skip
+when it is missing. The exe serves the `dist/` it was built with, so run
+`npm run tauri:dev` after frontend changes, not just `npm run build`.
+
 Before trusting e2e results, read the "E2E pitfalls" in `AGENTS.md`:
 stale Vite servers on :4173 after a rebuild break `bootstrap-smoke`, a
 handful of specs fail on main already (listed there), and the full suite
@@ -90,11 +98,10 @@ Screenshots go to `test-results/`; `ux-stage2` writes tracked
 ## Versioning
 
 `package.json` is bumped with `npm version <x.y.z> --no-git-tag-version`
-for every shipped change. `electron-builder.yoloe.cjs`
-`extraMetadata.version` must sit one minor above with the same patch
-(2.7.0 -> 2.8.0); `tests/unit/release/version-pairing.test.ts` fails
-otherwise. The standard installer's exe version comes from package.json
-through `scripts/after-pack.mjs`.
+for every shipped change. `src-tauri/tauri.yoloe.conf.json` `version`
+must sit one minor above with the same patch (2.7.0 -> 2.8.0);
+`tests/unit/release/version-pairing.test.ts` fails otherwise. The standard
+installer reads package.json's version (`src-tauri/tauri.conf.json`).
 
 ## Template-matching benchmark
 
@@ -119,18 +126,23 @@ worker — see automation-template-matching skill.
   `playwright.config.ts`), separate from the build config, so a test-only
   type error fails `typecheck` but not `build`.
 
-## Electron packaging
+## Desktop installers (Tauri)
 
-`package.json`'s `build` block (electron-builder config): output to
-`release/`, Windows x64 NSIS target only, unsigned
-(`signAndEditExecutable: false`). `afterPack: scripts/after-pack.mjs`
-patches the Windows exe icon/version metadata via `rcedit`. Files bundled
-into the asar: `index.html`, `privacy*.html`, `assets/`, `css/`, `dist/`,
-`vendor/`, `workers/`, `electron/`, `resources/`, `package.json` — no
-exclusions; all 6 super-resolution models ship (see ai-preprocessing skill
-for why an earlier stray-file exclusion was removed).
-`assets/sample/**/*` is unpacked from asar (`asarUnpack`) so the bundled
-sample dataset is readable as real files at runtime.
+`src-tauri/tauri.conf.json`: NSIS target, per-user install, the WebView2
+offline installer bundled (`webviewInstallMode: offlineInstaller`, so it
+installs without internet), and the updater feed. `beforeBuildCommand` runs
+`npm run build` and `scripts/stage-tauri-frontend.mjs`, which copies
+`index.html`, `privacy*.html`, `assets/`, `css/`, `dist/`, `vendor/`,
+`workers/`, `resources/` into `src-tauri/frontend/` (all 6 super-resolution
+models ship; see ai-preprocessing skill). The sample dataset and the YOLOE
+models ship as separate bundle resources (`sample/`, `yoloe26/`).
+`src-tauri/tauri.yoloe.conf.json` overrides name, identifier, version, feed
+and adds the models. `scripts/release-tauri.mjs` builds both, signs the
+updater artifacts (`TAURI_SIGNING_PRIVATE_KEY`) and publishes the GitHub
+release. YOLOE installer checks: `scripts/verify-yoloe-onnx*.mjs`,
+`verify-yoloe-presets.mjs`, `probe-yoloe-onnx.mjs` (default exe
+`target/release/Easy Labeling YOLOE-26.exe`; they import the TS launcher, so
+Node >= 22.18).
 
 ## Gotcha checklist
 

@@ -27,7 +27,7 @@ YOLOE-26 ONNX 버전의 사용법과 모델 갱신 방법은 [YOLOE-26 GPU/CPU �
 
 ## Windows 설치형 앱(Tauri / Rust)
 
-Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기능은 같은 `dist/` 웹 코드를 Windows WebView2에서 그대로 실행하고, 폴더 읽기/쓰기·대화상자·프로필 라이브러리·저장 안 한 변경 확인은 Rust가 처리합니다. Refine(박스 경계 맞춤)과 그 전처리 필터는 Rust 네이티브로 실행해 같은 결과를 더 빠르게 냅니다(2048×1536, 600박스 기준 약 4~5배). Processed 보기(Q)도 Rust가 백그라운드에서 계산합니다. 결과는 웹 버전과 픽셀 단위로 같고, 큰 이미지에 무거운 필터를 걸어도 화면이 멈추지 않습니다(4096×3072, Flatten σ200 + Denoise 20 기준: 웹·Electron은 약 5.8초 정지, 설치형은 정지 최대 0.2초에 약 1.5초 후 표시). Review의 전체 라벨 검사도 Rust가 파일을 직접 읽어 병렬로 처리합니다. 결과는 웹 버전과 같습니다(2048×1536 TIFF 60장, 이미지당 5,000박스 기준: 약 27초 → 약 0.35초). 네이티브로 처리할 수 없는 경우(GIF 등)는 기존 방식으로 자동 처리합니다. 8bit 회색 TIFF(무압축·LZW·Deflate·PackBits)도 Rust가 직접 읽어 디코드합니다. 화면 픽셀은 웹 버전과 같고, 여는 동안 화면이 멈추지 않습니다(4096×3072 기준 약 1.3~1.7초 → 약 0.2~0.3초). 그 밖의 TIFF는 기존 디코더로 엽니다. Rust와 TS를 옮기는 진행 상황은 [docs/migration](docs/migration/AUDIT.md)에 있습니다.
+Rust(Tauri 2)로 만든 데스크톱 앱입니다. 화면과 기능은 같은 `dist/` 웹 코드를 Windows WebView2에서 그대로 실행하고, 폴더 읽기/쓰기·대화상자·프로필 라이브러리·저장 안 한 변경 확인은 Rust가 처리합니다. Refine(박스 경계 맞춤)과 그 전처리 필터는 Rust 네이티브로 실행해 같은 결과를 더 빠르게 냅니다(2048×1536, 600박스 기준 약 4~5배). Processed 보기(Q)도 Rust가 백그라운드에서 계산합니다. 결과는 웹 버전과 픽셀 단위로 같고, 큰 이미지에 무거운 필터를 걸어도 화면이 멈추지 않습니다(4096×3072, Flatten σ200 + Denoise 20 기준: 웹 버전은 약 5.8초 정지, 설치형은 정지 최대 0.2초에 약 1.5초 후 표시). Review의 전체 라벨 검사도 Rust가 파일을 직접 읽어 병렬로 처리합니다. 결과는 웹 버전과 같습니다(2048×1536 TIFF 60장, 이미지당 5,000박스 기준: 약 27초 → 약 0.35초). 네이티브로 처리할 수 없는 경우(GIF 등)는 기존 방식으로 자동 처리합니다. 8bit 회색 TIFF(무압축·LZW·Deflate·PackBits)도 Rust가 직접 읽어 디코드합니다. 화면 픽셀은 웹 버전과 같고, 여는 동안 화면이 멈추지 않습니다(4096×3072 기준 약 1.3~1.7초 → 약 0.2~0.3초). 그 밖의 TIFF는 기존 디코더로 엽니다. Rust와 TS를 옮기는 진행 상황은 [docs/migration](docs/migration/AUDIT.md)에 있습니다.
 
 개발 PC에 Node.js 22.12 이상과 Rust(stable, `rustup`)를 준비하고 `npm ci`를 실행한 뒤 아래 명령으로 설치파일을 만듭니다.
 
@@ -36,10 +36,12 @@ Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기
 | 일반 버전 | `npm run tauri:dist:win` | `target/release/bundle/nsis/` |
 | YOLOE-26 버전 | `npm run tauri:dist:yoloe:win` | `target/release/bundle/nsis/` |
 
-설치파일 하나에 앱, 샘플 데이터셋, 모델, WebView2 오프라인 설치본이 모두 들어 있어 인터넷 없이 설치·실행됩니다. 프로필 라이브러리는 Electron 버전과 같은 `문서\Easy Labeling\` 폴더를 사용합니다.
+설치파일 하나에 앱, 샘플 데이터셋, 모델, WebView2 오프라인 설치본이 모두 들어 있어 인터넷 없이 설치·실행됩니다. 프로필 라이브러리(템플릿 프리셋, 레이아웃, YOLOE 프리셋, Refine 프리셋, 클래스 정보)는 `문서\Easy Labeling\` 폴더를 사용합니다. 예전 Electron 설치본과 같은 위치라 기존 파일을 그대로 읽습니다.
+
+설치 후에는 별도 Python, PyTorch, npm, CUDA Toolkit 설치나 모델 다운로드 없이 실행합니다. YOLOE-26 버전은 Git에 포함된 N/S/M/L ONNX 모델을 설치파일에 넣고, GPU를 사용할 수 있으면 WebGPU로, 없으면 CPU/WASM으로 실행합니다. 모델을 교체하기 위한 개발자용 내보내기 절차는 [YOLOE-26 안내](docs/YOLOE26_GPU_KO.md#모델을-교체하는-개발자만-필요한-내보내기)를 참고하세요.
 
 - 설치 없이 실행 파일만 빌드(디버그): `npm run tauri:dev` → `target/debug/Easy Labeling.exe`
-- 데스크톱 e2e: `npx playwright test tests/e2e/tauri-desktop.spec.ts --project=chromium` (위 실행 파일 사용)
+- 데스크톱 e2e: `npx playwright test tests/e2e/tauri-desktop.spec.ts --project=chromium` (위 실행 파일 사용, 웹 코드를 바꾼 뒤에는 `npm run tauri:dev`를 다시 실행)
 
 ### 다운로드와 자동 업데이트(GitHub Releases)
 
@@ -52,29 +54,6 @@ Electron 대신 Rust(Tauri 2)로 만든 데스크톱 셸입니다. 화면과 기
 1. `package.json` 버전을 올리고(AGENTS.md "Versioning") 커밋·push합니다.
 2. `npm run release:tauri` — 두 설치파일을 서명해 빌드하고 `v<버전>` 릴리스와 업데이트 피드를 올립니다. `-- --draft`로 초안만 만들 수 있고(초안은 앱이 보지 못함), `-- --skip-build`는 이미 서명해 빌드한 설치파일을 그대로 올립니다.
 3. 서명 키는 `%USERPROFILE%\.tauri\easy-labeling-updater.key`(또는 `TAURI_SIGNING_PRIVATE_KEY`)를 씁니다. 같은 키가 GitHub Secret `TAURI_SIGNING_PRIVATE_KEY`에도 있습니다. **이 키를 잃으면 이미 설치된 앱은 더 이상 업데이트를 받을 수 없으니 따로 백업해 두세요.**
-
-## Windows 설치형 앱(Electron)
-
-개발 PC에 Node.js 22.12 이상을 준비하고, 프로젝트 루트에서 `npm ci`로 빌드 의존성을 설치합니다. 만들 설치 버전에 맞춰 아래 명령을 선택하세요.
-
-| 설치 버전 | 설치파일 빌드 명령 | 출력 위치 | YOLOE-26 모델 |
-| --- | --- | --- | --- |
-| 일반 버전 (2.1.1) | `npm run electron:dist:win` | `release/` | 제외 |
-| YOLOE-26 버전 (2.2.1) | `npm run electron:dist:yoloe:win` | `release/yoloe26/` | N/S/M/L ONNX 모델 모두 포함 |
-
-현재 설정으로 빌드하면 YOLOE-26 설치파일 이름은 `Easy-Labeling-YOLOE26-Setup-2.2.1-x64.exe`입니다. 빌드 명령은 Git에 포함된 ONNX 모델을 검증하고 설치파일에 넣습니다. 모델 다운로드나 Python을 통한 변환은 필요하지 않습니다.
-
-이번 소스 버전에는 Detection 다중 붙여넣기 위치·선택 묶음 수정, 클래스 색 편집·저장, 팝업 헤더 드래그 이동이 포함됩니다. 소스 검증과 새 설치파일 제작·검증은 별개이며 [진행 기록의 U24~U26](docs/UI_UX_PROGRESS_KO.md#추가-결함-u24--detection-다중-선택-붙여넣기)에 완료 기준과 결과를 기록했습니다.
-
-2.1.1 / YOLOE 2.2.1에서는 두 Layout Apply 버튼이 이미지 밖 박스도 보존합니다. 저장 후에도 유지하며 기존 Remove outside boxes 버튼으로 정리할 수 있습니다. [U38 검증 기록](docs/UI_UX_PROGRESS_KO.md#추가-요구-u38--layout-적용-시-경계-밖-박스-보존)을 참고하세요.
-
-설치 후에는 별도 Python, PyTorch, npm, CUDA Toolkit 설치나 모델 다운로드 없이 실행합니다. YOLOE-26은 GPU를 사용할 수 있으면 WebGPU로 실행하고, 사용할 수 없으면 CPU/WASM으로 실행합니다. 모델을 교체하기 위한 개발자용 내보내기 절차는 [YOLOE-26 안내](docs/YOLOE26_GPU_KO.md#모델을-교체하는-개발자만-필요한-내보내기)를 참고하세요.
-
-- Electron 개발 실행: `npm run electron:dev`
-- 일반 버전 Windows 실행 파일 디렉터리(설치 없이): `npm run electron:pack`
-
-> 현재 설정은 `x64` 타깃, 무서명(Unsigned) 빌드입니다.
-> 브라우저 `showDirectoryPicker`는 Electron preload 폴리필로 동작합니다.
 
 ---
 

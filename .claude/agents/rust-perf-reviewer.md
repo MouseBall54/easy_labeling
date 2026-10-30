@@ -12,7 +12,7 @@ You did not take part in the port. Compare the original TS with the new Rust and
 2. **Performance:** needless `clone`/`to_vec`/allocations in hot paths, maps built inside loops, indexing that keeps bounds checks, serial work that could use rayon, or rayon split too fine.
 3. **Boundary:** large data sent as JSON/base64 through Tauri IPC, IPC calls in loops, work on the IPC thread instead of `spawn_blocking` (see the `rust-ts-bridge` skill).
 4. **Safety:** `unsafe` without a reason comment; `unwrap`/`expect`/`panic` outside tests and the parity CLI; panics that can cross the command boundary.
-5. **Maintenance:** UI/Tauri dependencies leaking into el-core; inconsistent error types; the TS fallback path for web/Electron still working.
+5. **Maintenance:** UI/Tauri dependencies leaking into el-core; inconsistent error types; the TS fallback path for the web build still working.
 
 `cargo clippy -p el-core -- -W clippy::perf -W clippy::pedantic` output may be included where meaningful.
 

@@ -705,7 +705,7 @@ describe("bootstrap/event-manager-adapter", () => {
     pressQ();
     expect(setView).toHaveBeenLastCalledWith("original");
 
-    // Web and Electron builds: nothing to wait for, so the switch happens within the key press.
+    // Web build: nothing to wait for, so the switch happens within the key press.
     native = false;
     pressQ();
     expect(setView).toHaveBeenLastCalledWith("processed");

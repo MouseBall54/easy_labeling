@@ -9,7 +9,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
+# Native file and message dialogs. Not tauri-plugin-dialog: its page script swaps window.confirm for an async
+# function (a Promise is always truthy), while WebView2's own confirm/alert are synchronous like a browser's.
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dunce = "1"

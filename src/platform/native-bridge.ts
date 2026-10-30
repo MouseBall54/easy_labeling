@@ -1,5 +1,5 @@
 /**
- * Feature code's door to the desktop app's Rust side (src-tauri). Null in the web and Electron builds,
+ * Feature code's door to the desktop app's Rust side (src-tauri). Null in the web build,
  * and for any feature named in `window.easyLabelingNativeOff` (a test and troubleshooting switch that
  * sends that feature down its TS path). Every native feature keeps a working TS path: the web build has
  * no Rust, so callers fall back to it whenever this returns null or a call fails.

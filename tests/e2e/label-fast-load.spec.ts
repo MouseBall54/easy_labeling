@@ -1,7 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 for (const images of [6, 60]) test(`current labels load on demand with ${images} images and preserve full review results`, async ({}, testInfo) => {
   test.setTimeout(180_000);
@@ -17,16 +21,15 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
     await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `image-${index}.jpg`));
     for (const [source,folder] of folders.entries()) await writeFile(path.join(folder, `image-${index}.txt`), texts[source]!);
   }
-  const electron = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")], env: {
-    ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_OFFSCREEN: "1",
-    INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset, folders[1]])
-  }});
+  const app = await openDesktop([dataset, folders[1], dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
     await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.addInitScript(() => {
+      // This spec follows the TS review worker (the web build's path); tauri-desktop.spec.ts compares the native review with it.
+      Reflect.set(window, "easyLabelingNativeOff", ["review", "label-scan"]);
       const reads: string[] = [];
       const workerResults: unknown[] = [];
       Reflect.set(window, "fastReads", reads);
@@ -204,5 +207,5 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
     expect(await readFile(path.join(folders[0]!, "image-0.txt"), "utf8")).toBe(texts[0]);
     expect(errors).toEqual([]);
     await testInfo.attach("fast-label-timings", {body:JSON.stringify({images,timings,reviewMs,errors},null,2), contentType:"application/json"});
-  } finally { await electron.close(); if (!path.basename(dataset).startsWith("easy-labeling-fast-")) throw new Error("Unexpected test path"); await rm(dataset,{recursive:true,force:true}); }
+  } finally { await app.close(); if (!path.basename(dataset).startsWith("easy-labeling-fast-")) throw new Error("Unexpected test path"); await rm(dataset,{recursive:true,force:true}); }
 });

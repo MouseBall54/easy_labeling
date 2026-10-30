@@ -1,9 +1,10 @@
-import { _electron, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { encodeSegmentationMaskPng, decodeSegmentationMaskPng } from "../dist/domain/annotations/segmentation-codec.js";
+import { desktopExe, launchDesktop } from "../tests/e2e/fixtures/tauri-app.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.join(root, "output/yoloe-validation");
@@ -28,8 +29,10 @@ const originals = {
 for (const [name, labels] of Object.entries(originals)) await writeFile(path.join(dataset, "label", name), labels);
 const classes = 'names:\n  5: "person"\n  12: "bus"\n';
 await writeFile(path.join(dataset, "label/classes.yaml"), classes);
-await mkdir(path.join(dataset, "profiles/class-info"), { recursive: true });
-await writeFile(path.join(dataset, "profiles/class-info/classes.yaml"), classes);
+// The profile libraries live at <sandbox>/profiles (EASY_LABELING_TEST_PROFILE_ROOT).
+const sandbox = path.join(output, "app-profile");
+await mkdir(path.join(sandbox, "profiles/Class Info"), { recursive: true });
+await writeFile(path.join(sandbox, "profiles/Class Info/classes.yaml"), classes);
 await mkdir(path.join(dataset, "mask"), { recursive: true });
 const originalMasks = new Map();
 for (const name of Object.keys(originals)) {
@@ -40,11 +43,10 @@ for (const name of Object.keys(originals)) {
   originalMasks.set(name.replace(".txt", ".png"), bytes);
   await writeFile(path.join(dataset, "mask", name.replace(".txt", ".png")), bytes);
 }
-const app = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-  env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset } });
+const app = await launchDesktop(desktopExe, sandbox, [dataset]);
 const evidence = { runtime: status, model: "yoloe-26s-seg", checks: {}, images: [], errors: [] };
 try {
-  const page = await app.firstWindow();
+  const { page } = app;
   page.setDefaultTimeout(30_000);
   const theme = async (dark) => {
     if (await page.locator("#darkModeToggle").isChecked() !== dark) await page.locator('label[for="darkModeToggle"]').click();
@@ -96,7 +98,7 @@ try {
   expect(await count()).toBe(2);
   await page.locator("#closeYoloeSetupBtn").click();
   await expect(page.locator("#yoloeSetupModal")).toBeHidden();
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2, { timeout: 120_000 });
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2, { timeout: 120_000 });
   await page.locator("#nextImageBtn").click();
   await expect.poll(count).toBe(1);
   const previewResponse = page.waitForResponse((response) => response.url().endsWith(":8766/infer"));
@@ -130,19 +132,19 @@ try {
     expect(await readFile(path.join(dataset, "label", name), "utf8")).toBe(originals[name]);
   }
   await expect(page.locator("#yoloePreviewCanvas")).toBeHidden();
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await expect.poll(count).toBe(1);
   await page.locator("#nextImageBtn").click();
   await expect.poll(count).toBe(1);
   await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("1 image(s)", { timeout: 60_000 });
-  await expect(page.locator("#labelSourceSelect option")).toHaveCount(2);
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(2);
   evidence.checks.stableFolderAndSourceRestoration = true;
   await page.locator("#taskReviewBtn").click();
   await expect(page.locator("#detectionReviewWorkspace")).toBeVisible();
   evidence.checks.review = true;
   // Repeat through the standalone tab in Segmentation, using temporary example boxes.
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await page.locator("#prevImageBtn").click();
   await page.locator("#prevImageBtn").click();
   await expect.poll(count).toBe(2);
@@ -175,7 +177,7 @@ try {
   };
   await drawExample("person", [[90, 400], [185, 400], [245, 900], [50, 900]]);
   await drawExample("bus", [[30, 250], [775, 240], [785, 700], [30, 740]]);
-  await expect(page.locator("#yoloeExampleList > div")).toHaveCount(2);
+  await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
   expect(await maskBounds()).toEqual(sourceBounds);
   await verifyPopup("segmentation");
   expect(await maskBounds()).toEqual(sourceBounds);
@@ -214,17 +216,17 @@ try {
     masks.push({ name, width: decoded.width, height: decoded.height, pixelsByClass: counts });
   }
   expect(await maskBounds()).not.toEqual(targetSourceBounds);
-  await page.locator("#labelSourceSelect").selectOption("0");
+  await page.locator('#labelSourceTabs [data-source-index="0"]').click();
   await expect.poll(maskBounds).toEqual(targetSourceBounds);
-  await page.locator("#labelSourceSelect").selectOption("1");
+  await page.locator('#labelSourceTabs [data-source-index="1"]').click();
   await expect.poll(maskBounds).not.toEqual(targetSourceBounds);
   await page.locator("#saveYoloeCurrentBtn").click();
   await expect(page.locator("#yoloeRunStatus")).toContainText("1 image(s)", { timeout: 60_000 });
-  await expect(page.locator("#labelSourceSelect option")).toHaveCount(2);
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(2);
   await page.locator("#refreshDatasetBtn").click();
   await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
   await expect(page.locator("#imageCountBadge")).toHaveText("3");
-  await expect(page.locator("#labelSourceSelect")).toHaveValue("1");
+  await expect(page.locator("#labelSourceTabs")).toHaveAttribute("data-active-index", "1");
   await expect.poll(maskBounds).not.toEqual(targetSourceBounds);
   const classAt = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationClassAtPoint(10, 200));
   const previousClass = await classAt();

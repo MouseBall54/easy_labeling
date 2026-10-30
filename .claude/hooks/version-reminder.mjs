@@ -15,7 +15,7 @@ try {
   const changed = git("status", "--porcelain", "--untracked-files=all")
     .split("\n").map((line) => line.slice(3).trim().replace(/^"|"$/g, "")).filter(Boolean)
     .map((file) => file.includes(" -> ") ? file.split(" -> ")[1] : file);
-  const shipped = changed.filter((file) => /^(src|workers|electron|css|crates\/el-core|src-tauri)\//.test(file) || /^(index|privacy|privacy_ko)\.html$/.test(file));
+  const shipped = changed.filter((file) => /^(src|workers|css|crates\/el-core|src-tauri)\//.test(file) || /^(index|privacy|privacy_ko)\.html$/.test(file));
   if (!shipped.length) process.exit(0);
   const current = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
   const committed = JSON.parse(git("show", "HEAD:package.json")).version;
@@ -24,7 +24,7 @@ try {
     decision: "block",
     reason: `Shipped files changed (${shipped.slice(0, 5).join(", ")}${shipped.length > 5 ? ", ..." : ""}) but package.json is still ${current}. `
       + "Per AGENTS.md: bump with `npm version <x.y.z> --no-git-tag-version` (patch = fix, minor = feature) and move "
-      + "electron-builder.yoloe.cjs extraMetadata.version in step (one minor ahead, same patch). "
+      + "src-tauri/tauri.yoloe.conf.json version in step (one minor ahead, same patch). "
       + "If this change should not ship a new version (refactor, tests only, or the user said not to), say so and stop."
   }));
 } catch {
