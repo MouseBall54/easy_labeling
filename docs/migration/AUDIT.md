@@ -48,10 +48,11 @@
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
-| 0) 기반 정비 | **완료 (2026-10-29, `rust-migration` 브랜치, 미커밋)** | 아래 목록 참고 |
-| 1) Processed 보기 전처리 네이티브 | **완료 (2026-10-29, 미커밋, v2.22.0)** | 4096×3072 무거운 설정에서 UI 정지 5.8s → 최대 0.2s. 결과는 TS와 바이트 단위로 동일. SharedBuffer 전송(D-006), 비동기 준비 단계(D-007) |
-| 2) 폴더 Review 네이티브 | **완료 (2026-10-30, 미커밋, v2.23.0)** | 60장 × 5,000박스 TIFF: 26~28초 → 0.35초. 결과·이미지 상태가 TS와 동일. 라벨 박스 수 스캔도 네이티브(D-008). 확장 구조 정리(D-009) |
-| 3) TIFF 8bit gray 디코드 네이티브 | **완료 (2026-10-30, 미커밋, v2.24.0)** | 4096×3072 TIFF 열기: 1.27~1.69초 → 0.18~0.34초, UI 정지 0. 픽셀은 tiff.js와 바이트 단위로 동일(D-010) |
+| 0) 기반 정비 | **완료 (2026-10-29, `rust-migration` 브랜치, `6fd6710e`)** | 아래 목록 참고 |
+| 1) Processed 보기 전처리 네이티브 | **완료 (2026-10-29, `151b90bf`, v2.22.0)** | 4096×3072 무거운 설정에서 UI 정지 5.8s → 최대 0.2s. 결과는 TS와 바이트 단위로 동일. SharedBuffer 전송(D-006), 비동기 준비 단계(D-007) |
+| 2) 폴더 Review 네이티브 | **완료 (2026-10-30, `ca97e6d0`, v2.23.0)** | 60장 × 5,000박스 TIFF: 26~28초 → 0.35초. 결과·이미지 상태가 TS와 동일. 라벨 박스 수 스캔도 네이티브(D-008). 확장 구조 정리(D-009) |
+| 3) TIFF 8bit gray 디코드 네이티브 | **완료 (2026-10-30, `434182dd`, v2.24.0)** | 4096×3072 TIFF 열기: 1.27~1.69초 → 0.18~0.34초, UI 정지 0. 픽셀은 tiff.js와 바이트 단위로 동일(D-010) |
+| 4) 네이티브 TIFF 픽셀을 Rust에 상주 | **완료 (2026-10-30, 미커밋, v2.25.0)** | 4096×3072 TIFF: Processed 첫 전환 0.81초 → 0.62초(메인 스레드 픽셀 추출 0.26~0.44초 제거), 첫 refine 0.38~0.47초 → 0.02~0.04초. 결과는 업로드 경로와 동일(D-011) |
 
 0단계에서 한 일:
 - 크레이트 구조: `src-tauri/compute` → `crates/el-core`(패키지 `el-core`). 루트 워크스페이스(`Cargo.toml`, `Cargo.lock`)로 바꿨고 빌드 출력은 루트 `target/`이다. 바뀐 경로를 반영했다(parity 테스트, e2e 3개, 릴리스 스크립트, README, AGENTS.md, `.gitignore`, vite watch).
@@ -127,6 +128,20 @@
   - 골든 `golden_tiff` 14건: 압축 5종, strip, tile, WhiteIsZero, 두 페이지, 그리고 tiff.js로 넘겨야 할 5종. 정답은 Node에서 돌린 tiff.js 결과다(`scripts/migration/make-tiff-fixtures.py`가 입력을 만든다).
   - 일부러 구현을 틀리게 바꿔 골든이 실패하는 것을 확인했다.
   - 앱 e2e: 15개 파일에서 네이티브와 tiff.js의 화면 픽셀 해시가 같고, 네이티브는 예상한 파일에서만 쓰였다.
+
+4단계에서 한 일:
+- el-core `preprocess::gray_luma`: R = G = B로 그린 회색의 luma. 0~255 모든 값에서 `rgba_luma`와 같다는 단위 테스트를 넣었다.
+- src-tauri:
+  - `tiff_image.rs`: 마지막으로 디코드한 TIFF 1장을 경로와 함께 보관한다. 다른 파일이 디코드되어 밀려났으면 다시 디코드한다.
+  - `native.rs`: `preprocess_view_load_tiff`, `refine_load_tiff` command.
+- TS:
+  - `native-tiff.ts`: 네이티브로 디코드한 `<img>`와 파일 경로를 잇는다(`nativeTiffPathOf`).
+  - 워크플로: Processed 준비가 원본 RGBA 없이도 돈다. 네이티브 TIFF면 픽셀을 추출하지 않고 경로만 넘긴다. 원본 RGBA가 필요한 다른 기능은 지금처럼 필요할 때 추출한다.
+  - `refine-service.ts`: 네이티브 refine이면 bitmap 대신 경로를 보낸다. 실패하면 bitmap 업로드로 돌아간다.
+  - `tauri-desktop.ts`: `window.easyLabelingNativeTrace` 배열이 있으면 command 이름을 기록한다(테스트·문제 확인용).
+- 동등성:
+  - 앱 e2e: 같은 4096×3072 TIFF를 상주 경로와 업로드 경로(`easyLabelingNativeOff = ["tiff"]`)로 열어, Processed 화면이 TS 결과와 같고 refine(원본·Processed·crop)이 TS worker 결과와 같은지 본다. 각 경로가 어느 command를 썼는지도 확인한다.
+- 테스트: 브리지 단위 2개, refine-service 단위 3개(상주, 실패 시 bitmap, 네이티브 refine을 끄면 bitmap), Rust 단위 1개, 데스크톱 e2e 1개. 일부러 구현을 틀리게 바꿔 refine-service 테스트가 실패하는 것을 확인했다.
 
 ## 핫스팟 (예상 영향 큰 순)
 

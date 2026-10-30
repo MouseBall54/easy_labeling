@@ -28,6 +28,9 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
 
   // Rust errors arrive as "<DOMException name>: <message>".
   async function call<T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }): Promise<T> {
+    // Test and troubleshooting hook: an array at window.easyLabelingNativeTrace collects command names.
+    const trace: unknown = Reflect.get(window, "easyLabelingNativeTrace");
+    if (Array.isArray(trace)) trace.push(command);
     try {
       return await internals().invoke<T>(command, args, options);
     } catch (error) {

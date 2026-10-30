@@ -62,7 +62,9 @@ export function createNativeRefineWorker(createDecoder: () => Worker): RefineWor
     postMessage(message, transfer = []) {
       const key = `${session}:${String(message.key)}`;
       let work: Promise<unknown>;
-      if (message.type === "image") {
+      if (message.type === "image" && typeof message.tiffPath === "string") {
+        work = ready = native.invoke("refine_load_tiff", { key, path: message.tiffPath }).then(() => null);
+      } else if (message.type === "image") {
         work = ready = (async () => {
           await decode({ type: "image", key: message.key, bitmap: message.bitmap }, transfer);
           const { gray, width, height } = await decode({ type: "gray", key: message.key }) as { gray: Uint8Array; width: number; height: number };

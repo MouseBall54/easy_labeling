@@ -42,7 +42,8 @@ import {
   type SegmentationProcessingOrder,
   type SegmentationViewSourceMode
 } from "./preprocessing.js";
-import { createNativeViewPreprocessor } from "./native-preprocessing.js";
+import { createNativeViewPreprocessor, type NativeViewSource } from "./native-preprocessing.js";
+import { nativeTiffPathOf } from "../images/native-tiff.js";
 import {
   getWorkingImageOriginalRect,
   isOriginalPointInWorkingImage,
@@ -377,7 +378,13 @@ export function createSegmentationCanvasWorkflow(
     return baseSource === "sr-roi" ? getSrImageInput() : getOriginalImageInput();
   };
 
-  const getProcessedCacheKey = (base: SegmentationImageInput, config: SegmentationPreprocessingConfig): string =>
+  /** Like getProcessedBase(...)?.descriptor, without extracting the original's pixels. */
+  const getProcessedBaseDescriptor = (baseSource: "original" | "sr-roi"): WorkingImageDescriptor | null => {
+    if (baseSource === "sr-roi" && processingOrder === "processed-first") return null;
+    return baseSource === "sr-roi" ? getSrImageInput()?.descriptor ?? null : getOriginalDescriptor();
+  };
+
+  const getProcessedCacheKey = (base: Pick<SegmentationImageInput, "descriptor">, config: SegmentationPreprocessingConfig): string =>
     `${base.descriptor.cacheKey}:processed:${getSegmentationPreprocessingKey(config)}`;
 
   const removeSrRoiOverlay = (): void => {
@@ -478,22 +485,24 @@ export function createSegmentationCanvasWorkflow(
     return canvasElement;
   };
 
-  const getOriginalImageInput = (): SegmentationImageInput | null => {
+  const getOriginalDescriptor = (): WorkingImageDescriptor | null => {
     const doc = ensureDocument();
-    const original = getOriginalImageData();
-    if (!doc || !original || !originalImageSource) return null;
+    if (!doc || !originalImageSource) return null;
     return {
-      source: originalImageSource,
-      rgba: original.data,
-      descriptor: {
-        source: "original",
-        width: doc.width,
-        height: doc.height,
-        originalWidth: doc.width,
-        originalHeight: doc.height,
-        cacheKey: `${imageSourceKey}:original`
-      }
+      source: "original",
+      width: doc.width,
+      height: doc.height,
+      originalWidth: doc.width,
+      originalHeight: doc.height,
+      cacheKey: `${imageSourceKey}:original`
     };
+  };
+
+  const getOriginalImageInput = (): SegmentationImageInput | null => {
+    const descriptor = getOriginalDescriptor();
+    const original = descriptor ? getOriginalImageData() : null;
+    if (!descriptor || !original || !originalImageSource) return null;
+    return { source: originalImageSource, rgba: original.data, descriptor };
   };
 
   const getSrRoiCacheKey = (mode: SuperResolutionMode): string | null => srRoi
@@ -508,22 +517,28 @@ export function createSegmentationCanvasWorkflow(
 
   const ensureProcessedImage = (baseSource: "original" | "sr-roi"): SegmentationImageInput | null => {
     if (baseSource === "sr-roi" && processingOrder === "processed-first") return getProcessedFirstImage();
-    const base = getProcessedBase(baseSource);
-    if (!base || typeof globalThis.document === "undefined") return null;
-    const cacheKey = getProcessedCacheKey(base, preprocessingConfig);
+    const descriptor = getProcessedBaseDescriptor(baseSource);
+    if (!descriptor || typeof globalThis.document === "undefined") return null;
+    const cacheKey = getProcessedCacheKey({ descriptor }, preprocessingConfig);
     const cached = processedImages.get(cacheKey);
     if (cached) return cached;
     const prepared = nativeProcessedRgba.get(cacheKey);
     nativeProcessedRgba.delete(cacheKey);
-    const rgba = prepared ?? preprocessSegmentationImage({ width: base.descriptor.width, height: base.descriptor.height, rgba: base.rgba }, preprocessingConfig);
-    const canvasElement = createCanvasImageSource(base.descriptor.width, base.descriptor.height, rgba);
+    // A natively prepared view needs no original pixels (for a native TIFF they were never extracted).
+    let rgba = prepared;
+    if (!rgba) {
+      const base = getProcessedBase(baseSource);
+      if (!base) return null;
+      rgba = preprocessSegmentationImage({ width: descriptor.width, height: descriptor.height, rgba: base.rgba }, preprocessingConfig);
+    }
+    const canvasElement = createCanvasImageSource(descriptor.width, descriptor.height, rgba);
     if (!canvasElement) return null;
     canvasElement.dataset.preprocessingKey = cacheKey;
     const processed: SegmentationImageInput = {
       source: canvasElement,
       rgba,
       descriptor: {
-        ...base.descriptor,
+        ...descriptor,
         source: baseSource === "sr-roi" ? "sr-roi-processed" : "original-processed",
         cacheKey
       }
@@ -2139,15 +2154,25 @@ export function createSegmentationCanvasWorkflow(
       const preprocessor = nativeViewPreprocessor;
       if (!preprocessor) return null;
       const next = config ? normalizeSegmentationPreprocessingConfig({ ...preprocessingConfig, ...config }) : preprocessingConfig;
-      const base = getProcessedBase(preprocessingSource);
-      if (!base || keepsColour(next)) return null;
-      const cacheKey = getProcessedCacheKey(base, next);
+      const descriptor = getProcessedBaseDescriptor(preprocessingSource);
+      if (!descriptor || keepsColour(next)) return null;
+      const cacheKey = getProcessedCacheKey({ descriptor }, next);
       if (processedImages.has(cacheKey) || nativeProcessedRgba.has(cacheKey)) return null;
-      const input = { width: base.descriptor.width, height: base.descriptor.height, rgba: base.rgba };
-      return preprocessor.preprocess(base.descriptor.cacheKey, input, next).then(
+      // A natively decoded TIFF is read in Rust: no pixel extraction on this thread, no upload.
+      const tiffPath = preprocessingSource === "original" ? nativeTiffPathOf(originalImageSource) : null;
+      const { width, height } = descriptor;
+      let source: NativeViewSource;
+      if (tiffPath) {
+        source = { width, height, tiffPath };
+      } else {
+        const base = getProcessedBase(preprocessingSource);
+        if (!base) return null;
+        source = { width, height, rgba: base.rgba };
+      }
+      return preprocessor.preprocess(descriptor.cacheKey, source, next).then(
         (rgba) => {
           // A result for a replaced image matches no cache key.
-          if (!rgba || getProcessedBase(preprocessingSource)?.descriptor.cacheKey !== base.descriptor.cacheKey) return false;
+          if (!rgba || getProcessedBaseDescriptor(preprocessingSource)?.cacheKey !== descriptor.cacheKey) return false;
           nativeProcessedRgba.set(cacheKey, rgba);
           // Superseded results (full-size RGBA each) are not kept beyond the latest two.
           while (nativeProcessedRgba.size > 2) nativeProcessedRgba.delete(nativeProcessedRgba.keys().next().value!);

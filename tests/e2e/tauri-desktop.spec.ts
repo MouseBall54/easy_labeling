@@ -476,3 +476,125 @@ test("Tauri decodes 8-bit gray TIFFs natively with the pixels tiff.js shows", as
     await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   }
 });
+
+test("Tauri Processed view and refine read a natively decoded TIFF in Rust instead of uploading it", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "sem");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "sem.tif"), grayTiff(4096, 3072));
+
+  // Opens the TIFF with the given native features off, switches to Processed (Q) and refines on it,
+  // logging the Tauri commands each step sends.
+  const run = async (off: string[]) => {
+    const app = await launchDesktop(sandbox, [dataset]);
+    try {
+      const { page } = app;
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.evaluate((list) => { window.easyLabelingNativeOff = list; }, off);
+      await page.locator("#selectImageFolderBtn").click();
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("sem.tif");
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+      const outcome = await page.evaluate(async (offList) => {
+        const load = (file: string): Promise<any> => import(file);
+        const api = Reflect.get(window, "__easyLabelingTestApi");
+        // src/platform/tauri-desktop.ts records every command name in this array.
+        const commands: string[] = [];
+        Reflect.set(window, "easyLabelingNativeTrace", commands);
+        const image = api.getCanvasBackgroundElement() as HTMLImageElement;
+
+        const longTasks: number[] = [];
+        const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => longTasks.push(entry.duration)));
+        observer.observe({ type: "longtask" });
+        const started = performance.now();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+        while (api.getSegmentationViewSource() !== "processed") await new Promise((resolve) => setTimeout(resolve, 5));
+        const viewMs = performance.now() - started;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        observer.disconnect();
+        const viewCommands = commands.splice(0);
+
+        const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+        const hash = async (bytes: Uint8ClampedArray) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+        const shownCanvas = api.getCanvasBackgroundElement() as HTMLCanvasElement;
+        const shown = shownCanvas.getContext("2d")!.getImageData(0, 0, shownCanvas.width, shownCanvas.height).data;
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(image, 0, 0);
+        const original = context.getImageData(0, 0, canvas.width, canvas.height);
+        const config = normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig());
+        const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, config);
+
+        const [{ createRefineService }, { normalizeRefineParams }] = await Promise.all([load("./dist/features/refine/refine-service.js"), load("./dist/domain/refine/edge-refine.js")]);
+        const boxes = Array.from({ length: 40 }, (_, index) => {
+          const x0 = (index % 8) * 480 + 100;
+          const y0 = Math.floor(index / 8) * 560 + 120;
+          return { id: String(index), classId: "0", x0, y0, x1: x0 + 150, y1: y0 + 110 };
+        });
+        const paramsByClass = { 0: normalizeRefineParams({}) };
+        const processed = { kind: "processed", config: { mode: "edge-blend", median: true, claheClip: 2 } };
+        const refine = async () => {
+          const service = createRefineService();
+          const refineStarted = performance.now();
+          const onOriginal = await service.refine(image, boxes, paramsByClass, boxes, { kind: "original" });
+          const firstMs = performance.now() - refineStarted;
+          const onProcessed = await service.refine(image, boxes, paramsByClass, boxes, processed);
+          const crop = await service.crop(image, { x0: 1000.5, y0: 700, x1: 1060, y1: 771.2 }, processed);
+          return { onOriginal, onProcessed, crop: { ...crop, gray: Array.from(crop.gray) }, firstMs };
+        };
+        const nativeRefine = await refine();
+        const refineCommands = commands.splice(0);
+        window.easyLabelingNativeOff = [...offList, "refine"];
+        const workerRefine = await refine();
+        window.easyLabelingNativeOff = offList;
+        return {
+          viewMs,
+          maxLongTask: Math.max(0, ...longTasks),
+          viewCommands,
+          viewSame: await hash(shown) === await hash(expected),
+          refineCommands,
+          nativeRefine,
+          workerRefine
+        };
+      }, off);
+      expect(errors).toEqual([]);
+      return outcome;
+    } finally {
+      await app.close();
+    }
+  };
+
+  try {
+    const resident = await run([]);
+    const uploaded = await run(["tiff"]);
+    for (const outcome of [resident, uploaded]) {
+      expect(outcome.viewSame).toBe(true);
+      expect(outcome.viewCommands).toContain("preprocess_view_run_shared");
+      expect(outcome.nativeRefine.onOriginal).toHaveLength(40);
+      for (const key of ["onOriginal", "onProcessed"] as const) {
+        outcome.nativeRefine[key].forEach((result: { id: string; weakSides: string[]; box: Record<string, number> }, index: number) => {
+          const expected = outcome.workerRefine[key][index];
+          expect(result.id).toBe(expected.id);
+          expect(result.weakSides).toEqual(expected.weakSides);
+          for (const side of ["x0", "y0", "x1", "y1"] as const) expect(result.box[side]).toBeCloseTo(expected.box[side], 9);
+        });
+      }
+      expect(outcome.nativeRefine.crop).toEqual(outcome.workerRefine.crop);
+    }
+    // Native TIFF: Rust reads its own decode. tiff.js image: the page extracts and uploads the pixels.
+    expect(resident.viewCommands).toContain("preprocess_view_load_tiff");
+    expect(resident.viewCommands).not.toContain("preprocess_view_load");
+    expect(resident.refineCommands).toContain("refine_load_tiff");
+    expect(resident.refineCommands).not.toContain("refine_load_image");
+    expect(uploaded.viewCommands).toContain("preprocess_view_load");
+    expect(uploaded.refineCommands).toContain("refine_load_image");
+    for (const [name, outcome] of [["resident", resident], ["uploaded", uploaded]] as const) {
+      console.log(`4096x3072 TIFF ${name}: Processed ${outcome.viewMs.toFixed(0)} ms (longest UI task ${outcome.maxLongTask.toFixed(0)} ms), first refine ${outcome.nativeRefine.firstMs.toFixed(0)} ms`);
+    }
+  } finally {
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});

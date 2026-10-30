@@ -17,6 +17,10 @@ function installBridge(failUploads = 0) {
       resident = decodeURIComponent(options?.headers?.["x-key"] ?? "");
       return undefined;
     }
+    if (command === "preprocess_view_load_tiff") {
+      resident = (args as { key: string }).key;
+      return undefined;
+    }
     if (command === "preprocess_view_run") {
       const { key } = args as { key: string };
       if (key !== resident) throw new Error("View image is not loaded");
@@ -39,6 +43,10 @@ describe("native Processed view", () => {
     expect([...grayBytesToRgba(new Uint8Array([7, 9]), input.rgba)]).toEqual([7, 7, 7, 200, 9, 9, 9, 255]);
   });
 
+  it("writes opaque pixels when there is no source RGBA", () => {
+    expect([...grayBytesToRgba(new Uint8Array([7, 9]))]).toEqual([7, 7, 7, 255, 9, 9, 9, 255]);
+  });
+
   it("is unavailable outside the desktop app", () => {
     vi.stubGlobal("window", {});
     expect(createNativeViewPreprocessor()).toBeNull();
@@ -59,6 +67,16 @@ describe("native Processed view", () => {
     evict();
     await preprocessor.preprocess("img-a", input, grayConfig);
     expect(commands(invoke)).toEqual(["preprocess_view_load", "preprocess_view_run", "preprocess_view_run", "preprocess_view_load", "preprocess_view_run"]);
+  });
+
+  it("reads a native TIFF from Rust's resident decode instead of uploading pixels", async () => {
+    const { invoke } = installBridge();
+    const preprocessor = createNativeViewPreprocessor()!;
+    const tiff = { width: 2, height: 1, tiffPath: "D:/data/a.tif" };
+    expect([...(await preprocessor.preprocess("img-t", tiff, grayConfig))!]).toEqual([10, 10, 10, 255, 20, 20, 20, 255]);
+    await preprocessor.preprocess("img-t", tiff, normalizeSegmentationPreprocessingConfig({ mode: "edge" }));
+    expect(commands(invoke)).toEqual(["preprocess_view_load_tiff", "preprocess_view_run", "preprocess_view_run"]);
+    expect(invoke.mock.calls[0]?.[1]).toEqual({ key: "img-t", path: "D:/data/a.tif" });
   });
 
   it("does not reuse a failed upload", async () => {

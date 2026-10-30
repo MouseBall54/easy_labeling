@@ -57,6 +57,15 @@ pub async fn refine_load_image(window: tauri::WebviewWindow, request: Request<'_
     Ok(())
 }
 
+/// refine_load_image for a natively decoded TIFF: the gray pixels come from the resident decode, not an upload.
+#[tauri::command]
+pub async fn refine_load_tiff(key: String, path: String) -> CommandResult<()> {
+    let image = blocking(move || crate::tiff_image::resident_gray(&path)).await?;
+    let (width, height) = (image.width as usize, image.height as usize);
+    *REFINE_IMAGE.lock().map_err(|error| error.to_string())? = Some(RefineImage { key, gray: Arc::new(image.pixels.clone()), width, height, processed: None });
+    Ok(())
+}
+
 /// Which pixels a request reads: { kind: "original" } or { kind: "processed", config, configKey }.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +169,19 @@ pub async fn preprocess_view_load(window: tauri::WebviewWindow, request: Request
         return Err("View image size does not match its dimensions".into());
     }
     let luma = blocking(move || Ok(preprocess::rgba_luma(&rgba))).await?;
+    *VIEW_IMAGE.lock().map_err(|error| error.to_string())? = Some(ViewImage { key, luma: Arc::new(luma), width, height });
+    Ok(())
+}
+
+/// preprocess_view_load for a natively decoded TIFF, read from the resident decode (the page draws it as
+/// R = G = B = gray; gray_luma gives the same luma as rgba_luma would).
+#[tauri::command]
+pub async fn preprocess_view_load_tiff(key: String, path: String) -> CommandResult<()> {
+    let (luma, width, height) = blocking(move || {
+        let image = crate::tiff_image::resident_gray(&path)?;
+        Ok((preprocess::gray_luma(&image.pixels), image.width as usize, image.height as usize))
+    })
+    .await?;
     *VIEW_IMAGE.lock().map_err(|error| error.to_string())? = Some(ViewImage { key, luma: Arc::new(luma), width, height });
     Ok(())
 }

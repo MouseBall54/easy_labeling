@@ -145,7 +145,24 @@ pub fn rgba_luma(rgba: &[u8]) -> Vec<f32> {
     rgba.as_chunks::<4>().0.par_iter().map(|p| (p[0] as f64 * 0.2126 + p[1] as f64 * 0.7152 + p[2] as f64 * 0.0722) as f32).collect()
 }
 
+/// rgba_luma of a gray image drawn as R = G = B (a natively decoded TIFF): the gray value itself.
+pub fn gray_luma(gray: &[u8]) -> Vec<f32> {
+    gray.par_iter().map(|&v| v as f32).collect()
+}
+
 /// Rounds and clamps a processed image to bytes, as the refine worker does.
 pub fn to_bytes(values: &[f32]) -> Vec<u8> {
     values.par_iter().map(|&v| js_round(v as f64).clamp(0.0, 255.0) as u8).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gray_luma_matches_rgba_luma_of_the_drawn_gray() {
+        let gray: Vec<u8> = (0..=255).collect();
+        let rgba: Vec<u8> = gray.iter().flat_map(|&v| [v, v, v, 255]).collect();
+        assert_eq!(gray_luma(&gray), rgba_luma(&rgba));
+    }
 }
