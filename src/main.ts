@@ -80,6 +80,8 @@ interface TestApi {
   getCanvasBackgroundElement(): CanvasImageSource | null;
   getSegmentationEdgeSamInputSource(): string | null;
   getSegmentationSuperpixelInputSource(): string | null;
+  /** The superpixels the Segmentation superpixel tool uses now (labels, boundaries, regions). */
+  getSegmentationSuperpixels(): import("./features/segmentation/superpixels.js").SuperpixelResult | null;
   isSegmentationSrRoiSelecting(): boolean;
   getCanvasViewportTransform(): [number, number, number, number, number, number];
   getSegmentationMaskBounds(): {
@@ -318,6 +320,7 @@ function bootstrapBrowserRuntime(): void {
     },
     getSegmentationEdgeSamInputSource: () => runtimeCanvasController.raw.getSegmentationEdgeSamInputSource?.() ?? null,
     getSegmentationSuperpixelInputSource: () => runtimeCanvasController.raw.getSegmentationSuperpixelInputSource?.() ?? null,
+    getSegmentationSuperpixels: () => runtimeCanvasController.raw.getSegmentationSuperpixelResult?.() ?? null,
     isSegmentationSrRoiSelecting: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).isSegmentationSrRoiSelecting?.() ?? false,
     getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
     getSegmentationMaskBounds: () => {

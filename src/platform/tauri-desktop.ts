@@ -133,10 +133,16 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
   const webview = (window as unknown as { chrome?: { webview?: { addEventListener(type: string, listener: (event: SharedBufferEvent) => void): void; releaseBuffer?(buffer: ArrayBuffer): void } } }).chrome?.webview;
   const arrived = new Map<number, ArrayBuffer>();
   const waiting = new Map<number, (buffer: ArrayBuffer) => void>();
+  // Ids given up on (bufferFor timed out): their buffer is released as soon as it arrives instead of being kept.
+  const abandoned = new Set<number>();
   webview?.addEventListener("sharedbufferreceived", (event) => {
     const id = event.additionalData?.easyLabelingUpload ?? event.additionalData?.easyLabelingDownload;
     if (typeof id !== "number") return;
     const buffer = event.getBuffer();
+    if (abandoned.delete(id)) {
+      webview?.releaseBuffer?.(buffer);
+      return;
+    }
     const resolve = waiting.get(id);
     waiting.delete(id);
     if (resolve) resolve(buffer);
@@ -150,6 +156,7 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     return new Promise<ArrayBuffer>((resolve, reject) => {
       const timer = setTimeout(() => {
         waiting.delete(id);
+        abandoned.add(id);
         reject(new Error("Shared buffer did not arrive"));
       }, 10_000);
       waiting.set(id, (buffer) => {

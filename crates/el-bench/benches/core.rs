@@ -43,7 +43,7 @@ fn benches(c: &mut Criterion) {
 }
 
 criterion_group!(core, benches);
-criterion_main!(core, review_group);
+criterion_main!(core, review_group, superpixel_group);
 
 fn review(c: &mut Criterion) {
     let text = String::from_utf8(read_bytes("generated/review-5000.txt")).expect("utf-8");
@@ -52,3 +52,24 @@ fn review(c: &mut Criterion) {
 }
 
 criterion_group!(review_group, review);
+
+/// Default settings, region size 16 (the panel's default); scripts/bench/core.mjs --filter superpixels times TS.
+fn superpixels(c: &mut Criterion) {
+    let inputs: Vec<BenchInput> = read_json("generated/manifest.json");
+    let images: BTreeMap<&str, &BenchInput> = inputs.iter().map(|input| (input.image.as_str(), input)).collect();
+    let settings = el_core::superpixels::Settings {
+        blur: el_core::superpixels::Strength::Medium,
+        contrast: el_core::superpixels::Strength::Medium,
+        edge_sensitivity: el_core::superpixels::EdgeSensitivity::Medium,
+    };
+    let mut group = c.benchmark_group("superpixels");
+    group.sample_size(10).measurement_time(Duration::from_secs(10));
+    for input in images.values() {
+        let luma = preprocess::gray_luma(&read_bytes(&format!("generated/{}", input.image)));
+        let id = BenchmarkId::from_parameter(format!("{}x{}-r16", input.width, input.height));
+        group.bench_function(id, |b| b.iter(|| el_core::superpixels::slico(black_box(&luma), input.width, input.height, 16, 5, &settings)));
+    }
+    group.finish();
+}
+
+criterion_group!(superpixel_group, superpixels);

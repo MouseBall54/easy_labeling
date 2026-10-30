@@ -67,6 +67,26 @@ pub fn min(a: f64, b: f64) -> f64 {
     }
 }
 
+/// `Math.hypot(a, b)` as V8 computes it: scaled by the larger magnitude and Kahan-summed. It differs
+/// from `f64::hypot` and from `sqrt(a * a + b * b)` in the last bit for about a third of inputs.
+pub fn hypot(a: f64, b: f64) -> f64 {
+    if a.is_infinite() || b.is_infinite() {
+        return f64::INFINITY;
+    }
+    if a.is_nan() || b.is_nan() {
+        return f64::NAN;
+    }
+    let (a, b) = (a.abs(), b.abs());
+    let (max, other) = if b > a { (b, a) } else { (a, b) };
+    if max == 0.0 {
+        return 0.0;
+    }
+    // V8 Kahan-sums (a / max)² and (b / max)²: with two terms the compensation is still 0 when the second
+    // is added, and the larger term is exactly 1, so this is the same arithmetic with one division fewer.
+    let ratio = other / max;
+    (1.0 + ratio * ratio).sqrt() * max
+}
+
 /// `Number.prototype.toString()` (radix 10), e.g. in template literals: 4 -> "4", 1e21 -> "1e+21".
 pub fn number_to_string(value: f64) -> String {
     if value.is_nan() {

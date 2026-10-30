@@ -14,6 +14,9 @@ on:
       - "src/features/segmentation/preprocessing.ts"
       - "src/features/segmentation/gray-filters.ts"
       - "src/features/segmentation/native-preprocessing.ts"
+      - "src/features/segmentation/superpixels.ts"
+      # The tiff.js version decides the TIFF goldens.
+      - "package-lock.json"
       - "src/domain/refine/**"
       - "src/domain/yolo/**"
       - "src/features/review/**"

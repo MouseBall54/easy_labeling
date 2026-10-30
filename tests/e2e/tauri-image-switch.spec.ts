@@ -7,12 +7,16 @@ import { grayPng, grayTiff } from "./fixtures/review-dataset.js";
 import { launchDesktop } from "./fixtures/tauri-app.js";
 
 // Image switching (next/prev) in the Tauri app on SEM-sized TIFF, PNG and JPEG folders. Timings are logged,
-// not asserted; point EASY_LABELING_TAURI_EXE at another build (an older commit's exe) to compare the two.
+// not asserted; point EASY_LABELING_TAURI_EXE at another build (an older commit's exe) to compare the two, or set
+// EASY_LABELING_NATIVE_OFF (e.g. "prefetch") to switch native features off in this one.
 const root = path.resolve(".");
 const exe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "target/debug/Easy Labeling.exe");
 test.skip(!existsSync(exe), `Tauri executable not built: ${exe}`);
 
+const off = (process.env.EASY_LABELING_NATIVE_OFF ?? "").split(",").filter(Boolean);
 const IMAGES = 4;
+// Time on each image before switching, as a user looks at it (the app decodes the next image meanwhile).
+const DWELL_MS = 500;
 // Image i carries 20 + i boxes: the count shows its labels were applied, which happens after its decode.
 const boxCount = (index: number) => 20 + index;
 const labels = (count: number) => Array.from({ length: count }, (_, index) => `0 ${(0.05 + index * 0.02).toFixed(6)} 0.5 0.01 0.01`).join("\n") + "\n";
@@ -28,6 +32,7 @@ async function settled(page: Page, name: string, count: number): Promise<void> {
 
 /** Clicks `button` and returns the time until image `index` is shown with its labels and two frames painted. */
 async function timedSwitch(page: Page, button: string, name: string, index: number): Promise<{ ms: number; longestTask: number }> {
+  await page.waitForTimeout(DWELL_MS);
   await page.evaluate(() => {
     const tasks: number[] = [];
     const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => tasks.push(entry.duration)));
@@ -90,6 +95,7 @@ for (const format of ["tif", "png", "jpg"] as const) {
       const { page } = app;
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
+      await page.evaluate((list) => { window.easyLabelingNativeOff = list; }, off);
       await page.locator("#selectImageFolderBtn").click();
       await settled(page, names[0]!, boxCount(0));
       // Let the folder scan and first-image work finish before timing.
@@ -100,6 +106,7 @@ for (const format of ["tif", "png", "jpg"] as const) {
       console.log(JSON.stringify({
         exe: path.basename(path.dirname(path.dirname(exe))),
         format,
+        off,
         medianMs: Math.round(median(runs.map((run) => run.ms))),
         medianLongestTaskMs: Math.round(median(runs.map((run) => run.longestTask))),
         runs: runs.map((run) => `${run.step}:${Math.round(run.ms)}/${Math.round(run.longestTask)}`).join(" ")

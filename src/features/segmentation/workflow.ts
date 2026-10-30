@@ -44,6 +44,8 @@ import {
 } from "./preprocessing.js";
 import { createNativeViewPreprocessor, grayBytesToRgba, type NativeViewSource } from "./native-preprocessing.js";
 import { grayImageElement, isOpaque } from "../images/gray-image.js";
+import { readOpaquePixelsOffThread } from "../images/off-thread-pixels.js";
+import { canComputeSuperpixelsNatively, computeSuperpixelsNatively, type NativeSuperpixelSource } from "./native-superpixels.js";
 import { nativeTiffPathOf } from "../images/native-tiff.js";
 import {
   getWorkingImageOriginalRect,
@@ -144,6 +146,12 @@ export function createSegmentationCanvasWorkflow(
   // bytes, the source alpha when it is not opaque, and for opaque sources the view already decoded as an <img>.
   const nativeViewPreprocessor = createNativeViewPreprocessor();
   const nativeProcessed = new Map<string, { gray: Uint8Array; sourceRgba?: Uint8ClampedArray; image: HTMLImageElement | null }>();
+  const processedGray = new WeakMap<SegmentationImageInput, Uint8Array>();
+  // Latest native superpixel request: an older one that finishes later is dropped.
+  let superpixelRequest = 0;
+  // Preparations in flight, shared by the view, superpixels and EdgeSAM when they ask at once.
+  let originalPixelsRead: { source: CanvasImageSource | null; promise: Promise<void> } | null = null;
+  const processedInFlight = new Map<string, Promise<boolean>>();
   let srRoi: WorkingImageRect | null = null;
   let srRoiSelectionStart: CanvasPoint | null = null;
   let isSelectingSrRoi = false;
@@ -548,8 +556,146 @@ export function createSegmentationCanvasWorkflow(
       if (!canvasElement) return null;
       processed = { source: canvasElement, rgba, descriptor: processedDescriptor };
     }
+    if (prepared) processedGray.set(processed, prepared.gray);
     processedImages.set(cacheKey, processed);
     return processed;
+  };
+
+  /** Desktop app: reads the original's pixels in a worker (opaque images only), so getOriginalImageData finds them cached. */
+  const readOriginalPixelsOffThread = (): Promise<void> => {
+    const source = originalImageSource;
+    if (originalPixelsRead?.source === source) return originalPixelsRead.promise;
+    const promise = (async () => {
+      const doc = ensureDocument();
+      if (!doc || !source || (originalImageData?.width === doc.width && originalImageData.height === doc.height)) return;
+      const rgba = await readOpaquePixelsOffThread(source as ImageBitmapSource, doc.width, doc.height);
+      if (!rgba || originalImageSource !== source || originalImageData) return;
+      originalImageData = new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, doc.width, doc.height);
+    })();
+    originalPixelsRead = { source, promise };
+    return promise;
+  };
+
+  /**
+   * Desktop app: the Processed view of `baseSource` under `config` computed in Rust, ahead of the synchronous
+   * ensureProcessedImage, which then finds it. Null when there is nothing to wait for (no native side, a
+   * colour-keeping config, or already prepared). A native TIFF is read in Rust; other originals' pixels are
+   * read in a worker when opaque.
+   */
+  const prepareNativeProcessed = (baseSource: "original" | "sr-roi", config: SegmentationPreprocessingConfig): Promise<boolean> | null => {
+    const preprocessor = nativeViewPreprocessor;
+    if (!preprocessor) return null;
+    const descriptor = getProcessedBaseDescriptor(baseSource);
+    if (!descriptor || keepsColour(config)) return null;
+    const cacheKey = getProcessedCacheKey({ descriptor }, config);
+    if (processedImages.has(cacheKey) || nativeProcessed.has(cacheKey)) return null;
+    const inFlight = processedInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+    const isCurrent = () => getProcessedBaseDescriptor(baseSource)?.cacheKey === descriptor.cacheKey;
+    const preparing = (async () => {
+      const tiffPath = baseSource === "original" ? nativeTiffPathOf(originalImageSource) : null;
+      const { width, height } = descriptor;
+      let source: NativeViewSource;
+      if (tiffPath) {
+        source = { width, height, tiffPath };
+      } else {
+        if (baseSource === "original") await readOriginalPixelsOffThread();
+        const base = isCurrent() ? getProcessedBase(baseSource) : null;
+        if (!base) return false;
+        source = { width, height, rgba: base.rgba };
+      }
+      const sourceRgba = "rgba" in source && !isOpaque(source.rgba) ? source.rgba : undefined;
+      let gray: Uint8Array | null;
+      try {
+        gray = await preprocessor.preprocess(descriptor.cacheKey, source, config);
+      } catch (error) {
+        console.warn("Native preprocessing failed; using the TS path.", error);
+        return false;
+      }
+      // A result for a replaced image matches no cache key.
+      if (!gray || !isCurrent()) return false;
+      // An opaque view is decoded by an <img> off this thread; with transparency it is drawn into a canvas.
+      const image = sourceRgba ? null : await grayImageElement(gray, width, height).catch(() => null);
+      if (!isCurrent()) return false;
+      nativeProcessed.set(cacheKey, { gray, sourceRgba, image });
+      // Superseded results (full-size each) are not kept beyond the latest two.
+      while (nativeProcessed.size > 2) nativeProcessed.delete(nativeProcessed.keys().next().value!);
+      return true;
+    })().finally(() => processedInFlight.delete(cacheKey));
+    processedInFlight.set(cacheKey, preparing);
+    return preparing;
+  };
+
+  /**
+   * Desktop app: gets an image input ready without UI-thread work where it can (a Processed input computed
+   * in Rust, the original's pixels read in a worker); getImageInput then finds it cached.
+   */
+  const prepareImageInput = async (mode: SegmentationImageSourceMode): Promise<void> => {
+    if (!nativeViewPreprocessor) return;
+    if (mode === "original") await readOriginalPixelsOffThread();
+    else if (mode === "original-processed") await prepareNativeProcessed("original", preprocessingConfig);
+    else if (mode === "sr-roi-processed") await prepareNativeProcessed("sr-roi", preprocessingConfig);
+  };
+
+  /**
+   * Desktop app: the superpixels of the current superpixel input computed in Rust and stored where
+   * recalculateSegmentationSuperpixels looks them up. Null without a native side.
+   */
+  const prepareNativeSuperpixels = (regionSize: number): Promise<boolean> | null => {
+    if (!canComputeSuperpixelsNatively()) return null;
+    const mode = superpixelInputSource;
+    const settings = normalizeSuperpixelSettings({ ...superpixelSettings, regionSize });
+    return (async () => {
+      // A native TIFF's original is read in Rust; everything else from the (prepared) input.
+      const tiffPath = mode === "original" ? nativeTiffPathOf(originalImageSource) : null;
+      if (!tiffPath) await prepareImageInput(mode);
+      const input = tiffPath ? null : getImageInput(mode);
+      const descriptor = tiffPath ? getOriginalDescriptor() : input?.descriptor ?? null;
+      if (!descriptor) return false;
+      const keyed = { cacheKey: descriptor.cacheKey, width: descriptor.width, height: descriptor.height };
+      if (superpixelCache.has(keyed, regionSize, settings)) return true;
+      const gray = input ? processedGray.get(input) : undefined;
+      const source: NativeSuperpixelSource = tiffPath ? { tiffPath } : gray ? { gray } : { rgba: input!.rgba };
+      try {
+        const result = await computeSuperpixelsNatively(source, descriptor.width, descriptor.height, regionSize, settings);
+        // Dropped if the image or the input changed meanwhile.
+        const current = mode === "original" ? getOriginalDescriptor() : getImageInput(mode)?.descriptor;
+        if (superpixelInputSource !== mode || current?.cacheKey !== descriptor.cacheKey) return false;
+        superpixelCache.set(keyed, regionSize, settings, result);
+        return true;
+      } catch (error) {
+        console.warn("Native superpixels failed; using the TS path.", error);
+        return false;
+      }
+    })();
+  };
+
+  /**
+   * Like recalculateSegmentationSuperpixels, natively first in the desktop app; null when a newer call superseded
+   * this one. A failed native run falls back to TS. Without a native side it recalculates synchronously, as before.
+   */
+  const computeSuperpixels = (regionSize: number): Promise<boolean | null> => {
+    const request = ++superpixelRequest;
+    const preparing = prepareNativeSuperpixels(regionSize);
+    if (!preparing) return Promise.resolve(controller.recalculateSegmentationSuperpixels?.(regionSize) ?? false);
+    return preparing.catch(() => false).then(() => request === superpixelRequest ? (controller.recalculateSegmentationSuperpixels?.(regionSize) ?? false) : null);
+  };
+
+  /**
+   * Whether getImageInput(mode) has an image. The desktop app checks an original-based Processed input without
+   * computing it (it is prepared natively later); elsewhere the input is built, as before.
+   */
+  const hasImageInput = (mode: SegmentationImageSourceMode): boolean =>
+    nativeViewPreprocessor && mode === "original-processed" ? getProcessedBaseDescriptor("original") !== null : getImageInput(mode) !== null;
+
+  /** getImageInput(mode)?.descriptor, without building an original or original-based Processed input's pixels. */
+  const getImageInputDescriptor = (mode: SegmentationImageSourceMode): WorkingImageDescriptor | null => {
+    if (mode === "original") return getOriginalDescriptor();
+    if (mode === "original-processed") {
+      const base = getProcessedBaseDescriptor("original");
+      return base ? { ...base, source: "original-processed", cacheKey: getProcessedCacheKey({ descriptor: base }, preprocessingConfig) } : null;
+    }
+    return getImageInput(mode)?.descriptor ?? null;
   };
 
   const getImageInput = (sourceMode: SegmentationImageSourceMode): SegmentationImageInput | null => {
@@ -1089,7 +1235,7 @@ export function createSegmentationCanvasWorkflow(
       superpixelResult = null;
       superpixelCache.clear();
       removeSuperpixelOverlayLayer();
-      if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      if (regionSize) void computeSuperpixels(regionSize);
     }
     if (sources.includes(edgeSamInputSource)) void prepareEdgeSamImage();
   };
@@ -1097,6 +1243,9 @@ export function createSegmentationCanvasWorkflow(
   const prepareEdgeSamImage = async (): Promise<void> => {
     // Encoding runs the EdgeSAM model on the GPU and reads back the whole image, so only
     // AI Select in the active Segmentation workflow pays for it (not every image switch).
+    if (!workflowActive || document?.activeTool !== "ai-select") return;
+    // Desktop app: a Processed input is computed in Rust, original pixels are read off the UI thread.
+    await prepareImageInput(edgeSamInputSource);
     if (!workflowActive || document?.activeTool !== "ai-select") return;
     const service = deps.edgeSamService;
     const input = getImageInput(edgeSamInputSource);
@@ -1664,16 +1813,19 @@ export function createSegmentationCanvasWorkflow(
 
     recalculateSegmentationSuperpixels(regionSize: number): boolean {
       const doc = ensureDocument();
-      const input = getImageInput(superpixelInputSource);
-      if (!doc || !input) return false;
+      const descriptor = getImageInputDescriptor(superpixelInputSource);
+      if (!doc || !descriptor) return false;
       superpixelSettings = normalizeSuperpixelSettings({ ...superpixelSettings, regionSize });
       smartPreview = null;
-      const workingResult = superpixelCache.getOrCreate(
-        { cacheKey: input.descriptor.cacheKey, width: input.descriptor.width, height: input.descriptor.height, rgba: input.rgba },
-        regionSize,
-        superpixelSettings
-      );
-      superpixelResult = restoreSuperpixelsToOriginal(workingResult, input.descriptor);
+      // A result prepared natively is found by key, without reading the input's pixels on this thread.
+      const keyed = { cacheKey: descriptor.cacheKey, width: descriptor.width, height: descriptor.height };
+      let workingResult = superpixelCache.get(keyed, regionSize, superpixelSettings);
+      if (!workingResult) {
+        const input = getImageInput(superpixelInputSource);
+        if (!input) return false;
+        workingResult = superpixelCache.getOrCreate({ ...keyed, rgba: input.rgba }, regionSize, superpixelSettings);
+      }
+      superpixelResult = restoreSuperpixelsToOriginal(workingResult, descriptor);
       requestOverlayRender({ immediate: true });
       return true;
     },
@@ -1681,6 +1833,10 @@ export function createSegmentationCanvasWorkflow(
     setSegmentationSuperpixelBoundaryVisible(visible: boolean): void {
       superpixelBoundaryVisible = visible;
       requestOverlayRender({ immediate: true });
+    },
+
+    getSegmentationSuperpixelResult(): SuperpixelResult | null {
+      return superpixelResult;
     },
 
     getSegmentationSuperpixelRegionSize(): number | null {
@@ -2156,43 +2312,12 @@ export function createSegmentationCanvasWorkflow(
     },
 
     prepareSegmentationProcessedImage(config?: Partial<SegmentationPreprocessingConfig>): Promise<boolean> | null {
-      const preprocessor = nativeViewPreprocessor;
-      if (!preprocessor) return null;
       const next = config ? normalizeSegmentationPreprocessingConfig({ ...preprocessingConfig, ...config }) : preprocessingConfig;
-      const descriptor = getProcessedBaseDescriptor(preprocessingSource);
-      if (!descriptor || keepsColour(next)) return null;
-      const cacheKey = getProcessedCacheKey({ descriptor }, next);
-      if (processedImages.has(cacheKey) || nativeProcessed.has(cacheKey)) return null;
-      // A natively decoded TIFF is read in Rust: no pixel extraction on this thread, no upload.
-      const tiffPath = preprocessingSource === "original" ? nativeTiffPathOf(originalImageSource) : null;
-      const { width, height } = descriptor;
-      let source: NativeViewSource;
-      if (tiffPath) {
-        source = { width, height, tiffPath };
-      } else {
-        const base = getProcessedBase(preprocessingSource);
-        if (!base) return null;
-        source = { width, height, rgba: base.rgba };
-      }
-      const isCurrent = () => getProcessedBaseDescriptor(preprocessingSource)?.cacheKey === descriptor.cacheKey;
-      const sourceRgba = "rgba" in source && !isOpaque(source.rgba) ? source.rgba : undefined;
-      return preprocessor.preprocess(descriptor.cacheKey, source, next).then(
-        async (gray) => {
-          // A result for a replaced image matches no cache key.
-          if (!gray || !isCurrent()) return false;
-          // An opaque view is decoded by an <img> off this thread; with transparency it is drawn into a canvas.
-          const image = sourceRgba ? null : await grayImageElement(gray, width, height).catch(() => null);
-          if (!isCurrent()) return false;
-          nativeProcessed.set(cacheKey, { gray, sourceRgba, image });
-          // Superseded results (full-size each) are not kept beyond the latest two.
-          while (nativeProcessed.size > 2) nativeProcessed.delete(nativeProcessed.keys().next().value!);
-          return true;
-        },
-        (error: unknown) => {
-          console.warn("Native preprocessing failed; using the TS path.", error);
-          return false;
-        }
-      );
+      return prepareNativeProcessed(preprocessingSource, next);
+    },
+
+    computeSegmentationSuperpixels(regionSize: number): Promise<boolean | null> {
+      return computeSuperpixels(regionSize);
     },
 
     setSegmentationPreprocessingConfig(config: Partial<SegmentationPreprocessingConfig>): boolean {
@@ -2255,7 +2380,7 @@ export function createSegmentationCanvasWorkflow(
           superpixelResult = null;
           superpixelCache.clear();
           removeSuperpixelOverlayLayer();
-          if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+          if (regionSize) void computeSuperpixels(regionSize);
         }
         refreshViewSource();
       }
@@ -2294,7 +2419,7 @@ export function createSegmentationCanvasWorkflow(
         refreshViewSource();
       }
       if (edgeSamInputSource !== "original") void prepareEdgeSamImage();
-      if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      if (regionSize) void computeSuperpixels(regionSize);
       return true;
     },
 
@@ -2326,7 +2451,7 @@ export function createSegmentationCanvasWorkflow(
         superpixelResult = null;
         superpixelCache.clear();
         removeSuperpixelOverlayLayer();
-        if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+        if (regionSize) void computeSuperpixels(regionSize);
       }
       return refreshViewSource();
     },
@@ -2337,7 +2462,7 @@ export function createSegmentationCanvasWorkflow(
 
     setSegmentationEdgeSamInputSource(source: SegmentationImageSourceMode): boolean {
       if (edgeSamInputSource === source) return false;
-      if (!getImageInput(source)) return false;
+      if (!hasImageInput(source)) return false;
       edgeSamInputSource = source;
       clearAiPreview();
       void prepareEdgeSamImage();
@@ -2350,14 +2475,14 @@ export function createSegmentationCanvasWorkflow(
 
     setSegmentationSuperpixelInputSource(source: SegmentationImageSourceMode): boolean {
       if (superpixelInputSource === source) return false;
-      if (!getImageInput(source)) return false;
+      if (!hasImageInput(source)) return false;
       const regionSize = superpixelResult?.regionSize ?? null;
       superpixelInputSource = source;
       smartPreview = null;
       superpixelResult = null;
       superpixelCache.clear();
       removeSuperpixelOverlayLayer();
-      if (regionSize) controller.recalculateSegmentationSuperpixels?.(regionSize);
+      if (regionSize) void computeSuperpixels(regionSize);
       return true;
     },
 

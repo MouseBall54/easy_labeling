@@ -1,12 +1,13 @@
 // TS timings of the algorithms el-core ports, on the same inputs as crates/el-bench/benches/core.rs.
 // Needs `npm run build` and `node scripts/migration/gen-golden.mjs --bench`.
-// Usage: node scripts/bench/core.mjs [--runs 30] [--filter refine|preprocess]
+// Usage: node scripts/bench/core.mjs [--runs 30] [--filter refine|preprocess|superpixels]
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { preprocessGray } from "../../dist/features/segmentation/preprocessing.js";
 import { refineBoxes } from "../../dist/domain/refine/edge-refine.js";
+import { createSlicoSuperpixels } from "../../dist/features/segmentation/superpixels.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const generated = path.join(root, "crates/el-bench/fixtures/generated");
@@ -42,18 +43,27 @@ const grayOf = (file) => {
   return images.get(file);
 };
 
-if (filter !== "preprocess") {
+if (!filter || filter === "refine") {
   for (const input of manifest) {
     const gray = grayOf(input.image);
     const boxes = readJson(input.boxes);
     time(`refine/${input.width}x${input.height}-${input.count}`, () => refineBoxes({ gray, width: input.width, height: input.height }, boxes, params, boxes));
   }
 }
-if (filter !== "refine") {
+if (!filter || filter === "preprocess") {
   for (const input of new Map(manifest.map((entry) => [entry.image, entry])).values()) {
     const gray = grayOf(input.image);
     for (const name of Object.keys(configs).sort()) {
       time(`preprocess/${input.width}x${input.height}-${name}`, () => preprocessGray(Float32Array.from(gray), input.width, input.height, configs[name]));
     }
+  }
+}
+if (!filter || filter === "superpixels") {
+  // Default settings, region size 16 (the panel's default), on the gray image drawn as RGBA.
+  for (const input of new Map(manifest.map((entry) => [entry.image, entry])).values()) {
+    const gray = grayOf(input.image);
+    const rgba = new Uint8ClampedArray(gray.length * 4);
+    gray.forEach((value, index) => rgba.set([value, value, value, 255], index * 4));
+    time(`superpixels/${input.width}x${input.height}-r16`, () => createSlicoSuperpixels({ width: input.width, height: input.height, rgba }, 16));
   }
 }

@@ -248,13 +248,16 @@ export function createSlicoSuperpixels(input: SuperpixelImageData, requestedRegi
 export function createSuperpixelCache() {
   const cachedByKey = new Map<string, SuperpixelResult>();
   let cachedByPixels = new WeakMap<Uint8ClampedArray, Map<number, SuperpixelResult>>();
+  const keyOf = (input: { cacheKey?: string; width: number; height: number }, regionSize: number, settings?: Partial<SegmentationSuperpixelSettings>) => {
+    const normalizedSettings = normalizeSuperpixelSettings({ ...settings, regionSize });
+    const normalizedSize = clamp(normalizedSettings.regionSize, 2, Math.max(input.width, input.height));
+    const settingsKey = `${normalizedSettings.blur}:${normalizedSettings.contrast}:${normalizedSettings.edgeSensitivity}`;
+    return { normalizedSettings, normalizedSize, key: `${input.cacheKey}:${normalizedSize}:${settingsKey}` };
+  };
   return {
     getOrCreate(input: SuperpixelImageData, regionSize: number, settings?: Partial<SegmentationSuperpixelSettings>): SuperpixelResult {
-      const normalizedSettings = normalizeSuperpixelSettings({ ...settings, regionSize });
-      const normalizedSize = clamp(normalizedSettings.regionSize, 2, Math.max(input.width, input.height));
-      const settingsKey = `${normalizedSettings.blur}:${normalizedSettings.contrast}:${normalizedSettings.edgeSensitivity}`;
+      const { normalizedSettings, normalizedSize, key } = keyOf(input, regionSize, settings);
       if (input.cacheKey) {
-        const key = `${input.cacheKey}:${normalizedSize}:${settingsKey}`;
         const existing = cachedByKey.get(key);
         if (existing) return existing;
         const result = createSlicoSuperpixels(input, normalizedSize, 5, normalizedSettings);
@@ -268,6 +271,16 @@ export function createSuperpixelCache() {
       bySize.set(normalizedSize, result);
       cachedByPixels.set(input.rgba, bySize);
       return result;
+    },
+    /** Stores a result computed elsewhere (natively) under the key getOrCreate looks up for a keyed input. */
+    set(input: { cacheKey: string; width: number; height: number }, regionSize: number, settings: Partial<SegmentationSuperpixelSettings>, result: SuperpixelResult): void {
+      cachedByKey.set(keyOf(input, regionSize, settings).key, result);
+    },
+    has(input: { cacheKey: string; width: number; height: number }, regionSize: number, settings: Partial<SegmentationSuperpixelSettings>): boolean {
+      return cachedByKey.has(keyOf(input, regionSize, settings).key);
+    },
+    get(input: { cacheKey: string; width: number; height: number }, regionSize: number, settings: Partial<SegmentationSuperpixelSettings>): SuperpixelResult | undefined {
+      return cachedByKey.get(keyOf(input, regionSize, settings).key);
     },
     clear(): void {
       cachedByKey.clear();

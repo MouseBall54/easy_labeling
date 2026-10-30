@@ -192,6 +192,10 @@ export interface CanvasController {
   isSegmentationPolygonDrawing?(): boolean;
   getSegmentationPolygonVertexCount?(): number;
   recalculateSegmentationSuperpixels?(regionSize: number): boolean;
+  /** recalculateSegmentationSuperpixels, computed natively first in the desktop app; null when a newer call superseded it. */
+  computeSegmentationSuperpixels?(regionSize: number): Promise<boolean | null>;
+  /** The superpixels the tool currently uses (tests compare native and TS results). */
+  getSegmentationSuperpixelResult?(): import("../segmentation/superpixels.js").SuperpixelResult | null;
   setSegmentationSuperpixelBoundaryVisible?(visible: boolean): void;
   getSegmentationSuperpixelRegionSize?(): number | null;
   getSegmentationSuperpixelSettings?(): SegmentationSuperpixelSettings;

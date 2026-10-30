@@ -5,6 +5,7 @@ mod jobs;
 mod native;
 mod review;
 mod shared_buffer;
+mod superpixels;
 mod tiff_image;
 
 use serde::{Deserialize, Serialize};
@@ -552,6 +553,10 @@ fn main() {
             tiff_image::tiff_bmp_shared,
             tiff_image::tiff_gray,
             tiff_image::tiff_gray_shared,
+            superpixels::superpixels_run,
+            superpixels::superpixels_run_tiff,
+            superpixels::superpixels_take,
+            superpixels::superpixels_take_shared,
             native::preprocess_view_run,
             native::preprocess_view_run_shared
         ])

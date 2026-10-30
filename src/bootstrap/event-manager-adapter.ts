@@ -1913,13 +1913,22 @@ export function createEventManagerAdapter(input: {
       cancelPolygonButton?.addEventListener("click", () => {
         if (input.canvasController.raw.cancelSegmentationPolygon?.()) input.uiManager.setWorkflow?.("segmentation");
       });
-      elements.segmentationSuperpixelModeBtn?.addEventListener("click", () => {
+      // Desktop app: computed natively first (computeSegmentationSuperpixels; null: a newer request took over);
+      // elsewhere synchronously.
+      const recalculateSuperpixels = (size: number): Promise<boolean | null> => input.canvasController.raw.computeSegmentationSuperpixels?.(size)
+        ?? Promise.resolve(input.canvasController.raw.recalculateSegmentationSuperpixels?.(size) ?? false);
+      elements.segmentationSuperpixelModeBtn?.addEventListener("click", async () => {
         cancelAiRegionConstraintDrawing();
         const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
-        if (!input.canvasController.raw.recalculateSegmentationSuperpixels?.(size)) {
+        const toolBefore = input.canvasController.raw.getSegmentationSummary?.().activeTool;
+        const calculated = await recalculateSuperpixels(size);
+        if (calculated === null) return;
+        if (!calculated) {
           input.uiManager.notify("Superpixels could not be calculated for this image.", 3500);
           return;
         }
+        // Another tool picked while the superpixels were computed wins.
+        if (input.canvasController.raw.getSegmentationSummary?.().activeTool !== toolBefore) return;
         input.canvasController.raw.setSegmentationTool?.("superpixel");
         input.uiManager.setWorkflow?.(input.state.session.workflow);
         setMode("draw");
@@ -1936,7 +1945,7 @@ export function createEventManagerAdapter(input: {
       });
       elements.segmentationRecalculateSuperpixelsBtn?.addEventListener("click", () => {
         const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
-        input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
+        void recalculateSuperpixels(size);
       });
       elements.segmentationSuperpixelSizeSlider?.addEventListener("input", (event) => {
         const slider = event.currentTarget;
@@ -1953,7 +1962,7 @@ export function createEventManagerAdapter(input: {
           elements.segmentationSuperpixelSizeValue.textContent = `${size} px`;
           input.canvasController.raw.setSegmentationSuperpixelSettings?.({ regionSize: size });
           elements.segmentationSuperpixelPresetButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
-          input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
+          void recalculateSuperpixels(size);
         });
       });
       elements.segmentationSuperpixelBoundaryToggle?.addEventListener("change", (event) => {
@@ -2019,7 +2028,7 @@ export function createEventManagerAdapter(input: {
         elements.segmentationSuperpixelBoundaryToggle.checked = preset.boundaryVisible;
         input.canvasController.raw.setSegmentationSuperpixelSettings?.(preset.settings);
         input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(preset.boundaryVisible);
-        input.canvasController.raw.recalculateSegmentationSuperpixels?.(preset.settings.regionSize);
+        void recalculateSuperpixels(preset.settings.regionSize);
         input.uiManager.setWorkflow?.("segmentation");
       });
       const applyAiPreview = (): boolean => {

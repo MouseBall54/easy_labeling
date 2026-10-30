@@ -1,5 +1,6 @@
 import { getNativeBridge } from "../../platform/native-bridge.js";
 import { nativeTiffPathOf } from "../images/native-tiff.js";
+import { readOpaquePixelsOffThread } from "../images/off-thread-pixels.js";
 import { createNativeViewPreprocessor } from "../segmentation/native-preprocessing.js";
 import { keepsColour, type SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
 import { imageElementToImageData } from "./image-data.js";
@@ -22,7 +23,8 @@ export function canPreprocessNatively(processing: SegmentationPreprocessingConfi
 /**
  * Desktop app: automation's input pixels without the TS path's main-thread work. Original input of a natively
  * decoded TIFF comes from Rust's resident gray bytes instead of drawing and reading back the image; Processed
- * input (`processing`) is computed in Rust, from the resident TIFF or from the image's uploaded pixels.
+ * input (`processing`) is computed in Rust, from the resident TIFF or from the image's uploaded pixels (read in a
+ * worker when opaque).
  * grayBytesToRgba of the result equals imageElementToImageData (+ preprocessSegmentationImage). Null when
  * there is no native path or it fails: the caller uses the TS path.
  */
@@ -47,7 +49,8 @@ export async function nativeAutomationPixels(
       const gray = await preprocessor.preprocess(`automation:${tiffPath}`, { width, height, tiffPath }, processing);
       return gray && { gray, width, height };
     }
-    const sourceRgba = imageElementToImageData(image, documentRef).data;
+    // Opaque images are read in a worker; others on the page, as the TS path reads them.
+    const sourceRgba = await readOpaquePixelsOffThread(image, width, height) ?? imageElementToImageData(image, documentRef).data;
     const gray = await preprocessor.preprocess(`automation:${++nextKey}`, { width, height, rgba: sourceRgba }, processing);
     return gray && { gray, sourceRgba, width, height };
   } catch (error) {

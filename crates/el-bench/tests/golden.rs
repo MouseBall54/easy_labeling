@@ -139,6 +139,13 @@ fn golden_js_semantics() {
             failures.push(format!("parseFloat({:?}) = {actual:e}, JS {expected:e}", case.input));
         }
     }
+    for case in &cases.hypot {
+        let (a, b) = (el_bench::f64_from_hex(&case.a), el_bench::f64_from_hex(&case.b));
+        let (expected, actual) = (el_bench::f64_from_hex(&case.bits), el_core::js::hypot(a, b));
+        if !(expected.to_bits() == actual.to_bits() || (expected.is_nan() && actual.is_nan())) {
+            failures.push(format!("Math.hypot({a:e}, {b:e}) = {actual:e}, JS {expected:e}"));
+        }
+    }
     for case in &cases.number_to_string {
         let actual = el_core::js::number_to_string(el_bench::f64_from_hex(&case.bits));
         if actual != case.text {
@@ -179,4 +186,91 @@ fn golden_tiff() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SuperpixelRegionCase {
+    pixel_count: u32,
+    mean_intensity: String,
+    mean_edge_strength: String,
+    neighbors: Vec<u32>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SuperpixelCase {
+    name: String,
+    width: usize,
+    height: usize,
+    input: String,
+    region_size: usize,
+    settings: el_core::superpixels::Settings,
+    expected_region_size: usize,
+    regions: Vec<SuperpixelRegionCase>,
+}
+
+/// SLICO superpixels equal the TS ones exactly: every label, boundary flag and region statistic (f64 bits).
+#[test]
+fn golden_superpixels() {
+    let cases: Vec<SuperpixelCase> = read_json("superpixels/cases.json");
+    assert!(!cases.is_empty());
+    let mut failures = Vec::new();
+    for case in &cases {
+        let rgba = read_bytes(&format!("superpixels/{}", case.input));
+        let luma = el_core::preprocess::rgba_luma(&rgba);
+        let actual = el_core::superpixels::slico(&luma, case.width, case.height, case.region_size, 5, &case.settings);
+        let labels: Vec<i32> =
+            read_bytes(&format!("superpixels/{}.labels.i32", case.name)).as_chunks::<4>().0.iter().map(|&bytes| i32::from_le_bytes(bytes)).collect();
+        let boundaries = read_bytes(&format!("superpixels/{}.boundaries.u8", case.name));
+        if actual.region_size != case.expected_region_size {
+            failures.push(format!("{}: region size {} != {}", case.name, actual.region_size, case.expected_region_size));
+        }
+        if let Some(pixel) = (0..labels.len()).find(|&pixel| actual.labels.get(pixel) != Some(&labels[pixel])) {
+            failures.push(format!("{}: label at pixel {pixel} is {:?}, TS {}", case.name, actual.labels.get(pixel), labels[pixel]));
+        }
+        if actual.boundaries != boundaries {
+            failures.push(format!("{}: boundaries differ", case.name));
+        }
+        if actual.regions.len() != case.regions.len() {
+            failures.push(format!("{}: {} regions, TS {}", case.name, actual.regions.len(), case.regions.len()));
+            continue;
+        }
+        for (id, (region, expected)) in actual.regions.iter().zip(&case.regions).enumerate() {
+            let same = region.pixel_count == expected.pixel_count
+                && region.mean_intensity.to_bits() == el_bench::f64_from_hex(&expected.mean_intensity).to_bits()
+                && region.mean_edge_strength.to_bits() == el_bench::f64_from_hex(&expected.mean_edge_strength).to_bits()
+                && region.neighbors == expected.neighbors;
+            if !same {
+                failures.push(format!("{}: region {id} differs", case.name));
+                break;
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{}",
+        failures.join(
+            "
+"
+        )
+    );
+}
+
+/// The contrast/gamma tone curve at every slider step equals the TS one bit for bit (Math.pow vs powf).
+#[test]
+fn golden_tone_curves() {
+    let configs: Vec<preprocess::PreprocessConfig> = read_json("preprocess/tone-curves.json");
+    let expected = read_f32("preprocess/tone-curves.f32");
+    assert_eq!(expected.len(), configs.len() * 256);
+    let ramp: Vec<f32> = (0..256).map(|value| value as f32).collect();
+    let mut failures = Vec::new();
+    for (index, config) in configs.iter().enumerate() {
+        let actual = preprocess::preprocess_gray(ramp.clone(), 256, 1, config);
+        let wanted = &expected[index * 256..(index + 1) * 256];
+        if let Some(value) = (0..256).find(|&value| actual[value].to_bits() != wanted[value].to_bits()) {
+            failures.push(format!("contrast {} gamma {}: value {value} is {}, TS {}", config.contrast, config.gamma, actual[value], wanted[value]));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} curves differ:\n{}", failures.len(), configs.len(), failures.join("\n"));
 }

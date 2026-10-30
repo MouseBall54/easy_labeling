@@ -53,7 +53,7 @@
 | 2) 폴더 Review 네이티브 | **완료 (2026-10-30, `ca97e6d0`, v2.23.0)** | 60장 × 5,000박스 TIFF: 26~28초 → 0.35초. 결과·이미지 상태가 TS와 동일. 라벨 박스 수 스캔도 네이티브(D-008). 확장 구조 정리(D-009) |
 | 3) TIFF 8bit gray 디코드 네이티브 | **완료 (2026-10-30, `434182dd`, v2.24.0)** | 4096×3072 TIFF 열기: 1.27~1.69초 → 0.18~0.34초, UI 정지 0. 픽셀은 tiff.js와 바이트 단위로 동일(D-010) |
 | 4) 네이티브 TIFF 픽셀을 Rust에 상주 | **완료 (2026-10-30, `e3934366`, v2.25.0)** | 4096×3072 TIFF: Processed 첫 전환 0.81초 → 0.62초(메인 스레드 픽셀 추출 0.26~0.44초 제거), 첫 refine 0.38~0.47초 → 0.02~0.04초. 결과는 업로드 경로와 동일(D-011) |
-| 5) 자동화 입력 준비 네이티브 + Processed 표시를 `<img>`로 | **완료 (2026-10-30, 미커밋, v2.26.0)** | 자동화 Processed 입력: UI 정지 0.24~0.30초 → 0, 배치 2.0초 → 1.0~1.15초(2048×1536 3장). Processed 전환의 가장 긴 UI 정지: TIFF 193~233ms → 73~143ms. 결과는 TS와 동일. 이미지 전환은 main 대비 느려지지 않음(D-012) |
+| 5) 자동화 입력 준비 네이티브 + Processed 표시를 `<img>`로 | **완료 (2026-10-30, `bdbb56cc`, v2.26.0)** | 자동화 Processed 입력: UI 정지 0.24~0.30초 → 0, 배치 2.0초 → 1.0~1.15초(2048×1536 3장). Processed 전환의 가장 긴 UI 정지: TIFF 193~233ms → 73~143ms. 결과는 TS와 동일. 이미지 전환은 main 대비 느려지지 않음(D-012) |
 
 0단계에서 한 일:
 - 크레이트 구조: `src-tauri/compute` → `crates/el-core`(패키지 `el-core`). 루트 워크스페이스(`Cargo.toml`, `Cargo.lock`)로 바꿨고 빌드 출력은 루트 `target/`이다. 바뀐 경로를 반영했다(parity 테스트, e2e 3개, 릴리스 스크립트, README, AGENTS.md, `.gitignore`, vite watch).
@@ -143,6 +143,7 @@
 - 동등성:
   - 앱 e2e: 같은 4096×3072 TIFF를 상주 경로와 업로드 경로(`easyLabelingNativeOff = ["tiff"]`)로 열어, Processed 화면이 TS 결과와 같고 refine(원본·Processed·crop)이 TS worker 결과와 같은지 본다. 각 경로가 어느 command를 썼는지도 확인한다.
 - 테스트: 브리지 단위 2개, refine-service 단위 3개(상주, 실패 시 bitmap, 네이티브 refine을 끄면 bitmap), Rust 단위 1개, 데스크톱 e2e 1개. 일부러 구현을 틀리게 바꿔 refine-service 테스트가 실패하는 것을 확인했다.
+| 6) 슈퍼픽셀 Rust + EdgeSAM·슈퍼픽셀 Processed 입력 + 원본 픽셀 worker + 다음 이미지 미리 디코드 | **완료 (2026-10-30, 미커밋, v2.27.0)** | 슈퍼픽셀 2048×1536: TS 3.1~3.2초(전부 UI 정지) → 0.55~0.82초(UI 정지 66~130ms), 결과 동일. "다음" 이동 약 0.2~0.3초 단축. 템플릿 매칭은 재측정 후 보류(D-013) |
 
 5단계에서 한 일:
 - src-tauri `tiff_image.rs`: `tiff_gray`, `tiff_gray_shared`(상주 TIFF의 회색 바이트).
@@ -158,6 +159,39 @@
   - 투명 이미지에서도 네이티브와 TS의 RGBA가 정확히 같다는 것을 일회성 측정으로 확인했다(기본, median, edge).
 - 이미지 전환: `tests/e2e/tauri-image-switch.spec.ts`(TIFF·PNG·JPG 4096×3072, 다음·이전 6회)로 main(`34611885`) 앱과 비교했다. 회귀 없음.
 - 테스트: 단위 9개(BMP 2, 불투명 1, 자동화 픽셀 5, 워크플로 1), 데스크톱 e2e 2개(자동화, 투명 PNG). 기존 e2e 2개는 `<img>` 표시를 확인하도록 고쳤다.
+
+6단계에서 한 일:
+- el-core:
+  - `js::hypot`: V8의 `Math.hypot`. 골든 411건으로 확인한다.
+  - `superpixels.rs`: `createSlicoSuperpixels` 이식과 결과 묶음(`Superpixels::pack`).
+- src-tauri:
+  - `superpixels.rs`: `superpixels_run`(업로드한 회색·RGBA), `superpixels_run_tiff`(상주 TIFF), `superpixels_take(_shared)`.
+  - `tiff_image.rs`: 상주 TIFF를 2장 LRU로 늘렸다.
+- TS:
+  - `native-superpixels.ts`, `off-thread-pixels.ts` + `workers/image-pixels-worker.js`.
+  - 워크플로: Processed 준비를 기준 이미지(original, sr-roi)별 공통 함수로 정리했다. EdgeSAM·슈퍼픽셀은 입력을 먼저 준비한다(`prepareImageInput`). 슈퍼픽셀은 `computeSegmentationSuperpixels`로 계산한다.
+  - `file-system-adapter.ts`: 다음 이미지 미리 디코드. 이미지를 보여 주는 모든 경로(`applyCurrentImageToCanvas`)에서 예약한다.
+  - 자동화: TIFF가 아닌 이미지의 원본도 worker에서 읽는다(불투명할 때).
+- 동등성:
+  - 골든 `golden_superpixels` 72건(레이블, 경계, 영역 통계의 f64 비트). 일부러 `f64::hypot`을 쓰거나 중심 순서를 바꾸면 실패하는 것을 확인했다.
+  - 앱 e2e: TIFF 원본, PNG 원본, PNG Processed에서 네이티브와 TS의 레이블·경계·영역 해시가 같다. worker 픽셀 읽기는 TIFF·PNG·JPEG에서 페이지 캔버스와 같고 투명 PNG는 페이지로 넘긴다. 미리 디코드한 다음 이미지는 다시 디코드되지 않고, Processed 결과가 TS와 같다.
+- 테스트: Rust 단위·골든 2건, TS 단위 4개(슈퍼픽셀 묶음과 브리지), 데스크톱 e2e 3개. 3단계 e2e는 미리 디코드를 고려해 파일별로 디코드를 센다.
+
+PR 전 검수 (2026-10-30):
+- 전체 e2e(스펙 46개를 7묶음으로 순차 실행): 통과 118, 실패 4, 건너뜀 4. 실패는 모두 AGENTS.md의 기존 실패(`detection-clipboard` 601박스, `folder-switch-autosave`, `image-list-interactions`, `layout-apply` 5000박스)다. e2e가 남긴 추적 파일 변경은 없다.
+- 독립 리뷰(`rust-perf-reviewer`): TS와 결과가 다른 곳은 없었다. 반영한 것:
+  - 슈퍼픽셀 결과를 실행 id별로 최근 2개까지 보관한다(늦게 끝난 이전 실행이 최신 결과를 덮지 않게).
+  - 슈퍼픽셀 계산 결과를 성공·실패·대체됨으로 나눈다. 대체되면 알리지 않고, 기다리는 동안 사용자가 고른 도구를 덮지 않는다. 네이티브 준비가 예외로 끝나면 TS로 계산한다.
+  - 재계산은 캐시를 먼저 보고, 캐시가 있으면 입력 픽셀을 UI 스레드에서 꺼내지 않는다(TIFF 원본 슈퍼픽셀의 가장 긴 UI 정지 130ms → 87ms).
+  - 영역이 작을 때(중심이 많을 때) 병렬 띠 수를 줄여 메모리 폭증을 막는다.
+  - 원본 픽셀 읽기와 Processed 준비가 진행 중이면 같은 작업을 공유한다.
+  - 시간 초과 뒤에 도착한 공유 버퍼를 바로 해제한다.
+  - 미리 디코드한 파일이 그사이 바뀌었으면(수정 시각) 다시 디코드한다.
+  - 입력 소스 확인을 계산 없이 하는 것은 데스크톱에서만 쓴다(웹은 이전 동작).
+  - 골든 보강: 슈퍼픽셀 1×1, 1×9, 9×1(120건). contrast·gamma tone curve를 슬라이더 전 단계 117건에서 비트 단위로 비교한다(`powf`와 V8 `Math.pow`가 모두 같았다).
+- 남긴 것(낮음): `refine_load_tiff`가 상주 픽셀을 한 번 복사한다(24MB). 슈퍼픽셀 결과를 꺼낼 때 복사하고, 대체된 실행을 취소하지 않는다.
+- release 빌드: `npm run tauri:dist:win`으로 NSIS 설치 파일(270MB)을 만들었고, 같은 release exe로 데스크톱 e2e 14개가 통과했다. 설치 후 동작은 사용자 환경에서 확인한다.
+- CI: `rust.yml` 감시 경로에 `package-lock.json`(tiff.js 버전이 TIFF 골든을 정한다)과 `superpixels.ts`를 추가했다. fixture 재생성은 바이트 단위로 같다. 실제 CI 실행은 PR에서 확인한다.
 
 ## 핫스팟 (예상 영향 큰 순)
 

@@ -400,7 +400,8 @@ describe("features/segmentation/workflow", () => {
       // The prepared config is not applied yet: the following synchronous calls pick the result up.
       expect(controller.setSegmentationPreprocessingConfig?.({ median: true })).toBe(true);
       expect(controller.setSegmentationViewSource?.("processed")).toBe(true);
-      await Promise.resolve();
+      // EdgeSAM first gets its input ready (prepareImageInput), then encodes it.
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const rgba = (edgeSamService.prepareImage.mock.calls.at(-1) as unknown as [{ cacheKey: string; rgba: Uint8ClampedArray }])[0];
       expect(rgba.cacheKey).toContain(":processed:");
       expect([...rgba.rgba.slice(0, 4)]).toEqual([200, 200, 200, 120]);
@@ -450,7 +451,7 @@ describe("features/segmentation/workflow", () => {
       expect(background?.element).toBe(decoded[0]);
       expect(getImageData).not.toHaveBeenCalled();
       controller.setSegmentationTool?.("ai-select");
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       // EdgeSAM still gets the RGBA, built from the gray bytes on demand (opaque: alpha 255).
       const input = (edgeSamService.prepareImage.mock.calls.at(-1) as unknown as [{ rgba: Uint8ClampedArray }])[0];
       expect([...input.rgba.slice(0, 4)]).toEqual([200, 200, 200, 255]);

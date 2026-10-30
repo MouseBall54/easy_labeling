@@ -75,6 +75,14 @@ pub struct ReviewCase {
 pub struct JsCases {
     pub parse_float: Vec<ParseFloatCase>,
     pub number_to_string: Vec<NumberToStringCase>,
+    pub hypot: Vec<HypotCase>,
+}
+
+#[derive(Deserialize)]
+pub struct HypotCase {
+    pub a: String,
+    pub b: String,
+    pub bits: String,
 }
 
 #[derive(Deserialize)]

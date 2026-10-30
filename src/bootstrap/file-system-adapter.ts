@@ -377,6 +377,37 @@ export function createFileSystemAdapter(input: {
     urlRuntime: input.windowRef.URL
   });
 
+  // Desktop app: the image after the one on screen, decoded in the background so "next" finds it ready
+  // (native TIFFs also stay resident in Rust next to the current one). Used once, for that same handle.
+  let prefetched: { fileHandle: FileHandleLike; image: Promise<HTMLImageElement>; modified: Promise<number | null> } | null = null;
+  // The file's modification time (null when unknown), to tell whether a prefetched decode is still current.
+  const modifiedAt = (fileHandle: FileHandleLike): Promise<number | null> => {
+    const native = getNativeBridge("prefetch");
+    const path = native?.pathOf(fileHandle);
+    return native && path ? native.invoke<number>("fs_mtime", { path }).catch(() => null) : Promise.resolve(null);
+  };
+  const decodeForSession = async (fileHandle: FileHandleLike): Promise<HTMLImageElement> => {
+    const ahead = prefetched?.fileHandle === fileHandle ? prefetched : null;
+    prefetched = null;
+    if (!ahead) return decodeImage(fileHandle);
+    // A file changed on disk since it was decoded ahead is decoded again.
+    const [before, now] = await Promise.all([ahead.modified, modifiedAt(fileHandle)]);
+    if (before === null || before !== now) return decodeImage(fileHandle);
+    return ahead.image.catch(() => decodeImage(fileHandle));
+  };
+  const prefetchNextImage = (): void => {
+    if (!getNativeBridge("prefetch")) return;
+    const { imageFiles, currentImageFile } = input.state.session;
+    const index = currentImageFile ? imageFiles.findIndex((file) => file === currentImageFile) : -1;
+    const next = index >= 0 ? imageFiles[index + 1] as unknown as FileHandleLike | undefined : undefined;
+    if (!next || prefetched?.fileHandle === next) return;
+    const modified = modifiedAt(next);
+    const image = decodeImage(next);
+    // A failed decode is retried when the image is opened.
+    image.catch(() => undefined);
+    prefetched = { fileHandle: next, image, modified };
+  };
+
   const imageDimensions = new WeakMap<FileHandleLike, { size: number; lastModified: number; width: number; height: number }>();
   const readImageDimensions = async (fileHandle: FileHandleLike): Promise<{ width: number; height: number }> => {
     const file = await fileHandle.getFile();
@@ -408,6 +439,8 @@ export function createFileSystemAdapter(input: {
     if (!(currentImage instanceof HTMLImageElement)) {
       return;
     }
+    // Every path that shows an image (open, next/prev, refresh) comes here: decode the next one once this is on screen.
+    setTimeout(prefetchNextImage, 0);
 
     canvasController.loadImageSession({
       image: currentImage,
@@ -501,7 +534,7 @@ export function createFileSystemAdapter(input: {
   };
 
   const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
-    decodeImage: async ({ fileHandle }) => decodeImage(fileHandle),
+    decodeImage: async ({ fileHandle }) => decodeForSession(fileHandle),
     readCurrentLabelsAsYolo: () => {
       if (!connectedDeps) {
         return "";

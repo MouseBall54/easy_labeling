@@ -20,7 +20,7 @@ struct RefineImage {
 
 static REFINE_IMAGE: Mutex<Option<RefineImage>> = Mutex::new(None);
 
-fn header<'a>(request: &'a Request<'_>, name: &str) -> CommandResult<&'a str> {
+pub(crate) fn header<'a>(request: &'a Request<'_>, name: &str) -> CommandResult<&'a str> {
     request.headers().get(name).and_then(|value| value.to_str().ok()).ok_or_else(|| format!("Missing {name} header"))
 }
 
@@ -33,14 +33,14 @@ fn raw_body(request: &Request<'_>) -> CommandResult<Vec<u8>> {
 
 /// The uploaded bytes: from the shared buffer named by `x-shared-buffer` (fast, see shared_buffer.rs),
 /// else the raw invoke body.
-async fn upload_body(window: &tauri::WebviewWindow, request: &Request<'_>) -> CommandResult<Vec<u8>> {
+pub(crate) async fn upload_body(window: &tauri::WebviewWindow, request: &Request<'_>) -> CommandResult<Vec<u8>> {
     match request.headers().get("x-shared-buffer").and_then(|value| value.to_str().ok()) {
         Some(id) => crate::shared_buffer::take(window, id.parse().map_err(|_| "Invalid shared buffer id")?).await,
         None => raw_body(request),
     }
 }
 
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> CommandResult<T> + Send + 'static) -> CommandResult<T> {
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> CommandResult<T> + Send + 'static) -> CommandResult<T> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|error| error.to_string())?
 }
 

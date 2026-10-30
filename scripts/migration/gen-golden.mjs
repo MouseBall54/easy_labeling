@@ -10,6 +10,7 @@ import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSeg
 import { normalizeRefineParams, refineBoxes } from "../../dist/domain/refine/edge-refine.js";
 import { inspectDetectionLabels } from "../../dist/features/review/quality.js";
 import { parseYoloRows } from "../../dist/domain/yolo/yolo.js";
+import { createSlicoSuperpixels, normalizeSuperpixelSettings } from "../../dist/features/segmentation/superpixels.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtures = path.join(root, "crates/el-bench/fixtures");
@@ -211,8 +212,92 @@ function writeReview() {
   const numbers = [4, 2.5, 0.1 + 0.2, 1e21, 123456789012345680000, 1.5e-7, 0.000001, 1e-7, -0, -12.5, 5e-324, Number.MAX_VALUE, 100, Infinity, -Infinity, NaN, 1 / 3, 1e20, 1.25e-6, 9007199254740993];
   writeFileSync(path.join(dir, "js.json"), JSON.stringify({
     parseFloat: floats.map((input) => ({ input, bits: float64Hex(parseFloat(input)) })),
-    numberToString: numbers.map((value) => ({ bits: float64Hex(value), text: String(value) }))
+    numberToString: numbers.map((value) => ({ bits: float64Hex(value), text: String(value) })),
+    hypot: hypotPairs().map(([a, b]) => ({ a: float64Hex(a), b: float64Hex(b), bits: float64Hex(Math.hypot(a, b)) }))
   }, null, 1));
+  return cases.length;
+}
+
+/**
+ * The contrast/gamma tone curve (Math.pow in TS, powf in Rust) at every slider step (0.20 to 3.00 by 0.05, the
+ * panel divides its 20..300 value by 100), each with the other one neutral, plus a few combinations: preprocessGray
+ * of a 0..255 ramp returns the curve itself. Compared bit for bit.
+ */
+function writeToneCurves() {
+  const dir = path.join(fixtures, "preprocess");
+  const steps = Array.from({ length: 57 }, (_, index) => (20 + index * 5) / 100);
+  const pairs = [
+    ...steps.map((gamma) => [1, gamma]),
+    ...steps.filter((contrast) => contrast !== 1).map((contrast) => [contrast, 1]),
+    [1.6, 0.7], [0.5, 2.2], [2.5, 0.35], [1.25, 1.45]
+  ];
+  const ramp = Float32Array.from({ length: 256 }, (_, index) => index);
+  const outputs = new Float32Array(pairs.length * 256);
+  const cases = pairs.map(([contrast, gamma], index) => {
+    const config = normalizeSegmentationPreprocessingConfig({ mode: "original", contrast, gamma });
+    outputs.set(preprocessGray(Float32Array.from(ramp), 256, 1, config), index * 256);
+    return config;
+  });
+  writeFileSync(path.join(dir, "tone-curves.f32"), bytesOf(outputs));
+  writeFileSync(path.join(dir, "tone-curves.json"), JSON.stringify(cases));
+  return cases.length;
+}
+
+/** Math.hypot inputs: what SLICO feeds it (pixel minus fractional centre offsets) and the special values. */
+function hypotPairs() {
+  const random = seeded(41);
+  const pairs = [[0, 0], [-0, 0], [3, 4], [-3, -4], [1e-310, 1e-310], [1e300, 1e300], [Infinity, NaN], [NaN, 1], [-Infinity, 2], [5e-324, 0], [0.1, 0.2]];
+  for (let index = 0; index < 400; index += 1) {
+    pairs.push([Math.round(random() * 64) - 32 - random(), (random() - 0.5) * 70]);
+  }
+  return pairs;
+}
+
+/**
+ * createSlicoSuperpixels on a colour and a gray image (two sizes) over region sizes and settings, including a
+ * size larger than the small image. Labels as i32, boundaries as u8, region statistics with their f64 bits.
+ */
+function writeSuperpixels() {
+  const dir = path.join(fixtures, "superpixels");
+  mkdirSync(dir, { recursive: true });
+  const settingsList = {
+    "default": {},
+    "plain": { blur: "off", contrast: "off", edgeSensitivity: "low" },
+    "strong": { blur: "high", contrast: "high", edgeSensitivity: "high" },
+    "light": { blur: "low", contrast: "low", edgeSensitivity: "medium" }
+  };
+  const cases = [];
+  for (const [width, height] of [[96, 72], [37, 23], [1, 1], [1, 9], [9, 1]]) {
+    const random = seeded(51 + width + height);
+    const luma = syntheticImage(width, height, 53 + width, 16, 12);
+    const colour = new Uint8ClampedArray(width * height * 4);
+    const gray = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i += 1) {
+      const v = luma[i];
+      colour.set([v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, 255], i * 4);
+      gray.set([v, v, v, 255], i * 4);
+    }
+    for (const [inputName, rgba] of [["colour", colour], ["gray", gray]]) {
+      const inputFile = `input-${inputName}-${width}x${height}.u8`;
+      writeFileSync(path.join(dir, inputFile), bytesOf(rgba));
+      // Region size 2 only on the small images: on the larger one it would add thousands of regions to the fixture.
+      for (const regionSize of width * height < 50 ? [2, 5] : width < 50 ? [2, 5, 8, 16, 40] : [5, 8, 16, 40]) {
+        for (const [settingsName, requested] of Object.entries(settingsList)) {
+          const settings = normalizeSuperpixelSettings({ ...requested, regionSize });
+          const result = createSlicoSuperpixels({ width, height, rgba }, regionSize, 5, settings);
+          const name = `${inputName}-${width}x${height}-r${regionSize}-${settingsName}`;
+          writeFileSync(path.join(dir, `${name}.labels.i32`), bytesOf(result.labels));
+          writeFileSync(path.join(dir, `${name}.boundaries.u8`), bytesOf(result.boundaries));
+          cases.push({
+            name, width, height, input: inputFile, regionSize: settings.regionSize, settings: { blur: settings.blur, contrast: settings.contrast, edgeSensitivity: settings.edgeSensitivity },
+            expectedRegionSize: result.regionSize,
+            regions: result.regions.map((region) => ({ pixelCount: region.pixelCount, meanIntensity: float64Hex(region.meanIntensity), meanEdgeStrength: float64Hex(region.meanEdgeStrength), neighbors: region.neighbors }))
+          });
+        }
+      }
+    }
+  }
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
   return cases.length;
 }
 
@@ -353,9 +438,11 @@ function writeBenchInputs() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   console.log(`preprocess cases: ${writePreprocess()}`);
+  console.log(`tone curves: ${writeToneCurves()}`);
   console.log(`view cases: ${writeView()}`);
   console.log(`review cases: ${writeReview()}`);
   console.log(`refine cases: ${writeRefine()}`);
   console.log(`tiff cases: ${writeTiff()}`);
+  console.log(`superpixel cases: ${writeSuperpixels()}`);
   if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);
 }
