@@ -1,22 +1,17 @@
-# 일반 버전과 YOLOE-26 GPU 버전
+# 일반 버전과 YOLOE-26 버전
 
-2026-10-04까지 개발한 Detection ONNX 추론을 공통 기준으로 두 버전을 분리합니다.
+두 버전은 같은 브랜치(`main`)의 같은 코드에서 설치 설정만 바꿔 만듭니다.
 
-| 버전 | 브랜치 | 추론 및 셋업 |
-|---|---|---|
-| 일반 버전 | `main` | 기존 ONNX 추론. WebGPU 우선, CPU/WASM 자동 전환. Python·PyTorch·CUDA 셋업 불필요. |
-| YOLOE-26 GPU 버전 | `codex/yoloe26-gpu` | 독립 YOLOE-26 탭의 시각 프롬프트 Detection 박스·Segmentation 마스크 추론. 로컬 Python·PyTorch·CUDA·YOLOE 모델 셋업을 별도로 준비. [셋업·사용법](YOLOE26_GPU_KO.md) |
+| 버전 | 설치파일 명령 | 설정 | 차이 |
+|---|---|---|---|
+| 일반 버전 | `npm run tauri:dist:win` | `src-tauri/tauri.conf.json` | YOLOE-26 모델 없음 |
+| YOLOE-26 버전 | `npm run tauri:dist:yoloe:win` | `src-tauri/tauri.yoloe.conf.json`이 위 설정을 덮어씀 | 이름·식별자(`com.easylabeling.yoloe26`)·업데이트 피드(`latest-yoloe.json`)가 다르고, N/S/M/L ONNX 모델(`assets/models/yoloe26/`)을 설치파일에 넣음 |
 
-GPU 브랜치는 일반 버전 기준 커밋 `0028c4e`에서 시작합니다. 이 기준 커밋에는 YOLOE 추론이나 추가 셋업이 없으며, GPU 브랜치에서 전용 UI와 추론 서비스를 추가합니다.
+- YOLOE-26 추론은 ONNX(WebGPU 우선, CPU/WASM 자동 전환)로 앱 안에서 실행합니다. Python·PyTorch·CUDA 셋업은 필요 없습니다. 내장 모델 읽기(`read_yoloe_model`)는 YOLOE 식별자로 빌드한 앱에서만 허용합니다. [셋업·사용법](YOLOE26_GPU_KO.md)
+- 버전은 쌍으로 관리합니다. YOLOE 버전은 `package.json`보다 minor가 하나 높고 patch가 같습니다(2.27.1 → 2.28.1). `tests/unit/release/version-pairing.test.ts`가 확인합니다.
+- `npm run release:tauri`가 두 설치파일을 함께 빌드·서명하고 GitHub Release에 올립니다.
 
-## 공통 기능 유지
-
-이미지·라벨 입출력, Detection/Segmentation 편집, Classes, Review, 테마, 단축키, 기존 ONNX 추론은 두 버전의 공통 기능입니다.
-
-- 공통 기능 변경은 `main`에 독립된 커밋으로 반영한 뒤 GPU 브랜치에도 `git cherry-pick <커밋>`으로 반영합니다.
-- GPU 브랜치에서 발견한 공통 버그도 공통 수정과 YOLOE 변경을 별도 커밋으로 나누고, 공통 수정만 `main`에 반영합니다.
-- YOLOE 추론·모델 관리·Python/CUDA 셋업 변경은 GPU 브랜치에서 관리합니다. 일반 버전으로 GPU 브랜치를 통째로 병합하지 않습니다.
-- 공통 변경을 반영할 때 두 브랜치에서 타입 검사, 단위 테스트, 빌드 및 관련 E2E 테스트를 확인합니다.
+예전에는 YOLOE-26을 `codex/yoloe26-gpu` 브랜치에서 따로 개발하고 공통 수정을 cherry-pick했습니다. 그 브랜치는 현재 코드에 모두 합쳐졌으므로 더 이상 쓰지 않습니다.
 
 ## 기준 버전 검증 자료
 

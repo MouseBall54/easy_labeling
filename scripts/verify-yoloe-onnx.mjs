@@ -96,7 +96,8 @@ try {
       const boxes = image.objects.map((object) => object.box);
       const left = Math.min(...boxes.map(([x]) => x)), top = Math.min(...boxes.map(([, y]) => y));
       const right = Math.max(...boxes.map(([x, , w]) => x + w - 1)), bottom = Math.max(...boxes.map(([, y, , h]) => y + h - 1));
-      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds()))
+      // Large masks (sample_room_plants) take over 5 s to load on a busy machine.
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationMaskBounds()), { timeout: 30_000 })
         .toEqual({ left, top, right, bottom, width: right - left + 1, height: bottom - top + 1 });
     }
     await page.screenshot({ path: path.join(output, "installed-sample-masks.png") });

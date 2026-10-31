@@ -193,7 +193,7 @@ PR 전 검수 (2026-10-30):
 - release 빌드: `npm run tauri:dist:win`으로 NSIS 설치 파일(270MB)을 만들었고, 같은 release exe로 데스크톱 e2e 14개가 통과했다. 설치 후 동작은 사용자 환경에서 확인한다.
 - CI: `rust.yml` 감시 경로에 `package-lock.json`(tiff.js 버전이 TIFF 골든을 정한다)과 `superpixels.ts`를 추가했다. fixture 재생성은 바이트 단위로 같다. 실제 CI 실행은 PR에서 확인한다.
 
-| 7) Electron 제거, 데스크톱 앱을 Tauri로 일원화 | **완료 (2026-10-30, 미커밋, v2.27.1)** | Electron 셸·빌드 설정·의존성을 지웠다(package-lock 약 4,200줄 감소). Electron으로 돌던 e2e 8개와 YOLOE 설치본 검증 스크립트 5개를 Tauri로 옮기면서 Tauri 앱의 `confirm` 버그를 찾아 고쳤다(D-014) |
+| 7) Electron 제거, 데스크톱 앱을 Tauri로 일원화 | **완료 (2026-10-30, `b30fa4b9`, v2.27.1)** | Electron 셸·빌드 설정·의존성을 지웠다(package-lock 약 4,200줄 감소). Electron으로 돌던 e2e 8개와 YOLOE 설치본 검증 스크립트 5개를 Tauri로 옮기면서 Tauri 앱의 `confirm` 버그를 찾아 고쳤다(D-014) |
 
 7단계에서 한 일:
 - 지운 것: `electron/`(main, preload, 닫기 컨트롤러), `electron-builder.yoloe.cjs`, `scripts/after-pack.mjs`, `package.json`의 `main`·`build`·`electron:*` 스크립트, 의존성 `electron`·`electron-builder`·`rcedit`와 `global-agent` 스텁, `@electron/*`·`rimraf` override, Electron 테스트 fixture와 닫기 컨트롤러 단위 테스트. 다른 패키지 버전은 바뀌지 않았다.
@@ -206,6 +206,7 @@ PR 전 검수 (2026-10-30):
   - 닫기 확인: 저장 안 한 변경이 있을 때 창을 닫으면 "Discard and close / Cancel" 창이 뜨고, Cancel이면 앱이 남고 Discard면 종료된다(UI Automation으로 확인).
   - 실제 폴더 선택·다른 이름으로 저장·열기 대화상자가 앱 창 위에 뜨고, 취소하면 각각 AbortError·null·null을 돌려준다.
   - YOLOE-26 릴리스 exe(설치 파일 없이 빌드): probe, 모델 4종 × 2모드, 프리셋 저장·불러오기·재시작 복원·CPU 미리보기, 설치본 검증(버전 2.28.0, Python·.pt 없음, 내장 샘플 17장 두 모드, 추론·마스크·Review)이 통과했다. 외부 네트워크 요청과 페이지 오류는 없었다. `verify-yoloe.mjs`는 CUDA Python 서비스가 필요해 실행하지 못했다.
+- 전체 e2e(2026-10-31, 123개 한 번에 순차 실행): 통과 109, 실패 13, 건너뜀 1. 5개는 AGENTS.md의 기존 실패다. 나머지 8개(`bootstrap-smoke`, `unsupported-env`, `workflow-switching`, `ui-consistency`, `segmentation-preprocessing-panel`, `super-resolution-runtime`, `yoloe` 2개)는 단독 재실행에서도 실패했고, 6단계 커밋(`777801e6`)에서도 같은 방식으로 실패했다. 원인은 PC 부하다. 다른 프로그램이 CPU를 절반쯤 쓰는 상태에서 시작 대기 화면의 매칭 엔진(OpenCV.js worker 초기화 29초)이 25~30초 제한을 넘었다. 7단계와 무관하다.
 - WebView2: 설치 파일은 이미 WebView2 오프라인 설치본을 포함한다(`webviewInstallMode: offlineInstaller`).
 
 ## 핫스팟 (예상 영향 큰 순)
@@ -246,7 +247,7 @@ PR 전 검수 (2026-10-30):
 - **WebView2 IPC 비용.** 큰 데이터를 왕복시키는 이식은 이득이 상쇄된다(템플릿 매칭·ONNX 사례). 경계에서는 raw 바이너리를 쓰고, 상태는 Rust에 상주시키고, 결과만 보낸다.
 - **바이트 호환.** Review 메시지, YOLO 문자열, 전처리 캐시 키는 기존과 동일해야 한다.
 - **빌드 비용.** fat LTO는 메모리·시간 문제로 이미 배제했다. 크레이트 이동 시 `target/` 위치가 바뀌어 parity 테스트 경로, `.gitignore`, 릴리스 스크립트에 영향이 있다.
-- **두 변형.** 일반/YOLOE 설치파일, 버전 쌍 규칙, `codex/yoloe26-gpu` 브랜치로의 cherry-pick 정책(`docs/DEVELOPMENT_VARIANTS_KO.md`).
+- **두 변형.** 일반/YOLOE 설치파일과 버전 쌍 규칙. 감사 당시의 `codex/yoloe26-gpu` 브랜치는 합쳐졌고, 지금은 같은 코드에서 설치 설정만 다르다(`docs/DEVELOPMENT_VARIANTS_KO.md`).
 - **킷과 레포 설정 충돌.**
   - 킷의 `CLAUDE.md`, `.claude/skills/verify`, `.claude/settings.json`이 레포의 기존 파일과 이름이 겹친다. 덮어쓰지 않고 병합해야 한다.
   - 킷 문서의 `ui/` 경로는 이 레포에 없다. 프론트엔드는 루트 `src/`다.

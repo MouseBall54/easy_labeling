@@ -66,7 +66,8 @@ Before calling a `src/`, `workers/`, `index.html` or `css/` change done:
 E2E pitfalls that look like regressions but are not:
 
 - A Vite server on :4173 that outlived a `dist` rebuild serves `/dist/main.js?t=...`, so `bootstrap-smoke` fails on its script-tag check. Stop stale servers before trusting results; Playwright reuses an existing one.
-- Known failures on main (b14a33d2, this Windows machine): `detection-clipboard` 601 boxes, `folder-switch-autosave`, `image-list-interactions`, `layout-apply` 4000/5000 (180 s timeout), and `segmentation-draw` (31-33 s against a 30 s timeout). Compare any other failure against a baseline checkout before blaming the change.
+- Known failures on main (b14a33d2, this Windows machine; unchanged on `rust-migration` b30fa4b9): `detection-clipboard` 601 boxes, `folder-switch-autosave`, `image-list-interactions`, `layout-apply` 4000/5000 (180 s timeout), and `segmentation-draw` (31-33 s against a 30 s timeout). Compare any other failure against a baseline checkout before blaming the change.
+- Startup standby on a busy machine: the "matching" step waits for OpenCV.js to initialise in its worker while the EdgeSAM and super-resolution workers compile their WASM. With the CPU already half used by other programs this took 29 s (about 47 s until the standby closed) and failed every spec that waits for it within 25-30 s: `bootstrap-smoke`, `unsupported-env`, `workflow-switching`, `ui-consistency`, `segmentation-preprocessing-panel`, `super-resolution-runtime`, two `yoloe` tests (2026-10-31, same on the base commit). Rerun them when the machine is quiet.
 - `main.import-smoke` (unit) runs close to its 5 s limit; it times out when the machine is busy. Keep heavy modules lazy (`import()` on first use), as the Refine Lab does.
 
 ## Conventions
