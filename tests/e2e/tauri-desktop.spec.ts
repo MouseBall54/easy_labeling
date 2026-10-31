@@ -1097,3 +1097,67 @@ test("Tauri decodes the next image ahead and keeps both TIFFs resident for the P
     await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   }
 });
+
+test("Tauri presets save into their profile folders without a dialog and list from there", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "presets");
+  const profiles = path.join(sandbox, "profiles");
+  await mkdir(path.join(dataset, ".easy-labeling"), { recursive: true });
+  await mkdir(path.join(dataset, "label"));
+  await writeFile(path.join(dataset, "a.png"), grayPng(64, 48));
+  // Saved by an older version with the dataset: listed, and left as it is by saves.
+  const legacyPath = path.join(dataset, ".easy-labeling", "preprocessing-presets.json");
+  const legacy = `${JSON.stringify({ schemaVersion: 1, presets: [{ name: "Old dataset", config: {} }] })}\n`;
+  await writeFile(legacyPath, legacy);
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("a.png");
+    await page.evaluate(() => document.getElementById("taskPreprocessingBtn")!.click());
+    const options = () => page.evaluate(() => [...document.querySelectorAll<HTMLOptionElement>("#segmentationPreprocessPresetSelect option")].map((option) => option.value).filter(Boolean));
+    await expect.poll(options).toEqual(["Old dataset"]);
+
+    await page.evaluate(() => {
+      (document.getElementById("segmentationPreprocessPresetName") as HTMLInputElement).value = "SEM fins";
+      document.getElementById("segmentationPreprocessPresetSaveBtn")!.click();
+    });
+    const file = path.join(profiles, "Preprocessing Presets", "SEM fins.json");
+    await expect.poll(() => existsSync(file)).toBe(true);
+    expect(JSON.parse(await readFile(file, "utf8")).presets.map((preset: { name: string }) => preset.name)).toEqual(["SEM fins"]);
+    await expect.poll(options).toEqual(["SEM fins", "Old dataset"]);
+    expect(await readFile(legacyPath, "utf8")).toBe(legacy);
+
+    await page.evaluate(() => {
+      (document.getElementById("segmentationPreprocessPresetSelect") as HTMLSelectElement).value = "SEM fins";
+      document.getElementById("segmentationPreprocessPresetDeleteBtn")!.click();
+    });
+    await expect.poll(() => existsSync(file)).toBe(false);
+    await expect.poll(options).toEqual(["Old dataset"]);
+
+    // Every preset kind has its profile folder, where the folder handles write, list and remove files.
+    const folders = await page.evaluate(async () => {
+      const names: string[] = [];
+      for (const kind of ["preset", "layout", "yoloe", "refine", "preprocessing", "segmentation"] as const) {
+        const folder = await window.getEasyLabelingProfileDirectory!(kind) as FileSystemDirectoryHandle & { removeEntry(name: string): Promise<void> };
+        const handle = await folder.getFileHandle("probe.json", { create: true });
+        const writable = await handle.createWritable();
+        await writable.write("{}");
+        await writable.close();
+        await folder.removeEntry("probe.json");
+        const left: string[] = [];
+        for await (const entry of (folder as unknown as { values(): AsyncIterable<{ name: string }> }).values()) left.push(entry.name);
+        names.push(`${folder.name}:${left.length}`);
+      }
+      return names;
+    });
+    expect(folders).toEqual(["Template Presets:0", "Layouts:0", "YOLOE Presets:0", "Refine Presets:0", "Preprocessing Presets:0", "Segmentation Presets:0"]);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});

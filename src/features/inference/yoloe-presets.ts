@@ -1,3 +1,4 @@
+import { openProfilePresetFolder, presetFileName } from "../presets/profile-presets.js";
 import { decodeYoloeMask, type VisualExample } from "./yoloe.js";
 import type { WorkflowType } from "../../types/labels.js";
 import { listFileHandles } from "../../platform/file-system-access.js";
@@ -65,6 +66,12 @@ export async function listYoloePresets(windowRef: Window): Promise<EasyLabelingL
 export async function saveYoloePreset(windowRef: Window, preset: YoloePreset, saveAs: boolean, filePath?: string): Promise<string | null> {
   const contents = JSON.stringify(preset, null, 2), suggestedName = `${preset.settings.name}-${preset.workflow}.yoloe.json`;
   parseYoloePreset(contents);
+  if (windowRef.saveEasyLabelingLibraryFile) {
+    // A new preset whose file name is taken asks first, as the other preset kinds do (profile-presets.ts).
+    const folder = !saveAs && !filePath ? await openProfilePresetFolder(windowRef, "yoloe") : null;
+    const target = presetFileName(suggestedName);
+    if (folder && await folder.exists(target) && !windowRef.confirm(`"${target}" already exists in ${folder.name}. Replace it?`)) return null;
+  }
   if (windowRef.saveEasyLabelingLibraryFile) return (await windowRef.saveEasyLabelingLibraryFile({ kind: "yoloe", suggestedName, contents, saveAs, ...(filePath ? { filePath } : {}) }))?.filePath ?? null;
   if (saveAs) {
     const url = URL.createObjectURL(new Blob([contents], { type: "application/json" }));

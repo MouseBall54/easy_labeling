@@ -119,6 +119,9 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
       },
       async getFileHandle(entryName: string, options?: { create?: boolean }) {
         return createFileHandle(await call<NativeEntry>("fs_child", { base: path, name: entryName, directory: false, create: Boolean(options?.create) }));
+      },
+      async removeEntry(entryName: string): Promise<void> {
+        await call("fs_remove", { base: path, name: entryName });
       }
     };
     directoryPaths.set(handle, path);

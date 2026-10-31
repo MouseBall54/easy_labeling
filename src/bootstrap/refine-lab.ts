@@ -110,6 +110,8 @@ export function createRefineLab(input: {
   loadPreprocessingPresets(): Promise<{ name: string; config: Record<string, unknown> }[]>;
   imageFolder(): FileSystemDirectoryHandle | null;
   profilePresets(): RefinePreset[];
+  /** Desktop: deletes a preset's profile folder file. */
+  deleteProfilePreset?(name: string): Promise<void>;
   allBoxes(): RefineBoxInput[];
   classIds(): string[];
   className(classId: string): string | undefined;
@@ -156,7 +158,8 @@ export function createRefineLab(input: {
       notify: (message) => { status.textContent = message; },
       preprocessingPresets: () => preprocessingPresets,
       imageFolder: input.imageFolder,
-      profilePresets: input.profilePresets
+      profilePresets: input.profilePresets,
+      deleteProfilePreset: input.deleteProfilePreset
     }
   });
   /**
@@ -196,7 +199,7 @@ export function createRefineLab(input: {
       const key = (preset: RefinePreset | undefined, image: boolean): string => JSON.stringify(preset && [preset.params, image ? [preset.imageSource, preset.processing ?? null] : null]);
       if (key(before, Boolean(before?.imageSource)) !== key(after, Boolean(before?.imageSource))) {
         next = updated;
-        if (!datasetOwned) input.notify(`Saved "${name}" to this dataset's presets; the profile folder file is unchanged.`);
+        if (!datasetOwned && !input.deleteProfilePreset) input.notify(`Saved "${name}" to this dataset's presets; the profile folder file is unchanged.`);
       }
     }
     if (presetEdit?.runWith) next = { ...input.getSettings(), presets: next.presets };

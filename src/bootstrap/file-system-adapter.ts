@@ -40,7 +40,8 @@ import {
   markDocumentSaving,
   markImageDocumentsClean
 } from "../app/document-status.js";
-import { loadSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { loadSegmentationToolPresetLibrary } from "../features/segmentation/preset-service.js";
+import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import { encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
 import { writeBinaryFileByName } from "../platform/file-system-access.js";
 import type { YoloeResult } from "../features/inference/yoloe.js";
@@ -1003,7 +1004,11 @@ export function createFileSystemAdapter(input: {
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
     input.state.session.labelFolders = input.state.session.labelFolderHandle ? [input.state.session.labelFolderHandle] : [];
     input.state.session.segmentationLabelFolders = [imageFolderHandle as unknown as FileSystemDirectoryHandle];
-    input.state.session.segmentationToolPresets = await loadSegmentationToolPresets(imageFolderHandle);
+    const segmentationPresets = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"), imageFolderHandle);
+    input.state.session.segmentationToolPresets = segmentationPresets.document;
+    if (segmentationPresets.errors.length) {
+      (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(`Some Superpixel preset files were skipped:\n${segmentationPresets.errors.join("\n")}`, 8000);
+    }
     throwIfOperationCancelled(operation?.signal);
     await loadReviewState();
     await refreshCurrentReviewFinding(pendingLoadedYolo ?? "");

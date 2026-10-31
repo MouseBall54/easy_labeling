@@ -257,8 +257,8 @@ Layout은 여러 Detection 박스의 클래스, 크기, 순서, 상대 위치를
 - 저장된 레이아웃을 선택해 클래스 수, 앵커, 전체 크기, 원본 이미지 크기를 미리 볼 수 있다.
 - New, Duplicate, Rename, Delete로 레이아웃을 관리한다.
 - Save File/Load File로 단일 레이아웃 JSON을 데이터셋 밖에 저장하거나 불러올 수 있다.
-- 데스크톱 앱은 `문서/Easy Labeling/Layouts`와 `문서/Easy Labeling/Template Presets`의 JSON을 자동으로 찾아 선택 목록에 추가한다.
-- 기본 폴더와 데이터셋의 ID가 같으면 데이터셋의 `.easy-labeling/automation-library.json` 항목이 우선한다.
+- 데스크톱 앱은 레이아웃과 템플릿 프리셋을 `문서/Easy Labeling/Layouts`, `문서/Easy Labeling/Template Presets`에 하나씩 JSON 파일로 저장하고, 이 폴더들을 자동으로 읽어 선택 목록을 만든다. 자세한 내용은 10장을 본다.
+- 예전 버전이 데이터셋의 `.easy-labeling/automation-library.json`에 저장한 항목도 목록에 나온다. 같은 ID가 양쪽에 있으면 나중에 고친 쪽이 쓰인다.
 - 레이아웃을 삭제하면 그 레이아웃을 참조하는 프리셋도 함께 제거된다.
 
 ### 4.3 Transform 탭의 Layout 적용
@@ -449,9 +449,27 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 
 ## 10. 레이아웃과 프리셋 저장 위치
 
-### 10.1 데이터셋 내부 자동 저장
+### 10.1 데스크톱 앱: 기본 폴더
 
-연결된 데이터셋의 자동화 라이브러리는 다음 위치에 저장된다.
+데스크톱 앱은 모든 프리셋을 `<사용자 문서>/Easy Labeling` 아래 종류별 폴더에 프리셋 하나당 JSON 파일 하나로 저장한다.
+
+| 프리셋 | 폴더 |
+|---|---|
+| 템플릿 매칭 프리셋 | `Template Presets` |
+| 레이아웃 | `Layouts` |
+| Refine 프리셋 | `Refine Presets` |
+| 전처리 프리셋 | `Preprocessing Presets` |
+| Superpixel(세그멘테이션 도구) 프리셋 | `Segmentation Presets` |
+| YOLOE 프리셋 | `YOLOE Presets` |
+
+- 선택 목록은 해당 폴더의 파일을 자동으로 읽어 만든다. 데이터셋과 상관없이 같은 프리셋을 쓸 수 있다.
+- Save를 누르면 대화상자 없이 그 폴더에 바로 저장한다. 목록에서 불러온 프리셋은 그 파일을 덮어쓰고, 새 이름은 `<이름>.json`으로 저장한다. 새 이름의 파일이 이미 있으면 바꿀지 먼저 묻는다.
+- 삭제하면 폴더의 파일을 지운다. 한 파일에 프리셋이 여러 개 들어 있으면 그 프리셋만 빼고 다시 저장한다.
+- 예전 버전이 데이터셋 `.easy-labeling`에 저장한 프리셋도 목록에 나온다. 그 파일은 고치지 않고, 그 프리셋을 고쳐 저장하면 기본 폴더로 옮겨진다. 목록에서 삭제하면 데이터셋 파일에서도 지운다.
+
+### 10.2 웹 브라우저: 데이터셋 내부 자동 저장
+
+웹 브라우저에서는 기본 폴더를 쓸 수 없어 데이터셋의 `.easy-labeling` 폴더에 저장한다. 자동화 라이브러리는 다음 위치에 저장된다.
 
 ```text
 <데이터셋>/.easy-labeling/automation-library.json
@@ -459,7 +477,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 
 이 파일은 layouts, templates, presets를 함께 보관한다. 템플릿 이미지는 PNG Data URL 형태로 문서 안에 포함된다.
 
-### 10.2 개별 파일 저장 및 불러오기
+### 10.3 개별 파일 저장 및 불러오기
 
 - Layout Setup의 Save File/Load File은 단일 `.layout.json`을 다룬다.
 - Template Matching Setup의 Save File/Load File은 템플릿과 필요한 레이아웃을 포함한 `.preset.json`을 다룬다.

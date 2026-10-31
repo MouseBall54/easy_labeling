@@ -6,6 +6,7 @@ import {
   parseRefinePresetFiles,
   parseRefineSettings,
   resolveRefineParams,
+  serializeRefinePresets,
   serializeRefineSettings,
   REFINE_SETTINGS_FILE,
   refinePresetLabel,
@@ -22,7 +23,8 @@ import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFi
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RefineLab, RefineLabCaseSource } from "./refine-lab.js";
-import { loadPreprocessingPresets } from "../features/segmentation/preprocessing-presets.js";
+import { loadPreprocessingPresetLibrary } from "../features/segmentation/preprocessing-presets.js";
+import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
@@ -81,18 +83,59 @@ export function createRefineController(input: {
   let service: RefineService | null = null;
   let settings: RefineSettingsDocument = createRefineSettings();
   let settingsFolder: unknown = undefined;
-  /** Presets saved as files in the profile folder (desktop); shown after the dataset's own, never saved into it. */
+  /**
+   * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets). A preset saved or
+   * edited here moves out of refine-settings.json into its own file; presets an older version saved in the
+   * dataset stay there as they are (listed first, as before) until edited or deleted.
+   */
+  const hasProfileFolder = typeof windowRef.getEasyLabelingProfileDirectory === "function";
   let profilePresets: RefinePreset[] = [];
+  /** Profile file holding each preset name, with every preset in that file (exported files hold several). */
+  let profileFiles = new Map<string, { fileName: string; presets: RefinePreset[] }>();
+  /** The dataset's presets as read, to tell untouched ones from edits. */
+  let datasetPresets: RefinePreset[] = [];
   const allPresets = (): RefinePreset[] => mergeRefinePresets(settings.presets, profilePresets);
   const refreshProfilePresets = async (): Promise<void> => {
     if (!windowRef.listEasyLabelingLibraryFiles) return;
     try {
-      const { presets, errors } = parseRefinePresetFiles(await windowRef.listEasyLabelingLibraryFiles("refine"));
+      const files = new Map<string, { fileName: string; presets: RefinePreset[] }>();
+      const errors: string[] = [];
+      let presets: RefinePreset[] = [];
+      for (const file of await windowRef.listEasyLabelingLibraryFiles("refine")) {
+        const parsed = parseRefinePresetFiles([file]);
+        errors.push(...parsed.errors);
+        const entry = { fileName: file.name, presets: parsed.presets };
+        parsed.presets.forEach((preset) => files.set(preset.name, entry));
+        presets = [...presets.filter((item) => !parsed.presets.some((preset) => preset.name === item.name)), ...parsed.presets];
+      }
       profilePresets = presets;
+      profileFiles = files;
       if (errors.length) input.uiManager.notify(`Some saved refine preset files were skipped:\n${errors.join("\n")}`, 8000);
     } catch (error: unknown) {
       input.uiManager.notify(`Unable to scan saved refine presets: ${error instanceof Error ? error.message : String(error)}`, 6000);
     }
+  };
+  /** Writes presets into their profile files (the file holding the name, else `<name>.json`). */
+  const saveProfilePresets = async (presets: readonly RefinePreset[]): Promise<void> => {
+    const folder = await openProfilePresetFolder(windowRef, "refine");
+    if (!folder) return;
+    for (const preset of presets) {
+      const file = profileFiles.get(preset.name);
+      const contents = serializeRefinePresets(file ? file.presets.map((item) => (item.name === preset.name ? preset : item)) : [preset]);
+      await folder.save(preset.name, contents, file?.fileName);
+    }
+    await refreshProfilePresets();
+    renderPane();
+  };
+  const deleteProfilePreset = async (name: string): Promise<void> => {
+    const file = profileFiles.get(name);
+    const folder = await openProfilePresetFolder(windowRef, "refine");
+    if (!file || !folder) return;
+    const rest = file.presets.filter((preset) => preset.name !== name);
+    if (rest.length) await folder.save(name, serializeRefinePresets(rest), file.fileName);
+    else await folder.remove(file.fileName);
+    await refreshProfilePresets();
+    renderPane();
   };
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const records = new Map<string, RefineRecord>();
@@ -218,10 +261,12 @@ export function createRefineController(input: {
     if (folder === settingsFolder) return;
     settingsFolder = folder;
     settings = createRefineSettings();
+    datasetPresets = [];
     if (folder) {
       try {
         const directory = await getSubdirectoryHandle(folder as unknown as DirectoryHandleLike, ".easy-labeling");
         settings = parseRefineSettings(await readTextFileByName(directory, REFINE_SETTINGS_FILE));
+        datasetPresets = settings.presets;
       } catch (error: unknown) {
         if (!isNotFoundError(error)) input.uiManager.notify("Refine settings were invalid; defaults are in use.", 5000);
       }
@@ -230,6 +275,15 @@ export function createRefineController(input: {
     renderPane();
   };
   const changeSettings = (next: RefineSettingsDocument): void => {
+    // Desktop: new and edited presets go to the profile folder instead of the dataset file.
+    const moved = hasProfileFolder ? next.presets.filter((preset) => !datasetPresets.some((item) => JSON.stringify(item) === JSON.stringify(preset))) : [];
+    if (moved.length) {
+      next = { ...next, presets: next.presets.filter((preset) => !moved.includes(preset)) };
+      datasetPresets = next.presets;
+      // Listed at once; the files follow.
+      profilePresets = [...profilePresets.filter((preset) => !moved.some((item) => item.name === preset.name)), ...moved];
+      saveProfilePresets(moved).catch((error: unknown) => input.uiManager.notify(`Refine preset could not be saved: ${error instanceof Error ? error.message : String(error)}`, 6000));
+    } else if (hasProfileFolder) datasetPresets = next.presets;
     settings = next;
     renderPane();
     schedulePreview();
@@ -483,10 +537,11 @@ export function createRefineController(input: {
         },
         collectCases,
         cropImage: (image, rect, source, processing) => getService().crop(image, rect, imageInput(source, processing)),
-        loadPreprocessingPresets: () => loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null)
-          .then((presets) => presets.map((preset) => ({ name: preset.name, config: { ...preset.config } }))),
+        loadPreprocessingPresets: async () => (await loadPreprocessingPresetLibrary(await openProfilePresetFolder(windowRef, "preprocessing"),
+          input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null)).presets.map((preset) => ({ name: preset.name, config: { ...preset.config } })),
         imageFolder: () => input.state.session.imageFolderHandle as FileSystemDirectoryHandle | null,
         profilePresets: () => profilePresets,
+        deleteProfilePreset: hasProfileFolder ? deleteProfilePreset : undefined,
         allBoxes: () => rects().map(toBox),
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),

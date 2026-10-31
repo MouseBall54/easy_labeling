@@ -1,6 +1,7 @@
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { DirectoryHandleLike } from "../types/files.js";
-import { loadPreprocessingPresets, savePreprocessingPresets, upsertPreprocessingPreset, type PreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
+import { loadPreprocessingPresetLibrary, savePreprocessingPresets, serializePreprocessingPresets, upsertPreprocessingPreset, type StoredPreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
+import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
@@ -13,7 +14,7 @@ import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-sy
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
 import { createRefineController, resolveRefineShortcut } from "./refine-controller.js";
 import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
-import { saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { getSuperResolutionModelLabel, isSuperResolutionMode } from "../features/super-resolution/model-registry.js";
 import type { SuperResolutionMode, SuperResolutionStatus } from "../features/super-resolution/types.js";
@@ -134,6 +135,7 @@ export function createEventManagerAdapter(input: {
     URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
     easyLabelingDesktop: Window["easyLabelingDesktop"];
     showDirectoryPicker: Window["showDirectoryPicker"];
+    getEasyLabelingProfileDirectory: Window["getEasyLabelingProfileDirectory"];
   }>;
   documentRef?: Document;
 }): EventManager {
@@ -1795,26 +1797,30 @@ export function createEventManagerAdapter(input: {
       };
       preprocessElement("ResetBtn")?.addEventListener("click", () => setPreprocessPanel(DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG));
 
-      // Preprocessing presets live in the dataset's .easy-labeling folder.
-      let preprocessPresets: PreprocessingPreset[] = [];
+      // Preprocessing presets: files in the profile folder on the desktop app, the dataset's .easy-labeling file on the web.
+      let preprocessPresets: StoredPreprocessingPreset[] = [];
       const renderPreprocessPresets = (selected = preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : ""): void => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
         preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => new Option(preset.name, preset.name)));
         preprocessPresetSelect.value = preprocessPresets.some((preset) => preset.name === selected) ? selected : "";
       };
-      const refreshPreprocessPresets = (): void => {
-        runAsync(async () => {
-          preprocessPresets = await loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null);
-          renderPreprocessPresets();
-        });
+      const datasetFolder = () => input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+      const reloadPreprocessPresets = async (selected?: string): Promise<void> => {
+        const { presets, errors } = await loadPreprocessingPresetLibrary(await openProfilePresetFolder(input.windowRef, "preprocessing"), datasetFolder());
+        preprocessPresets = presets;
+        renderPreprocessPresets(selected);
+        if (errors.length) input.uiManager.notify(`Some preprocessing preset files were skipped:\n${errors.join("\n")}`, 8000);
       };
+      const refreshPreprocessPresets = (): void => runAsync(() => reloadPreprocessPresets());
       const currentPreprocessConfig = (): SegmentationPreprocessingConfig | undefined => preprocessingController().getSegmentationPreprocessingConfig?.();
-      const storePreprocessPresets = (next: PreprocessingPreset[], selected: string): void => {
-        const folder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
-        if (!folder) { input.uiManager.notify("Open a dataset folder to keep preprocessing presets.", 4000); return; }
+      /** Web build: the dataset's preset file holds them all. */
+      const storeDatasetPreprocessPresets = (next: StoredPreprocessingPreset[], selected: string): boolean => {
+        const folder = datasetFolder();
+        if (!folder) { input.uiManager.notify("Open a dataset folder to keep preprocessing presets.", 4000); return false; }
         preprocessPresets = next;
         renderPreprocessPresets(selected);
-        runAsync(() => savePreprocessingPresets(folder, next));
+        runAsync(() => savePreprocessingPresets(folder, next.map(({ name, config }) => ({ name, config }))));
+        return true;
       };
       preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
       input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", refreshPreprocessPresets);
@@ -1829,13 +1835,44 @@ export function createEventManagerAdapter(input: {
         if (!(nameInput instanceof HTMLInputElement) || !config) return;
         const name = nameInput.value.trim() || (preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : "");
         if (!name) { input.uiManager.notify("Type a preset name.", 3000); nameInput.focus(); return; }
-        storePreprocessPresets(upsertPreprocessingPreset(preprocessPresets, name, config), name);
-        nameInput.value = "";
-        input.uiManager.notify(`Saved preprocessing preset "${name}".`, 2500);
+        runAsync(async () => {
+          const profile = await openProfilePresetFolder(input.windowRef, "preprocessing");
+          if (profile) {
+            await reloadPreprocessPresets(); // which file holds which preset now
+            const preset = upsertPreprocessingPreset([], name, config)[0]!;
+            const fileName = preprocessPresets.find((item) => item.name === preset.name)?.fileName ?? null;
+            // A file holding several presets keeps the others.
+            const inFile = fileName ? preprocessPresets.filter((item) => item.fileName === fileName).map(({ name, config }) => ({ name, config })) : [];
+            const saved = await profile.save(preset.name, serializePreprocessingPresets(upsertPreprocessingPreset(inFile, preset.name, preset.config)), fileName);
+            if (!saved) return;
+            await reloadPreprocessPresets(preset.name);
+            input.uiManager.notify(`Saved preprocessing preset "${preset.name}" to ${profile.name} / ${saved}.`, 3000);
+          } else {
+            const next = upsertPreprocessingPreset(preprocessPresets, name, config).map((preset) => ({ ...preset, fileName: null }));
+            if (!storeDatasetPreprocessPresets(next, name.trim())) return;
+            input.uiManager.notify(`Saved preprocessing preset "${name.trim()}".`, 2500);
+          }
+          nameInput.value = "";
+        });
       });
       preprocessElement("PresetDeleteBtn")?.addEventListener("click", () => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement) || !preprocessPresetSelect.value) return;
-        storePreprocessPresets(preprocessPresets.filter((preset) => preset.name !== preprocessPresetSelect.value), "");
+        const preset = preprocessPresets.find((item) => item.name === preprocessPresetSelect.value);
+        if (!preset) return;
+        runAsync(async () => {
+          const profile = await openProfilePresetFolder(input.windowRef, "preprocessing");
+          if (profile && preset.fileName) {
+            const rest = preprocessPresets.filter((item) => item.fileName === preset.fileName && item.name !== preset.name).map(({ name, config }) => ({ name, config }));
+            if (rest.length) await profile.save(preset.name, serializePreprocessingPresets(rest), preset.fileName);
+            else await profile.remove(preset.fileName);
+          } else {
+            // A preset kept with the dataset (web build, or saved by an older version) is deleted from that file.
+            const folder = datasetFolder();
+            const remaining = preprocessPresets.filter((item) => item.fileName === null && item.name !== preset.name);
+            if (folder) await savePreprocessingPresets(folder, remaining.map(({ name, config }) => ({ name, config })));
+          }
+          await reloadPreprocessPresets("");
+        });
       });
       pipelineAiToggle?.addEventListener("change", () => {
         if (!(pipelineAiToggle instanceof HTMLInputElement)) return;
@@ -1981,10 +2018,24 @@ export function createEventManagerAdapter(input: {
       blurSelect?.addEventListener("change", readSuperpixelSettings);
       contrastSelect?.addEventListener("change", readSuperpixelSettings);
       edgeSensitivitySelect?.addEventListener("change", readSuperpixelSettings);
-      const savePresetLibrary = async (): Promise<void> => {
-        const folder = input.state.session.imageFolderHandle;
-        if (!folder) throw new Error("Open a dataset before saving a Superpixel preset.");
-        await saveSegmentationToolPresets(folder as unknown as import("../types/files.js").DirectoryHandleLike, input.state.session.segmentationToolPresets);
+      /** Desktop: the preset's own file in the profile folder; web: the dataset's preset file. False when the user declined. */
+      const storeSegmentationPreset = async (preset: SegmentationToolPreset): Promise<boolean> => {
+        const presets = input.state.session.segmentationToolPresets.presets;
+        const profile = await openProfilePresetFolder(input.windowRef, "segmentation");
+        if (profile) {
+          const saved = await saveSegmentationToolPresetFile(profile, preset);
+          if (!saved) return false;
+          input.uiManager.notify(`Saved Superpixel preset "${preset.name}" to ${profile.name} / ${saved}.`, 3000);
+        }
+        const index = presets.findIndex((item) => item.id === preset.id);
+        if (index < 0) presets.push(preset);
+        else presets[index] = preset;
+        if (!profile) {
+          const folder = input.state.session.imageFolderHandle;
+          if (!folder) throw new Error("Open a dataset before saving a Superpixel preset.");
+          await saveSegmentationToolPresets(folder as unknown as import("../types/files.js").DirectoryHandleLike, input.state.session.segmentationToolPresets);
+        }
+        return true;
       };
       const createPresetFromControls = (id: string, name: string): SegmentationToolPreset => {
         const settings = input.canvasController.raw.getSegmentationSuperpixelSettings?.();
@@ -2001,16 +2052,14 @@ export function createEventManagerAdapter(input: {
         const name = input.windowRef.prompt?.("Superpixel preset name:", "New preset")?.trim();
         if (!name) return;
         const id = globalThis.crypto?.randomUUID?.() ?? `segmentation-preset-${Date.now()}`;
-        input.state.session.segmentationToolPresets.presets.push(createPresetFromControls(id, name));
-        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+        runAsync(async () => { if (await storeSegmentationPreset(createPresetFromControls(id, name))) input.uiManager.setWorkflow?.("segmentation"); });
       });
       segmentationDocument?.getElementById("segmentationSavePresetBtn")?.addEventListener("click", () => {
         if (!(presetSelect instanceof HTMLSelectElement) || !presetSelect.value) return;
         const index = input.state.session.segmentationToolPresets.presets.findIndex((preset) => preset.id === presetSelect.value);
         if (index < 0) return;
         const existing = input.state.session.segmentationToolPresets.presets[index]!;
-        input.state.session.segmentationToolPresets.presets[index] = createPresetFromControls(existing.id, existing.name);
-        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+        runAsync(async () => { if (await storeSegmentationPreset(createPresetFromControls(existing.id, existing.name))) input.uiManager.setWorkflow?.("segmentation"); });
       });
       presetSelect?.addEventListener("change", () => {
         if (!(presetSelect instanceof HTMLSelectElement)) return;

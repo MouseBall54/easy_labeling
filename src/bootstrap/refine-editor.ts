@@ -33,6 +33,8 @@ export interface RefineEditorStore {
   imageFolder?(): FileSystemDirectoryHandle | null;
   /** Presets saved as files in the profile folder; listed after the dataset's own, never saved into it. */
   profilePresets?(): RefinePreset[];
+  /** Desktop: deletes a preset's profile folder file (absent on the web, where those files are read-only). */
+  deleteProfilePreset?(name: string): Promise<void>;
 }
 
 /** "all" edits the rule every side shares; a side edits that side's own rule only. */
@@ -316,11 +318,11 @@ export function createRefineEditor(input: {
     const own = new Set(store.getDoc().presets.map((preset) => preset.name));
     const presets = allPresets();
     select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""),
-      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${own.has(preset.name) ? "" : " (profile)"}`, preset.name)));
+      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${store.deleteProfilePreset ? (own.has(preset.name) ? " (dataset)" : "") : (own.has(preset.name) ? "" : " (profile)")}`, preset.name)));
     select.value = presets.some((preset) => preset.name === previous) ? previous : "";
   };
   const exportPresets = async (): Promise<void> => {
-    const presets = store.getDoc().presets;
+    const presets = allPresets();
     if (!presets.length) { store.notify("Save a preset first."); return; }
     const contents = serializeRefinePresets(presets);
     if (windowRef.saveEasyLabelingLibraryFile) {
@@ -566,7 +568,10 @@ export function createRefineEditor(input: {
         applyPreset(presetName);
       } else if (action === "deletePreset") {
         if (presetName && !store.getDoc().presets.some((preset) => preset.name === presetName)) {
-          store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / Refine Presets); delete it there.`);
+          if (store.deleteProfilePreset) {
+            void store.deleteProfilePreset(presetName).then(() => { renderPresets(); store.notify(`Deleted preset "${presetName}".`); })
+              .catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to delete the preset"));
+          } else store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / Refine Presets); delete it there.`);
         } else if (presetName) setDoc(deleteRefinePreset(store.getDoc(), presetName));
       } else if (action === "savePreset") {
         const nameInput = ref<HTMLInputElement>("presetName");

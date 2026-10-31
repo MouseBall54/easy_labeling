@@ -50,6 +50,8 @@ fn profile_directory_name(kind: &str) -> CommandResult<&'static str> {
         "layout" => "Layouts",
         "yoloe" => "YOLOE Presets",
         "refine" => "Refine Presets",
+        "preprocessing" => "Preprocessing Presets",
+        "segmentation" => "Segmentation Presets",
         "class-info" => "Class Info",
         _ => return Err(format!("TypeError: Unsupported profile directory kind: {kind}")),
     })
@@ -336,13 +338,18 @@ async fn fs_read_dir(path: String) -> CommandResult<Vec<Entry>> {
     Ok(entries)
 }
 
-#[tauri::command]
-async fn fs_child(base: String, name: String, directory: bool, create: bool) -> CommandResult<Entry> {
-    let relative = Path::new(&name);
+/// `base` joined with `name`, which must stay inside `base`.
+fn child_path(base: &str, name: &str) -> CommandResult<PathBuf> {
+    let relative = Path::new(name);
     if name.is_empty() || !relative.components().all(|part| matches!(part, Component::Normal(_) | Component::CurDir)) {
         return Err("SecurityError: Path traversal is not allowed.".into());
     }
-    let target = Path::new(&base).join(relative);
+    Ok(Path::new(base).join(relative))
+}
+
+#[tauri::command]
+async fn fs_child(base: String, name: String, directory: bool, create: bool) -> CommandResult<Entry> {
+    let target = child_path(&base, &name)?;
     let label = if directory { "Directory" } else { "File" };
     match fs::metadata(&target) {
         Ok(meta) if meta.is_dir() == directory => Ok(entry(target, directory)),
@@ -357,6 +364,18 @@ async fn fs_child(base: String, name: String, directory: bool, create: bool) -> 
             Ok(entry(target, directory))
         }
         Err(error) => Err(io_error(error, label)),
+    }
+}
+
+/// FileSystemDirectoryHandle.removeEntry for files (the app never removes folders).
+#[tauri::command]
+async fn fs_remove(base: String, name: String) -> CommandResult<()> {
+    let target = child_path(&base, &name)?;
+    match fs::symlink_metadata(&target) {
+        Ok(meta) if meta.is_file() => fs::remove_file(&target).map_err(|error| io_error(error, "File")),
+        Ok(_) => Err(format!("TypeMismatchError: Expected file: {name}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(format!("NotFoundError: File not found: {name}")),
+        Err(error) => Err(io_error(error, "File")),
     }
 }
 
@@ -546,6 +565,7 @@ fn main() {
             fs_read,
             fs_mtime,
             fs_write,
+            fs_remove,
             fs_same_entry,
             native::refine_load_image,
             native::refine_load_tiff,

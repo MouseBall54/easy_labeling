@@ -7,7 +7,7 @@ import {
 import type { DirectoryHandleLike } from "../../types/files.js";
 import { parseAutomationLibrary, serializeAutomationLibrary, validateAutomationLibrary } from "./preset-codec.js";
 import { validateBoxLayout } from "./layout.js";
-import { AUTOMATION_SCHEMA_VERSION, type AutomationLibraryDocument, type BoxLayout } from "./types.js";
+import { AUTOMATION_SCHEMA_VERSION, type AutomationLibraryDocument, type AutomationPreset, type BoxLayout } from "./types.js";
 
 export const AUTOMATION_DIRECTORY_NAME = ".easy-labeling";
 export const AUTOMATION_LIBRARY_FILE_NAME = "automation-library.json";
@@ -114,6 +114,8 @@ export interface AutomationProfileFile {
 export interface AutomationProfileLoadResult {
   document: AutomationLibraryDocument;
   errors: string[];
+  /** File each preset and layout came from, by id (a preset file also carries its template and layout). */
+  fileNames: { presets: Map<string, string>; layouts: Map<string, string> };
 }
 
 export function loadAutomationProfileFiles(
@@ -122,6 +124,7 @@ export function loadAutomationProfileFiles(
 ): AutomationProfileLoadResult {
   let document = createEmptyAutomationLibrary();
   const errors: string[] = [];
+  const fileNames = { presets: new Map<string, string>(), layouts: new Map<string, string>() };
   const sorted = (files: readonly AutomationProfileFile[]) => [...files]
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }));
 
@@ -133,6 +136,7 @@ export function loadAutomationProfileFiles(
         ...document,
         layouts: upsertById(document.layouts, layout)
       };
+      fileNames.layouts.set(layout.id, file.name);
     } catch (error: unknown) {
       errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -140,29 +144,62 @@ export function loadAutomationProfileFiles(
 
   sorted(presetFiles).forEach((file) => {
     try {
-      document = mergePresetFileDocument(document, parseAutomationLibrary(file.contents));
+      const presetFile = parseAutomationLibrary(file.contents);
+      document = mergePresetFileDocument(document, presetFile);
+      fileNames.presets.set(presetFile.presets[0]!.id, file.name);
     } catch (error: unknown) {
       errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 
-  return { document, errors };
+  return { document, errors, fileNames };
 }
 
-export function mergeAutomationLibraries(
-  base: AutomationLibraryDocument,
-  overrides: AutomationLibraryDocument
+/** Per id, the item edited last (`updatedAt`); on a tie, `second`'s. */
+export function mergeNewestAutomationLibraries(
+  first: AutomationLibraryDocument,
+  second: AutomationLibraryDocument
 ): AutomationLibraryDocument {
-  validateAutomationLibrary(base);
-  validateAutomationLibrary(overrides);
+  validateAutomationLibrary(first);
+  validateAutomationLibrary(second);
+  const newest = <T extends { id: string; updatedAt: string }>(left: readonly T[], right: readonly T[]): T[] =>
+    right.reduce((items, item) => {
+      const existing = items.find((candidate) => candidate.id === item.id);
+      return existing && existing.updatedAt > item.updatedAt ? items : upsertById(items, item);
+    }, [...left]);
   const merged: AutomationLibraryDocument = {
     schemaVersion: AUTOMATION_SCHEMA_VERSION,
-    layouts: overrides.layouts.reduce((items, item) => upsertById(items, item), [...base.layouts]),
-    templates: overrides.templates.reduce((items, item) => upsertById(items, item), [...base.templates]),
-    presets: overrides.presets.reduce((items, item) => upsertById(items, item), [...base.presets])
+    layouts: newest(first.layouts, second.layouts),
+    templates: newest(first.templates, second.templates),
+    presets: newest(first.presets, second.presets)
   };
   validateAutomationLibrary(merged);
   return merged;
+}
+
+export interface AutomationLibraryChanges {
+  layouts: BoxLayout[];
+  /** Presets whose own data, template or layout changed (a preset file carries all three). */
+  presets: AutomationPreset[];
+  deletedLayoutIds: string[];
+  deletedPresetIds: string[];
+}
+
+/** What to write and delete to bring files saved as `saved` up to `current`. */
+export function automationLibraryChanges(saved: AutomationLibraryDocument, current: AutomationLibraryDocument): AutomationLibraryChanges {
+  const differs = <T extends { id: string }>(item: T, items: readonly T[]): boolean => {
+    const before = items.find((candidate) => candidate.id === item.id);
+    return !before || JSON.stringify(before) !== JSON.stringify(item);
+  };
+  const layouts = current.layouts.filter((layout) => differs(layout, saved.layouts));
+  const presets = current.presets.filter((preset) => {
+    const template = current.templates.find((candidate) => candidate.id === preset.templateId);
+    return differs(preset, saved.presets) || (template !== undefined && differs(template, saved.templates))
+      || layouts.some((layout) => layout.id === preset.layoutId);
+  });
+  const gone = <T extends { id: string }>(before: readonly T[], after: readonly T[]): string[] =>
+    before.filter((item) => !after.some((candidate) => candidate.id === item.id)).map((item) => item.id);
+  return { layouts, presets, deletedLayoutIds: gone(saved.layouts, current.layouts), deletedPresetIds: gone(saved.presets, current.presets) };
 }
 
 export function createDatasetAutomationLibrary(

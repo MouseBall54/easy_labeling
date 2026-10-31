@@ -103,6 +103,8 @@ superpixel oddities.
 
 `SegmentationToolPreset` persists superpixel settings + smart-select
 similarity/edge-stop + boundary visibility — **not** class definitions — to
+one file per preset in the profile folder `Segmentation Presets` on the desktop app
+(`loadSegmentationToolPresetLibrary`, `saveSegmentationToolPresetFile`), else
 `.easy-labeling/segmentation-tool-presets.json` inside the working folder.
 `preset-codec.ts` does JSON parse/validate/serialize, schema version 1.
 

@@ -43,7 +43,7 @@ Median 0.44 s, destripe 0.11 s, flatten (sigma 100) 0.32 s, CLAHE 0.46 s, auto l
 ## Panel and presets
 
 - Controls are table-driven in `event-manager-adapter.ts` (`preprocessRanges`: slider id, config key, scale, label). `setPreprocessPanel(config, presetName)` writes a whole config into the controls and applies it; Reset and presets use it. Hand edits switch the preset select back to Custom.
-- Presets: `preprocessing-presets.ts`, stored in `<image folder>/.easy-labeling/preprocessing-presets.json` (`upsertPreprocessingPreset`, `parsePreprocessingPresets`). The Refine Lab lists them to pin Refine's processing snapshot.
+- Presets: `preprocessing-presets.ts`, one file each in the profile folder `Preprocessing Presets` on the desktop app (`loadPreprocessingPresetLibrary`, `features/presets/profile-presets.ts`), else `<image folder>/.easy-labeling/preprocessing-presets.json` (`upsertPreprocessingPreset`, `parsePreprocessingPresets`). The Refine Lab lists them to pin Refine's processing snapshot.
 - Settings are not persisted across app restarts (only presets are).
 
 ## Checks
