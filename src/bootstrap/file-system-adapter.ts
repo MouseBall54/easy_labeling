@@ -26,7 +26,7 @@ import { detectionsToYolo, type Detection } from "../features/inference/yolo.js"
 import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
-import { isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
+import { isNotFoundError, readFileText, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import { getSubdirectoryHandle } from "../platform/file-system-access.js";
 import { inspectDetectionLabels } from "../features/review/quality.js";
 import { createReviewStateDocument, parseReviewStateDocument } from "../features/review/review-state.js";
@@ -45,7 +45,7 @@ import { openProfilePresetFolder } from "../features/presets/profile-presets.js"
 import { encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
 import { writeBinaryFileByName } from "../platform/file-system-access.js";
 import type { YoloeResult } from "../features/inference/yoloe.js";
-import { removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
+import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
 interface LabelFileEdit { name: string; original: string | null; text: string }
@@ -277,6 +277,10 @@ export function createFileSystemAdapter(input: {
   let reviewStateChanged = false;
   let reviewRun: Promise<boolean> | null = null;
   let reviewRunShown = false;
+  // Label rows per .txt file read by the checks (TS path), so filling the image list's counts reads no file twice.
+  const reviewRowCounts = new Map<string, number>();
+  // The count after a run; a switch to another source stops it, so old counts never land on the new source.
+  let reviewCountAbort: AbortController | null = null;
   // Findings of label sources switched away from (this image folder only): switching back rechecks changed files only.
   const reviewCache = new Map<unknown, { reviewFolder: unknown; settings: string; findings: Map<string, ReviewFinding>; stamps: Map<string, string> }>();
   let reviewCacheImageFolder: unknown = null;
@@ -347,6 +351,7 @@ export function createFileSystemAdapter(input: {
   };
 
   const enqueueOperation = async (operation: () => Promise<void>): Promise<void> => {
+    reviewCountAbort?.abort(); // background label reads wait for the operation; the drain counts again afterwards
     operationChain = operationChain.then(operation, operation);
     await operationChain;
   };
@@ -698,6 +703,8 @@ export function createFileSystemAdapter(input: {
     reviewQueue.clear();
     reviewStamps.clear();
     reviewUpdatedAt.clear();
+    reviewRowCounts.clear();
+    reviewCountAbort?.abort();
     reviewSource = { reviewFolder: getReviewFolder(), labelFolder: input.state.session.labelFolderHandle };
   }
 
@@ -740,8 +747,9 @@ export function createFileSystemAdapter(input: {
     if (cached?.reviewFolder === imageFolder && cached.settings === JSON.stringify(session.reviewState.settings)) {
       session.reviewFindings = cached.findings;
       cached.stamps.forEach((stamp, name) => reviewStamps.set(name, stamp));
-      // After the switch itself, so reading the stamps does not delay the labels on screen.
-      void operationChain.catch(() => undefined).then(() => queueOutdatedReviews())
+      // After the switch and once the page is idle, so reading the stamps does not delay the labels on screen.
+      // The drain also counts the label rows the image list shows for this source.
+      void afterOperationsWhenIdle().then(() => queueOutdatedReviews()).then(() => drainReviewQueue())
         .catch((error: unknown) => console.warn("Background label review failed.", error));
     } else queueReview(session.imageFiles.map((file) => file.name));
   };
@@ -774,6 +782,7 @@ export function createFileSystemAdapter(input: {
     reviewEpoch += 1;
     reviewUpdatedAt.set(file.name, reviewEpoch);
     reviewStamps.delete(file.name);
+    reviewRowCounts.delete(`${imageFileNameToBaseName(file.name)}.txt`);
   };
 
   /** Label and image file stamps per image (review_stamps in src-tauri/src/review.rs), compared as strings. */
@@ -814,6 +823,7 @@ export function createFileSystemAdapter(input: {
     const { reviewState } = input.state.session;
     for (const name of imageNames) {
       reviewQueue.add(name);
+      reviewRowCounts.delete(`${imageFileNameToBaseName(name)}.txt`); // its file changed or is unchecked
       if (reopenReviewed && reviewState.images[name]?.status === "reviewed") {
         reviewState.images[name] = { status: "needs-review", reviewedAt: null };
         reviewStateChanged = true;
@@ -822,8 +832,7 @@ export function createFileSystemAdapter(input: {
     if (reviewQueue.size || reviewStateChanged) drainReviewQueue().catch((error: unknown) => console.warn("Background label review failed.", error));
   }
 
-  /** Queues images never checked and images whose files changed since their check (reopening reviewed ones). */
-  /** Returns how many checked images changed since their check. */
+  /** Queues images never checked and images whose files changed since their check (reopening reviewed ones); returns how many checked images changed. */
   const queueOutdatedReviews = async (): Promise<number> => {
     const { session } = input.state;
     const generation = reviewGeneration;
@@ -835,8 +844,27 @@ export function createFileSystemAdapter(input: {
     const changed = checked.filter((file, index) => reviewStamps.has(file.name) && stamps[index] !== reviewStamps.get(file.name)).map((file) => file.name);
     queueReview(files.filter((file) => !isChecked(file.name)).map((file) => file.name));
     queueReview(changed, true);
+    // Their label rows are recounted with the other uncounted ones once the checks are done.
+    changed.forEach((name) => session.imageWorkflowStatus.delete(name));
     return changed.length;
   };
+
+  /**
+   * Lets folder switches and saves finish first (their results decide what is current), then waits for an idle
+   * moment, so the labels they loaded are drawn before background review work reads other files.
+   */
+  async function afterOperationsWhenIdle(): Promise<void> {
+    // An operation started while waiting (a label folder switch, say) is waited for too.
+    for (let chain = operationChain; ; chain = operationChain) {
+      await chain.catch(() => undefined);
+      await new Promise<void>((resolve) => {
+        const idle = Reflect.get(globalThis, "requestIdleCallback") as ((callback: () => void, options: { timeout: number }) => number) | undefined;
+        if (idle) idle(() => resolve(), { timeout: 500 });
+        else resolve();
+      });
+      if (chain === operationChain) return;
+    }
+  }
 
   /** Runs the queued checks until the queue is empty. False when the user stopped it. */
   function drainReviewQueue(show = false): Promise<boolean> {
@@ -844,17 +872,31 @@ export function createFileSystemAdapter(input: {
     if (reviewRun) return reviewRun;
     const run = (async () => {
       try {
+        // Images queued while the list is counted join this run (a drain call meanwhile returns it), so loop again.
+        let counted = true;
         do {
-          // Let folder switches and saves finish first (their results decide what is current), then wait for an
-          // idle moment so the labels they loaded are drawn before the check reads other files.
-          await operationChain.catch(() => undefined);
-          await new Promise<void>((resolve) => {
-            const idle = Reflect.get(globalThis, "requestIdleCallback") as ((callback: () => void, options: { timeout: number }) => number) | undefined;
-            if (idle) idle(() => resolve(), { timeout: 500 });
-            else resolve();
-          });
-          if (!await checkQueuedReviews()) return false;
-        } while (reviewQueue.size || reviewStateChanged);
+          do {
+            await afterOperationsWhenIdle();
+            if (!await checkQueuedReviews()) return false;
+          } while (reviewQueue.size || reviewStateChanged);
+          // The image list shows "…" for images whose labels were never counted: count them once the checks are done
+          // (one Rust call on the desktop app), so the list is complete without opening Review.
+          await afterOperationsWhenIdle();
+          const { imageFiles, imageWorkflowStatus } = input.state.session;
+          counted = true;
+          if (imageFiles.some((file) => !imageWorkflowStatus.has(file.name))) {
+            const controller = new AbortController();
+            reviewCountAbort = controller;
+            try {
+              await imageSessionService.refreshImageWorkflowStatus(controller.signal, reviewRowCounts);
+            } catch (error) {
+              if (!isOperationCancelledError(error)) throw error;
+              counted = false; // an operation or a switch stopped it
+            } finally {
+              if (reviewCountAbort === controller) reviewCountAbort = null;
+            }
+          }
+        } while (reviewQueue.size || reviewStateChanged || !counted);
         return true;
       } finally {
         reviewRun = null;
@@ -904,6 +946,7 @@ export function createFileSystemAdapter(input: {
   const checkQueuedReviews = async (): Promise<boolean> => {
     const generation = reviewGeneration;
     const startedAt = reviewEpoch;
+    const chain = operationChain;
     if (reviewStateChanged) {
       reviewStateChanged = false;
       await persistReviewState();
@@ -928,6 +971,13 @@ export function createFileSystemAdapter(input: {
       input.state.session.reviewFindings.set(name, finding);
       if (stamp) reviewStamps.set(name, stamp);
     };
+    // A queued operation (a switch, an image change) reads first: the rest waits in the queue for the drain.
+    const yieldToOperation = (index: number): boolean => {
+      if (generation !== reviewGeneration) return true; // another source: its own run checks it
+      if (chain === operationChain) return false;
+      files.slice(index).forEach((file) => reviewQueue.add(file.name));
+      return true;
+    };
     let worker: Worker | null = null;
     let workerError: Error | null = null;
     let pendingReject: ((reason: unknown) => void) | null = null;
@@ -943,6 +993,7 @@ export function createFileSystemAdapter(input: {
       for (const [index, imageFile] of files.entries()) {
         throwIfOperationCancelled(signal);
         if (generation !== reviewGeneration) return true;
+        if (!nativeFindings && yieldToOperation(index)) return true;
         const nativeFinding = nativeFindings?.[index];
         if (nativeFinding) {
           commit(imageFile.name, nativeFinding, stamps[index]);
@@ -953,7 +1004,11 @@ export function createFileSystemAdapter(input: {
         let yoloText = editedText ?? "";
         if (editedText === null && labelFolder) {
           try {
-            yoloText = await readTextFileByName(labelFolder, `${imageFileNameToBaseName(imageFile.name)}.txt`);
+            const labelFileName = `${imageFileNameToBaseName(imageFile.name)}.txt`;
+            const labelFile = await labelFolder.getFileHandle(labelFileName);
+            if (yieldToOperation(index)) return true; // the lookup is a round trip on the desktop app
+            yoloText = await readFileText(labelFile);
+            if (generation === reviewGeneration) reviewRowCounts.set(labelFileName, parseYoloRows(yoloText, 1, 1).length);
           } catch (error: unknown) {
             if (!isNotFoundError(error)) throw error;
           }
@@ -1345,12 +1400,7 @@ export function createFileSystemAdapter(input: {
           // Recheck all also recounts the image list's label rows, as opening the folder does.
           await imageSessionService.refreshImageWorkflowStatus();
           queueReview(input.state.session.imageFiles.map((file) => file.name));
-        } else {
-          const changed = await queueOutdatedReviews();
-          // Label rows for the image list: images not loaded yet, and files changed outside the app.
-          const { imageFiles, imageWorkflowStatus } = input.state.session;
-          if (changed || imageFiles.some((file) => !imageWorkflowStatus.has(file.name))) await imageSessionService.refreshImageWorkflowStatus();
-        }
+        } else await queueOutdatedReviews();
         return drainReviewQueue(true);
       },
 

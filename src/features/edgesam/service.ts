@@ -36,7 +36,8 @@ export function createEdgeSamService(workerFactory?: () => WorkerLike): EdgeSamS
     new URL("../../../workers/edgesam-worker.js", import.meta.url),
     { type: "module" }
   ) as unknown as WorkerLike);
-  let worker = createWorker();
+  // Created on the first request: loading ONNX Runtime at app start slowed every startup for a tool used only by AI Select.
+  let worker: WorkerLike | null = null;
   let nextId = 0;
   let terminated = false;
   let initialized: Promise<EdgeSamStatus> | null = null;
@@ -50,7 +51,7 @@ export function createEdgeSamService(workerFactory?: () => WorkerLike): EdgeSamS
     pending.clear();
   };
 
-  const bindWorker = (): void => {
+  const bindWorker = (worker: WorkerLike): void => {
     worker.onmessage = (event) => {
       const response = event.data;
       if (response.status) {
@@ -72,7 +73,13 @@ export function createEdgeSamService(workerFactory?: () => WorkerLike): EdgeSamS
       rejectPending(error);
     };
   };
-  bindWorker();
+  const getWorker = (): WorkerLike => {
+    if (!worker) {
+      worker = createWorker();
+      bindWorker(worker);
+    }
+    return worker;
+  };
 
   const request = <T>(operation: string, payload: Record<string, unknown> = {}, transfer: Transferable[] = []): Promise<T> => {
     if (terminated) return Promise.reject(new Error("EdgeSAM service disposed"));
@@ -80,7 +87,7 @@ export function createEdgeSamService(workerFactory?: () => WorkerLike): EdgeSamS
     const id = nextId;
     return new Promise<T>((resolve, reject) => {
       pending.set(id, { resolve, reject });
-      worker.postMessage({ id, operation, ...payload }, transfer);
+      getWorker().postMessage({ id, operation, ...payload }, transfer);
     });
   };
 
@@ -126,15 +133,15 @@ export function createEdgeSamService(workerFactory?: () => WorkerLike): EdgeSamS
       preparedImageKey = null;
       preparingImage = null;
       status = { ...status, imageCacheKey: null, phase: status.phase === "error" ? "error" : "idle" };
-      void request<void>("CLEAR").catch(() => undefined);
+      if (worker) void request<void>("CLEAR").catch(() => undefined);
     },
 
     dispose(): void {
       if (terminated) return;
       terminated = true;
       rejectPending(new Error("EdgeSAM service disposed"));
-      worker.postMessage({ id: 0, operation: "DISPOSE" });
-      worker.terminate();
+      worker?.postMessage({ id: 0, operation: "DISPOSE" });
+      worker?.terminate();
     },
 
     getStatus(): EdgeSamStatus {

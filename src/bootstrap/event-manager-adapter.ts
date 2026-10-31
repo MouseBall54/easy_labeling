@@ -415,10 +415,18 @@ export function createEventManagerAdapter(input: {
                 : "No saved items; empty library ready"
             );
 
-            activeStep = "matching";
-            input.uiManager.updateWorkspaceStandbyStep("matching", "loading", "Starting the matching engine");
-            await automationController.prepareMatchingEngine();
-            input.uiManager.updateWorkspaceStandbyStep("matching", "ready", "Matching engine ready");
+            // The matching engine (OpenCV.js in a worker) starts once the workspace is idle: waiting for it here kept
+            // the standby open for up to half a minute on a busy machine. Template matching waits for it, or retries, when used.
+            input.uiManager.updateWorkspaceStandbyStep("matching", "ready", "Starts in the background");
+            const controller = automationController;
+            const startMatchingEngine = (): void => {
+              controller.prepareMatchingEngine().catch((error: unknown) => {
+                input.uiManager.notify(`Template matching engine did not start (${error instanceof Error ? error.message : String(error)}). It retries when used.`, 6000);
+              });
+            };
+            const idle = Reflect.get(globalThis, "requestIdleCallback") as ((callback: () => void, options: { timeout: number }) => number) | undefined;
+            if (idle) idle(startMatchingEngine, { timeout: 3000 });
+            else globalThis.setTimeout(startMatchingEngine, 1000);
           } else {
             input.uiManager.updateWorkspaceStandbyStep("automation", "warning", "Automation UI unavailable");
             input.uiManager.updateWorkspaceStandbyStep("matching", "warning", "Matching engine unavailable");

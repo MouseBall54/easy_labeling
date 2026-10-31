@@ -393,7 +393,9 @@ describe("bootstrap/file-system-adapter", () => {
         expect(saved?.issues[0]?.type).toBe("empty-label");
         deliverLate(late);
         await vi.waitFor(() => expect(posted).toHaveBeenCalledTimes(2));
-        worker!.onmessage!({ data: { id: 1, result: { issues: [], highestSeverity: null } } });
+        // The save went first, so the second image is checked in a later pass under its own id.
+        const { id } = posted.mock.calls[1]![0] as { id: number };
+        worker!.onmessage!({ data: { id, result: { issues: [], highestSeverity: null } } });
         await expect(scan).resolves.toBe(true);
         expect(state.session.reviewFindings.get("first.jpg")).toBe(saved);
         expect(state.session.reviewFindings.get("second.jpg")).toEqual({ issues: [], highestSeverity: null });

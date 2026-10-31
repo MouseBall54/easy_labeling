@@ -96,29 +96,31 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
         Reflect.set(window, "fastPaintAt", 0);
         Reflect.set(window, "fastReadyAt", 0);
         Reflect.set(window, "fastStartedAt", performance.now());
-        const observer = new MutationObserver(() => {
-          if (!(document.getElementById("activeOperationPanel") as HTMLElement).hidden || document.getElementById("loading-overlay")!.classList.contains("show")) return;
-          if (document.getElementById("labelSourceTabs")?.getAttribute("data-active-index") !== String(source)) return;
-          if (Reflect.get(window, "__easyLabelingTestApi").getRectCount() !== 5000) return;
-          Reflect.set(window, "fastReadyAt", performance.now()); observer.disconnect();
-        });
-        observer.observe(document.body, { attributes: true, subtree: true });
+        // Polled rather than observed: the box count changes no DOM attribute, so an observer fired only on the next unrelated change.
+        // Ready counts only after the load was seen under way: until then the previous image still matches.
+        let started = false;
+        const ready = (): void => {
+          const busy = !(document.getElementById("activeOperationPanel") as HTMLElement).hidden || document.getElementById("loading-overlay")!.classList.contains("show")
+            || document.getElementById("labelSourceTabs")?.getAttribute("data-active-index") !== String(source)
+            || Reflect.get(window, "__easyLabelingTestApi").getRectCount() !== 5000;
+          started ||= busy;
+          if (busy || !started) setTimeout(ready, 5);
+          else Reflect.set(window, "fastReadyAt", performance.now());
+        };
+        setTimeout(ready, 5);
         if (selector) (document.querySelector(selector) as HTMLElement).click();
         else document.dispatchEvent(new KeyboardEvent("keydown", { key: String(source+1), code: `Digit${source+1}`, ctrlKey: true, bubbles: true }));
       }, {source,selector});
       await page.waitForFunction(() => Reflect.get(window, "fastReadyAt") && Reflect.get(window, "fastPaintAt"), {timeout: 30_000});
       const values = await page.evaluate(() => ({ readyMs: Reflect.get(window, "fastReadyAt")-Reflect.get(window, "fastStartedAt"), paintMs: Reflect.get(window, "fastPaintAt")-Reflect.get(window, "fastStartedAt") }));
       timings.push({action,...values});
-      // Reads until the labels were on screen: the background review starts only afterwards.
+      // Reads until the labels were on screen (drawn, or the load finished if that came first): the background review starts only afterwards.
       const reads = await page.evaluate(() => (Reflect.get(window, "fastReads") as Array<{ name: string; at: number }>)
-        .filter(read => read.at <= Reflect.get(window, "fastReadyAt")).map(read => read.name));
+        .filter(read => read.at <= Math.min(Reflect.get(window, "fastReadyAt"), Reflect.get(window, "fastPaintAt"))).map(read => read.name));
       const labels = reads.filter(name => /(?:^|\/)(label|comparison)\/image-\d+\.txt$/.test(name));
       expect(labels.length).toBeGreaterThan(0);
-      if (!baseline) {
-        expect(labels.every(name => name.endsWith("/image-0.txt"))).toBe(true);
-        await expect(page.locator('[data-file-name="image-1.jpg"]')).toHaveAttribute("data-status", "detection-pending");
-        await expect(page.locator('[data-file-name="image-1.jpg"] [data-ui="image-box-count"]')).toHaveText("…");
-      }
+      // Other images' labels (and their counts in the image list) are read only after the current one is shown.
+      if (!baseline) expect(labels.every(name => name.endsWith("/image-0.txt"))).toBe(true);
       console.log(JSON.stringify({baseline,images,action,...values,labelsRead:labels.length}));
     };
     const geometry = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectGeometries().map(
@@ -154,7 +156,10 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
     await expect(page.locator("#activeOperationPanel")).toBeHidden({timeout: 120_000});
     const workerResults = await page.evaluate(() => Reflect.get(window, "fastWorkerResults").length);
     expect(workerResults).toBeGreaterThanOrEqual(images);
-    // Opening Review afterwards rechecks nothing (no file changed); it only counts the pending label rows.
+    // ...and the image list's box counts are filled in after those checks.
+    await expect(page.locator('[data-status="detection-pending"]')).toHaveCount(0, {timeout: 60_000});
+    expect(await page.locator('[data-ui="image-box-count"]').allTextContents()).toEqual(Array(images).fill(String(count)));
+    // Opening Review afterwards rechecks nothing (no file changed).
     await page.evaluate(() => { Reflect.set(window, "fastReviewStartedAt", performance.now()); document.getElementById("taskReviewBtn")!.click(); });
     await expect(page.locator("#activeOperationPanel")).toBeHidden({timeout:30_000});
     await expect(page.locator('[data-status="detection-pending"]')).toHaveCount(0);

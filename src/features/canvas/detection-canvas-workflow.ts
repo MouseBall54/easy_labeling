@@ -50,13 +50,15 @@ const BOX_STROKE_WIDTH = 2;
  * Boxes keep the visible stroke inside those bounds: Fabric adds the stroke to the fill size
  * (getScaledWidth, getBoundingRect), so the fill is the stroke smaller and saving gives the same numbers back.
  * The stroke shrinks for boxes under 4 px; a box with no usable size (negative, NaN) gets none.
+ * Boxes skip Fabric's object cache: a cache canvas per box (256 px at least) made redraws of thousands of
+ * boxes take seconds.
  */
 export function boxRectGeometry(box: { x: number; y: number; width: number; height: number }): {
-  left: number; top: number; width: number; height: number; strokeWidth: number;
+  left: number; top: number; width: number; height: number; strokeWidth: number; objectCaching: false;
 } {
   const fit = Math.min(BOX_STROKE_WIDTH, box.width / 2, box.height / 2);
   const strokeWidth = fit > 0 ? fit : 0;
-  return { left: box.x, top: box.y, width: box.width - strokeWidth, height: box.height - strokeWidth, strokeWidth };
+  return { left: box.x, top: box.y, width: box.width - strokeWidth, height: box.height - strokeWidth, strokeWidth, objectCaching: false };
 }
 
 function hasTinySize(rect: FabricRectLike): boolean {
@@ -504,6 +506,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         stroke: color,
         strokeWidth: snapshot.strokeWidth ?? BOX_STROKE_WIDTH,
         strokeUniform: true,
+        objectCaching: false,
         selectable: isEditMode,
         hoverCursor: isEditMode ? "move" : "crosshair",
         annotationId: snapshot.annotationId,
@@ -579,7 +582,8 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           hoverCursor: mode === "draw" ? "crosshair" : "move"
         });
       });
-      shell.renderAll();
+      // One redraw per frame: a synchronous one per mode change took seconds with thousands of boxes.
+      canvas.requestRenderAll();
     },
 
     addLabelsFromYolo(yoloData: string, replaceExisting = false): void {
@@ -601,8 +605,6 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           hoverCursor: state.currentMode === "draw" ? "crosshair" : "move",
           annotationId: createAnnotationId(),
           labelClass: String(row.labelClass),
-          // Simple boxes do not need Fabric's minimum 256px object cache.
-          objectCaching: false,
           originalYolo: buildOriginalYolo(row)
         });
 

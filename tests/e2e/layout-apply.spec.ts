@@ -49,12 +49,13 @@ for (const count of [2, 600, 4000, 5000]) test(`both Layout Apply buttons restor
       return performance.now() - Reflect.get(window, "layoutApplyStartedAt");
     });
     expect(await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSelectedRectIds().length)).toBe(count);
+    // One assertion over all boxes: thousands of separate expect calls ran the 4000/5000-box cases past their time limit.
     const applied = (await geometry()).slice(count);
-    for (const [index, box] of applied.entries()) {
-      for (const key of ["left", "top", "width", "height"] as const) {
-        expect(box[key], `${entry} box ${index} ${key}`).toBeCloseTo(before[index]![key], 6);
-      }
-    }
+    const mismatches = applied.flatMap((box: Record<string, number>, index: number) => (["left", "top", "width", "height"] as const)
+      .filter((key) => !(Math.abs(box[key]! - before[index]![key]) < 5e-7))
+      .map((key) => `${entry} box ${index} ${key}: ${box[key]} vs ${before[index]![key]}`));
+    expect(applied).toHaveLength(count);
+    expect(mismatches).toEqual([]);
     if (entry === "popup") await page.locator("#layoutSetupModal .modal-footer").getByRole("button", { name: "Close", exact: true }).click();
     if (count === 5000 && entry === "main") {
       await page.screenshot({ path: "output/layout-bulk-5000-applied.png" });

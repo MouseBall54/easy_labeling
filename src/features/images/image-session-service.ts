@@ -84,7 +84,8 @@ export interface SaveLabelsResult {
 export interface ImageSessionService {
   selectImageFolder(imageFolderHandle: DirectoryHandleLike): Promise<SelectImageFolderResult>;
   listImageFiles(): Promise<FileHandleLike[]>;
-  refreshImageWorkflowStatus(signal?: AbortSignal): Promise<void>;
+  /** `knownCounts`: label rows per .txt file already counted (by the review check); only the rest are read. */
+  refreshImageWorkflowStatus(signal?: AbortSignal, knownCounts?: ReadonlyMap<string, number>): Promise<void>;
   loadImageAndLabels(imageFileHandle: FileHandleLike): Promise<void>;
   loadLabels(imageName: string, loadToken: number): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<SaveLabelsResult>;
@@ -283,19 +284,30 @@ export function createImageSessionService(
       return state.imageFiles;
     },
 
-    async refreshImageWorkflowStatus(signal?: AbortSignal): Promise<void> {
+    async refreshImageWorkflowStatus(signal?: AbortSignal, knownCounts?: ReadonlyMap<string, number>): Promise<void> {
       throwIfOperationCancelled(signal);
       const countInTs = async (): Promise<Map<string, number>> => {
         const counts = new Map<string, number>();
         const detectionAnnotationFileNames = await listFileNames(state.labelFolderHandle, (fileName) => fileName.endsWith(".txt"));
-        await Promise.all([...detectionAnnotationFileNames].map(async (fileName) => {
+        const count = async (fileName: string): Promise<void> => {
           if (!state.labelFolderHandle) {
             return;
           }
-          const yoloText = await readTextFileByName(state.labelFolderHandle, fileName);
+          const known = knownCounts?.get(fileName);
+          if (known !== undefined) {
+            counts.set(fileName, known);
+            return;
+          }
+          throwIfOperationCancelled(signal);
+          const fileHandle = await state.labelFolderHandle.getFileHandle(fileName);
+          throwIfOperationCancelled(signal); // the lookup is a round trip on the desktop app: check again before reading
+          const yoloText = await readFileText(fileHandle);
           throwIfOperationCancelled(signal);
           counts.set(fileName, parseYoloRows(yoloText, 1, 1).length);
-        }));
+        };
+        // A stoppable (background) count reads one file at a time, so stopping it leaves no reads in flight.
+        if (signal) for (const fileName of detectionAnnotationFileNames) await count(fileName);
+        else await Promise.all([...detectionAnnotationFileNames].map(count));
         return counts;
       };
       const detectionBoxCounts = await readDetectionBoxCountsNatively(state.labelFolderHandle) ?? await countInTs();

@@ -1821,10 +1821,9 @@ export function createUiManagerAdapter(input: {
           if (!panel.classList.contains("collapsed")) panel.querySelector<HTMLButtonElement>('[id^="collapse-"]')?.focus({ preventScroll: true });
         }, 300);
       }
+      // A resize redraws on its own when the size changed; an unchanged panel layout costs no redraw.
       const resizeCanvas = (): void => {
-        const canvasController = getCanvasController();
-        canvasController?.raw.resizeCanvas?.();
-        canvasController?.raw.renderAll?.();
+        getCanvasController()?.raw.resizeCanvas?.();
       };
       globalThis.setTimeout(resizeCanvas, 0);
       globalThis.setTimeout(resizeCanvas, 200);
