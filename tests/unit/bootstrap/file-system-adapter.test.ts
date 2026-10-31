@@ -28,6 +28,8 @@ class MockWritable implements WritableFileLike {
 class MockFileHandle implements FileHandleLike {
   readonly kind = "file" as const;
 
+  private modified = 1;
+
   constructor(public readonly name: string, private content: string | ArrayBuffer | Uint8Array) {}
 
   async getFile(): Promise<FileTextLike> {
@@ -36,6 +38,8 @@ class MockFileHandle implements FileHandleLike {
       : undefined;
     return {
       name: this.name,
+      size: typeof this.content === "string" ? this.content.length : this.content.byteLength,
+      lastModified: this.modified,
       text: async () => typeof this.content === "string" ? this.content : "",
       arrayBuffer: arrayBuffer ? async () => arrayBuffer : undefined
     };
@@ -44,6 +48,7 @@ class MockFileHandle implements FileHandleLike {
   async createWritable(): Promise<WritableFileLike> {
     return new MockWritable((data) => {
       this.content = data;
+      this.modified += 1;
     });
   }
 }
@@ -322,7 +327,7 @@ describe("bootstrap/file-system-adapter", () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  for (const action of ["save", "edit"] as const) it(`does not start an outdated review after ${action} while saving review settings`, async () => {
+  for (const action of ["save", "edit"] as const) it(`rechecks every image with new review rules when a ${action} lands while saving them`, async () => {
     const folder = new MockDirectoryHandle("labels").withFile(new MockFileHandle("first.txt", ""));
     const state = createInitialAppState();
     state.session.labelFolderHandle = folder as never;
@@ -339,12 +344,13 @@ describe("bootstrap/file-system-adapter", () => {
     const saving = action === "save" ? fileSystem.saveLabels() : Promise.resolve(markCurrentDocumentDirty(state));
     release();
     await Promise.all([updating, saving]);
-    expect(state.session.reviewFindings.size).toBe(0);
+    expect([...state.session.reviewFindings.keys()]).toEqual(["first.jpg"]);
+    expect(state.session.reviewFindings.get("first.jpg")?.issues[0]?.type).toBe("empty-label");
     expect(state.session.reviewState.settings).toEqual(settings);
     const record = await (await (await getDirectory(".easy-labeling")).getFileHandle("review-state.json")).getFile();
     expect(JSON.parse(await record.text()).settings).toEqual(settings);
   });
-  for (const cancelWith of ["stop", "save", "edit", "workflow"] as const) it(`discards pending worker results after ${cancelWith} and keeps current labels usable`, async () => {
+  for (const interruptWith of ["stop", "save"] as const) it(`keeps findings consistent when a check is interrupted by ${interruptWith}`, async () => {
     const posted = vi.fn();
     const terminated = vi.fn();
     let worker: TestWorker;
@@ -373,14 +379,25 @@ describe("bootstrap/file-system-adapter", () => {
       const scan = fileSystem.refreshReviewFindings();
       await vi.waitFor(() => expect(posted).toHaveBeenCalledOnce());
       const deliverLate = worker!.onmessage!;
-      if (cancelWith === "stop") deps.operations[0]!.cancel();
-      else if (cancelWith === "save") await fileSystem.saveLabels();
-      else events.dispatchEvent(new Event(`easy-labeling:${cancelWith === "edit" ? "document-status-change" : "workflow-change"}`));
-      await scan;
-      const current = state.session.reviewFindings;
-      deliverLate({ data: { id: 0, result: { issues: [{ type: "missing-class" }], highestSeverity: "warning" } } });
-      expect(state.session.reviewFindings).toBe(current);
-      expect(state.session.reviewFindings.has("second.jpg")).toBe(false);
+      const late = { data: { id: 0, result: { issues: [{ type: "missing-class" }], highestSeverity: "warning" } } };
+      if (interruptWith === "stop") {
+        deps.operations[0]!.cancel();
+        await expect(scan).resolves.toBe(false);
+        deliverLate(late);
+        expect(state.session.reviewFindings.get("first.jpg")).toEqual({ issues: [], highestSeverity: null });
+        expect(state.session.reviewFindings.has("second.jpg")).toBe(false);
+      } else {
+        // The save's own check of the open image is newer than the result still on its way.
+        await fileSystem.saveLabels();
+        const saved = state.session.reviewFindings.get("first.jpg");
+        expect(saved?.issues[0]?.type).toBe("empty-label");
+        deliverLate(late);
+        await vi.waitFor(() => expect(posted).toHaveBeenCalledTimes(2));
+        worker!.onmessage!({ data: { id: 1, result: { issues: [], highestSeverity: null } } });
+        await expect(scan).resolves.toBe(true);
+        expect(state.session.reviewFindings.get("first.jpg")).toBe(saved);
+        expect(state.session.reviewFindings.get("second.jpg")).toEqual({ issues: [], highestSeverity: null });
+      }
       expect(terminated).toHaveBeenCalled();
       expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
       await expect((await first.getFile()).text()).resolves.toBe("");
@@ -455,6 +472,76 @@ describe("bootstrap/file-system-adapter", () => {
       expect(state.session.reviewFindings.get(image.name)?.issues[0]?.type).toBe("empty-label");
     } finally { vi.unstubAllGlobals(); }
   });
+  describe("incremental review", () => {
+    class TestImage {
+      width = 100;
+      height = 100;
+      naturalWidth = 100;
+      naturalHeight = 100;
+      src = "";
+      async decode() {}
+    }
+    const setup = () => {
+      const labels = { a: new MockFileHandle("a.txt", "0 0.5 0.5 0.5 0.5"), b: new MockFileHandle("b.txt", "0 0.5 0.5 0.5 0.5") };
+      const folder = new MockDirectoryHandle("labels").withFile(labels.a).withFile(labels.b);
+      const state = createInitialAppState();
+      state.session.labelFolderHandle = folder as never;
+      state.session.imageFiles = [new MockFileHandle("a.png", ""), new MockFileHandle("b.png", "")] as never;
+      const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+      // Changes a.txt without touching its stamp: a recheck of a.png would see an outside box.
+      const trapA = () => Reflect.set(labels.a, "content", "0 1.5 0.5 0.5 0.5");
+      return { labels, state, fileSystem, trapA };
+    };
+
+    it("rechecks only the images automation wrote and reopens them if reviewed", async () => {
+      vi.stubGlobal("Image", TestImage);
+      try {
+        const { state, fileSystem, trapA } = setup();
+        await expect(fileSystem.refreshReviewFindings()).resolves.toBe(true);
+        expect(state.session.reviewFindings.get("a.png")?.issues).toEqual([]);
+        await fileSystem.setReviewImageStatus("a.png", "reviewed");
+        await fileSystem.setReviewImageStatus("b.png", "reviewed");
+        trapA();
+        await fileSystem.writeDetectionLabels("b.png", "");
+        await expect(fileSystem.refreshReviewFindings()).resolves.toBe(true);
+        expect(state.session.reviewFindings.get("b.png")?.issues[0]?.type).toBe("empty-label");
+        expect(state.session.reviewFindings.get("a.png")?.issues).toEqual([]);
+        expect(state.session.reviewState.images["b.png"]?.status).toBe("needs-review");
+        expect(state.session.reviewState.images["a.png"]?.status).toBe("reviewed");
+      } finally { vi.unstubAllGlobals(); }
+    });
+
+    it("finds label files changed outside the app by their stamps", async () => {
+      vi.stubGlobal("Image", TestImage);
+      try {
+        const { labels, state, fileSystem } = setup();
+        await fileSystem.refreshReviewFindings();
+        await fileSystem.setReviewImageStatus("a.png", "reviewed");
+        await fileSystem.setReviewImageStatus("b.png", "reviewed");
+        await (await labels.a.createWritable()).write("0 1.5 0.5 0.5 0.5");
+        await fileSystem.refreshReviewFindings();
+        expect(state.session.reviewFindings.get("a.png")?.issues[0]?.type).toBe("out-of-bounds");
+        expect(state.session.reviewState.images["a.png"]?.status).toBe("needs-review");
+        expect(state.session.reviewState.images["b.png"]?.status).toBe("reviewed");
+      } finally { vi.unstubAllGlobals(); }
+    });
+
+    it("rechecks every image on request, keeping review statuses", async () => {
+      vi.stubGlobal("Image", TestImage);
+      try {
+        const { state, fileSystem, trapA } = setup();
+        await fileSystem.refreshReviewFindings();
+        await fileSystem.setReviewImageStatus("a.png", "reviewed");
+        trapA();
+        await fileSystem.refreshReviewFindings();
+        expect(state.session.reviewFindings.get("a.png")?.issues).toEqual([]);
+        await fileSystem.refreshReviewFindings({ all: true });
+        expect(state.session.reviewFindings.get("a.png")?.issues[0]?.type).toBe("out-of-bounds");
+        expect(state.session.reviewState.images["a.png"]?.status).toBe("reviewed");
+      } finally { vi.unstubAllGlobals(); }
+    });
+  });
+
   it("rejects cleanup when a queued label-folder switch changed the confirmed target", async () => {
     const state = createInitialAppState();
     const confirmed = new MockDirectoryHandle("confirmed");

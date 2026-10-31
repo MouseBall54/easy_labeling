@@ -695,7 +695,7 @@ export function createEventManagerAdapter(input: {
       };
       const checkLabelFilters = (): void => {
         renderLists();
-        if (input.state.view.imageStatusFilter !== "all") runAsync(() => input.fileSystem.refreshReviewFindings());
+        if (input.state.view.imageStatusFilter !== "all") runAsync(async () => { await input.fileSystem.refreshReviewFindings(); });
       };
 
       elements.appBrand.addEventListener("click", (event) => {
@@ -869,9 +869,7 @@ export function createEventManagerAdapter(input: {
         const folder = input.state.session.labelFolderHandle;
         const filter = input.state.view.reviewFilter;
         runAsync(async () => {
-          const previousFindings = input.state.session.reviewFindings;
-          await input.fileSystem.refreshReviewFindings();
-          if (previousFindings === input.state.session.reviewFindings) return;
+          if (!await input.fileSystem.refreshReviewFindings()) return;
           if (folder !== input.state.session.labelFolderHandle || input.state.session.workflow !== "detection" || input.documentRef?.querySelector(".app-workspace")?.getAttribute("data-active-task") !== "review") return;
           if (input.state.session.imageFiles.some(file => !input.state.session.reviewFindings.has(file.name))) return;
           if (filter === input.state.view.reviewFilter) input.uiManager.setActiveTask?.("review");
@@ -1139,16 +1137,14 @@ export function createEventManagerAdapter(input: {
       rescanReviewButton?.addEventListener("click", () => {
         if (input.state.session.workflow !== "detection" || !input.state.session.imageFiles.length) return;
         runExclusive("rescan-review", async () => {
-          const findings = input.state.session.reviewFindings;
-          await input.fileSystem.refreshReviewFindings();
-          if (findings !== input.state.session.reviewFindings) input.uiManager.notify("Review rechecked. Current unsaved edits are included.");
+          if (await input.fileSystem.refreshReviewFindings({ all: true })) input.uiManager.notify("Review rechecked. Current unsaved edits are included.");
         }, rescanReviewButton);
       });
       if (elements.reviewFilterSelect) {
         elements.reviewFilterSelect.addEventListener("change", () => {
           input.state.view.reviewFilter = elements.reviewFilterSelect.value as typeof input.state.view.reviewFilter;
           input.uiManager.renderImageList();
-          if (input.state.view.reviewFilter !== "all") runAsync(() => input.fileSystem.refreshReviewFindings());
+          if (input.state.view.reviewFilter !== "all") runAsync(async () => { await input.fileSystem.refreshReviewFindings(); });
         });
         elements.markReviewedBtn.addEventListener("click", () => {
           const imageName = input.state.session.currentImageFile?.name;

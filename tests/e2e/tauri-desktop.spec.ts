@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
@@ -269,7 +269,7 @@ test("Tauri Processed view is computed natively, matches the TS result and keeps
 });
 
 /**
- * Runs the folder review on the native path, then with the native review and label scan switched off;
+ * Rechecks the whole folder on the native path, then with the native review and label scan switched off;
  * returns both runs' findings and image statuses (sorted JSON) and times.
  */
 async function reviewBothWays(page: Page) {
@@ -278,7 +278,7 @@ async function reviewBothWays(page: Page) {
     const sorted = (record: Record<string, unknown>) => JSON.stringify(Object.keys(record).sort().map((name) => [name, record[name]]));
     const run = async () => {
       const started = performance.now();
-      await api.refreshReviewFindings();
+      await api.refreshReviewFindings({ all: true });
       const ms = performance.now() - started;
       return { ms, json: sorted(api.getReviewFindings()), statuses: sorted(api.getImageWorkflowStatuses()) };
     };
@@ -350,6 +350,10 @@ for (const format of ["tif", "png"] as const) {
     const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
     const dataset = path.join(sandbox, "review");
     await writeReviewDataset(dataset, { images: 60, boxes: 5000, format });
+    // A whole second survives utimes exactly (a restored millisecond time can come back 1 ms off).
+    const trap = path.join(dataset, "label", "img_003.txt");
+    const trapTime = new Date("2024-01-01T00:00:00Z");
+    await utimes(trap, trapTime, trapTime);
     const app = await launchDesktop(sandbox, [dataset]);
     try {
       const { page } = app;
@@ -389,8 +393,34 @@ for (const format of ["tif", "png"] as const) {
       const { native, ts } = await reviewBothWays(page);
       expect(native.json).toBe(ts.json);
       expect(native.statuses).toBe(ts.statuses);
-      expect(errors).toEqual([]);
       console.log(`60 ${format} x 5,000 boxes review: native ${native.ms.toFixed(0)} ms, TS ${ts.ms.toFixed(0)} ms; cancelled 600-image job after ${stopped.ms.toFixed(0)} ms (${stopped.progress?.done}/600 done at cancel)`);
+
+      // Edited outside the app: the Review task rechecks only img_007 (new stamp). img_003 changes too but
+      // keeps its size and time, so it must keep its old finding until a full recheck.
+      await writeFile(trap, (await readFile(trap, "utf8")).replace(/^0 /, "9 "));
+      await utimes(trap, trapTime, trapTime);
+      await writeFile(path.join(dataset, "label", "img_007.txt"), "0 0.5 0.5 0.1 0.1\n");
+      const incremental = await page.evaluate(async (format) => {
+        const api = Reflect.get(window, "__easyLabelingTestApi");
+        const trapFinding = () => JSON.stringify(api.getReviewFindings()[`img_003.${format}`]);
+        const before = trapFinding();
+        Reflect.set(window, "easyLabelingNativeTrace", []);
+        const started = performance.now();
+        await api.refreshReviewFindings();
+        const ms = performance.now() - started;
+        const trace = [...Reflect.get(window, "easyLabelingNativeTrace") as string[]];
+        const kept = trapFinding() === before;
+        const changed = api.getReviewFindings()[`img_007.${format}`];
+        const fullStarted = performance.now();
+        await api.refreshReviewFindings({ all: true });
+        return { ms, fullMs: performance.now() - fullStarted, trace, kept, changed, trapRechecked: trapFinding() !== before };
+      }, format);
+      expect(incremental.trace).toEqual(expect.arrayContaining(["review_stamps", "review_folder"]));
+      expect(incremental.kept).toBe(true);
+      expect(incremental.changed).toEqual({ issues: [], highestSeverity: null });
+      expect(incremental.trapRechecked).toBe(true);
+      expect(errors).toEqual([]);
+      console.log(`60 ${format} x 5,000 boxes, one label file changed: Review ${incremental.ms.toFixed(0)} ms, full recheck ${incremental.fullMs.toFixed(0)} ms`);
     } finally {
       await app.close();
       await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });

@@ -37,8 +37,10 @@ interface TestApi {
   }>;
   getSelectedRectIds(): string[];
   getReviewSummary(): { minimumBoxSizePx: number; findingCount: number };
-  /** Runs the whole-folder label review (the Review task's check). */
-  refreshReviewFindings(): Promise<void>;
+  /** The Review task's check: images never checked or changed since their check. False when stopped. */
+  refreshReviewFindings(options?: { all?: boolean }): Promise<boolean>;
+  /** Writes an image's label file the way automation batches do (queues its review). */
+  writeDetectionLabelsForTest(imageName: string, yolo: string): Promise<void>;
   getReviewFindings(): Record<string, unknown>;
   /** Per-image label/mask status behind the image list (box counts included). */
   getImageWorkflowStatuses(): Record<string, unknown>;
@@ -226,7 +228,8 @@ function bootstrapBrowserRuntime(): void {
     },
     getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
     getSuperResolutionStatus: () => runtimeCanvasController.getSuperResolutionStatus(),
-    refreshReviewFindings: () => (appResult.app.fileSystem as RuntimeFileSystem).refreshReviewFindings(),
+    refreshReviewFindings: (options?: { all?: boolean }) => (appResult.app.fileSystem as RuntimeFileSystem).refreshReviewFindings(options),
+    writeDetectionLabelsForTest: (imageName: string, yolo: string) => (appResult.app.fileSystem as RuntimeFileSystem).writeDetectionLabels(imageName, yolo),
     getReviewFindings: () => Object.fromEntries(appResult.app.state.session.reviewFindings),
     getImageWorkflowStatuses: () => Object.fromEntries(appResult.app.state.session.imageWorkflowStatus),
     decodeImageForTest: async (name: string) => {

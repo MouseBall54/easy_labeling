@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::fmt;
 use std::io::{BufReader, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 pub struct FolderImage {
     /// File name, which names the label file (`imageFileNameToBaseName` + ".txt").
@@ -96,6 +97,28 @@ pub fn label_row_counts(folder: &Path) -> Result<Vec<(String, usize)>, ReviewErr
         .collect()
 }
 
+/// Modification time (ms since the Unix epoch, as `File.lastModified`) and size of a file; None when
+/// it is missing or unreadable.
+pub type FileStamp = Option<(f64, u64)>;
+
+fn file_stamp(path: &Path) -> FileStamp {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_secs_f64() * 1000.0).unwrap_or(0.0);
+    Some((modified, metadata.len()))
+}
+
+/// Stamps of each image's label file and image file, in `images` order: the Review task rechecks only
+/// images whose stamps changed since their last check.
+pub fn review_stamps(label_folder: Option<&Path>, images: &[FolderImage]) -> Vec<(FileStamp, FileStamp)> {
+    images
+        .par_iter()
+        .map(|image| {
+            let label = label_folder.and_then(|folder| file_stamp(&folder.join(format!("{}.txt", image_base_name(&image.name)))));
+            (label, file_stamp(&image.path))
+        })
+        .collect()
+}
+
 /// Findings in `images` order (None: decode that image to learn its size). Stops with
 /// `ReviewError::Cancelled` once `cancelled` returns true; `advance` runs after each image.
 pub fn review_images(
@@ -171,6 +194,28 @@ mod tests {
         assert_eq!(findings[3], Some(inspect_detection_labels("", 1.0, 1.0, &settings)), "edited text wins over the file");
         assert_eq!(advanced.load(Ordering::Relaxed), 4);
         assert_eq!(review_images(Some(&labels), &images, &settings, || true, || {}), Err(ReviewError::Cancelled));
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn stamps_change_with_the_label_or_image_file() {
+        let folder = std::env::temp_dir().join(format!("el-core-review-stamps-{}", std::process::id()));
+        let labels = folder.join("label");
+        std::fs::create_dir_all(&labels).expect("temp folder");
+        std::fs::write(folder.join("a.png"), png_header(10, 10)).expect("write");
+        std::fs::write(labels.join("a.txt"), "0 0.5 0.5 0.1 0.1\n").expect("write");
+        let images = [
+            FolderImage { name: "a.png".into(), path: folder.join("a.png"), edited_text: None },
+            FolderImage { name: "b.png".into(), path: folder.join("b.png"), edited_text: None },
+        ];
+        let before = review_stamps(Some(&labels), &images);
+        assert!(before[0].0.is_some() && before[0].1.is_some());
+        assert_eq!(before[1], (None, None), "missing files have no stamp");
+        assert_eq!(review_stamps(None, &images)[0].0, None, "no label folder, no label stamp");
+        std::fs::write(labels.join("a.txt"), "0 0.5 0.5 0.1 0.1\n1 0.5 0.5 0.1 0.1\n").expect("write");
+        let after = review_stamps(Some(&labels), &images);
+        assert_ne!(after[0].0, before[0].0, "a longer label file changes its stamp");
+        assert_eq!(after[0].1, before[0].1);
         let _ = std::fs::remove_dir_all(&folder);
     }
 }

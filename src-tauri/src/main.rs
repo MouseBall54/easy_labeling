@@ -558,6 +558,7 @@ fn main() {
             jobs::job_cancel,
             review::review_folder,
             review::label_row_counts,
+            review::review_stamps,
             tiff_image::tiff_bmp,
             tiff_image::tiff_bmp_shared,
             tiff_image::tiff_gray,

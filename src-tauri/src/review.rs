@@ -4,7 +4,7 @@
 
 use crate::jobs::{Job, CANCELLED};
 use el_core::review::{ReviewFinding, ReviewSettings};
-use el_core::review_folder::{review_images, FolderImage, ReviewError};
+use el_core::review_folder::{review_images, FileStamp, FolderImage, ReviewError};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -39,6 +39,25 @@ pub async fn review_folder(request: ReviewFolderRequest) -> Result<Vec<Option<Re
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewStampsRequest {
+    label_folder: Option<String>,
+    images: Vec<ReviewImage>,
+}
+
+/// Label and image file stamps per image, so the Review task rechecks only images whose files changed.
+#[tauri::command]
+pub async fn review_stamps(request: ReviewStampsRequest) -> Result<Vec<(FileStamp, FileStamp)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let images: Vec<FolderImage> =
+            request.images.into_iter().map(|image| FolderImage { name: image.name, path: PathBuf::from(image.path), edited_text: None }).collect();
+        el_core::review_folder::review_stamps(request.label_folder.map(PathBuf::from).as_deref(), &images)
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Label rows per `.txt` file of a label folder, for the image list's status and filters.
