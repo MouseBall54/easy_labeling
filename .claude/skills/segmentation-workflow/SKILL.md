@@ -7,7 +7,7 @@ description: >
   mask.png + .seg.json save format, or format import/export (COCO, LabelMe,
   YOLO-seg). Covers src/features/segmentation/*.ts and
   src/domain/annotations/segmentation-*.ts. Not for Detection boxes (see
-  detection-workflow) or EdgeSAM/super-resolution AI models themselves (see
+  detection-workflow) or the EdgeSAM AI model itself (see
   ai-preprocessing).
 ---
 
@@ -19,8 +19,8 @@ description: >
 (~2500 lines) is the big orchestrator implementing the same `CanvasController`
 interface as detection. It owns the `SegmentationDocument`, several Fabric
 overlay layers (mask/selection/smart-preview/superpixel), the stroke/polygon/
-smart-grow/AI-select gesture state machines, and all super-resolution/
-preprocessing image-source plumbing. Detection-only controller methods
+smart-grow/AI-select gesture state machines, and the Original/Processed
+image-source plumbing. Detection-only controller methods
 (`captureBoxLayout`, `applyDetectionBoxes`, etc.) **throw** when called here
 — detection and segmentation implement one shared interface but are
 mutually exclusive under the hood.
@@ -73,31 +73,24 @@ Segmentation data flow.
 
 ## Working image / preprocessing (multi-source model)
 
-Three **independent** image-source settings can each point at a different
-processed/SR version of the same image simultaneously:
-`viewSource` (what's displayed), `edgeSamInputSource`, `superpixelInputSource`
-— each one of `original | original-processed | sr-roi | sr-roi-processed`.
+Three image-source settings can each point at the Original or the Processed
+image: `viewSource` (what's displayed, `original | processed`; the toolbar
+toggle `#canvasViewToggleBtn` and Q switch it), `edgeSamInputSource` and
+`superpixelInputSource` (`original | original-processed`). Switching the view
+moves both inputs along; each input can then be set on its own.
 This is easy to get confused about ("what pixels is the AI actually seeing"),
 so check which source setting is active before debugging AI-select or
 superpixel oddities.
 
-- `working-image.ts` — pure coordinate-space conversion between "original"
-  image space and a "working image" space (used when a super-resolution ROI
-  crop has a different resolution than the original), via
-  `WorkingImageDescriptor.originalRoi` + scale factors.
+- `working-image.ts` — coordinate conversion between "original" image space
+  and a "working image" space (`WorkingImageDescriptor`). Every working image
+  is full-size now (the super-resolution ROI that needed scale/ROI mapping was
+  removed in v2.30.0), so the mappings are identities in practice.
 - `preprocessing.ts` — `SegmentationPreprocessMode = "original" | "edge" |
   "edge-blend"` plus tone and SEM/TEM grayscale filters (median, destripe,
   flattening, diffusion, CLAHE, auto levels) and presets; also feeds the
   Detection Processed view and Refine. Details in the `image-preprocessing`
   skill.
-- Pipeline order (`processingOrder`, Processed panel chips + swap button):
-  with the AI step on, `ai-first` processes the AI ROI, `processed-first` runs
-  AI on the ROI of the processed image (`ensureProcessedFirstImage`, cache key
-  `...:sr:<mode>:pre:<preprocessing key>`). The combined source is still
-  `sr-roi-processed`; the plain `sr-roi` and `original-processed` sources do
-  not change. After a processing change the previous Processed -> AI result
-  stays in use and `isSegmentationProcessedAiStale()` is true until
-  `rerunSegmentationProcessedAi()`; the model never re-runs on its own.
 
 ## Presets (`preset-service.ts` / `preset-codec.ts`)
 

@@ -74,7 +74,7 @@ querying. When adding e2e coverage for new state, prefer extending this API
 over scraping the DOM. Spec files map roughly 1:1 to feature areas:
 `detection-bulk-operation.spec.ts`, `segmentation-draw.spec.ts`,
 `segmentation-preprocessing-panel.spec.ts`, `automation-workflow.spec.ts`,
-`super-resolution-runtime.spec.ts`, `class-file-profile.spec.ts`,
+`class-file-profile.spec.ts`,
 `layout-management.spec.ts`, `review-queue.spec.ts`,
 `mobile-unsupported.spec.ts`, `unsupported-env.spec.ts`, etc.
 
@@ -133,8 +133,8 @@ offline installer bundled (`webviewInstallMode: offlineInstaller`, so it
 installs without internet), and the updater feed. `beforeBuildCommand` runs
 `npm run build` and `scripts/stage-tauri-frontend.mjs`, which copies
 `index.html`, `privacy*.html`, `assets/`, `css/`, `dist/`, `vendor/`,
-`workers/`, `resources/` into `src-tauri/frontend/` (all 6 super-resolution
-models ship; see ai-preprocessing skill). The sample dataset and the YOLOE
+`workers/`, `resources/` into `src-tauri/frontend/` (the EdgeSAM models; see
+ai-preprocessing skill). The sample dataset and the YOLOE
 models ship as separate bundle resources (`sample/`, `yoloe26/`).
 `src-tauri/tauri.yoloe.conf.json` overrides name, identifier, version, feed
 and adds the models. `scripts/release-tauri.mjs` builds both, signs the

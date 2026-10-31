@@ -1,6 +1,6 @@
 import type { CanvasPoint } from "../../types/labels.js";
 
-export type WorkingImageSource = "original" | "original-processed" | "sr-roi" | "sr-roi-processed";
+export type WorkingImageSource = "original" | "original-processed";
 
 export interface WorkingImageDescriptor {
   source: WorkingImageSource;

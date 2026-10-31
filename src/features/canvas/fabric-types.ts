@@ -21,7 +21,6 @@ export interface FabricSettable {
 export interface FabricObjectLike extends FabricSettable {
   type: string;
   annotationId?: string;
-  _isSrRoiOverlay?: boolean;
   left: number;
   top: number;
   width: number;
@@ -169,7 +168,6 @@ export interface FabricImageLike extends FabricObjectLike {
   element?: unknown;
   _isBaseImage?: boolean;
   _isSegmentationOverlay?: boolean;
-  _isSrRoiPreview?: boolean;
   setElement?(element: unknown): void;
 }
 
@@ -212,7 +210,7 @@ function normalizeFabricType(object: { type?: string }): string {
 }
 
 export function isRectObject(object: FabricObjectLike): object is FabricRectLike {
-  return normalizeFabricType(object) === "rect" && !object._isSrRoiOverlay;
+  return normalizeFabricType(object) === "rect";
 }
 
 export function isActiveSelectionObject(object: FabricObjectLike): object is FabricActiveSelectionLike {

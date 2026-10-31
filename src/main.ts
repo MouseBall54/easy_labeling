@@ -67,15 +67,6 @@ interface TestApi {
     encoderRuns: number;
     message: string | null;
   } | null;
-  getSuperResolutionStatus(): import("./features/super-resolution/types.js").SuperResolutionStatus;
-  getSegmentationSrRoi(): { x: number; y: number; width: number; height: number } | null;
-  getSegmentationSrPreviewInfo(): {
-    mode: string;
-    originalRoi: { x: number; y: number; width: number; height: number };
-    workingWidth: number;
-    workingHeight: number;
-    visible: boolean;
-  } | null;
   getSegmentationViewSource(): string | null;
   getSegmentationPreprocessingConfig(): Record<string, unknown> | null;
   /** The element of the base image object (the shown Original or Processed image). */
@@ -84,7 +75,6 @@ interface TestApi {
   getSegmentationSuperpixelInputSource(): string | null;
   /** The superpixels the Segmentation superpixel tool uses now (labels, boundaries, regions). */
   getSegmentationSuperpixels(): import("./features/segmentation/superpixels.js").SuperpixelResult | null;
-  isSegmentationSrRoiSelecting(): boolean;
   getCanvasViewportTransform(): [number, number, number, number, number, number];
   getSegmentationMaskBounds(): {
     left: number;
@@ -227,7 +217,6 @@ function bootstrapBrowserRuntime(): void {
       );
     },
     getCurrentImageName: () => appResult.app.state.session.currentImageFile?.name ?? "",
-    getSuperResolutionStatus: () => runtimeCanvasController.getSuperResolutionStatus(),
     refreshReviewFindings: (options?: { all?: boolean }) => (appResult.app.fileSystem as RuntimeFileSystem).refreshReviewFindings(options),
     writeDetectionLabelsForTest: (imageName: string, yolo: string) => (appResult.app.fileSystem as RuntimeFileSystem).writeDetectionLabels(imageName, yolo),
     getReviewFindings: () => Object.fromEntries(appResult.app.state.session.reviewFindings),
@@ -312,8 +301,6 @@ function bootstrapBrowserRuntime(): void {
     },
     getSegmentationSummary: () => runtimeCanvasController.raw.getSegmentationSummary?.() ?? null,
     getEdgeSamStatus: () => runtimeCanvasController.raw.getEdgeSamStatus?.() ?? null,
-    getSegmentationSrRoi: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationSrRoi?.() ?? null,
-    getSegmentationSrPreviewInfo: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationSrPreviewInfo?.() ?? null,
     getSegmentationViewSource: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationViewSource?.() ?? null,
     getSegmentationPreprocessingConfig: () => ({ ...(runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).getSegmentationPreprocessingConfig?.() }),
     getCanvasBackgroundElement: () => {
@@ -324,7 +311,6 @@ function bootstrapBrowserRuntime(): void {
     getSegmentationEdgeSamInputSource: () => runtimeCanvasController.raw.getSegmentationEdgeSamInputSource?.() ?? null,
     getSegmentationSuperpixelInputSource: () => runtimeCanvasController.raw.getSegmentationSuperpixelInputSource?.() ?? null,
     getSegmentationSuperpixels: () => runtimeCanvasController.raw.getSegmentationSuperpixelResult?.() ?? null,
-    isSegmentationSrRoiSelecting: () => (runtimeCanvasController.preprocessing ?? runtimeCanvasController.raw).isSegmentationSrRoiSelecting?.() ?? false,
     getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
     getSegmentationMaskBounds: () => {
       const snapshot = runtimeCanvasController.raw.getSegmentationDocumentSnapshot?.();

@@ -7,7 +7,7 @@ description: >
   preprocessing presets, cache keys, and every consumer of processed pixels (canvas Processed view,
   Refine, EdgeSAM, superpixels, automation). Covers src/features/segmentation/preprocessing.ts,
   gray-filters.ts, preprocessing-presets.ts and the preprocess handlers in
-  event-manager-adapter.ts. Not for super-resolution or EdgeSAM models (ai-preprocessing).
+  event-manager-adapter.ts. Not for the EdgeSAM model (ai-preprocessing).
 ---
 
 # Image preprocessing

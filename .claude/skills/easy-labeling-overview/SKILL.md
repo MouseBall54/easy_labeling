@@ -34,7 +34,7 @@ desktop app via Tauri (WebView2). Default docs/UI language is Korean
 | `refine-edges` | Refine: snapping box edges to image boundaries, Refine Lab, refine presets, the refine worker |
 | `image-preprocessing` | The Processed image: SEM/TEM filters, tone, edge modes, preprocessing presets, cache keys |
 | `automation-template-matching` | Template capture, OpenCV matching (accurate/fast), NMS candidates, box layouts, batch labeling across many images |
-| `ai-preprocessing` | EdgeSAM click/box-prompt segmentation, super-resolution ROI upscale/enhance, ONNX worker plumbing |
+| `ai-preprocessing` | EdgeSAM click/box-prompt segmentation (AI Select), ONNX worker plumbing |
 | `app-shell-and-file-io` | Folder open/save flow, label folder creation, class `.yaml` files, sample dataset, desktop (Tauri) shell |
 | `testing-and-release` | Build/typecheck/test/e2e commands, test structure, versioning, desktop installers |
 | `verify` / `e2e-full` | `/verify` (checks for the changed area) and `/e2e-full` (whole suite with baseline triage) |

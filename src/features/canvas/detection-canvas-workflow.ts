@@ -525,7 +525,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
     canvas,
 
     getObjects(type?: string): FabricObjectLike[] {
-      return canvas.getObjects(type).filter((object) => !object._isSrRoiOverlay);
+      return canvas.getObjects(type);
     },
 
     setActiveSelection(objects: readonly FabricObjectLike[], primaryObject: FabricObjectLike | null = null): void {

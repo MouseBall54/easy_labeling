@@ -76,7 +76,6 @@ export interface CanvasControllerDeps {
   historyService?: CanvasHistoryService;
   onDocumentMutation?(): void;
   edgeSamService?: import("../edgesam/types.js").EdgeSamService;
-  superResolutionService?: import("../super-resolution/types.js").SuperResolutionService;
 }
 
 export interface CanvasShell {
@@ -232,33 +231,6 @@ export interface CanvasController {
    * work did not produce the image (colour-keeping config, native error): the synchronous call then uses TS.
    */
   prepareSegmentationProcessedImage?(config?: Partial<SegmentationPreprocessingConfig>): Promise<boolean> | null;
-  setSegmentationPreprocessingSource?(source: "original" | "sr-roi"): boolean;
-  getSegmentationPreprocessingSource?(): "original" | "sr-roi";
-  /** Sets whether Processed uses the AI ROI and in which order the two steps run; may run AI first. */
-  setSegmentationProcessingPipeline?(next: { includeAi?: boolean; order?: import("../segmentation/preprocessing.js").SegmentationProcessingOrder }): Promise<boolean>;
-  getSegmentationProcessingOrder?(): import("../segmentation/preprocessing.js").SegmentationProcessingOrder;
-  /** True when the Processed -> AI result was made with earlier processing settings. */
-  isSegmentationProcessedAiStale?(): boolean;
-  rerunSegmentationProcessedAi?(): Promise<boolean>;
-  beginSegmentationSrRoiSelection?(): boolean;
-  cancelSegmentationSrRoiSelection?(): boolean;
-  isSegmentationSrRoiSelecting?(): boolean;
-  startSegmentationSrRoiSelection?(pointer: CanvasPoint): void;
-  continueSegmentationSrRoiSelection?(pointer: CanvasPoint): void;
-  finishSegmentationSrRoiSelection?(pointer: CanvasPoint): boolean;
-  getSegmentationSrRoi?(): WorkingImageRect | null;
-  resetSegmentationSrRoi?(): boolean;
-  getSegmentationSrPreviewInfo?(): {
-    mode: import("../super-resolution/types.js").SuperResolutionMode;
-    originalRoi: WorkingImageRect;
-    workingWidth: number;
-    workingHeight: number;
-    visible: boolean;
-  } | null;
-  focusSegmentationSrRoi?(): boolean;
-  setSegmentationSrOriginalComparison?(enabled: boolean): boolean;
-  setSegmentationSuperResolutionMode?(mode: "off" | import("../super-resolution/types.js").SuperResolutionMode): Promise<boolean>;
-  getSegmentationSuperResolutionMode?(): "off" | import("../super-resolution/types.js").SuperResolutionMode;
   setSegmentationViewSource?(source: SegmentationViewSourceMode): boolean;
   getSegmentationViewSource?(): SegmentationViewSourceMode;
   setSegmentationEdgeSamInputSource?(source: SegmentationImageSourceMode): boolean;

@@ -102,16 +102,6 @@ describe("features/canvas/canvas-controller", () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it("keeps enhancement ROI overlays out of detection labels and exports", () => {
-    const controller = createCanvasController(createState(), createDeps());
-    controller.addLabelsFromYolo("3 0.25 0.4 0.2 0.5");
-    const original = controller.getLabelsAsYolo();
-    const roi = Object.assign(createRect({ left: 10, top: 10, width: 60, height: 40 }), { _isSrRoiOverlay: true });
-    controller.canvas.add(roi);
-    expect(controller.getObjects("rect")).toHaveLength(1);
-    expect(controller.getLabelsAsYolo()).toBe(original);
-  });
-
   it("zooms without removed Fabric APIs, clamps buttons, and rejects invalid numeric input", () => {
     const deps = createDeps();
     const shell = createCanvasShell(createState(), deps);

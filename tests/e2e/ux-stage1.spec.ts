@@ -10,7 +10,7 @@ async function loadSample(page: Page): Promise<void> {
 }
 
 for (const workflow of ["detection", "segmentation"] as const) {
-  test(`${workflow}: numeric/button zoom and ROI selection preserve source labels`, async ({ page }) => {
+  test(`${workflow}: numeric/button zoom and the Original/Processed toggle preserve source labels`, async ({ page }) => {
     test.setTimeout(90_000);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -35,22 +35,16 @@ for (const workflow of ["detection", "segmentation"] as const) {
     await page.locator(workflow === "detection" ? 'label[for="drawMode"]' : "#segmentationBrushModeBtn").click();
     await page.locator(workflow === "detection" ? "#taskAutomateBtn" : "#taskSuperpixelBtn").click();
     await expect(page.locator("#activeToolSummary")).toHaveText(workflow === "detection" ? "Draw" : "Brush");
-    await page.locator("#taskPreprocessingBtn").click();
-    await page.locator("#segmentationSelectSrRoiBtn").click();
-    await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator("#segmentationSrResultStatus")).toContainText("Esc to cancel");
-    const canvas = (await page.locator("canvas.upper-canvas").boundingBox())!;
-    await page.mouse.move(canvas.x + canvas.width * 0.4, canvas.y + canvas.height * 0.4);
-    await page.mouse.down();
-    await page.mouse.move(canvas.x + canvas.width * 0.6, canvas.y + canvas.height * 0.6, { steps: 5 });
-    await page.mouse.up();
-    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationSrRoi())).not.toBeNull();
-    await expect(page.locator("#labelClassModal")).toBeHidden();
-    await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveAttribute("aria-pressed", "false");
-    await page.keyboard.press("Escape");
-    await page.locator("#segmentationSelectSrRoiBtn").click();
-    await page.locator("#leftPanelTitle").click(); await page.keyboard.press("Escape");
-    await expect(page.locator("#segmentationSelectSrRoiBtn")).toHaveAttribute("aria-pressed", "false");
+    // The toolbar toggle left of the coordinates switches the canvas image both ways without touching the labels.
+    const toggle = page.locator("#canvasViewToggleBtn");
+    const viewSource = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationViewSource());
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(toggle).toHaveAttribute("title", /Showing Processed/);
+    await expect.poll(viewSource).toBe("processed");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(viewSource).toBe("original");
     await expect.poll(() => page.evaluate((workflow) => {
       const api = Reflect.get(window, "__easyLabelingTestApi");
       return workflow === "detection" ? api.getRectCount() : api.getSegmentationMaskBounds();

@@ -21,7 +21,7 @@ import type {
   SegmentationTool
 } from "./types.js";
 import type { CanvasController, CanvasControllerDeps, CanvasControllerState, CanvasShell } from "../canvas/canvas-controller-types.js";
-import type { FabricActiveSelectionLike, FabricImageLike, FabricObjectLike, FabricRectLike } from "../canvas/fabric-types.js";
+import type { FabricActiveSelectionLike, FabricObjectLike, FabricRectLike } from "../canvas/fabric-types.js";
 import { getColorForClass as defaultGetColorForClass } from "../canvas/colors.js";
 import type { EdgeSamBox, EdgeSamPoint } from "../edgesam/types.js";
 import {
@@ -39,7 +39,6 @@ import {
   preprocessSegmentationImage,
   type SegmentationImageSourceMode,
   type SegmentationPreprocessingConfig,
-  type SegmentationProcessingOrder,
   type SegmentationViewSourceMode
 } from "./preprocessing.js";
 import { createNativeViewPreprocessor, grayBytesToRgba, type NativeViewSource } from "./native-preprocessing.js";
@@ -52,11 +51,8 @@ import {
   isOriginalPointInWorkingImage,
   originalPointToWorking,
   workingMaskToOriginal,
-  type WorkingImageDescriptor,
-  type WorkingImageRect
+  type WorkingImageDescriptor
 } from "./working-image.js";
-import type { SuperResolutionMode } from "../super-resolution/types.js";
-import { getSuperResolutionModelLabel } from "../super-resolution/model-registry.js";
 
 interface SegmentationImageInput {
   source: CanvasImageSource;
@@ -129,18 +125,11 @@ export function createSegmentationCanvasWorkflow(
   let smartGrowEdgeStop = 0.7;
   let superpixelSettings: SegmentationSuperpixelSettings = { ...DEFAULT_SUPERPIXEL_SETTINGS };
   let preprocessingConfig: SegmentationPreprocessingConfig = { ...DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG };
-  let preprocessingSource: "original" | "sr-roi" = "original";
-  let superResolutionMode: "off" | SuperResolutionMode = "off";
-  // Order of the AI and Processed steps when Processed uses the AI ROI.
-  let processingOrder: SegmentationProcessingOrder = "ai-first";
-  // Last Processed -> AI result; shown (stale) after processing settings change until AI is re-run.
-  let processedFirstKey: string | null = null;
   let viewSource: SegmentationViewSourceMode = "original";
   let edgeSamInputSource: SegmentationImageSourceMode = "original";
   let superpixelInputSource: SegmentationImageSourceMode = "original";
   let originalImageSource: CanvasImageSource | null = null;
   let originalImageData: ImageData | null = null;
-  const srImages = new Map<string, SegmentationImageInput>();
   const processedImages = new Map<string, SegmentationImageInput>();
   // Desktop app: Processed views computed in Rust ahead of ensureProcessedImage (by its cache key): the gray
   // bytes, the source alpha when it is not opaque, and for opaque sources the view already decoded as an <img>.
@@ -152,13 +141,6 @@ export function createSegmentationCanvasWorkflow(
   // Preparations in flight, shared by the view, superpixels and EdgeSAM when they ask at once.
   let originalPixelsRead: { source: CanvasImageSource | null; promise: Promise<void> } | null = null;
   const processedInFlight = new Map<string, Promise<boolean>>();
-  let srRoi: WorkingImageRect | null = null;
-  let srRoiSelectionStart: CanvasPoint | null = null;
-  let isSelectingSrRoi = false;
-  let srRoiOverlayObject: FabricObjectLike | null = null;
-  let srRoiPreviewObject: FabricImageLike | null = null;
-  let srOriginalComparisonVisible = false;
-  let labelOnlyViewEnabled = false;
   let imageSourceKey = "";
   let imageSourceRevision = 0;
   let visitedSuperpixelIds = new Set<number>();
@@ -382,87 +364,8 @@ export function createSegmentationCanvasWorkflow(
     processedImages.clear();
   };
 
-  /** The base image the Processed view starts from, or null when it comes from the SR model (Processed -> AI). */
-  const getProcessedBase = (baseSource: "original" | "sr-roi"): SegmentationImageInput | null => {
-    if (baseSource === "sr-roi" && processingOrder === "processed-first") return null;
-    return baseSource === "sr-roi" ? getSrImageInput() : getOriginalImageInput();
-  };
-
-  /** Like getProcessedBase(...)?.descriptor, without extracting the original's pixels. */
-  const getProcessedBaseDescriptor = (baseSource: "original" | "sr-roi"): WorkingImageDescriptor | null => {
-    if (baseSource === "sr-roi" && processingOrder === "processed-first") return null;
-    return baseSource === "sr-roi" ? getSrImageInput()?.descriptor ?? null : getOriginalDescriptor();
-  };
-
   const getProcessedCacheKey = (base: Pick<SegmentationImageInput, "descriptor">, config: SegmentationPreprocessingConfig): string =>
     `${base.descriptor.cacheKey}:processed:${getSegmentationPreprocessingKey(config)}`;
-
-  const removeSrRoiOverlay = (): void => {
-    if (!srRoiOverlayObject) return;
-    canvas.remove(srRoiOverlayObject);
-    srRoiOverlayObject = null;
-  };
-
-  const removeSrRoiPreview = (): void => {
-    if (!srRoiPreviewObject) return;
-    canvas.remove(srRoiPreviewObject);
-    srRoiPreviewObject = null;
-  };
-
-  const renderSrRoiPreview = (input: SegmentationImageInput): boolean => {
-    removeSrRoiPreview();
-    const rect = input.descriptor.originalRoi;
-    if (!rect) return false;
-    const preview = new deps.fabric.Image(input.source, {
-      left: rect.x,
-      top: rect.y,
-      width: input.descriptor.width,
-      height: input.descriptor.height,
-      originX: "left",
-      originY: "top",
-      selectable: false,
-      evented: false,
-      hoverCursor: "default",
-      objectCaching: false
-    });
-    preview._isSrRoiPreview = true;
-    preview.set({
-      scaleX: rect.width / input.descriptor.width,
-      scaleY: rect.height / input.descriptor.height,
-      visible: !srOriginalComparisonVisible && !labelOnlyViewEnabled,
-      objectCaching: false,
-      noScaleCache: true
-    });
-    if (typeof canvas.insertAt === "function") canvas.insertAt(1, preview);
-    else canvas.add(preview);
-    srRoiPreviewObject = preview;
-    canvas.requestRenderAll();
-    return true;
-  };
-
-  const renderSrRoiOverlay = (): void => {
-    removeSrRoiOverlay();
-    if (!srRoi) return;
-    const zoom = Math.max(0.01, canvas.getZoom());
-    srRoiOverlayObject = new deps.fabric.Rect({
-      left: srRoi.x,
-      top: srRoi.y,
-      width: srRoi.width,
-      height: srRoi.height,
-      originX: "left",
-      originY: "top",
-      fill: "rgba(124, 58, 237, 0.08)",
-      stroke: "#7c3aed",
-      strokeWidth: 2 / zoom,
-      strokeDashArray: [8 / zoom, 5 / zoom],
-      selectable: false,
-      evented: false,
-      hoverCursor: "crosshair"
-    });
-    srRoiOverlayObject._isSrRoiOverlay = true;
-    canvas.add(srRoiOverlayObject);
-    canvas.requestRenderAll();
-  };
 
   const getOriginalImageData = (): ImageData | null => {
     const doc = ensureDocument();
@@ -515,19 +418,8 @@ export function createSegmentationCanvasWorkflow(
     return { source: originalImageSource, rgba: original.data, descriptor };
   };
 
-  const getSrRoiCacheKey = (mode: SuperResolutionMode): string | null => srRoi
-    ? `${imageSourceKey}:roi:${srRoi.x},${srRoi.y},${srRoi.width},${srRoi.height}:sr:${mode}`
-    : null;
-
-  const getSrImageInput = (): SegmentationImageInput | null => {
-    if (superResolutionMode === "off") return null;
-    const cacheKey = getSrRoiCacheKey(superResolutionMode);
-    return cacheKey ? srImages.get(cacheKey) ?? null : null;
-  };
-
-  const ensureProcessedImage = (baseSource: "original" | "sr-roi"): SegmentationImageInput | null => {
-    if (baseSource === "sr-roi" && processingOrder === "processed-first") return getProcessedFirstImage();
-    const descriptor = getProcessedBaseDescriptor(baseSource);
+  const ensureProcessedImage = (): SegmentationImageInput | null => {
+    const descriptor = getOriginalDescriptor();
     if (!descriptor || typeof globalThis.document === "undefined") return null;
     const cacheKey = getProcessedCacheKey({ descriptor }, preprocessingConfig);
     const cached = processedImages.get(cacheKey);
@@ -536,7 +428,7 @@ export function createSegmentationCanvasWorkflow(
     nativeProcessed.delete(cacheKey);
     const processedDescriptor: WorkingImageDescriptor = {
       ...descriptor,
-      source: baseSource === "sr-roi" ? "sr-roi-processed" : "original-processed",
+      source: "original-processed",
       cacheKey
     };
     let processed: SegmentationImageInput;
@@ -548,7 +440,7 @@ export function createSegmentationCanvasWorkflow(
       // A natively prepared view needs no original pixels (for a native TIFF they were never extracted).
       let rgba = prepared ? grayBytesToRgba(prepared.gray, prepared.sourceRgba) : null;
       if (!rgba) {
-        const base = getProcessedBase(baseSource);
+        const base = getOriginalImageInput();
         if (!base) return null;
         rgba = preprocessSegmentationImage({ width: descriptor.width, height: descriptor.height, rgba: base.rgba }, preprocessingConfig);
       }
@@ -577,30 +469,30 @@ export function createSegmentationCanvasWorkflow(
   };
 
   /**
-   * Desktop app: the Processed view of `baseSource` under `config` computed in Rust, ahead of the synchronous
+   * Desktop app: the Processed view of the original under `config` computed in Rust, ahead of the synchronous
    * ensureProcessedImage, which then finds it. Null when there is nothing to wait for (no native side, a
    * colour-keeping config, or already prepared). A native TIFF is read in Rust; other originals' pixels are
    * read in a worker when opaque.
    */
-  const prepareNativeProcessed = (baseSource: "original" | "sr-roi", config: SegmentationPreprocessingConfig): Promise<boolean> | null => {
+  const prepareNativeProcessed = (config: SegmentationPreprocessingConfig): Promise<boolean> | null => {
     const preprocessor = nativeViewPreprocessor;
     if (!preprocessor) return null;
-    const descriptor = getProcessedBaseDescriptor(baseSource);
+    const descriptor = getOriginalDescriptor();
     if (!descriptor || keepsColour(config)) return null;
     const cacheKey = getProcessedCacheKey({ descriptor }, config);
     if (processedImages.has(cacheKey) || nativeProcessed.has(cacheKey)) return null;
     const inFlight = processedInFlight.get(cacheKey);
     if (inFlight) return inFlight;
-    const isCurrent = () => getProcessedBaseDescriptor(baseSource)?.cacheKey === descriptor.cacheKey;
+    const isCurrent = () => getOriginalDescriptor()?.cacheKey === descriptor.cacheKey;
     const preparing = (async () => {
-      const tiffPath = baseSource === "original" ? nativeTiffPathOf(originalImageSource) : null;
+      const tiffPath = nativeTiffPathOf(originalImageSource);
       const { width, height } = descriptor;
       let source: NativeViewSource;
       if (tiffPath) {
         source = { width, height, tiffPath };
       } else {
-        if (baseSource === "original") await readOriginalPixelsOffThread();
-        const base = isCurrent() ? getProcessedBase(baseSource) : null;
+        await readOriginalPixelsOffThread();
+        const base = isCurrent() ? getOriginalImageInput() : null;
         if (!base) return false;
         source = { width, height, rgba: base.rgba };
       }
@@ -633,8 +525,7 @@ export function createSegmentationCanvasWorkflow(
   const prepareImageInput = async (mode: SegmentationImageSourceMode): Promise<void> => {
     if (!nativeViewPreprocessor) return;
     if (mode === "original") await readOriginalPixelsOffThread();
-    else if (mode === "original-processed") await prepareNativeProcessed("original", preprocessingConfig);
-    else if (mode === "sr-roi-processed") await prepareNativeProcessed("sr-roi", preprocessingConfig);
+    else await prepareNativeProcessed(preprocessingConfig);
   };
 
   /**
@@ -686,24 +577,17 @@ export function createSegmentationCanvasWorkflow(
    * computing it (it is prepared natively later); elsewhere the input is built, as before.
    */
   const hasImageInput = (mode: SegmentationImageSourceMode): boolean =>
-    nativeViewPreprocessor && mode === "original-processed" ? getProcessedBaseDescriptor("original") !== null : getImageInput(mode) !== null;
+    nativeViewPreprocessor && mode === "original-processed" ? getOriginalDescriptor() !== null : getImageInput(mode) !== null;
 
-  /** getImageInput(mode)?.descriptor, without building an original or original-based Processed input's pixels. */
+  /** getImageInput(mode)?.descriptor, without building the original or Processed input's pixels. */
   const getImageInputDescriptor = (mode: SegmentationImageSourceMode): WorkingImageDescriptor | null => {
-    if (mode === "original") return getOriginalDescriptor();
-    if (mode === "original-processed") {
-      const base = getProcessedBaseDescriptor("original");
-      return base ? { ...base, source: "original-processed", cacheKey: getProcessedCacheKey({ descriptor: base }, preprocessingConfig) } : null;
-    }
-    return getImageInput(mode)?.descriptor ?? null;
+    const base = getOriginalDescriptor();
+    if (mode === "original" || !base) return base;
+    return { ...base, source: "original-processed", cacheKey: getProcessedCacheKey({ descriptor: base }, preprocessingConfig) };
   };
 
-  const getImageInput = (sourceMode: SegmentationImageSourceMode): SegmentationImageInput | null => {
-    if (sourceMode === "original-processed") return ensureProcessedImage("original");
-    if (sourceMode === "sr-roi-processed") return ensureProcessedImage("sr-roi");
-    if (sourceMode === "sr-roi") return getSrImageInput();
-    return getOriginalImageInput();
-  };
+  const getImageInput = (sourceMode: SegmentationImageSourceMode): SegmentationImageInput | null =>
+    sourceMode === "original-processed" ? ensureProcessedImage() : getOriginalImageInput();
 
   const restoreSuperpixelsToOriginal = (result: SuperpixelResult, descriptor: WorkingImageDescriptor): SuperpixelResult => {
     if (!descriptor.originalRoi && result.width === descriptor.originalWidth && result.height === descriptor.originalHeight) return result;
@@ -770,121 +654,16 @@ export function createSegmentationCanvasWorkflow(
   };
 
   const refreshViewSource = (): boolean => {
-    removeSrRoiPreview();
-    srOriginalComparisonVisible = false;
     if (viewSource === "original") {
       if (!originalImageSource) return false;
       shell.setBackgroundImage(originalImageSource);
-    } else if (viewSource === "sr-roi") {
-      const srInput = getSrImageInput();
-      if (!srInput || !originalImageSource) return false;
-      shell.setBackgroundImage(originalImageSource);
-      if (!renderSrRoiPreview(srInput)) return false;
     } else {
-      const processed = ensureProcessedImage(preprocessingSource);
+      const processed = ensureProcessedImage();
       if (!processed) return false;
-      if (preprocessingSource === "sr-roi") {
-        if (!originalImageSource) return false;
-        shell.setBackgroundImage(originalImageSource);
-        if (!renderSrRoiPreview(processed)) return false;
-      } else {
-        shell.setBackgroundImage(processed.source);
-      }
+      shell.setBackgroundImage(processed.source);
     }
-    renderSrRoiOverlay();
     requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
     return true;
-  };
-
-  const cropRgba = (rgba: Uint8ClampedArray, sourceWidth: number, rect: WorkingImageRect): Uint8ClampedArray => {
-    const cropped = new Uint8ClampedArray(rect.width * rect.height * 4);
-    for (let y = 0; y < rect.height; y += 1) {
-      const sourceStart = ((rect.y + y) * sourceWidth + rect.x) * 4;
-      cropped.set(rgba.subarray(sourceStart, sourceStart + rect.width * 4), y * rect.width * 4);
-    }
-    return cropped;
-  };
-
-  const upscaleRoi = async (
-    base: SegmentationImageInput,
-    mode: SuperResolutionMode,
-    cacheKey: string,
-    source: "sr-roi" | "sr-roi-processed"
-  ): Promise<SegmentationImageInput | null> => {
-    const service = deps.superResolutionService;
-    if (!service || !srRoi) return null;
-    const roi = { ...srRoi };
-    const croppedRgba = cropRgba(base.rgba, base.descriptor.width, roi);
-    try {
-      const result = await service.upscale({
-        cacheKey,
-        mode,
-        width: roi.width,
-        height: roi.height,
-        rgba: croppedRgba
-      });
-      const canvasSource = createCanvasImageSource(result.width, result.height, result.rgba);
-      if (!canvasSource) return null;
-      const input: SegmentationImageInput = {
-        source: canvasSource,
-        rgba: result.rgba,
-        descriptor: {
-          source,
-          width: result.width,
-          height: result.height,
-          originalWidth: base.descriptor.originalWidth,
-          originalHeight: base.descriptor.originalHeight,
-          originalRoi: roi,
-          cacheKey: result.cacheKey
-        }
-      };
-      srImages.set(cacheKey, input);
-      return input;
-    } catch (error) {
-      deps.notify(`AI enhancement is unavailable: ${error instanceof Error ? error.message : "model initialization failed"}`, 5000);
-      return null;
-    }
-  };
-
-  const ensureSuperResolutionImage = async (mode: SuperResolutionMode): Promise<SegmentationImageInput | null> => {
-    const cacheKey = getSrRoiCacheKey(mode);
-    const cached = cacheKey ? srImages.get(cacheKey) : null;
-    if (cached) return cached;
-    const original = getOriginalImageInput();
-    if (!original || !cacheKey) return null;
-    return upscaleRoi(original, mode, cacheKey, "sr-roi");
-  };
-
-  const getProcessedFirstCacheKey = (mode: SuperResolutionMode): string | null => {
-    const base = getSrRoiCacheKey(mode);
-    return base ? `${base}:pre:${getSegmentationPreprocessingKey(preprocessingConfig)}` : null;
-  };
-
-  /** Processed -> AI result for the current settings, or the previous one for this ROI and model after settings changed. */
-  const getProcessedFirstImage = (): SegmentationImageInput | null => {
-    if (superResolutionMode === "off") return null;
-    const key = getProcessedFirstCacheKey(superResolutionMode);
-    const exact = key ? srImages.get(key) : undefined;
-    if (exact) return exact;
-    const base = getSrRoiCacheKey(superResolutionMode);
-    return base && processedFirstKey?.startsWith(`${base}:pre:`) ? srImages.get(processedFirstKey) ?? null : null;
-  };
-
-  const isProcessedFirstStale = (): boolean => {
-    if (processingOrder !== "processed-first" || preprocessingSource !== "sr-roi" || superResolutionMode === "off") return false;
-    const key = getProcessedFirstCacheKey(superResolutionMode);
-    return !(key && srImages.has(key)) && getProcessedFirstImage() !== null;
-  };
-
-  /** Runs AI on the ROI of the processed image (the Processed -> AI order). */
-  const ensureProcessedFirstImage = async (mode: SuperResolutionMode): Promise<SegmentationImageInput | null> => {
-    const cacheKey = getProcessedFirstCacheKey(mode);
-    if (!cacheKey) return null;
-    const cached = srImages.get(cacheKey);
-    const processed = cached ? null : ensureProcessedImage("original");
-    const result = cached ?? (processed ? await upscaleRoi(processed, mode, cacheKey, "sr-roi-processed") : null);
-    if (result) processedFirstKey = cacheKey;
-    return result;
   };
 
   const resetDocumentForCurrentImage = (): void => {
@@ -898,9 +677,6 @@ export function createSegmentationCanvasWorkflow(
       removeSelectionOverlayLayer();
       removeSmartPreviewOverlayLayer();
       removeSuperpixelOverlayLayer();
-      removeSrRoiOverlay();
-      removeSrRoiPreview();
-      srOriginalComparisonVisible = false;
       superpixelResult = null;
       superpixelCache.clear();
       selectedRegion = null;
@@ -926,9 +702,6 @@ export function createSegmentationCanvasWorkflow(
     removeSelectionOverlayLayer();
     removeSmartPreviewOverlayLayer();
     removeSuperpixelOverlayLayer();
-    removeSrRoiOverlay();
-    removeSrRoiPreview();
-    srOriginalComparisonVisible = false;
     superpixelResult = null;
     superpixelCache.clear();
     strokeBaseline = null;
@@ -1352,18 +1125,9 @@ export function createSegmentationCanvasWorkflow(
       originalImageData = null;
       clearProcessedImageCache();
       nativeProcessed.clear();
-      srImages.clear();
-      srRoi = null;
-      srRoiSelectionStart = null;
-      isSelectingSrRoi = false;
-      superResolutionMode = "off";
-      preprocessingSource = "original";
       viewSource = "original";
       edgeSamInputSource = "original";
       superpixelInputSource = "original";
-      removeSrRoiOverlay();
-      removeSrRoiPreview();
-      srOriginalComparisonVisible = false;
       removeMaskOverlayLayer();
       removeSelectionOverlayLayer();
       removeSmartPreviewOverlayLayer();
@@ -1385,7 +1149,6 @@ export function createSegmentationCanvasWorkflow(
       moveLastDeltaY = null;
       clearAiPreview();
       deps.edgeSamService?.clear();
-      deps.superResolutionService?.clear();
     },
 
     setBackgroundImage(image: unknown): void {
@@ -1395,18 +1158,7 @@ export function createSegmentationCanvasWorkflow(
       originalImageData = null;
       clearProcessedImageCache();
       nativeProcessed.clear();
-      srImages.clear();
-      srRoi = null;
-      srRoiSelectionStart = null;
-      isSelectingSrRoi = false;
-      superResolutionMode = "off";
-      preprocessingSource = "original";
       viewSource = "original";
-      if (edgeSamInputSource === "sr-roi" || edgeSamInputSource === "sr-roi-processed") edgeSamInputSource = "original";
-      if (superpixelInputSource === "sr-roi" || superpixelInputSource === "sr-roi-processed") superpixelInputSource = "original";
-      removeSrRoiOverlay();
-      removeSrRoiPreview();
-      srOriginalComparisonVisible = false;
       shell.setBackgroundImage(image);
       resetDocumentForCurrentImage();
       aiRegionConstraint = { ...DEFAULT_AI_SELECT_REGION_CONSTRAINT, margin: { ...DEFAULT_AI_SELECT_REGION_CONSTRAINT.margin } };
@@ -1805,9 +1557,7 @@ export function createSegmentationCanvasWorkflow(
     },
 
     setLabelOnlyView(enabled, background): void {
-      labelOnlyViewEnabled = enabled;
       shell.setLabelOnlyView(enabled, background);
-      srRoiPreviewObject?.set("visible", !enabled && !srOriginalComparisonVisible);
       canvas.requestRenderAll();
     },
 
@@ -2140,180 +1890,9 @@ export function createSegmentationCanvasWorkflow(
       return { ...preprocessingConfig };
     },
 
-    beginSegmentationSrRoiSelection(): boolean {
-      const doc = ensureDocument();
-      if (!doc) return false;
-      isSelectingSrRoi = true;
-      srRoiSelectionStart = null;
-      viewSource = "original";
-      srOriginalComparisonVisible = false;
-      removeSrRoiPreview();
-      if (originalImageSource) shell.setBackgroundImage(originalImageSource);
-      deps.notify("Drag on the Original image to select the AI ROI.", 3000);
-      return true;
-    },
-
-    cancelSegmentationSrRoiSelection(): boolean {
-      const changed = isSelectingSrRoi || srRoiSelectionStart !== null;
-      isSelectingSrRoi = false;
-      srRoiSelectionStart = null;
-      renderSrRoiOverlay();
-      return changed;
-    },
-
-    isSegmentationSrRoiSelecting(): boolean {
-      return isSelectingSrRoi;
-    },
-
-    startSegmentationSrRoiSelection(pointer: CanvasPoint): void {
-      const doc = ensureDocument();
-      if (!doc || !isSelectingSrRoi) return;
-      srRoiSelectionStart = {
-        x: Math.max(0, Math.min(doc.width - 1, pointer.x)),
-        y: Math.max(0, Math.min(doc.height - 1, pointer.y))
-      };
-      srRoi = { x: srRoiSelectionStart.x, y: srRoiSelectionStart.y, width: 1, height: 1 };
-      renderSrRoiOverlay();
-    },
-
-    continueSegmentationSrRoiSelection(pointer: CanvasPoint): void {
-      const doc = ensureDocument();
-      if (!doc || !srRoiSelectionStart) return;
-      const endX = Math.max(0, Math.min(doc.width, pointer.x));
-      const endY = Math.max(0, Math.min(doc.height, pointer.y));
-      srRoi = {
-        x: Math.min(srRoiSelectionStart.x, endX),
-        y: Math.min(srRoiSelectionStart.y, endY),
-        width: Math.abs(endX - srRoiSelectionStart.x),
-        height: Math.abs(endY - srRoiSelectionStart.y)
-      };
-      renderSrRoiOverlay();
-    },
-
-    finishSegmentationSrRoiSelection(pointer: CanvasPoint): boolean {
-      const doc = ensureDocument();
-      if (!doc || !srRoiSelectionStart) return false;
-      controller.continueSegmentationSrRoiSelection?.(pointer);
-      srRoiSelectionStart = null;
-      isSelectingSrRoi = false;
-      if (!srRoi) return false;
-      const left = Math.max(0, Math.floor(srRoi.x));
-      const top = Math.max(0, Math.floor(srRoi.y));
-      const right = Math.min(doc.width, Math.ceil(srRoi.x + srRoi.width));
-      const bottom = Math.min(doc.height, Math.ceil(srRoi.y + srRoi.height));
-      if (right - left < 2 || bottom - top < 2) {
-        srRoi = null;
-        removeSrRoiOverlay();
-        removeSrRoiPreview();
-        deps.notify("AI ROI must be at least 2 px wide and high.", 3000);
-        return false;
-      }
-      srRoi = { x: left, y: top, width: right - left, height: bottom - top };
-      superResolutionMode = "off";
-      preprocessingSource = "original";
-      viewSource = "original";
-      srOriginalComparisonVisible = false;
-      removeSrRoiPreview();
-      if (originalImageSource) shell.setBackgroundImage(originalImageSource);
-      if (edgeSamInputSource === "sr-roi" || edgeSamInputSource === "sr-roi-processed") edgeSamInputSource = "original";
-      if (superpixelInputSource === "sr-roi" || superpixelInputSource === "sr-roi-processed") superpixelInputSource = "original";
-      smartPreview = null;
-      superpixelResult = null;
-      superpixelCache.clear();
-      removeSuperpixelOverlayLayer();
-      renderSrRoiOverlay();
-      return true;
-    },
-
-    getSegmentationSrRoi(): WorkingImageRect | null {
-      return srRoi ? { ...srRoi } : null;
-    },
-
-    resetSegmentationSrRoi(): boolean {
-      const hadRoiState = srRoi !== null || isSelectingSrRoi || superResolutionMode !== "off" || srRoiPreviewObject !== null;
-      if (!hadRoiState) return false;
-      const usedSrForEdgeSam = edgeSamInputSource === "sr-roi" || edgeSamInputSource === "sr-roi-processed";
-      const usedSrForSuperpixels = superpixelInputSource === "sr-roi" || superpixelInputSource === "sr-roi-processed";
-
-      srRoi = null;
-      srRoiSelectionStart = null;
-      isSelectingSrRoi = false;
-      superResolutionMode = "off";
-      preprocessingSource = "original";
-      viewSource = "original";
-      srOriginalComparisonVisible = false;
-      srImages.clear();
-      clearProcessedImageCache();
-      deps.superResolutionService?.clear();
-      removeSrRoiOverlay();
-      removeSrRoiPreview();
-
-      if (usedSrForEdgeSam) {
-        edgeSamInputSource = "original";
-        clearAiPreview();
-        void prepareEdgeSamImage();
-      }
-      if (usedSrForSuperpixels) {
-        superpixelInputSource = "original";
-        smartPreview = null;
-        superpixelResult = null;
-        superpixelCache.clear();
-        removeSmartPreviewOverlayLayer();
-        removeSuperpixelOverlayLayer();
-      }
-      if (originalImageSource) shell.setBackgroundImage(originalImageSource);
-      requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
-      return true;
-    },
-
-    getSegmentationSrPreviewInfo() {
-      const input = getSrImageInput();
-      if (!input || superResolutionMode === "off" || !input.descriptor.originalRoi) return null;
-      return {
-        mode: superResolutionMode,
-        originalRoi: { ...input.descriptor.originalRoi },
-        workingWidth: input.descriptor.width,
-        workingHeight: input.descriptor.height,
-        visible: srRoiPreviewObject?.visible !== false && srRoiPreviewObject !== null
-      };
-    },
-
-    focusSegmentationSrRoi(): boolean {
-      if (!srRoi || superResolutionMode === "off") return false;
-      const input = getSrImageInput();
-      if (!input) return false;
-      const zoom = Math.max(
-        input.descriptor.width / srRoi.width,
-        input.descriptor.height / srRoi.height
-      );
-      const centerX = srRoi.x + (srRoi.width / 2);
-      const centerY = srRoi.y + (srRoi.height / 2);
-      canvas.setViewportTransform([
-        zoom,
-        0,
-        0,
-        zoom,
-        (canvas.getWidth() / 2) - (centerX * zoom),
-        (canvas.getHeight() / 2) - (centerY * zoom)
-      ]);
-      canvas.calcOffset?.();
-      shell.renderAll();
-      deps.updateZoomDisplay();
-      return true;
-    },
-
-    setSegmentationSrOriginalComparison(enabled: boolean): boolean {
-      if (!srRoiPreviewObject) return false;
-      if (srOriginalComparisonVisible === enabled) return false;
-      srOriginalComparisonVisible = enabled;
-      srRoiPreviewObject.set("visible", !enabled && !labelOnlyViewEnabled);
-      canvas.requestRenderAll();
-      return true;
-    },
-
     prepareSegmentationProcessedImage(config?: Partial<SegmentationPreprocessingConfig>): Promise<boolean> | null {
       const next = config ? normalizeSegmentationPreprocessingConfig({ ...preprocessingConfig, ...config }) : preprocessingConfig;
-      return prepareNativeProcessed(preprocessingSource, next);
+      return prepareNativeProcessed(next);
     },
 
     computeSegmentationSuperpixels(regionSize: number): Promise<boolean | null> {
@@ -2325,120 +1904,15 @@ export function createSegmentationCanvasWorkflow(
       if (getSegmentationPreprocessingKey(next) === getSegmentationPreprocessingKey(preprocessingConfig)) return false;
       preprocessingConfig = next;
       clearProcessedImageCache();
-      refreshProcessedConsumers(["original-processed", "sr-roi-processed"]);
+      refreshProcessedConsumers(["original-processed"]);
       return true;
-    },
-
-    async setSegmentationProcessingPipeline(next: { includeAi?: boolean; order?: SegmentationProcessingOrder }): Promise<boolean> {
-      const includeAi = next.includeAi ?? preprocessingSource === "sr-roi";
-      const order = next.order ?? processingOrder;
-      if (includeAi && (superResolutionMode === "off" || !getSrImageInput())) return false;
-      const previousOrder = processingOrder;
-      processingOrder = order;
-      if (includeAi && order === "processed-first" && !getProcessedFirstImage()
-        && !await ensureProcessedFirstImage(superResolutionMode as SuperResolutionMode)) {
-        processingOrder = previousOrder;
-        return false;
-      }
-      const sourceChanged = controller.setSegmentationPreprocessingSource?.(includeAi ? "sr-roi" : "original") ?? false;
-      if (order !== previousOrder && !sourceChanged) refreshProcessedConsumers(["sr-roi-processed"]);
-      return sourceChanged || order !== previousOrder;
-    },
-
-    getSegmentationProcessingOrder(): SegmentationProcessingOrder {
-      return processingOrder;
-    },
-
-    isSegmentationProcessedAiStale(): boolean {
-      return isProcessedFirstStale();
-    },
-
-    async rerunSegmentationProcessedAi(): Promise<boolean> {
-      if (!isProcessedFirstStale()) return false;
-      if (!await ensureProcessedFirstImage(superResolutionMode as SuperResolutionMode)) return false;
-      refreshProcessedConsumers(["sr-roi-processed"]);
-      return true;
-    },
-
-    setSegmentationPreprocessingSource(source: "original" | "sr-roi"): boolean {
-      if (preprocessingSource === source) return false;
-      if (source === "sr-roi" && !getSrImageInput()) return false;
-      preprocessingSource = source;
-      if (viewSource === "processed") {
-        const linkedInputSource: SegmentationImageSourceMode = source === "sr-roi"
-          ? "sr-roi-processed"
-          : "original-processed";
-        if (edgeSamInputSource !== linkedInputSource) {
-          edgeSamInputSource = linkedInputSource;
-          clearAiPreview();
-          void prepareEdgeSamImage();
-        }
-        if (superpixelInputSource !== linkedInputSource) {
-          const regionSize = superpixelResult?.regionSize ?? null;
-          superpixelInputSource = linkedInputSource;
-          smartPreview = null;
-          superpixelResult = null;
-          superpixelCache.clear();
-          removeSuperpixelOverlayLayer();
-          if (regionSize) void computeSuperpixels(regionSize);
-        }
-        refreshViewSource();
-      }
-      return true;
-    },
-
-    getSegmentationPreprocessingSource(): "original" | "sr-roi" {
-      return preprocessingSource;
-    },
-
-    async setSegmentationSuperResolutionMode(mode: "off" | SuperResolutionMode): Promise<boolean> {
-      if (mode === superResolutionMode) return false;
-      if (mode !== "off" && !srRoi) {
-        deps.notify(`Select an ROI before choosing ${getSuperResolutionModelLabel(mode)}.`, 3500);
-        return false;
-      }
-      if (mode !== "off" && !await ensureSuperResolutionImage(mode)) return false;
-      if (mode !== "off" && processingOrder === "processed-first" && preprocessingSource === "sr-roi"
-        && !await ensureProcessedFirstImage(mode)) return false;
-      superResolutionMode = mode;
-      if (mode === "off" && preprocessingSource === "sr-roi") preprocessingSource = "original";
-      if (viewSource === "sr-roi" && mode === "off") viewSource = "original";
-      if ((edgeSamInputSource === "sr-roi" || edgeSamInputSource === "sr-roi-processed") && mode === "off") edgeSamInputSource = "original";
-      if ((superpixelInputSource === "sr-roi" || superpixelInputSource === "sr-roi-processed") && mode === "off") superpixelInputSource = "original";
-      const regionSize = superpixelResult?.regionSize ?? null;
-      smartPreview = null;
-      superpixelResult = null;
-      superpixelCache.clear();
-      removeSuperpixelOverlayLayer();
-      if (mode === "off" && viewSource === "original") {
-        srOriginalComparisonVisible = false;
-        removeSrRoiPreview();
-        if (originalImageSource) shell.setBackgroundImage(originalImageSource);
-        renderSrRoiOverlay();
-      } else if (viewSource !== "original") {
-        refreshViewSource();
-      }
-      if (edgeSamInputSource !== "original") void prepareEdgeSamImage();
-      if (regionSize) void computeSuperpixels(regionSize);
-      return true;
-    },
-
-    getSegmentationSuperResolutionMode(): "off" | SuperResolutionMode {
-      return superResolutionMode;
     },
 
     setSegmentationViewSource(source: SegmentationViewSourceMode): boolean {
       if (viewSource === source) return false;
-      if (source === "sr-roi" && !getSrImageInput()) return false;
-      if (source === "processed" && !ensureProcessedImage(preprocessingSource)) return false;
+      if (source === "processed" && !ensureProcessedImage()) return false;
       viewSource = source;
-      const linkedInputSource: SegmentationImageSourceMode = source === "original"
-        ? "original"
-        : source === "sr-roi"
-          ? "sr-roi"
-          : preprocessingSource === "sr-roi"
-            ? "sr-roi-processed"
-            : "original-processed";
+      const linkedInputSource: SegmentationImageSourceMode = source === "original" ? "original" : "original-processed";
       if (edgeSamInputSource !== linkedInputSource) {
         edgeSamInputSource = linkedInputSource;
         clearAiPreview();
@@ -2835,8 +2309,6 @@ export function createSegmentationCanvasWorkflow(
         smartPreviewOverlayLayer.object.set("visible", active && smartPreview !== null);
       }
       if (!active) {
-        removeSrRoiOverlay();
-        removeSrRoiPreview();
         controller.cancelSegmentationPolygon?.();
         clearPolygonPreview();
         smartPreview = null;
@@ -2846,9 +2318,6 @@ export function createSegmentationCanvasWorkflow(
           overlayRenderDeferred = false;
           requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
         }
-        const hasSrView = viewSource === "sr-roi" || (viewSource === "processed" && preprocessingSource === "sr-roi");
-        if (hasSrView) refreshViewSource();
-        else renderSrRoiOverlay();
         if (polygonPoints.length > 0) renderPolygonPreview();
         void prepareEdgeSamImage();
       }

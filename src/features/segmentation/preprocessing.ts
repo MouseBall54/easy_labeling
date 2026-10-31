@@ -1,9 +1,7 @@
 import { anisotropicDiffusion, autoLevels, clahe, destripe, flattenBackground, median3x3 } from "./gray-filters.js";
 
-export type SegmentationImageSourceMode = "original" | "original-processed" | "sr-roi" | "sr-roi-processed";
-export type SegmentationViewSourceMode = "original" | "sr-roi" | "processed";
-/** Which step runs first when Processed uses the AI ROI. */
-export type SegmentationProcessingOrder = "ai-first" | "processed-first";
+export type SegmentationImageSourceMode = "original" | "original-processed";
+export type SegmentationViewSourceMode = "original" | "processed";
 
 export type SegmentationPreprocessMode = "original" | "edge" | "edge-blend";
 

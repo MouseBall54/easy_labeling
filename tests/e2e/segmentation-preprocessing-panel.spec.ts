@@ -7,32 +7,25 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await page.locator("#taskPreprocessingBtn").click();
 
-  const srSettings = page.locator("#segmentationSrSettingsGroup");
   const processedSettings = page.locator("#segmentationPreprocessSettingsGroup");
-  const roiGroup = page.locator("#segmentationSrRoiGroup");
   const algorithmInputs = page.locator("#segmentationPreprocessingInputs");
+  const toolbarToggle = page.locator("#canvasViewToggleBtn");
 
   await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
-  await expect(page.locator("#segmentationViewSrBtn")).toHaveText("AI");
-  await expect(page.locator("#segmentationPipelineSteps [data-step]")).toHaveText(["AI", "Processed"]);
-  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
-  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Processed original", "AI", "Processed AI ROI"]);
-  await expect(srSettings).toBeHidden();
+  await expect(page.locator(".segmentation-preprocessing-toggle .btn")).toHaveText(["Original", "Processed"]);
+  await expect(page.locator("#segmentationEdgeSamInputSelect option")).toHaveText(["Original", "Processed"]);
+  await expect(page.locator("#segmentationSuperpixelInputSelect option")).toHaveText(["Original", "Processed"]);
   await expect(processedSettings).toBeHidden();
-  await expect(roiGroup).toBeVisible();
   await expect(algorithmInputs).toBeVisible();
-  await expect(page.locator("#segmentationFocusSrRoiBtn")).toBeDisabled();
+  await expect(toolbarToggle).toHaveAttribute("aria-pressed", "false");
 
   await page.locator("#leftPanelTitle").click();
   await page.keyboard.press("q");
   await expect(page.locator("#segmentationViewProcessedBtn")).toHaveClass(/active/);
-  await expect(srSettings).toBeHidden();
+  await expect(toolbarToggle).toHaveAttribute("aria-pressed", "true");
   await expect(processedSettings).toBeVisible();
-  await expect(roiGroup).toBeVisible();
   await expect(page.locator("#segmentationEdgeSamInputSelect")).toHaveValue("original-processed");
   await expect(page.locator("#segmentationSuperpixelInputSelect")).toHaveValue("original-processed");
-  await expect(page.locator("#segmentationPipelineAiToggle")).toBeDisabled();
-  await expect(page.locator("#segmentationPipelineAiToggle")).not.toBeChecked();
 
   await page.locator("#segmentationPreprocessModeSelect").selectOption("edge");
   await page.locator("#segmentationPreprocessBlurInput").fill("3");
@@ -43,25 +36,16 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await expect(page.locator("#segmentationViewProcessedBtn")).toHaveClass(/active/);
   await expect(page.locator("#segmentationSuperpixelInputSelect")).toHaveValue("original-processed");
 
-  await page.locator("#segmentationViewOriginalBtn").click();
-  await expect(srSettings).toBeHidden();
+  // The toolbar toggle and the panel buttons show the same view.
+  await toolbarToggle.click();
+  await expect(page.locator("#segmentationViewOriginalBtn")).toHaveClass(/active/);
+  await expect(toolbarToggle).toHaveAttribute("aria-pressed", "false");
   await expect(processedSettings).toBeHidden();
-  await expect(roiGroup).toBeVisible();
   await expect(page.locator("#segmentationEdgeSamInputSelect")).toHaveValue("original");
   await expect(page.locator("#segmentationSuperpixelInputSelect")).toHaveValue("original");
 
-  await page.locator("#segmentationViewSrBtn").click();
-  await expect(page.locator("#segmentationViewSrBtn")).toHaveClass(/active/);
-  await expect(srSettings).toBeVisible();
-  await expect(processedSettings).toBeHidden();
-  await expect(roiGroup).toBeVisible();
-  await expect(page.locator("#segmentationSuperResolutionSelect option")).toHaveText([
-    "Off", "CFSR x2", "CFSR x4"
-  ]);
-  await page.keyboard.press("Escape");
-
-  await page.locator("#segmentationViewOriginalBtn").click();
   await page.locator("#segmentationViewProcessedBtn").click();
+  await expect(toolbarToggle).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#segmentationPreprocessModeSelect")).toHaveValue("edge");
   await expect(page.locator("#segmentationPreprocessBlurInput")).toHaveValue("3");
   await expect(page.locator("#segmentationPreprocessEdgeWeightInput")).toHaveValue("42");
@@ -69,7 +53,6 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
   await page.locator("#taskPreprocessingBtn").click();
   await expect(page.locator("#segmentationViewProcessedBtn")).toHaveClass(/active/);
   await expect(processedSettings).toBeVisible();
-  await expect(roiGroup).toBeVisible();
 
   await page.setViewportSize({ width: 760, height: 720 });
   const dimensions = await page.locator("#segmentationPreprocessingSection").evaluate((section) => ({
@@ -77,11 +60,8 @@ test("Image Preprocessing shows only settings for the selected Canvas View", asy
     scrollWidth: section.scrollWidth
   }));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
-
-  const light = await roiGroup.evaluate((element) => getComputedStyle(element.querySelector(".segmentation-sr-roi-summary")!).backgroundColor);
+  await expect(toolbarToggle).toBeVisible();
+  await page.screenshot({ path: "test-results/preprocessing-panel-light.png" });
   await page.locator('label[for="darkModeToggle"]').click();
-  const dark = await roiGroup.evaluate((element) => getComputedStyle(element.querySelector(".segmentation-sr-roi-summary")!).backgroundColor);
-  expect(light).not.toBe("rgba(0, 0, 0, 0)");
-  expect(dark).not.toBe("rgba(0, 0, 0, 0)");
-  expect(dark).not.toBe(light);
+  await page.screenshot({ path: "test-results/preprocessing-panel-dark.png" });
 });

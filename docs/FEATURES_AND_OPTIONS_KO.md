@@ -399,6 +399,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - 마우스 휠로 확대/축소하며 포인터 주변을 기준으로 뷰가 조정된다.
 - `Alt+드래그` 또는 `Ctrl+드래그`로 캔버스를 팬한다.
 - X/Y 좌표 입력 후 Locate 버튼을 누르면 해당 이미지 좌표를 찾는다.
+- X 입력 왼쪽의 이미지 아이콘은 캔버스의 Original과 Processed 이미지를 오간다(`Q`와 같다). Detection과 Segmentation 모두에서 쓸 수 있고, Processed가 보이는 동안 아이콘이 강조된다. Processed 설정은 Preprocess 패널에서 바꾼다.
 
 ### 8.2 Crosshair
 
