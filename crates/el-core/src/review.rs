@@ -104,6 +104,9 @@ fn issue(kind: &'static str, severity: &'static str, message: String, rect_index
     ReviewIssue { kind, severity, message, rect_indexes }
 }
 
+/// `YOLO_EDGE_TOLERANCE` in src/domain/yolo/yolo.ts: floating-point error around an image edge is not "outside".
+const EDGE_TOLERANCE: f64 = 1e-9;
+
 pub fn inspect_detection_labels(text: &str, image_width: f64, image_height: f64, settings: &ReviewSettings) -> ReviewFinding {
     let rows = parse_rows(text, image_width, image_height);
     let mut issues = Vec::new();
@@ -111,12 +114,13 @@ pub fn inspect_detection_labels(text: &str, image_width: f64, image_height: f64,
         issues.push(issue("empty-label", "warning", "No detection labels".into(), vec![]));
     }
     let minimum = settings.minimum_box_size_px;
+    let (tolerance_x, tolerance_y) = (EDGE_TOLERANCE * image_width, EDGE_TOLERANCE * image_height);
     for (index, row) in rows.iter().enumerate() {
         let outside = !(row.left.is_finite() && row.top.is_finite() && row.width.is_finite() && row.height.is_finite())
-            || row.left < 0.0
-            || row.top < 0.0
-            || row.left + row.width > image_width
-            || row.top + row.height > image_height;
+            || row.left < -tolerance_x
+            || row.top < -tolerance_y
+            || row.left + row.width > image_width + tolerance_x
+            || row.top + row.height > image_height + tolerance_y;
         if outside {
             issues.push(issue("out-of-bounds", "error", format!("Box {} is outside the image", index + 1), vec![index]));
         }

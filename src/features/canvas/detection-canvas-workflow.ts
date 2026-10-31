@@ -43,6 +43,22 @@ import { layoutAnnotationLabels } from "./annotation-label-renderer.js";
 /** Above this many visible tags, tags hide while boxes move or the view zooms, and are laid out once afterwards. */
 const LABEL_TAG_SUSPEND_THRESHOLD = 150;
 
+const BOX_STROKE_WIDTH = 2;
+
+/**
+ * Fabric geometry for a box stored as its outer bounds (YOLO rows, layouts, automation and inference results).
+ * Boxes keep the visible stroke inside those bounds: Fabric adds the stroke to the fill size
+ * (getScaledWidth, getBoundingRect), so the fill is the stroke smaller and saving gives the same numbers back.
+ * The stroke shrinks for boxes under 4 px; a box with no usable size (negative, NaN) gets none.
+ */
+export function boxRectGeometry(box: { x: number; y: number; width: number; height: number }): {
+  left: number; top: number; width: number; height: number; strokeWidth: number;
+} {
+  const fit = Math.min(BOX_STROKE_WIDTH, box.width / 2, box.height / 2);
+  const strokeWidth = fit > 0 ? fit : 0;
+  return { left: box.x, top: box.y, width: box.width - strokeWidth, height: box.height - strokeWidth, strokeWidth };
+}
+
 function hasTinySize(rect: FabricRectLike): boolean {
   return rect.width < 5 && rect.height < 5;
 }
@@ -486,7 +502,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         scaleY: snapshot.scaleY,
         fill: `${color}33`,
         stroke: color,
-        strokeWidth: 2,
+        strokeWidth: snapshot.strokeWidth ?? BOX_STROKE_WIDTH,
         strokeUniform: true,
         selectable: isEditMode,
         hoverCursor: isEditMode ? "move" : "crosshair",
@@ -575,15 +591,11 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       const rects = parseYoloRows(yoloData, image.width, image.height).map((row) => {
         const color = colorForClass(row.labelClass);
         const rect = new deps.fabric.Rect({
-          left: row.rectLeft,
-          top: row.rectTop,
+          ...boxRectGeometry({ x: row.rectLeft, y: row.rectTop, width: row.rectWidth, height: row.rectHeight }),
           originX: "left",
           originY: "top",
-          width: row.rectWidth,
-          height: row.rectHeight,
           fill: `${color}33`,
           stroke: color,
-          strokeWidth: 2,
           strokeUniform: true,
           selectable: state.currentMode === "edit",
           hoverCursor: state.currentMode === "draw" ? "crosshair" : "move",
@@ -712,18 +724,12 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
       const createdRects = placedBoxes.map((box) => {
         const color = colorForClass(box.classId);
-        // Layouts store the outer bounds, including the visible stroke.
-        const strokeWidth = Math.min(2, box.width / 2, box.height / 2);
         const rect = new deps.fabric.Rect({
-          left: box.x,
-          top: box.y,
+          ...boxRectGeometry(box),
           originX: "left",
           originY: "top",
-          width: box.width - strokeWidth,
-          height: box.height - strokeWidth,
           fill: `${color}33`,
           stroke: color,
-          strokeWidth,
           strokeUniform: true,
           selectable: state.currentMode === "edit",
           hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -788,17 +794,12 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
           const chunk = placedBoxes.slice(start, start + chunkSize);
           chunk.forEach((box) => {
             const color = colorForClass(box.classId);
-            const strokeWidth = Math.min(2, box.width / 2, box.height / 2);
             const rect = new deps.fabric.Rect({
-              left: box.x,
-              top: box.y,
+              ...boxRectGeometry(box),
               originX: "left",
               originY: "top",
-              width: box.width - strokeWidth,
-              height: box.height - strokeWidth,
               fill: `${color}33`,
               stroke: color,
-              strokeWidth,
               strokeUniform: true,
               selectable: state.currentMode === "edit",
               hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -895,15 +896,11 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         const classId = box.classId.trim();
         const color = colorForClass(classId);
         const rect = new deps.fabric.Rect({
-          left: box.x,
-          top: box.y,
+          ...boxRectGeometry(box),
           originX: "left",
           originY: "top",
-          width: box.width,
-          height: box.height,
           fill: `${color}33`,
           stroke: color,
-          strokeWidth: 2,
           strokeUniform: true,
           selectable: state.currentMode === "edit",
           hoverCursor: state.currentMode === "edit" ? "move" : "crosshair",
@@ -1154,7 +1151,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         if (rect.stroke === stroke && (rect.strokeDashArray?.length ?? 0) > 0 === isSelected) {
           return;
         }
-        rect.set({ stroke, strokeWidth: 2, strokeDashArray: isSelected ? [10, 5] : [], shadow: null });
+        rect.set({ stroke, strokeDashArray: isSelected ? [10, 5] : [], shadow: null });
         rect._labelText?.set({ backgroundColor: stroke, fill: getContrastTextColor(stroke) });
       });
 

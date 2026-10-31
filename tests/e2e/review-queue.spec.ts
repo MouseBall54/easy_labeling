@@ -36,7 +36,8 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
   await expect(page.locator("#reviewFilterSelect")).toHaveValue("has-issues");
   await expect(page.locator("#image-list [data-file-name]")).toHaveCount(17);
-  await expect(page.locator("#reviewQueueSummary")).toHaveText("1 / 17");
+  // sample_1 has no issue under the default rules, so opening Review moved on to an image that had one.
+  await expect(page.locator("#reviewQueueSummary")).toHaveText(/^\d+ \/ 17$/);
   await page.locator('#image-list [data-file-name="sample_1.jpg"]').click();
   await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("sample_1.jpg");
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
@@ -68,6 +69,9 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await page.locator("#selectionGeometryWidth").press("Tab");
   await page.locator("#selectionGeometryHeight").fill("1");
   await page.locator("#selectionGeometryHeight").press("Tab");
+  // Nudge the box past the left edge (arrow keys do not stop at the image), so cleanup has something to remove.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  for (let step = 0; step < 15; step += 1) await page.keyboard.press("Shift+ArrowLeft");
   await page.locator("#saveLabelsBtn").click();
   await expect(page.locator("#documentStatus")).toContainText("Saved");
   await expect(page.locator("#reviewIssueList")).toContainText("Outside image");

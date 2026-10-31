@@ -1161,3 +1161,38 @@ test("Tauri presets save into their profile folders without a dialog and list fr
     await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   }
 });
+
+test("Tauri shows class names from dataset files as text, never as markup", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "untrusted");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "a.png"), grayPng(200, 100));
+  // A class name with markup, and a label row whose class field is markup (no spaces, as YOLO rows split on them).
+  // Class names come from the profile Class Info folder by default (and from the label folder otherwise).
+  const classes = "0: <img src=x onerror=\"window.__classNameRan=1\">\n";
+  await mkdir(path.join(sandbox, "profiles", "Class Info"), { recursive: true });
+  await writeFile(path.join(sandbox, "profiles", "Class Info", "classes.yaml"), classes);
+  await writeFile(path.join(dataset, "label", "classes.yaml"), classes);
+  const labels = "0 0.5 0.5 0.2 0.2\n<img/src=x/onerror=window.__labelClassRan=1> 0.25 0.25 0.1 0.1\n";
+  await writeFile(path.join(dataset, "label", "a.txt"), labels);
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => rectCount(page), { timeout: 60_000 }).toBe(2);
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    await expect(page.locator("#label-list")).toContainText('<img src=x onerror="window.__classNameRan=1">');
+    await expect(page.locator("#label-list")).toContainText("<img/src=x/onerror=window.__labelClassRan=1>");
+    expect(await page.locator("#label-list img").count()).toBe(0);
+    // A broken image's onerror would have run by now.
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => [Reflect.get(window, "__classNameRan"), Reflect.get(window, "__labelClassRan")])).toEqual([undefined, undefined]);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});

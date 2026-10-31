@@ -37,6 +37,7 @@ test("bootstrap-smoke: modular dist/main.js entry boots with parity defaults", a
     return elements.map((element) => element.getAttribute("data-ui"));
   });
   expect(canvasToolbarOrder).toEqual([
+    "canvas-view-toggle",
     "coordinates-toolbar",
     "zoom-controls",
     "mouse-coordinates"

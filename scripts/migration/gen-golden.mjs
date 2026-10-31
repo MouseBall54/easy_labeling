@@ -194,7 +194,15 @@ function writeReview() {
     ["one-pixel-image", tiny, 1, 1, defaults],
     ["empty", "", 1, 1, defaults],
     ["blank-lines", "\n \r\n\t\n\uFEFF\n", 1, 1, { ...defaults, requiredClassIds: ["0"] }],
-    ["crlf", "0 0.5 0.5 0.1 0.1\r\n0 0.5 0.5 0.1 0.1\r\n", 300, 200, defaults]
+    ["crlf", "0 0.5 0.5 0.1 0.1\r\n0 0.5 0.5 0.1 0.1\r\n", 300, 200, defaults],
+    // Boxes on the image edges (sample_1 rows): floating-point error just past an edge is not "outside"; 1e-7 of the width is.
+    ["edge-tolerance", [
+      "1 0.474935177182368 0.008461538461538 0.044079515989628 0.016923076923077",
+      "1 0.614520311149525 0.014615384615385 0.041486603284356 0.029230769230769",
+      "1 0.696629213483146 0.986153846153846 0.044943820224719 0.027692307692308",
+      "0 0.05 0.5 0.1000002 0.1",
+      "0 0.95 0.5 0.1000002 0.1"
+    ].join("\n"), 1157, 650, defaults]
   ].map(([name, text, width, height, settings]) => ({
     name,
     text,

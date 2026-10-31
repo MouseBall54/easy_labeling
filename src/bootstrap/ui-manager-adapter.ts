@@ -1472,13 +1472,22 @@ export function createUiManagerAdapter(input: {
         groupHeader.className = "label-group-header list-group-item label-group-toggle";
         groupHeader.dataset.ui = "label-group-header";
         groupHeader.dataset.groupClass = classId;
+        // Class names and colours come from dataset files: only fixed markup here, the rest as text and style.
         groupHeader.innerHTML = `
           <i class="bi bi-chevron-right label-group-chevron" aria-hidden="true"></i>
-          <span class="label-color-swatch" style="background-color: ${getColorForClass(classId)};"></span>
-          <span class="label-group-name">${manager.getDisplayNameForClass(classId)}</span>
-          <button type="button" class="label-group-select-btn" title="Select all in this group" aria-label="Select all annotations in this class" data-ui="select-group" data-testid="select-group-${classId}"><i class="bi bi-check2-all" aria-hidden="true"></i></button>
-          <span class="badge bg-secondary label-group-count">${groupRects.length}</span>
+          <span class="label-color-swatch"></span>
+          <span class="label-group-name"></span>
+          <button type="button" class="label-group-select-btn" title="Select all in this group" aria-label="Select all annotations in this class" data-ui="select-group"><i class="bi bi-check2-all" aria-hidden="true"></i></button>
+          <span class="badge bg-secondary label-group-count"></span>
         `;
+        const groupSwatch = groupHeader.querySelector<HTMLElement>(".label-color-swatch");
+        if (groupSwatch) groupSwatch.style.backgroundColor = getColorForClass(classId);
+        const groupName = groupHeader.querySelector(".label-group-name");
+        if (groupName) groupName.textContent = manager.getDisplayNameForClass(classId);
+        const groupSelect = groupHeader.querySelector<HTMLElement>(".label-group-select-btn");
+        if (groupSelect) groupSelect.dataset.testid = `select-group-${classId}`;
+        const groupCount = groupHeader.querySelector(".label-group-count");
+        if (groupCount) groupCount.textContent = String(groupRects.length);
 
         const itemsContainer = input.documentRef.createElement("div");
         itemsContainer.className = "label-group-items label-group-list";
@@ -1538,13 +1547,18 @@ export function createUiManagerAdapter(input: {
             item.classList.add("active");
           }
 
-          const annotationWidth = Math.round(Math.abs(rect.width * (rect.scaleX ?? 1)));
-          const annotationHeight = Math.round(Math.abs(rect.height * (rect.scaleY ?? 1)));
+          // The box size as saved: its outer bounds, stroke included.
+          const annotationWidth = Math.round(Math.abs(rect.getScaledWidth()));
+          const annotationHeight = Math.round(Math.abs(rect.getScaledHeight()));
           const annotationSummary = `#${originalIndex + 1} · ${annotationWidth}×${annotationHeight}`;
           const annotationName = `${manager.getDisplayNameForClass(rect.labelClass)} · ${annotationSummary}`;
           item.tabIndex = 0;
           item.setAttribute("aria-label", annotationName);
-          item.innerHTML = `<span class="label-list-item-main"><span class="label-color-swatch" style="background-color: ${getColorForClass(rect.labelClass)};"></span><span class="label-list-item-name">${annotationName}</span></span><span class="label-list-item-actions"><button class="btn btn-sm btn-outline-primary edit-btn" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}" title="Edit annotation" aria-label="Edit annotation ${originalIndex + 1}"><i class="bi bi-pencil" aria-hidden="true"></i></button><button class="btn btn-sm btn-outline-danger delete-btn" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}" title="Delete annotation" aria-label="Delete annotation ${originalIndex + 1}"><i class="bi bi-trash" aria-hidden="true"></i></button></span>`;
+          item.innerHTML = `<span class="label-list-item-main"><span class="label-color-swatch"></span><span class="label-list-item-name"></span></span><span class="label-list-item-actions"><button class="btn btn-sm btn-outline-primary edit-btn" data-ui="edit-label" data-testid="edit-label-${originalIndex}" data-index="${originalIndex}" title="Edit annotation" aria-label="Edit annotation ${originalIndex + 1}"><i class="bi bi-pencil" aria-hidden="true"></i></button><button class="btn btn-sm btn-outline-danger delete-btn" data-ui="delete-label" data-testid="delete-label-${originalIndex}" data-index="${originalIndex}" title="Delete annotation" aria-label="Delete annotation ${originalIndex + 1}"><i class="bi bi-trash" aria-hidden="true"></i></button></span>`;
+          const itemSwatch = item.querySelector<HTMLElement>(".label-color-swatch");
+          if (itemSwatch) itemSwatch.style.backgroundColor = getColorForClass(rect.labelClass);
+          const itemName = item.querySelector(".label-list-item-name");
+          if (itemName) itemName.textContent = annotationName;
           const selectAnnotation = (): void => {
             canvasController.raw.canvas.setActiveObject(rect);
             canvasController.raw.highlightSelection();

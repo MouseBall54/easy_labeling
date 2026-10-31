@@ -3788,6 +3788,12 @@ summary {
     }
 
     .header-document-status { display: none; }
+    /* Room for the Original/Processed toggle in the one-row header. */
+    .canvas-toolbar { gap: 6px; }
+    .coordinates-toolbar, .zoom-controls { gap: 3px; }
+    .toolbar-field input { width: 38px; }
+    .toolbar-field > span { display: none; } /* the inputs show X / Y as placeholders */
+    .zoom-value-field input { width: 42px; }
     .workflow-tabs .btn { padding-inline: 0.55rem; }
     .dataset-panel { width: 230px; min-width: 200px; }
     .inspector-panel { width: 250px; min-width: 220px; }

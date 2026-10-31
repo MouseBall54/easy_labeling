@@ -191,6 +191,37 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getLabelsAsYolo()).toBe("3 0.250000000000000 0.400000000000000 0.200000000000000 0.500000000000000\n");
   });
 
+  it("saves loaded labels as they were, however often they are loaded and saved", () => {
+    // 200 x 100 image: a 40 x 50 px box, a 3 x 3 px box (thinner stroke) and one crossing the right edge.
+    const original = [
+      "3 0.250000000000000 0.400000000000000 0.200000000000000 0.500000000000000",
+      "1 0.507500000000000 0.515000000000000 0.015000000000000 0.030000000000000",
+      "2 0.990000000000000 0.500000000000000 0.100000000000000 0.200000000000000"
+    ].join("\n") + "\n";
+    let text = original;
+    for (let round = 0; round < 5; round += 1) {
+      const controller = createCanvasController(createState(), createDeps());
+      controller.addLabelsFromYolo(text);
+      text = controller.getLabelsAsYolo();
+    }
+    expect(text).toBe(original);
+  });
+
+  it("keeps a small box's size through selection styling and undoing its deletion", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const original = "1 0.507500000000000 0.515000000000000 0.015000000000000 0.030000000000000\n";
+    controller.addLabelsFromYolo(original);
+    const rect = controller.getObjects("rect")[0]!;
+    controller.canvas.setActiveObject(rect);
+    controller.highlightSelection();
+    expect(controller.getLabelsAsYolo()).toBe(original);
+    controller.deleteSelection();
+    expect(controller.getObjects("rect")).toHaveLength(0);
+    controller.undo();
+    expect(controller.getLabelsAsYolo()).toBe(original);
+  });
+
   it("applies legacy selected stroke highlighting and restores class color", () => {
     const deps = createDeps({ getColorForClass: (labelClass) => `color-${labelClass ?? "none"}` });
     const controller = createCanvasController(createState(), deps);
@@ -1686,7 +1717,8 @@ describe("features/canvas/canvas-controller", () => {
     const rects = controller.getObjects("rect");
 
     expect(rects).toHaveLength(2);
-    expect(rects.map((rect) => ({ classId: rect.labelClass, left: rect.left, top: rect.top, width: rect.width, height: rect.height }))).toEqual([
+    // Boxes are their outer bounds: the 2 px stroke is part of them.
+    expect(rects.map((rect) => ({ classId: rect.labelClass, left: rect.left, top: rect.top, width: rect.getScaledWidth(), height: rect.getScaledHeight() }))).toEqual([
       { classId: "4", left: 8, top: 9, width: 24, height: 18 },
       { classId: "4", left: 70, top: 35, width: 24, height: 18 }
     ]);

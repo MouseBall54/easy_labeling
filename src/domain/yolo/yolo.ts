@@ -73,6 +73,12 @@ export function serializeRectsToYolo(rects: YoloRectLike[], imgWidth: number, im
   return yoloString;
 }
 
+/**
+ * Edge tolerance of every "outside the image" check, as a fraction of the image size: a box that ends exactly
+ * on an edge comes back from the 15-decimal YOLO text with floating-point error either side of it.
+ */
+export const YOLO_EDGE_TOLERANCE = 1e-9;
+
 export function removeOutOfBoundsYoloRows(yoloData: string): { text: string; removedCount: number } {
   let removedCount = 0;
   const text = yoloData.split(/\r?\n/).filter((line) => {
@@ -80,9 +86,8 @@ export function removeOutOfBoundsYoloRows(yoloData: string): { text: string; rem
     if (fields.length !== 5) return true;
     const [x, y, width, height] = fields.slice(1).map(Number) as [number, number, number, number];
     if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return true;
-    // Allow rounding at the image edge from the 15-decimal YOLO serializer.
-    const outside = x - width / 2 < -1e-12 || y - height / 2 < -1e-12
-      || x + width / 2 > 1 + 1e-12 || y + height / 2 > 1 + 1e-12;
+    const outside = x - width / 2 < -YOLO_EDGE_TOLERANCE || y - height / 2 < -YOLO_EDGE_TOLERANCE
+      || x + width / 2 > 1 + YOLO_EDGE_TOLERANCE || y + height / 2 > 1 + YOLO_EDGE_TOLERANCE;
     if (outside) removedCount++;
     return !outside;
   }).join("\n");

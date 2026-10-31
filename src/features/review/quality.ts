@@ -1,4 +1,4 @@
-import { parseYoloRows, type ParsedYoloRow } from "../../domain/yolo/yolo.js";
+import { parseYoloRows, YOLO_EDGE_TOLERANCE, type ParsedYoloRow } from "../../domain/yolo/yolo.js";
 import type { ReviewFinding, ReviewIssue, ReviewSettings } from "./types.js";
 
 function intersectionOverUnion(left: ParsedYoloRow, right: ParsedYoloRow): number {
@@ -20,9 +20,13 @@ export function inspectDetectionLabels(input: {
   if (rows.length === 0) {
     issues.push({ type: "empty-label", severity: "warning", message: "No detection labels", rectIndexes: [] });
   }
+  // The same edge rule as removeOutOfBoundsYoloRows, so the boxes Review calls outside are the ones cleanup removes.
+  const toleranceX = YOLO_EDGE_TOLERANCE * input.imageWidth;
+  const toleranceY = YOLO_EDGE_TOLERANCE * input.imageHeight;
   rows.forEach((row, index) => {
     const outside = !Number.isFinite(row.rectLeft) || !Number.isFinite(row.rectTop) || !Number.isFinite(row.rectWidth) || !Number.isFinite(row.rectHeight)
-      || row.rectLeft < 0 || row.rectTop < 0 || row.rectLeft + row.rectWidth > input.imageWidth || row.rectTop + row.rectHeight > input.imageHeight;
+      || row.rectLeft < -toleranceX || row.rectTop < -toleranceY
+      || row.rectLeft + row.rectWidth > input.imageWidth + toleranceX || row.rectTop + row.rectHeight > input.imageHeight + toleranceY;
     if (outside) {
       issues.push({ type: "out-of-bounds", severity: "error", message: `Box ${index + 1} is outside the image`, rectIndexes: [index] });
     }

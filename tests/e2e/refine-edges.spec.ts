@@ -670,15 +670,15 @@ test("refine: boxes whose area changes past the limit are outlined red and queue
   await openSemDataset(page);
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
-  // The second box (bounds include its 2 px stroke) shrinks by about 13% when refined; lower the shrink limit to 10%.
+  // The second box (49 x 52 px as saved) shrinks by about 6% when refined to 40 x 60; lower the shrink limit to 3%.
   await openLab(page);
   await page.locator("#refineLabEditor .refine-details summary", { hasText: "Advanced" }).click();
   await expect(page.locator("#refineLabField-areaGrowLimit")).toHaveValue("100");
   await expect(page.locator("#refineLabField-areaShrinkLimit")).toHaveValue("50");
-  await page.locator("#refineLabField-areaShrinkLimit").fill("10");
+  await page.locator("#refineLabField-areaShrinkLimit").fill("3");
   await expect(page.locator("#refineLabReadout")).toContainText("Box area");
   await saveLab(page);
-  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"areaShrinkLimit":0.1');
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"areaShrinkLimit":0.03');
 
   await page.locator("#refineAllBtn").click();
   await expect(page.locator("#refineStatus")).toContainText("1 with a large area change", { timeout: 15_000 });
