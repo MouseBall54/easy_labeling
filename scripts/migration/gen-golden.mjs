@@ -371,7 +371,13 @@ function writeRefine() {
     "strongest": { scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest" },
     "no-near-weight": { nearWeight: false, rangeIn: 14, rangeOut: 14 },
     "peak-side-near": { crit: "peak", sideRules: { L: { nearWeight: false, rangeOut: 20 }, B: { nearWeight: false } } },
-    "thr-strongest": { crit: "thr", sideRules: { T: { partMode: "strongest", scanSpan: "outside", extendStart: 6, extendEnd: 9 }, R: { partMode: "strongest", scanSpan: "boxOutside", extendEnd: 5 } } }
+    "thr-strongest": { crit: "thr", sideRules: { T: { partMode: "strongest", scanSpan: "outside", extendStart: 6, extendEnd: 9 }, R: { partMode: "strongest", scanSpan: "boxOutside", extendEnd: 5 } } },
+    "pair-grow": { pairTB: "grow", pairLR: "grow" },
+    "pair-shrink-near": { pairTB: "shrink", pairTBPick: "nearest", pairLR: "shrink", pairLRPick: "nearest" },
+    "pair-mixed": { pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest", iterations: 3 },
+    "pair-side-off": { pairTB: "grow", sides: { T: "off" } },
+    "pair-strongest-parts": { pairLR: "grow", scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest", crit: "thr" },
+    "pair-band": { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false }
   };
   const paramsFor = (raw) => ({ 0: normalizeRefineParams(raw), 1: normalizeRefineParams({ ...raw, crit: "thr", rangeIn: 5 }) });
   const cases = [];

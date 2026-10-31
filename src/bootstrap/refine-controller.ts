@@ -175,7 +175,10 @@ export function createRefineController(input: {
     const image = preset.imageSource === "processed" ? `Processed${preset.processing?.name ? ` (${preset.processing.name})` : ""}` : preset.imageSource ? "Original" : "current image";
     const step = p.crit === "grad" ? ` · step ${p.gradStep} px` : "";
     const off = REFINE_SIDES.filter((side) => p.sides[side] === "off").length;
-    return `${CRITERION_SHORT[p.crit]} · in ${p.rangeIn} / out ${p.rangeOut} px${step}${off ? ` · ${off} side${off === 1 ? "" : "s"} off` : ""} · ${image}`;
+    const pairs = ([["TB", "T+B"], ["LR", "L+R"]] as const)
+      .filter(([axis]) => p[`pair${axis}`] !== "off")
+      .map(([axis, name]) => ` · ${name} ${p[`pair${axis}`]}${p[`pair${axis}Pick`] === "nearest" ? " (near)" : ""}`).join("");
+    return `${CRITERION_SHORT[p.crit]} · in ${p.rangeIn} / out ${p.rangeOut} px${step}${off ? ` · ${off} side${off === 1 ? "" : "s"} off` : ""}${pairs} · ${image}`;
   };
 
   const syncImage = (): HTMLImageElement | null => {

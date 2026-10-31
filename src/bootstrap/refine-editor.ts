@@ -102,6 +102,22 @@ const FIELDS: FieldSpec[] = [
     key: "nearWeight", label: "Prefer near the current edge", type: "bool", group: "rule", perSide: true,
     title: "On: candidates are weighted by their distance to the current edge, so a nearby edge beats a stronger one far away. Off: the strongest edge anywhere in the search range wins (Max gradient and bright band criteria; the 50% level always takes the nearest crossing)"
   },
+  ...(["TB", "LR"] as const).flatMap((axis): FieldSpec[] => {
+    const name = axis === "TB" ? "Top + bottom" : "Left + right";
+    const span = axis === "TB" ? "height" : "width";
+    return [
+      {
+        key: `pair${axis}`, label: `${name} as a pair`, type: "select", group: "rule",
+        title: `Searches several edges on both sides and judges each pair by the change in box ${span}: growing or shrinking (the net change, not each side's move). Falls back to the other kind when none is found. Later iterations keep the nearest pair`,
+        options: [["off", "Off"], ["grow", "Prefer growing"], ["shrink", "Prefer shrinking"]]
+      },
+      {
+        key: `pair${axis}Pick`, label: `${name} pick`, type: "select", group: "rule",
+        title: "Among the pairs of the preferred kind: the clearest edges (the weaker side counts) or the least movement from the box",
+        options: [["strongest", "Clearest edges"], ["nearest", "Nearest to the box"]]
+      }
+    ];
+  }),
   {
     key: "scanSpan", label: "Scan span", type: "select", group: "rule", perSide: true,
     title: "Rows/columns scanned along the edge: the box only, the box plus its extensions, or only the extensions past the box ends",
@@ -423,6 +439,10 @@ export function createRefineEditor(input: {
       }
       // The 50% level always takes the crossing nearest the current edge.
       if (spec.key === "nearWeight") control.disabled = params.every((p) => valueOf(p, "crit") === "thr");
+      if (spec.key === "pairTBPick" || spec.key === "pairLRPick") {
+        const mode = spec.key === "pairTBPick" ? "pairTB" : "pairLR";
+        control.disabled = params.every((p) => p[mode] === "off");
+      }
       row.classList.toggle("is-overridden", isOverridden(spec.key));
       const values = params.map((p) => valueOf(p, spec.key));
       const mixed = values.some((value) => value !== values[0]);

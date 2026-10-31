@@ -92,6 +92,21 @@ const pickText = (d: RefineSideDiagnostics, set: RefineParams, iterations: numbe
     + (finalShift === null ? "" : ` · after ${iterations} pass${iterations === 1 ? "" : "es"}: ${shift(finalShift)}`);
 };
 
+const PAIR_AXIS_NAMES = { TB: "Top + bottom", LR: "Left + right" } as const;
+/** How a paired side was chosen: the preferred kind, what it fell back to, and the pick among the pairs. */
+const pairText = (pair: NonNullable<RefineSideDiagnostics["pair"]>): string => {
+  const kind = (group: "grow" | "shrink") => (group === "grow" ? "growing" : "shrinking");
+  const rule = pair.pick === "strongest" ? "clearest" : "nearest";
+  const change = `${pair.spanChange >= 0 ? "+" : "−"}${Math.abs(pair.spanChange).toFixed(1)} px`;
+  const candidates = `this side: ${pair.candidates.length} candidate${pair.candidates.length === 1 ? "" : "s"}`;
+  const pairs = `${pair.pool} pair${pair.pool === 1 ? "" : "s"}`;
+  const how = pair.group === null
+    ? (pair.chosen === null ? "no edge found" : `one side found no edge, ${rule} edge of the other used`)
+    : pair.fallback ? `no ${kind(pair.prefer)} pair, used the ${rule} of ${pairs} ${kind(pair.group)}`
+      : `${rule} of ${pairs} ${kind(pair.group)}`;
+  return `${PAIR_AXIS_NAMES[pair.axis]} pair: prefer ${kind(pair.prefer)} · ${how} (${change}) · ${candidates}`;
+};
+
 /** Pixels between a side of the box and the image border, outward. */
 const roomOutside = (c: { local: RefineRect; imageBounds: RefineRect }, side: RefineSide): number => ({
   L: c.local.x0 - c.imageBounds.x0, R: c.imageBounds.x1 - c.local.x1, T: c.local.y0 - c.imageBounds.y0, B: c.imageBounds.y1 - c.local.y1
@@ -589,6 +604,16 @@ export function createRefineLab(input: {
         if (segment.kept) { context.fillStyle = "#e0a800"; context.fill(); }
         else { context.strokeStyle = muted; context.lineWidth = 1; context.stroke(); }
       }
+      // Paired side: every candidate edge as a short tick (the chosen one solid).
+      for (const value of off ? [] : d.pair?.candidates ?? []) {
+        const x = X(imageToAxis(value));
+        const chosen = value === d.pair!.chosen;
+        context.strokeStyle = chosen ? resultColor : muted;
+        context.lineWidth = chosen ? 2 : 1;
+        context.beginPath();
+        context.moveTo(x, top + 20); context.lineTo(x, top + 30);
+        context.stroke();
+      }
       if (!off && d.firstPass !== null) {
         const x = X(imageToAxis(d.firstPass));
         context.fillStyle = resultColor;
@@ -675,6 +700,7 @@ export function createRefineLab(input: {
       off ? "" : pickText(d, sideParams(r.params, activeSide), r.params.iterations,
         d.firstPass === null ? null : imageToOutward(d, c.local[SIDE_KEY[activeSide]], d.firstPass),
         r.result ? imageToOutward(d, c.local[SIDE_KEY[activeSide]], r.result.box[SIDE_KEY[activeSide]]) : null),
+      off || !d.pair ? "" : pairText(d.pair),
       off || !d.parts ? "" : `Parts (strength): ${partNames(d, c.local).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
       detected,
       `Polarity used: ${usedPolarity}`,

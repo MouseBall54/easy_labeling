@@ -4,6 +4,7 @@
 use crate::gray::js_round;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -69,6 +70,14 @@ pub struct RefineParams {
     extend_end: f64,
     sides: Sides<String>,
     side_rules: Sides<SideRule>,
+    #[serde(rename = "pairTB", default = "pair_off")]
+    pair_tb: String,
+    #[serde(rename = "pairTBPick", default = "pair_strongest")]
+    pair_tb_pick: String,
+    #[serde(rename = "pairLR", default = "pair_off")]
+    pair_lr: String,
+    #[serde(rename = "pairLRPick", default = "pair_strongest")]
+    pair_lr_pick: String,
     iterations: f64,
     review_below: f64,
     area_grow_limit: f64,
@@ -86,15 +95,24 @@ fn yes() -> bool {
     true
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Hash, PartialOrd, Ord)]
-pub enum Side {
-    L,
-    R,
-    T,
-    B,
+fn pair_off() -> String {
+    "off".into()
 }
 
-const SIDES: [Side; 4] = [Side::L, Side::R, Side::T, Side::B];
+fn pair_strongest() -> String {
+    "strongest".into()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Hash, PartialOrd, Ord)]
+/// Declared in REFINE_SIDES order (top, bottom, right, left): sideConf keys and weak sides follow it.
+pub enum Side {
+    T,
+    B,
+    R,
+    L,
+}
+
+const SIDES: [Side; 4] = [Side::T, Side::B, Side::R, Side::L];
 /// Smallest box side (px) a refinement may leave (MIN_SIZE in edge-refine.ts).
 const MIN_SIZE: f64 = 2.0;
 
@@ -276,10 +294,8 @@ struct Edge {
     strength: f64,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, context: Option<EdgeContext>, step: i64, near: bool) -> Option<Edge> {
-    let n = p.len() as i64;
-    let at = |i: i64| p[i as usize] as f64;
+/// profileStats: range and contrast-to-noise ratio of a profile; None when it is flat.
+fn profile_stats(raw: &[f32], p: &[f32]) -> Option<(f64, f64, f64)> {
     let mut lo = f64::INFINITY;
     let mut hi = f64::NEG_INFINITY;
     for &v in p {
@@ -293,30 +309,102 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
     let mut dd: Vec<f32> = (1..raw.len().saturating_sub(1)).map(|i| (raw[i + 1] as f64 - 2.0 * raw[i] as f64 + raw[i - 1] as f64).abs() as f32).collect();
     sort_f32(&mut dd);
     let noise = if dd.is_empty() { 0.0 } else { dd[dd.len() >> 1] as f64 / (0.6745 * 6f64.sqrt()) };
-    let snr = range / (noise + 0.5);
+    Some((lo, hi, range / (noise + 0.5)))
+}
+
+/// edgeWeight: distance to the current edge, or 1 everywhere when nearWeight is off.
+fn edge_weight(n: i64, c: f64, near: bool) -> impl Fn(i64) -> f64 {
     let ws = n as f64 * 0.35;
-    // edgeWeight: distance to the current edge, or 1 everywhere when nearWeight is off.
-    let weight = |i: i64| {
+    move |i: i64| {
         if near {
             (-((i as f64 - c) * (i as f64 - c)) / (2.0 * ws * ws)).exp()
         } else {
             1.0
         }
-    };
+    }
+}
+
+/// gradientAt: brightness change over `step` samples in the expected direction (absolute when unsigned).
+fn gradient_at(p: &[f32], step: i64, sign: i32) -> impl Fn(i64) -> f64 + '_ {
+    let n = p.len() as i64;
+    let before = step / 2;
+    let after = step - before;
+    move |i: i64| {
+        let g = p[(i + after).min(n - 1) as usize] as f64 - p[(i - before).max(0) as usize] as f64;
+        if sign == 0 {
+            g.abs()
+        } else {
+            (sign as f64 * g).max(0.0)
+        }
+    }
+}
+
+/// bandEdge: the band centre (peak) or its outer 50% level (flank) for the band peaking at `peak`.
+fn band_edge(p: &[f32], peak: i64, crit: &str, out: i64, context: Option<EdgeContext>) -> Option<f64> {
+    let n = p.len() as i64;
+    let at = |i: i64| p[i as usize] as f64;
+    if crit == "peak" {
+        return Some(peak as f64 + parabola(&at, peak, n));
+    }
+    let mut base = f64::INFINITY;
+    let mut i = peak;
+    while i >= 0 && i < n {
+        base = base.min(at(i));
+        i += out;
+    }
+    if let Some(ctx) = context.filter(|ctx| ctx.polarity != 0) {
+        if ctx.outside < at(peak) {
+            base = ctx.outside;
+        }
+    }
+    let level = (at(peak) + base) / 2.0;
+    let mut i = peak;
+    while i + out >= 0 && i + out < n {
+        if at(i + out) <= level {
+            let a = at(i) - level;
+            let b = at(i + out) - level;
+            return Some(i as f64 + out as f64 * (a / (a - b)));
+        }
+        i += out;
+    }
+    None
+}
+
+fn scored_edge(pos: f64, snr: f64, n: i64) -> Edge {
+    let mut conf = ((snr - 3.0) / 12.0).clamp(0.0, 1.0);
+    let mut strength = snr;
+    if pos < 1.0 || pos > n as f64 - 2.0 {
+        conf *= 0.3;
+        strength *= 0.3;
+    }
+    Edge { pos, conf, strength }
+}
+
+/// Sign of b - a as -1, 0 or 1 (Math.sign in the 50% level crossing test).
+fn direction_sign(a: f64, b: f64) -> i32 {
+    let direction = b - a;
+    if direction > 0.0 {
+        1
+    } else if direction < 0.0 {
+        -1
+    } else {
+        0
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, context: Option<EdgeContext>, step: i64, near: bool) -> Option<Edge> {
+    let n = p.len() as i64;
+    let at = |i: i64| p[i as usize] as f64;
+    let (lo, hi, snr) = profile_stats(raw, p)?;
+    let weight = edge_weight(n, c, near);
     let mut pos: Option<f64> = None;
     let polar = context.filter(|ctx| ctx.polarity != 0);
 
     if crit == "grad" {
         let before = step / 2;
         let after = step - before;
-        let gradient = |i: i64| {
-            let g = at((i + after).min(n - 1)) - at((i - before).max(0));
-            if sign == 0 {
-                g.abs()
-            } else {
-                (sign as f64 * g).max(0.0)
-            }
-        };
+        let gradient = gradient_at(p, step, sign);
         let mut best = 0.0;
         let mut best_index = -1;
         for i in before.max(1)..n - after.max(1) {
@@ -339,15 +427,7 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
         for i in 0..n - 1 {
             let a = at(i) - level;
             let b = at(i + 1) - level;
-            let direction = b - a;
-            let direction_sign = if direction > 0.0 {
-                1
-            } else if direction < 0.0 {
-                -1
-            } else {
-                0
-            };
-            if a * b <= 0.0 && a != b && (sign == 0 || direction_sign == sign) {
+            if a * b <= 0.0 && a != b && (sign == 0 || direction_sign(a, b) == sign) {
                 let x = i as f64 + a / (a - b);
                 let d = (x - c).abs();
                 if d < best_distance {
@@ -371,41 +451,79 @@ fn find_edge(raw: &[f32], p: &[f32], crit: &str, out: i64, c: f64, sign: i32, co
         if peak < 0 {
             return None;
         }
-        if crit == "peak" {
-            pos = Some(peak as f64 + parabola(&|i| at(i), peak, n));
-        } else {
-            let mut base = f64::INFINITY;
-            let mut i = peak;
-            while i >= 0 && i < n {
-                base = base.min(at(i));
-                i += out;
+        pos = band_edge(p, peak, crit, out, context);
+    }
+    let pos = pos.filter(|p| p.is_finite())?;
+    Some(scored_edge(pos, snr, n))
+}
+
+/// findEdgeCandidates: every edge find_edge weighs, best first (at most `max`), scaled by its share of the best score.
+#[allow(clippy::too_many_arguments)]
+fn find_edge_candidates(
+    raw: &[f32],
+    p: &[f32],
+    crit: &str,
+    out: i64,
+    c: f64,
+    sign: i32,
+    context: Option<EdgeContext>,
+    step: i64,
+    near: bool,
+    max: usize,
+) -> Vec<Edge> {
+    let n = p.len() as i64;
+    let at = |i: i64| p[i as usize] as f64;
+    let Some((lo, hi, snr)) = profile_stats(raw, p) else {
+        return Vec::new();
+    };
+    let weight = edge_weight(n, c, near);
+    let mut picks: Vec<(Option<f64>, f64)> = Vec::new();
+    if crit == "grad" {
+        let before = step / 2;
+        let after = step - before;
+        let gradient = gradient_at(p, step, sign);
+        let from = before.max(1);
+        let to = n - after.max(1);
+        let score = |i: i64| gradient(i) * weight(i);
+        for i in from..to {
+            let g = score(i);
+            if g > 0.0 && (i == from || g > score(i - 1)) && (i == to - 1 || g >= score(i + 1)) {
+                picks.push((Some(i as f64 + (after - before) as f64 / 2.0 + parabola(&gradient, i, n)), g));
             }
-            if let Some(ctx) = polar {
-                if ctx.outside < at(peak) {
-                    base = ctx.outside;
-                }
+        }
+    } else if crit == "thr" {
+        let level = match context.filter(|ctx| ctx.polarity != 0) {
+            Some(ctx) => (ctx.inside + ctx.outside) / 2.0,
+            None => (lo + hi) / 2.0,
+        };
+        for i in 0..n - 1 {
+            let a = at(i) - level;
+            let b = at(i + 1) - level;
+            if a * b <= 0.0 && a != b && (sign == 0 || direction_sign(a, b) == sign) {
+                let x = i as f64 + a / (a - b);
+                picks.push((Some(x), -(x - c).abs()));
             }
-            let level = (at(peak) + base) / 2.0;
-            let mut i = peak;
-            while i + out >= 0 && i + out < n {
-                if at(i + out) <= level {
-                    let a = at(i) - level;
-                    let b = at(i + out) - level;
-                    pos = Some(i as f64 + out as f64 * (a / (a - b)));
-                    break;
-                }
-                i += out;
+        }
+    } else {
+        for i in 1..n - 1 {
+            if at(i) >= at(i - 1) && at(i) >= at(i + 1) {
+                picks.push((band_edge(p, i, crit, out, context), (at(i) - lo) * weight(i)));
             }
         }
     }
-    let pos = pos.filter(|p| p.is_finite())?;
-    let mut conf = ((snr - 3.0) / 12.0).clamp(0.0, 1.0);
-    let mut strength = snr;
-    if pos < 1.0 || pos > n as f64 - 2.0 {
-        conf *= 0.3;
-        strength *= 0.3;
+    picks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+    let best = picks.first().map_or(0.0, |pick| pick.1);
+    let mut found = Vec::new();
+    for (pos, score) in picks {
+        if found.len() >= max {
+            break;
+        }
+        let Some(pos) = pos.filter(|pos| pos.is_finite()) else {
+            continue;
+        };
+        found.push(scored_edge(pos, if crit == "thr" { snr } else { snr * score / best }, n));
     }
-    Some(Edge { pos, conf, strength })
+    found
 }
 
 fn median(values: &mut [f32]) -> f64 {
@@ -661,6 +779,128 @@ fn refine_side(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, context
     search_range(img, &w, side, p, sign, context, 0, w.positions.len()).map(|(value, conf, _)| (value, conf))
 }
 
+/// At most this many candidates per segment and per side when opposite sides are picked as a pair.
+const PAIR_CANDIDATES: usize = 5;
+
+#[derive(Clone, Copy, Debug)]
+struct SideCandidate {
+    value: f64,
+    conf: f64,
+    strength: f64,
+}
+
+/// sideCandidates: every segment's candidates clustered by position, strongest clusters first.
+fn side_candidates(img: &GrayImage, w: &SideWindow, side: Side, p: &SideParams, sign: i32, context: Option<EdgeContext>) -> Vec<SideCandidate> {
+    let out = outward(side);
+    let kernel = gauss_kernel(p.sigma);
+    let total = w.positions.len();
+    let segments = (p.segments as usize).min(total).max(1);
+    let mut found: Vec<(Edge, usize)> = Vec::new();
+    for k in 0..segments {
+        let from = k * total / segments;
+        let to = (from + 1).max((k + 1) * total / segments);
+        let profile = sample_profile(img, w, is_vertical(side), from, to);
+        let edges =
+            find_edge_candidates(&profile, &smooth(&profile, &kernel), &p.crit, out, w.c, sign, context, p.grad_step as i64, p.near_weight, PAIR_CANDIDATES);
+        found.extend(edges.into_iter().map(|edge| (edge, k)));
+    }
+    found.sort_by(|a, b| a.0.pos.partial_cmp(&b.0.pos).unwrap_or(Ordering::Equal));
+    let gap = p.grad_step.max(2.0);
+    let mut clusters: Vec<Vec<&(Edge, usize)>> = Vec::new();
+    for edge in &found {
+        match clusters.last_mut() {
+            Some(last) if last.last().is_some_and(|prev| edge.0.pos - prev.0.pos <= gap) => last.push(edge),
+            _ => clusters.push(vec![edge]),
+        }
+    }
+    let merged: Vec<SideCandidate> = clusters
+        .iter()
+        .map(|members| {
+            let mut positions: Vec<f32> = members.iter().map(|e| e.0.pos as f32).collect();
+            sort_f32(&mut positions);
+            let pos = if p.comb == "outer" { quantile(&positions, if out < 0 { 0.1 } else { 0.9 }) } else { quantile(&positions, 0.5) };
+            let mut segments_seen: Vec<usize> = members.iter().map(|e| e.1).collect();
+            segments_seen.sort_unstable();
+            segments_seen.dedup();
+            let coverage = segments_seen.len() as f64 / segments as f64;
+            let mut confidences: Vec<f32> = members.iter().map(|e| e.0.conf as f32).collect();
+            sort_f32(&mut confidences);
+            let mut strengths: Vec<f32> = members.iter().map(|e| e.0.strength as f32).collect();
+            sort_f32(&mut strengths);
+            SideCandidate { value: w.base as f64 + pos + 0.5, conf: quantile(&confidences, 0.5) * coverage, strength: quantile(&strengths, 0.5) * coverage }
+        })
+        .collect();
+    let best = merged.iter().map(|e| e.conf).fold(0.0, f64::max);
+    let mut kept: Vec<SideCandidate> = merged.into_iter().filter(|e| e.conf >= best * 0.5).collect();
+    kept.sort_by(|a, b| b.strength.partial_cmp(&a.strength).unwrap_or(Ordering::Equal));
+    kept.truncate(PAIR_CANDIDATES);
+    kept
+}
+
+/// pickAxisPair: the chosen low (L/T) and high (R/B) edges; None keeps that side where it is.
+fn pick_axis_pair(
+    low: &[SideCandidate],
+    high: &[SideCandidate],
+    current: (f64, f64),
+    prefer: Option<&str>,
+    pick: &str,
+) -> (Option<SideCandidate>, Option<SideCandidate>) {
+    if low.is_empty() && high.is_empty() {
+        return (None, None);
+    }
+    let before = current.1 - current.0;
+    let lows: Vec<Option<SideCandidate>> = if low.is_empty() { vec![None] } else { low.iter().copied().map(Some).collect() };
+    let highs: Vec<Option<SideCandidate>> = if high.is_empty() { vec![None] } else { high.iter().copied().map(Some).collect() };
+    // (low, high, change, moved, strength)
+    let mut pairs = Vec::new();
+    for l in &lows {
+        for h in &highs {
+            let a = l.map_or(current.0, |e| e.value);
+            let b = h.map_or(current.1, |e| e.value);
+            if b - a < MIN_SIZE {
+                continue;
+            }
+            let strength = l.map_or(f64::INFINITY, |e| e.strength).min(h.map_or(f64::INFINITY, |e| e.strength));
+            pairs.push((*l, *h, b - a - before, (a - current.0).abs() + (b - current.1).abs(), strength));
+        }
+    }
+    let grouped = prefer.is_some() && !low.is_empty() && !high.is_empty();
+    let preferred: Vec<_> =
+        if grouped { pairs.iter().copied().filter(|pair| if prefer == Some("grow") { pair.2 >= 0.0 } else { pair.2 <= 0.0 }).collect() } else { pairs.clone() };
+    let pool = if preferred.is_empty() { &pairs } else { &preferred };
+    let better = |a: &(Option<SideCandidate>, Option<SideCandidate>, f64, f64, f64), b: &(Option<SideCandidate>, Option<SideCandidate>, f64, f64, f64)| {
+        if pick == "strongest" {
+            a.4 > b.4 || (a.4 == b.4 && a.3 < b.3)
+        } else {
+            a.3 < b.3 || (a.3 == b.3 && a.4 > b.4)
+        }
+    };
+    let Some(mut best) = pool.first().copied() else {
+        return (None, None);
+    };
+    for pair in pool {
+        if better(pair, &best) {
+            best = *pair;
+        }
+    }
+    (best.0, best.1)
+}
+
+/// Position of a side in SIDES.
+fn side_index(side: Side) -> usize {
+    match side {
+        Side::T => 0,
+        Side::B => 1,
+        Side::R => 2,
+        Side::L => 3,
+    }
+}
+
+/// Opposite sides picked as a pair: (low side, high side, mode, pick) per axis.
+fn pair_axes(params: &RefineParams) -> [(Side, Side, &str, &str); 2] {
+    [(Side::T, Side::B, params.pair_tb.as_str(), params.pair_tb_pick.as_str()), (Side::L, Side::R, params.pair_lr.as_str(), params.pair_lr_pick.as_str())]
+}
+
 fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbours: &[Rect]) -> RefineResult {
     let start = input.rect();
     let mut current = start;
@@ -668,10 +908,39 @@ fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbou
     let per_side: Vec<SideParams> = SIDES.iter().map(|&side| side_params(params, side)).collect();
     let widest = per_side.iter().map(|p| p.range_out).fold(f64::NEG_INFINITY, f64::max);
     let context = measure_context(img, &current, widest, params.context_ring);
-    for _ in 0..params.iterations as usize {
+    let candidates = |rect: &Rect, side: Side| {
+        let p = &per_side[side_index(side)];
+        let w = side_window(img, rect, side, p, neighbours);
+        let polarity = resolve_polarity(p, context);
+        let sign = if polarity == 0 { 0 } else { -polarity * outward(side) as i32 };
+        side_candidates(img, &w, side, p, sign, context)
+    };
+    for iteration in 0..params.iterations as usize {
         let mut next = current;
+        let mut paired = [false; 4];
+        for (low, high, mode, pick) in pair_axes(params) {
+            if mode == "off" || params.sides.get(low) == "off" || params.sides.get(high) == "off" {
+                continue;
+            }
+            // First pass: the preferred kind and pick rule; later passes keep the nearest pair.
+            let first = iteration == 0;
+            let chosen = pick_axis_pair(
+                &candidates(&current, low),
+                &candidates(&current, high),
+                (current.get(low), current.get(high)),
+                first.then_some(mode),
+                if first { pick } else { "nearest" },
+            );
+            for (side, edge) in [(low, chosen.0), (high, chosen.1)] {
+                if let Some(edge) = edge {
+                    next.set(side, edge.value);
+                }
+                side_conf.insert(side, edge.map_or(0.0, |e| e.conf));
+                paired[side_index(side)] = true;
+            }
+        }
         for (index, &side) in SIDES.iter().enumerate() {
-            if params.sides.get(side) == "off" {
+            if params.sides.get(side) == "off" || paired[index] {
                 continue;
             }
             match refine_side(img, &current, side, &per_side[index], context, neighbours) {
@@ -703,7 +972,7 @@ fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbou
     let area_change = if before > 0.0 { (current.x1 - current.x0) * (current.y1 - current.y0) / before - 1.0 } else { 0.0 };
     let area_flagged =
         (params.area_grow_limit > 0.0 && area_change > params.area_grow_limit) || (params.area_shrink_limit > 0.0 && -area_change > params.area_shrink_limit);
-    // JS reports sideConf in insertion order (L, R, T, B), which BTreeMap's Side order reproduces.
+    // JS reports sideConf in insertion order (T, B, R, L), which BTreeMap's Side order reproduces.
     let conf = if side_conf.is_empty() { 1.0 } else { side_conf.values().copied().fold(f64::INFINITY, f64::min) };
     RefineResult {
         id: input.id.clone(),

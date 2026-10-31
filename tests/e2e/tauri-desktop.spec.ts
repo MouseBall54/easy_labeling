@@ -139,6 +139,7 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
         return { id: String(index), classId: "0", x0, y0, x1: x0 + 60, y1: y0 + 50 };
       });
       const paramsByClass = { 0: normalizeRefineParams({}) };
+      const pairParams = { 0: normalizeRefineParams({ pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest" }) };
       const processed = { kind: "processed", config: { mode: "edge-blend", median: true, claheClip: 2 } };
       const run = async () => {
         const refine = createRefineService();
@@ -147,7 +148,8 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
         const onProcessed = await refine.refine(image, boxes, paramsByClass, boxes, processed);
         const crop = await refine.crop(image, { x0: 10.5, y0: 20, x1: 60, y1: 71.2 }, processed);
         const elapsed = performance.now() - started;
-        return { original, onProcessed, crop: { ...crop, gray: Array.from(crop.gray) }, elapsed };
+        const paired = await refine.refine(image, boxes, pairParams, boxes, { kind: "original" });
+        return { original, onProcessed, paired, crop: { ...crop, gray: Array.from(crop.gray) }, elapsed };
       };
       const native = await run();
       const bridge = Reflect.get(window, "easyLabelingNative");
@@ -160,7 +162,7 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
     });
     expect(outcome.bridge).toBe(true);
     expect(outcome.native.original).toHaveLength(40);
-    for (const key of ["original", "onProcessed"] as const) {
+    for (const key of ["original", "onProcessed", "paired"] as const) {
       outcome.native[key].forEach((result: { id: string; weakSides: string[]; box: Record<string, number> }, index: number) => {
         const expected = outcome.js[key][index];
         expect(result.id).toBe(expected.id);

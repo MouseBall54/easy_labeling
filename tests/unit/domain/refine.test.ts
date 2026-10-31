@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeRefineSide,
   normalizeRefineParams,
+  pickAxisPair,
   REFINE_CRITERIA,
   REFINE_PARAM_LIMITS,
   REFINE_SIDES,
@@ -227,12 +228,91 @@ describe("domain/refine/edge-refine", () => {
     }
   });
 
+  // Rows only: top edges at y=6 (strong) and y=9 (weak), bottom edges at y=48 (weak) and y=55 (strong).
+  const pairImage = (rows: (y: number) => number): GrayImage => {
+    const width = 60;
+    const height = 70;
+    const gray = new Float32Array(width * height);
+    for (let y = 0; y < height; y += 1) gray.fill(rows(y), y * width, (y + 1) * width);
+    return { gray, width, height };
+  };
+  const twoEdges = pairImage((y) => (y < 6 ? 20 : y < 9 ? 150 : y < 48 ? 200 : y < 55 ? 150 : 20));
+  const pairBox = { x0: 10, y0: 10, x1: 50, y1: 50 };
+  const pairBase = { sides: { L: "off", R: "off" }, polarity: "brightInside", rangeIn: 4, rangeOut: 8, contextRing: 0, sigma: 0, inset: 0, nearWeight: false, iterations: 1 };
+  const refinedY = (img: GrayImage, raw: object) => {
+    const [result] = refineBoxes(img, [{ id: "a", classId: "0", ...pairBox }], { 0: normalizeRefineParams(raw) });
+    return result!;
+  };
+  const near = (value: number, expected: number) => expect(Math.abs(value - expected), `${value} vs ${expected}`).toBeLessThan(0.5);
+
+  it("classifies a pair by its net span change", () => {
+    const edge = (value: number) => ({ value, conf: 1, strength: 10 });
+    // Top 3 px out, bottom 5 px in: the height shrinks by 2.
+    expect(pickAxisPair([edge(7)], [edge(45)], [10, 50], "grow", "strongest")).toMatchObject({ low: { value: 7 }, high: { value: 45 }, group: "shrink", fallback: true });
+    expect(pickAxisPair([edge(7)], [edge(45)], [10, 50], "shrink", "strongest")).toMatchObject({ group: "shrink", fallback: false });
+    // No change counts as the preferred group either way.
+    expect(pickAxisPair([edge(12)], [edge(52)], [10, 50], "shrink", "nearest")).toMatchObject({ group: "shrink", fallback: false });
+    // Too small for a box, or nothing found: both sides stay.
+    expect(pickAxisPair([edge(30)], [edge(31)], [10, 50], "grow", "strongest")).toMatchObject({ low: null, high: null });
+    expect(pickAxisPair([], [], [10, 50], "grow", "strongest")).toMatchObject({ low: null, high: null });
+  });
+
+  it("prefers the requested group, then the pick rule", () => {
+    const grow = refinedY(twoEdges, { ...pairBase, pairTB: "grow" }).box;
+    near(grow.y0, 6);
+    near(grow.y1, 55);
+    const shrink = refinedY(twoEdges, { ...pairBase, pairTB: "shrink", pairTBPick: "nearest" }).box;
+    near(shrink.y0, 9);
+    near(shrink.y1, 48);
+    // The same image without the pair: each side alone takes its strongest edge.
+    const alone = refinedY(twoEdges, pairBase).box;
+    near(alone.y0, 6);
+    near(alone.y1, 55);
+  });
+
+  it("falls back to the other group when the preferred one is empty, and explains the pick", () => {
+    const inside = pairImage((y) => (y >= 13 && y < 46 ? 200 : 20));
+    const inward = { ...pairBase, rangeIn: 6, pairTB: "grow" }; // both edges lie inside the box
+    const result = refinedY(inside, inward);
+    near(result.box.y0, 13);
+    near(result.box.y1, 46);
+    const d = describeRefineSide(inside, pairBox, "T", normalizeRefineParams(inward));
+    expect(d.pair).toMatchObject({ axis: "TB", prefer: "grow", pick: "strongest", group: "shrink", fallback: true });
+    near(d.pair!.chosen!, 13);
+    near(d.firstPass!, 13);
+    expect(d.pair!.candidates.length).toBeGreaterThanOrEqual(1);
+    expect(describeRefineSide(inside, pairBox, "T", normalizeRefineParams(pairBase)).pair).toBeUndefined();
+    const two = describeRefineSide(twoEdges, pairBox, "B", normalizeRefineParams({ ...pairBase, pairTB: "grow" }));
+    expect(two.pair!.candidates.length).toBe(2);
+    expect(two.pair!.pool).toBe(3); // three of the four pairs grow
+  });
+
+  it("refines a paired axis by nearness after the first pass", () => {
+    const once = refinedY(twoEdges, { ...pairBase, pairTB: "grow" }).box;
+    const thrice = refinedY(twoEdges, { ...pairBase, pairTB: "grow", iterations: 3 }).box;
+    near(thrice.y0, once.y0);
+    near(thrice.y1, once.y1);
+  });
+
+  it("ignores the pair when a side of the axis is off", () => {
+    const off = { ...pairBase, sides: { L: "off", R: "off", T: "off" } };
+    expect(refinedY(twoEdges, { ...off, pairTB: "grow", pairTBPick: "nearest" }).box).toEqual(refinedY(twoEdges, off).box);
+  });
+
+  it("keeps a paired axis and flags it when nothing is found", () => {
+    const result = refinedY(pairImage(() => 100), { ...pairBase, pairTB: "grow" });
+    expect(result.box).toEqual(pairBox);
+    expect(result.sideConf).toMatchObject({ T: 0, B: 0 });
+    expect(result.flagged).toBe(true);
+  });
+
   it("keeps a valid box inside the image for every extreme parameter on every side", () => {
     const truth = [{ x0: 20, y0: 20, x1: 60, y1: 70 }, { x0: 70, y0: 25, x1: 100, y1: 75 }];
     const img = paint(120, 100, truth);
     const boxes: RefineBoxInput[] = [{ id: "a", classId: "0", x0: 16, y0: 24, x1: 63, y1: 66 }, { id: "b", classId: "0", x0: 72, y0: 20, x1: 98, y1: 80 }];
     const variants: Record<string, unknown>[] = [];
     for (const [key, [low, high]] of Object.entries(REFINE_PARAM_LIMITS)) variants.push({ [key]: low }, { [key]: high });
+    variants.push({ pairTB: "grow", pairLR: "grow", rangeOut: 2000, avoidNeighbors: false }, { pairTB: "shrink", pairLR: "shrink", pairLRPick: "nearest", rangeIn: 2000, iterations: 6 });
     for (const crit of REFINE_CRITERIA) {
       // Every bound at once is the slowest case (about 0.5 s per box), so it runs once per criterion.
       variants.push({ crit, scanSpan: "boxOutside", rangeIn: 2000, rangeOut: 2000, extendStart: 4000, extendEnd: 4000, contextRing: 500, sigma: 12, gradStep: 64, segments: 100, iterations: 6, inset: 0.49, avoidNeighbors: false });
@@ -286,6 +366,16 @@ describe("domain/refine/edge-refine", () => {
 });
 
 describe("domain/refine/settings", () => {
+  it("reads pair settings, defaulting to off for older files and presets", () => {
+    expect(normalizeRefineParams({})).toMatchObject({ pairTB: "off", pairTBPick: "strongest", pairLR: "off", pairLRPick: "strongest" });
+    expect(normalizeRefineParams({ pairTB: "grow", pairLRPick: "nearest", pairLR: "bogus" })).toMatchObject({ pairTB: "grow", pairLRPick: "nearest", pairLR: "off" });
+    const old = parseRefineSettings(JSON.stringify({ default: { crit: "flank" }, classes: { 2: { pairTB: "shrink" } } }));
+    expect(resolveRefineParams(old, "default").pairTB).toBe("off");
+    expect(resolveRefineParams(old, "2").pairTB).toBe("shrink");
+    const saved = saveRefinePreset(createRefineSettings(), "pairs", normalizeRefineParams({ pairLR: "grow" }));
+    expect(applyRefinePreset(saved, "pairs", "default").default.pairLR).toBe("grow");
+  });
+
   it("inherits defaults, stores only changed keys and resets per key", () => {
     let doc = updateRefineSettings(createRefineSettings(), ["2"], { rangeOut: 16, sides: { B: "off" } });
     doc = updateRefineSettings(doc, "default", { rangeOut: 12, crit: "flank" });
