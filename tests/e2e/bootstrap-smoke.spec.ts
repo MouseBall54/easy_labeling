@@ -16,7 +16,7 @@ test("bootstrap-smoke: modular dist/main.js entry boots with parity defaults", a
 
   await page.goto("/index.html");
 
-  await expect(page.locator("#workspaceStandbyPanel")).toBeVisible();
+  // The standby closes within seconds: the matching engine starts in the background afterwards.
   await expect(page.locator('[data-standby-step="interface"]')).toHaveAttribute("data-state", "ready");
   await expect(page.locator('[data-standby-step="automation"]')).toHaveAttribute("data-state", "ready");
   await expect(page.locator('[data-standby-step="matching"]')).toHaveAttribute("data-state", "ready", { timeout: 25_000 });
@@ -37,6 +37,7 @@ test("bootstrap-smoke: modular dist/main.js entry boots with parity defaults", a
     return elements.map((element) => element.getAttribute("data-ui"));
   });
   expect(canvasToolbarOrder).toEqual([
+    "canvas-view-toggle",
     "coordinates-toolbar",
     "zoom-controls",
     "mouse-coordinates"
@@ -52,13 +53,6 @@ test("bootstrap-smoke: modular dist/main.js entry boots with parity defaults", a
 test("bootstrap-smoke: 200 percent equivalent viewport keeps empty actions visible", async ({ page }) => {
   await page.setViewportSize({ width: 640, height: 360 });
   await page.goto("/index.html");
-
-  await expect(page.locator("#workspaceStandbyPanel")).toBeVisible();
-  const standbyBounds = await page.locator("#workspaceStandbyPanel").boundingBox();
-  expect(standbyBounds?.x).toBeGreaterThanOrEqual(0);
-  expect((standbyBounds?.x ?? 0) + (standbyBounds?.width ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(640);
-  expect(standbyBounds?.y).toBeGreaterThanOrEqual(0);
-  expect((standbyBounds?.y ?? 0) + (standbyBounds?.height ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(360);
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 25_000 });
   await expect(page.locator("#left-panel")).not.toHaveClass(/\bmobile-open\b/);
   await expect(page.locator("#right-panel")).not.toHaveClass(/\bmobile-open\b/);
@@ -77,6 +71,20 @@ test("bootstrap-smoke: 200 percent equivalent viewport keeps empty actions visib
 
   expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
   expect(layout.actionsBottom).toBeLessThanOrEqual(layout.viewportHeight);
+
+  // The startup standby closes too quickly to measure; the sample's standby is the same panel, held open here.
+  let releaseManifest: () => void = () => undefined;
+  const manifestHeld = new Promise<void>((resolve) => { releaseManifest = resolve; });
+  await page.route("**/manifest.json", async (route) => { await manifestHeld; await route.continue(); });
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeVisible();
+  const standbyBounds = await page.locator("#workspaceStandbyPanel").boundingBox();
+  expect(standbyBounds?.x).toBeGreaterThanOrEqual(0);
+  expect((standbyBounds?.x ?? 0) + (standbyBounds?.width ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(640);
+  expect(standbyBounds?.y).toBeGreaterThanOrEqual(0);
+  expect((standbyBounds?.y ?? 0) + (standbyBounds?.height ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(360);
+  releaseManifest();
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 60_000 });
 });
 
 test("bootstrap-smoke: matching startup failure stays actionable", async ({ page }) => {
@@ -98,9 +106,10 @@ test("bootstrap-smoke: matching startup failure stays actionable", async ({ page
 
   await page.goto("/index.html");
 
-  await expect(page.locator('[data-standby-step="matching"]')).toHaveAttribute("data-state", "error");
-  await expect(page.locator('[data-standby-step="matching"] small')).toContainText("Worker unavailable");
-  await expect(page.locator("#workspaceStandbyActions")).toBeVisible();
-  await page.locator("#dismissWorkspaceStandbyBtn").click();
-  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden();
+  // The engine starts in the background: the workspace opens anyway, and the failure shows in the status bar.
+  await expect(page.locator('[data-standby-step="matching"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#matchingEngineStatus")).toHaveAttribute("data-state", "error", { timeout: 30_000 });
+  await expect(page.locator("#matchingEngineStatus")).toContainText("Retry on use");
+  await expect(page.locator("#matchingEngineStatus")).toHaveAttribute("title", /Worker unavailable/);
 });

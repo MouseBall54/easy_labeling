@@ -24,7 +24,8 @@ function resetPastedRectStyling(rect: FabricRectLike, getColorForClass: (labelCl
   assignFreshAnnotationId(rect);
   rect.originalYolo = null;
   const color = getColorForClass(rect.labelClass);
-  rect.set({ fill: `${color}33`, stroke: color });
+  // As boxRectGeometry: no per-box object cache (a clone does not keep the setting).
+  rect.set({ fill: `${color}33`, stroke: color, objectCaching: false });
   rect.setCoords();
 }
 

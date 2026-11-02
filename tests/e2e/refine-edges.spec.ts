@@ -287,6 +287,33 @@ test("refine lab: tunes a draft with live results, shows polarity, and saves pre
   await expect(fitButton).toBeDisabled();
 });
 
+test("refine lab: picks top and bottom as a pair and explains the pick", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("r");
+  await openLab(page);
+  const pick = page.locator("#refineLabField-pairTBPick");
+  await expect(pick).toBeDisabled();
+  await page.locator("#refineLabField-pairTB").selectOption("grow");
+  await expect(pick).toBeEnabled();
+  await page.locator("#refineLabSideTabs [data-side=T]").click();
+  await expect(page.locator("#refineLabReadout")).toContainText("Top + bottom pair: prefer growing");
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((dark) => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = dark; toggle.dispatchEvent(new Event("change", { bubbles: true })); }, theme === "dark");
+    await page.locator("#refineLabField-pairTB").evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await lab(page).screenshot({ path: `test-results/refine-lab-pair-${theme}.png` });
+  }
+  await page.evaluate(() => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = false; toggle.dispatchEvent(new Event("change", { bubbles: true })); });
+  await lab(page).locator('[data-ref="presetName"]').fill("Pairs");
+  await lab(page).locator('[data-act="savePreset"]').click();
+  await page.locator("#refineLabApplyBtn").click();
+  await expect(lab(page)).toBeHidden();
+  await expect.poll(async () => ((await settingsFile(page)) as unknown as { default: { pairTB: string } } | null)?.default.pairTB).toBe("grow");
+  await page.locator("#refineRunPresetSelect").selectOption("Pairs");
+  await expect(page.locator("#refineRunPresetDetail")).toContainText("T+B grow");
+});
+
 test("refine: per-side edge rules, use-for-all-sides, and remembered search range opacity", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
@@ -670,15 +697,15 @@ test("refine: boxes whose area changes past the limit are outlined red and queue
   await openSemDataset(page);
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
-  // The second box (bounds include its 2 px stroke) shrinks by about 13% when refined; lower the shrink limit to 10%.
+  // The second box (49 x 52 px as saved) shrinks by about 6% when refined to 40 x 60; lower the shrink limit to 3%.
   await openLab(page);
   await page.locator("#refineLabEditor .refine-details summary", { hasText: "Advanced" }).click();
   await expect(page.locator("#refineLabField-areaGrowLimit")).toHaveValue("100");
   await expect(page.locator("#refineLabField-areaShrinkLimit")).toHaveValue("50");
-  await page.locator("#refineLabField-areaShrinkLimit").fill("10");
+  await page.locator("#refineLabField-areaShrinkLimit").fill("3");
   await expect(page.locator("#refineLabReadout")).toContainText("Box area");
   await saveLab(page);
-  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"areaShrinkLimit":0.1');
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"areaShrinkLimit":0.03');
 
   await page.locator("#refineAllBtn").click();
   await expect(page.locator("#refineStatus")).toContainText("1 with a large area change", { timeout: 15_000 });

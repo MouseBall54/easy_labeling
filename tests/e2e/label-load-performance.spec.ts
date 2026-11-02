@@ -1,7 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 for (const count of [4000, 5000]) test(`native label loading and source switching preserves ${count} boxes`, async ({}, testInfo) => {
   test.setTimeout(180_000);
@@ -16,16 +20,9 @@ for (const count of [4000, 5000]) test(`native label loading and source switchin
     await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `image-${index}.jpg`));
     for (const [source, folder] of folders.entries()) await writeFile(path.join(folder, `image-${index}.txt`), texts[source]!);
   }
-  const electron = await _electron.launch({
-    args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset,
-      INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset, folders[1]]) }
-  });
+  const app = await openDesktop([dataset, folders[1], dataset]);
   try {
-    await electron.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows().forEach((window) => window.webContents.setBackgroundThrottling(false));
-    });
-    const page = await electron.firstWindow();
+    const { page } = app;
     await page.waitForLoadState("domcontentloaded");
     await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
     const errors: string[] = [];
@@ -85,7 +82,7 @@ for (const count of [4000, 5000]) test(`native label loading and source switchin
     expect(errors).toEqual([]);
     await testInfo.attach("label-load-timings", { body: JSON.stringify({ count, timings }, null, 2), contentType: "application/json" });
   } finally {
-    await electron.close();
+    await app.close();
     if (!path.basename(dataset).startsWith("easy-labeling-load-")) throw new Error("Unexpected test dataset path");
     await rm(dataset, { recursive: true, force: true });
   }

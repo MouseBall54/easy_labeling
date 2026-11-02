@@ -98,7 +98,11 @@ description: >
 
 ## Persistence (`automation-library-service.ts`)
 
-Library lives at `<imageFolder>/.easy-labeling/automation-library.json`,
+Desktop app: `persistLibrary` (automation-controller.ts) writes what changed since the last
+read (`automationLibraryChanges`) as one file per preset/layout in the profile folders
+(`features/presets/profile-presets.ts`), deletes removed ones, and merges profile and dataset by
+`updatedAt` (`mergeNewestAutomationLibraries`). Web build: the library lives at
+`<imageFolder>/.easy-labeling/automation-library.json`,
 loaded/saved via `platform/file-system-access.ts`. Also supports portable
 single-preset files (`createPresetFileDocument`/`mergePresetFileDocument` —
 one preset + its referenced template/layout) and a "profile" concept:

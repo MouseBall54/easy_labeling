@@ -43,7 +43,11 @@ test("bundled sample test loads labeled cars and applies the prepared template l
   await page.locator("#openTemplateMatchingBtn").click();
   await expect(page.locator("#templateMatchingModal")).toBeVisible();
   await expect(page.locator("#templateMatchingInputSource")).toHaveText("Base input: Processed");
-  await page.locator('#templateMatchingModal [data-bs-dismiss="modal"]').first().click();
+  // Bootstrap ignores a close during the fade-in, so this retries until the setup is really closed.
+  await expect(async () => {
+    await page.locator('#templateMatchingModal [data-bs-dismiss="modal"]').first().click({ timeout: 1000 });
+    await expect(page.locator("#templateMatchingModal")).toBeHidden({ timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
   await page.locator("#detectionAutomationInputSelect").selectOption("original");
   await page.locator("#taskAnnotateBtn").click();
   await page.locator("#inspectorAnnotationTabBtn").click();

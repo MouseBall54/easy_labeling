@@ -47,8 +47,8 @@ if (!flag("--skip-build")) {
 }
 
 // GitHub turns spaces in asset names into dots; upload names without them so the feed URLs hold.
-const bundle = join(root, "src-tauri/target/release/bundle/nsis");
-const staging = join(root, "src-tauri/target/release/github-release");
+const bundle = join(root, "target/release/bundle/nsis");
+const staging = join(root, "target/release/github-release");
 await rm(staging, { recursive: true, force: true });
 await mkdir(staging, { recursive: true });
 const pubDate = new Date().toISOString();

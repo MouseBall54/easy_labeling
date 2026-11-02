@@ -125,6 +125,10 @@ test("folder-switch: autosave persists current labels before switching folders",
   });
 
   expect(writes[0]).toMatchObject({ fileName: "img1.txt" });
-  expect(writes[0]?.content.trim().split("\n")).toHaveLength(1);
-  expect(writes[0]?.content.trim()).toMatch(/^0 /);
+  // Unedited labels are written back as they were: the same rows (the box past the edge included) and coordinates.
+  const rows = (text: string) => text.trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number));
+  const saved = rows(writes[0]!.content);
+  const original = rows("0 0.5 0.5 0.5 0.5\n1 1.2 0.5 0.2 0.2");
+  expect(saved).toHaveLength(original.length);
+  saved.forEach((row, index) => row.forEach((value, column) => expect(value).toBeCloseTo(original[index]![column]!, 12)));
 });

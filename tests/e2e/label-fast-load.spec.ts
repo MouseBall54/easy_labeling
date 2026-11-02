@@ -1,7 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 for (const images of [6, 60]) test(`current labels load on demand with ${images} images and preserve full review results`, async ({}, testInfo) => {
   test.setTimeout(180_000);
@@ -17,17 +21,16 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
     await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `image-${index}.jpg`));
     for (const [source,folder] of folders.entries()) await writeFile(path.join(folder, `image-${index}.txt`), texts[source]!);
   }
-  const electron = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")], env: {
-    ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_OFFSCREEN: "1",
-    INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset, folders[1]])
-  }});
+  const app = await openDesktop([dataset, folders[1], dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
     await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.addInitScript(() => {
-      const reads: string[] = [];
+      // This spec follows the TS review worker (the web build's path); tauri-desktop.spec.ts compares the native review with it.
+      Reflect.set(window, "easyLabelingNativeOff", ["review", "label-scan"]);
+      const reads: Array<{ name: string; at: number }> = [];
       const workerResults: unknown[] = [];
       Reflect.set(window, "fastReads", reads);
       Reflect.set(window, "fastWorkerResults", workerResults);
@@ -36,7 +39,7 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
         if (seen.has(file)) return file;
         seen.add(file);
         const get = file.getFile.bind(file);
-        file.getFile = async () => { reads.push(`${prefix}/${file.name}`); return get(); };
+        file.getFile = async () => { reads.push({ name: `${prefix}/${file.name}`, at: performance.now() }); return get(); };
         return file;
       };
       type Directory = FileSystemDirectoryHandle & { values(): AsyncIterableIterator<FileSystemHandle> };
@@ -61,6 +64,7 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
         if (message?.input?.yoloText !== undefined) {
           if (Reflect.get(window, "fastPauseReview")) {
             Reflect.set(window, "fastPausedWorker", this);
+            Reflect.set(window, "fastResumeReview", () => Reflect.apply(post, this, [message, ...options]));
             return;
           }
           const input = message.input;
@@ -92,28 +96,31 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
         Reflect.set(window, "fastPaintAt", 0);
         Reflect.set(window, "fastReadyAt", 0);
         Reflect.set(window, "fastStartedAt", performance.now());
-        const observer = new MutationObserver(() => {
-          if (!(document.getElementById("activeOperationPanel") as HTMLElement).hidden || document.getElementById("loading-overlay")!.classList.contains("show")) return;
-          if (document.getElementById("labelSourceTabs")?.getAttribute("data-active-index") !== String(source)) return;
-          if (Reflect.get(window, "__easyLabelingTestApi").getRectCount() !== 5000) return;
-          Reflect.set(window, "fastReadyAt", performance.now()); observer.disconnect();
-        });
-        observer.observe(document.body, { attributes: true, subtree: true });
+        // Polled rather than observed: the box count changes no DOM attribute, so an observer fired only on the next unrelated change.
+        // Ready counts only after the load was seen under way: until then the previous image still matches.
+        let started = false;
+        const ready = (): void => {
+          const busy = !(document.getElementById("activeOperationPanel") as HTMLElement).hidden || document.getElementById("loading-overlay")!.classList.contains("show")
+            || document.getElementById("labelSourceTabs")?.getAttribute("data-active-index") !== String(source)
+            || Reflect.get(window, "__easyLabelingTestApi").getRectCount() !== 5000;
+          started ||= busy;
+          if (busy || !started) setTimeout(ready, 5);
+          else Reflect.set(window, "fastReadyAt", performance.now());
+        };
+        setTimeout(ready, 5);
         if (selector) (document.querySelector(selector) as HTMLElement).click();
         else document.dispatchEvent(new KeyboardEvent("keydown", { key: String(source+1), code: `Digit${source+1}`, ctrlKey: true, bubbles: true }));
       }, {source,selector});
       await page.waitForFunction(() => Reflect.get(window, "fastReadyAt") && Reflect.get(window, "fastPaintAt"), {timeout: 30_000});
       const values = await page.evaluate(() => ({ readyMs: Reflect.get(window, "fastReadyAt")-Reflect.get(window, "fastStartedAt"), paintMs: Reflect.get(window, "fastPaintAt")-Reflect.get(window, "fastStartedAt") }));
       timings.push({action,...values});
-      const reads = await page.evaluate(() => Reflect.get(window, "fastReads") as string[]);
+      // Reads until the labels were on screen (drawn, or the load finished if that came first): the background review starts only afterwards.
+      const reads = await page.evaluate(() => (Reflect.get(window, "fastReads") as Array<{ name: string; at: number }>)
+        .filter(read => read.at <= Math.min(Reflect.get(window, "fastReadyAt"), Reflect.get(window, "fastPaintAt"))).map(read => read.name));
       const labels = reads.filter(name => /(?:^|\/)(label|comparison)\/image-\d+\.txt$/.test(name));
       expect(labels.length).toBeGreaterThan(0);
-      if (!baseline) {
-        expect(labels.every(name => name.endsWith("/image-0.txt"))).toBe(true);
-        await expect(page.locator('[data-file-name="image-1.jpg"]')).toHaveAttribute("data-status", "detection-pending");
-        await expect(page.locator('[data-file-name="image-1.jpg"] [data-ui="image-box-count"]')).toHaveText("…");
-        await expect(page.locator("#reviewQueueSummary")).toHaveText(`Not checked · 1 / ${images}`);
-      }
+      // Other images' labels (and their counts in the image list) are read only after the current one is shown.
+      if (!baseline) expect(labels.every(name => name.endsWith("/image-0.txt"))).toBe(true);
       console.log(JSON.stringify({baseline,images,action,...values,labelsRead:labels.length}));
     };
     const geometry = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectGeometries().map(
@@ -144,15 +151,23 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
       await page.screenshot({ path: "output/label-fast-pending-dark.png", animations: "disabled" });
       if (!wasDark) await page.locator('label[for="darkModeToggle"]').click();
     }
-    expect(await page.evaluate(() => Reflect.get(window, "fastWorkerResults").length)).toBe(0);
+    // Every image of the open source is checked in the background, without the Review task.
+    await expect(page.locator('[data-review-severity="pending"]')).toHaveCount(0, {timeout: 120_000});
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({timeout: 120_000});
+    const workerResults = await page.evaluate(() => Reflect.get(window, "fastWorkerResults").length);
+    expect(workerResults).toBeGreaterThanOrEqual(images);
+    // ...and the image list's box counts are filled in after those checks.
+    await expect(page.locator('[data-status="detection-pending"]')).toHaveCount(0, {timeout: 60_000});
+    expect(await page.locator('[data-ui="image-box-count"]').allTextContents()).toEqual(Array(images).fill(String(count)));
+    // Opening Review afterwards rechecks nothing (no file changed).
     await page.evaluate(() => { Reflect.set(window, "fastReviewStartedAt", performance.now()); document.getElementById("taskReviewBtn")!.click(); });
     await expect(page.locator("#activeOperationPanel")).toBeHidden({timeout:30_000});
     await expect(page.locator('[data-status="detection-pending"]')).toHaveCount(0);
     await expect(page.locator('[data-review-severity="pending"]')).toHaveCount(0);
     expect(await page.locator('[data-ui="image-box-count"]').allTextContents()).toEqual(Array(images).fill(String(count)));
     const reviewMs = await page.evaluate(() => performance.now() - Reflect.get(window, "fastReviewStartedAt"));
-    console.log(JSON.stringify({images, action: "full-review", reviewMs}));
-    expect(await page.evaluate(() => Reflect.get(window, "fastWorkerResults").length)).toBe(images);
+    console.log(JSON.stringify({images, action: "review-after-background", reviewMs}));
+    expect(await page.evaluate(() => Reflect.get(window, "fastWorkerResults").length)).toBe(workerResults);
     expect(await page.evaluate(async () => {
       const { inspectDetectionLabels } = await import(new URL("dist/features/review/quality.js", document.baseURI).href);
       return Reflect.get(window, "fastWorkerResults").every(({input,result}:{input: unknown; result:unknown}) => JSON.stringify(result) === JSON.stringify(inspectDetectionLabels(input)));
@@ -172,24 +187,37 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
     await page.evaluate(() => document.getElementById("taskAnnotateBtn")!.click());
     await measure("switch-after-review", 0);
     if (images === 6) {
+      // A full recheck held at its first image, then stopped, outrun by a source switch, or kept through an image change.
+      const findings = () => page.evaluate(() => JSON.stringify(Reflect.get(window, "__easyLabelingTestApi").getReviewFindings()));
       for (const action of ["stop", "source", "image"] as const) {
+        await page.evaluate(() => document.getElementById("taskReviewBtn")!.click());
+        await expect(page.locator("#activeOperationPanel")).toBeHidden({timeout: 120_000});
+        const before = await findings();
         await page.evaluate(() => {
           Reflect.set(window, "fastPauseReview", true);
           Reflect.set(window, "fastPausedWorker", null);
-          document.getElementById("taskReviewBtn")!.click();
+          document.getElementById("rescanReviewBtn")!.click();
         });
         await page.waitForFunction(() => Boolean(Reflect.get(window, "fastPausedWorker")));
         await expect(page.locator("#loading-overlay")).toBeHidden();
         if (action === "stop") await page.locator("#cancelActiveOperationBtn").click();
         else if (action === "source") await page.keyboard.press("Control+2");
         else await page.locator('[data-file-name="image-1.jpg"]').click();
-        await expect(page.locator("#activeOperationPanel")).toBeHidden();
-        await page.evaluate(() => {
-          Reflect.get(window, "fastPausedWorker").dispatchEvent(new MessageEvent("message", { data: { id: 0, result: { issues: [], highestSeverity: null } } }));
+        await page.evaluate((resume) => {
           Reflect.set(window, "fastPauseReview", false);
-        });
+          // A late fake result where the check must drop it; the real check where it goes on.
+          if (resume) Reflect.get(window, "fastResumeReview")();
+          else Reflect.get(window, "fastPausedWorker").dispatchEvent(new MessageEvent("message", { data: { id: 0, result: { issues: [{ type: "missing-class" }], highestSeverity: "warning" } } }));
+        }, action === "image");
+        await expect(page.locator("#activeOperationPanel")).toBeHidden({timeout: 120_000});
         expect((await geometry()).length).toBe(count);
-        await expect(page.locator("#reviewQueueSummary")).toContainText("Not checked");
+        // Stopped or outrun, the held result is dropped; an image change does not stop the recheck.
+        if (action === "stop") {
+          expect(await findings()).toBe(before);
+          // Stopping drops the rest of the queue; the next Review checks what is still unchecked.
+          await page.evaluate(() => document.getElementById("taskReviewBtn")!.click());
+        } else expect(await findings()).not.toContain("missing-class");
+        await expect(page.locator('[data-review-severity="pending"]'), `checked after ${action}`).toHaveCount(0, {timeout: 60_000});
         await page.evaluate(() => document.getElementById("taskAnnotateBtn")!.click());
       }
       await page.locator('[data-file-name="image-0.jpg"]').click();
@@ -204,5 +232,5 @@ for (const images of [6, 60]) test(`current labels load on demand with ${images}
     expect(await readFile(path.join(folders[0]!, "image-0.txt"), "utf8")).toBe(texts[0]);
     expect(errors).toEqual([]);
     await testInfo.attach("fast-label-timings", {body:JSON.stringify({images,timings,reviewMs,errors},null,2), contentType:"application/json"});
-  } finally { await electron.close(); if (!path.basename(dataset).startsWith("easy-labeling-fast-")) throw new Error("Unexpected test path"); await rm(dataset,{recursive:true,force:true}); }
+  } finally { await app.close(); if (!path.basename(dataset).startsWith("easy-labeling-fast-")) throw new Error("Unexpected test path"); await rm(dataset,{recursive:true,force:true}); }
 });

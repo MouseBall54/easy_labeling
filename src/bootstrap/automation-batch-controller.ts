@@ -6,7 +6,7 @@ import {
   mergeDetectionLabels,
   serializeAutomationBoxes
 } from "../features/automation/batch-labels.js";
-import { imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
+import { pngDataUrlToImageData } from "../features/automation/image-data.js";
 import type { TemplateMatchInput } from "../features/automation/template-matching-service.js";
 import type {
   AutomationLibraryDocument,
@@ -35,6 +35,8 @@ export function createAutomationBatchController(input: {
   getLibrary(): AutomationLibraryDocument;
   match(matchInput: TemplateMatchInput): Promise<TemplateMatchResult>;
   prepareImageData(imageData: ImageData): ImageData;
+  /** The pixels a target image is matched against (prepareImageData of its pixels, natively where possible). */
+  prepareTargetImageData(image: HTMLImageElement): Promise<ImageData>;
   cancelActiveMatch(): void;
   setRelatedControlsDisabled(running: boolean): void;
 }): AutomationBatchController {
@@ -252,7 +254,7 @@ export function createAutomationBatchController(input: {
               setBatchStage(file.name, "Preparing image pixels");
               await yieldToUi();
               const imageDataStartedAt = globalThis.performance?.now() ?? Date.now();
-              const targetImageData = input.prepareImageData(imageElementToImageData(targetImage, input.documentRef));
+              const targetImageData = await input.prepareTargetImageData(targetImage);
               throwIfOperationCancelled(activeOperation?.signal);
               imageDataMs = (globalThis.performance?.now() ?? Date.now()) - imageDataStartedAt;
               setBatchStage(file.name, "Matching template");

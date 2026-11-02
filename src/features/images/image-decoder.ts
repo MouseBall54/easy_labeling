@@ -1,4 +1,5 @@
 import { readFileArrayBuffer } from "../../platform/file-system-access.js";
+import { readNativeTiffAsBmp, rememberNativeTiffPath } from "./native-tiff.js";
 import type { FileHandleLike } from "../../types/files.js";
 
 interface TiffDecodedCanvas {
@@ -73,6 +74,13 @@ export function createImageDecoder(input: {
 
   return async (fileHandle) => {
     if (/\.(tif|tiff)$/i.test(fileHandle.name)) {
+      // Desktop app: Rust decodes 8-bit gray TIFFs from disk into a BMP the <img> shows as is.
+      const native = await readNativeTiffAsBmp(fileHandle);
+      if (native) {
+        const image = await loadImageElementFromBlobSource((callback) => callback(native.bmp), input.urlRuntime);
+        rememberNativeTiffPath(image, native.path);
+        return image;
+      }
       if (!isTiffConstructor(input.tiffRef)) {
         throw new Error("TIFF decoder is unavailable");
       }

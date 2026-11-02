@@ -10,6 +10,8 @@ export interface CanvasHistoryRectSnapshot {
   height: number;
   scaleX: number;
   scaleY: number;
+  /** Part of the box size (see boxRectGeometry); boxes under 4 px have a thinner stroke. */
+  strokeWidth?: number;
   labelClass: string | undefined;
   layoutInstanceId?: string;
   layoutBoxId?: string;
@@ -82,6 +84,7 @@ export function createRectSnapshot(rect: FabricRectLike): CanvasHistoryRectSnaps
     height: rect.height,
     scaleX: withScale.scaleX ?? 1,
     scaleY: withScale.scaleY ?? 1,
+    strokeWidth: rect.strokeWidth,
     labelClass: rect.labelClass,
     layoutInstanceId: rect.layoutInstanceId,
     layoutBoxId: rect.layoutBoxId,

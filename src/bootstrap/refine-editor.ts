@@ -33,6 +33,8 @@ export interface RefineEditorStore {
   imageFolder?(): FileSystemDirectoryHandle | null;
   /** Presets saved as files in the profile folder; listed after the dataset's own, never saved into it. */
   profilePresets?(): RefinePreset[];
+  /** Desktop: deletes a preset's profile folder file (absent on the web, where those files are read-only). */
+  deleteProfilePreset?(name: string): Promise<void>;
 }
 
 /** "all" edits the rule every side shares; a side edits that side's own rule only. */
@@ -100,6 +102,22 @@ const FIELDS: FieldSpec[] = [
     key: "nearWeight", label: "Prefer near the current edge", type: "bool", group: "rule", perSide: true,
     title: "On: candidates are weighted by their distance to the current edge, so a nearby edge beats a stronger one far away. Off: the strongest edge anywhere in the search range wins (Max gradient and bright band criteria; the 50% level always takes the nearest crossing)"
   },
+  ...(["TB", "LR"] as const).flatMap((axis): FieldSpec[] => {
+    const name = axis === "TB" ? "Top + bottom" : "Left + right";
+    const span = axis === "TB" ? "height" : "width";
+    return [
+      {
+        key: `pair${axis}`, label: `${name} as a pair`, type: "select", group: "rule",
+        title: `Searches several edges on both sides and judges each pair by the change in box ${span}: growing or shrinking (the net change, not each side's move). Falls back to the other kind when none is found. Later iterations keep the nearest pair`,
+        options: [["off", "Off"], ["grow", "Prefer growing"], ["shrink", "Prefer shrinking"]]
+      },
+      {
+        key: `pair${axis}Pick`, label: `${name} pick`, type: "select", group: "rule",
+        title: "Among the pairs of the preferred kind: the clearest edges (the weaker side counts) or the least movement from the box",
+        options: [["strongest", "Clearest edges"], ["nearest", "Nearest to the box"]]
+      }
+    ];
+  }),
   {
     key: "scanSpan", label: "Scan span", type: "select", group: "rule", perSide: true,
     title: "Rows/columns scanned along the edge: the box only, the box plus its extensions, or only the extensions past the box ends",
@@ -316,11 +334,11 @@ export function createRefineEditor(input: {
     const own = new Set(store.getDoc().presets.map((preset) => preset.name));
     const presets = allPresets();
     select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""),
-      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${own.has(preset.name) ? "" : " (profile)"}`, preset.name)));
+      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${store.deleteProfilePreset ? (own.has(preset.name) ? " (dataset)" : "") : (own.has(preset.name) ? "" : " (profile)")}`, preset.name)));
     select.value = presets.some((preset) => preset.name === previous) ? previous : "";
   };
   const exportPresets = async (): Promise<void> => {
-    const presets = store.getDoc().presets;
+    const presets = allPresets();
     if (!presets.length) { store.notify("Save a preset first."); return; }
     const contents = serializeRefinePresets(presets);
     if (windowRef.saveEasyLabelingLibraryFile) {
@@ -421,6 +439,10 @@ export function createRefineEditor(input: {
       }
       // The 50% level always takes the crossing nearest the current edge.
       if (spec.key === "nearWeight") control.disabled = params.every((p) => valueOf(p, "crit") === "thr");
+      if (spec.key === "pairTBPick" || spec.key === "pairLRPick") {
+        const mode = spec.key === "pairTBPick" ? "pairTB" : "pairLR";
+        control.disabled = params.every((p) => p[mode] === "off");
+      }
       row.classList.toggle("is-overridden", isOverridden(spec.key));
       const values = params.map((p) => valueOf(p, spec.key));
       const mixed = values.some((value) => value !== values[0]);
@@ -566,7 +588,10 @@ export function createRefineEditor(input: {
         applyPreset(presetName);
       } else if (action === "deletePreset") {
         if (presetName && !store.getDoc().presets.some((preset) => preset.name === presetName)) {
-          store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / Refine Presets); delete it there.`);
+          if (store.deleteProfilePreset) {
+            void store.deleteProfilePreset(presetName).then(() => { renderPresets(); store.notify(`Deleted preset "${presetName}".`); })
+              .catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to delete the preset"));
+          } else store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / Refine Presets); delete it there.`);
         } else if (presetName) setDoc(deleteRefinePreset(store.getDoc(), presetName));
       } else if (action === "savePreset") {
         const nameInput = ref<HTMLInputElement>("presetName");

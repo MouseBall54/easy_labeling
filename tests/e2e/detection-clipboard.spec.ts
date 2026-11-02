@@ -12,16 +12,20 @@ async function snapshot(page: Page) {
   });
 }
 
-function expectSameRects(actual: Awaited<ReturnType<typeof snapshot>>["rects"], expected: Awaited<ReturnType<typeof snapshot>>["rects"]) {
+type RectGeometry = Awaited<ReturnType<typeof snapshot>>["rects"][number];
+
+/** Boxes (by id) whose geometry differs by 0.00005 or more, compared in one assertion: thousands of separate
+ * expect calls made the 601-box case run past its time limit. */
+function expectSameRects(actual: RectGeometry[], expected: RectGeometry[]) {
   expect(actual).toHaveLength(expected.length);
   const byId = new Map(actual.map((rect) => [rect.annotationId, rect]));
-  expected.forEach((rect) => {
-    const restored = byId.get(rect.annotationId)!;
-    expect(restored).toBeDefined();
-    for (const key of ["left", "top", "width", "height"] as const) {
-      expect(restored[key]).toBeCloseTo(rect[key], 4);
-    }
+  const mismatches = expected.flatMap((rect): object[] => {
+    const restored = byId.get(rect.annotationId);
+    if (!restored) return [{ annotationId: rect.annotationId, missing: true }];
+    const off = (["left", "top", "width", "height"] as const).filter((key) => !(Math.abs(restored[key] - rect[key]) < 5e-5));
+    return off.length ? [{ annotationId: rect.annotationId, off, expected: rect, actual: restored }] : [];
   });
+  expect(mismatches).toEqual([]);
 }
 
 for (const count of [1, 2, 601]) {
@@ -82,12 +86,11 @@ for (const count of [1, 2, 601]) {
       expect(after.selectedIds.sort()).toEqual(pasted.map((rect) => rect.annotationId).sort());
       expect(after.selection).not.toBeNull();
       expectSameRects(after.rects.slice(0, before.rects.length), before.rects);
-      pasted.forEach((rect, index) => {
-        expect(rect.left - pasted[0]!.left).toBeCloseTo(source[index]!.left - source[0]!.left, 4);
-        expect(rect.top - pasted[0]!.top).toBeCloseTo(source[index]!.top - source[0]!.top, 4);
-        expect(rect.width).toBeCloseTo(source[index]!.width, 4);
-        expect(rect.height).toBeCloseTo(source[index]!.height, 4);
-      });
+      // Pasted boxes keep their layout relative to the first one and their size.
+      expectSameRects(
+        pasted.map((rect) => ({ ...rect, left: rect.left - pasted[0]!.left, top: rect.top - pasted[0]!.top, annotationId: String(pasted.indexOf(rect)) })),
+        source.map((rect, index) => ({ ...rect, left: rect.left - source[0]!.left, top: rect.top - source[0]!.top, annotationId: String(index) }))
+      );
 
       await page.keyboard.press("Control+z");
       await expect.poll(async () => (await snapshot(page)).rects.length).toBe(before.rects.length);

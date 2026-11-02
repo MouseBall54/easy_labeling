@@ -4,12 +4,13 @@ description: >
   Use when working on easy_labeling's local folder-based file I/O: opening
   an image folder, resolving/creating the label folder, loading/saving
   detection or segmentation labels, class file (.yaml) management, the
-  bundled sample dataset, or the Electron desktop shell (folder picker
+  bundled sample dataset, or the desktop (Tauri) shell (folder picker
   polyfill, unsaved-changes-on-close guard). Covers
   src/features/images/image-session-service.ts,
   src/features/classes/class-file-service.ts,
   src/platform/file-system-access.ts, src/domain/files/image-names.ts,
-  src/features/sample/sample-test-directory.ts, and electron/*.cjs. Not for
+  src/features/sample/sample-test-directory.ts, src/platform/tauri-desktop.ts
+  and src-tauri/src/main.rs. Not for
   the four bootstrap adapters' UI wiring in general (see the
   easy-labeling-overview skill's composition-root section) or annotation
   file formats themselves (see detection-workflow / segmentation-workflow).
@@ -83,28 +84,33 @@ the listed files over HTTP and builds an **in-memory** `DirectoryHandleLike`
 (`MemoryFileHandle`/`MemoryDirectoryHandle`, implementing the same interface
 as real FS handles). This is how "load sample data" works identically to a
 real folder pick, without needing File System Access permission — useful to
-know if you need to test the app without granting folder access. Electron
-has a parallel real-folder version (`getEasyLabelingSampleDirectory` in
-`preload.cjs`, backed by an actual bundled `resources` directory).
+know if you need to test the app without granting folder access. The desktop
+app has a real-folder version (`getEasyLabelingSampleDirectory`, which copies
+the bundled `sample/` resource into the app data folder).
 
-## Electron shell
+## Desktop shell (Tauri)
 
-`electron/main.cjs` (174 lines) + `preload.cjs`:
+`src-tauri/src/main.rs` + `src/platform/tauri-desktop.ts` (injected as an
+initialization script before page scripts; it must stay a classic script):
 
-- Preload polyfills `window.showDirectoryPicker` and File System Access
-  handles (`createFileHandle`/`createDirectoryHandle`) on top of Node
-  `fs/promises`, routed through `ipcRenderer.invoke` over 6 IPC channels:
-  `pick-directory`, `get-sample-directory`, `open/save/list-library-file`,
-  `get-profile-directory`. Every `getDirectoryHandle`/`getFileHandle` call
-  goes through `resolveSafeChild`, which guards against path traversal —
-  don't bypass it when adding new file operations.
+- `tauri-desktop.ts` polyfills `window.showDirectoryPicker` and File System
+  Access handles (`createFileHandle`/`createDirectoryHandle`) over Rust
+  commands (`fs_read_dir`, `fs_read`, `fs_write`, `fs_child`, `fs_mtime`,
+  `pick_directory`, `sample_directory`, `open/save/list_library_file`,
+  `profile_directory`). `fs_child` rejects any name that is not a plain
+  relative path (path traversal) — don't bypass it when adding new file
+  operations.
 - Dirty-state / close guard: the renderer calls
-  `window.easyLabelingDesktop.setHasUnsavedChanges(bool)` -> IPC
-  `set-document-dirty` -> `electron/window-close-controller.cjs` blocks the
-  native window `close` event and shows a discard-confirmation dialog if
-  there are unsaved changes. A `closeConfirmed` flag lets a confirmed close
-  proceed without re-prompting. This has its own unit test:
-  `tests/unit/electron/window-close-controller.test.ts`.
+  `window.easyLabelingDesktop.setHasUnsavedChanges(bool)` -> `set_document_dirty`;
+  `on_window_event` blocks `CloseRequested` while dirty and `confirm_close`
+  asks "Discard and close" / "Cancel".
+- Dialogs use `rfd` directly. tauri-plugin-dialog is deliberately absent: its
+  page script replaces `window.confirm` with an async function (always truthy),
+  which skipped every confirmation in the app.
+- E2E seams (env vars, set by `tests/e2e/fixtures/tauri-app.ts`):
+  `EASY_LABELING_TEST_PICK_DIRECTORIES` (folder picker answers, the last one
+  repeats), `EASY_LABELING_TEST_PICK_FILE` (library open/save dialogs),
+  `EASY_LABELING_TEST_PROFILE_ROOT` (profile libraries instead of Documents).
 
 ## Vendored assets
 
@@ -126,5 +132,5 @@ than a real bug.
   ambiguous folders are treated as unlabeled rather than guessed at.
 - `currentLoadToken` exists specifically to handle rapid image navigation —
   respect it in any new async loading code.
-- Electron's `resolveSafeChild` path-traversal guard is a security boundary,
+- The desktop shell's `fs_child` path-traversal guard is a security boundary,
   not incidental validation — never work around it.

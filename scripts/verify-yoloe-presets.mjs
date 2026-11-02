@@ -1,13 +1,15 @@
-import { _electron, expect } from '@playwright/test';
-import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
+import { expect } from '@playwright/test';
+import { access, mkdir, copyFile, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { launchDesktop } from '../tests/e2e/fixtures/tauri-app.ts';
 import { encodeSegmentationMaskPng, decodeSegmentationMaskPng } from '../dist/domain/annotations/segmentation-codec.js';
 
 const out = path.resolve('output/yoloe-presets-validation');
-const dataset = path.join(out, 'workspace'), documents = path.join(out, 'documents');
-const executablePath = path.resolve(process.argv[2] ?? 'release/yoloe26-presets/win-unpacked/Easy Labeling YOLOE-26.exe');
+// The profile libraries live at <sandbox>/profiles (EASY_LABELING_TEST_PROFILE_ROOT), standing in for Documents/Easy Labeling.
+const dataset = path.join(out, 'workspace'), sandbox = path.join(out, 'app-profile'), profiles = path.join(sandbox, 'profiles');
+const executablePath = path.resolve(process.argv[2] ?? 'target/release/Easy Labeling YOLOE-26.exe');
 await mkdir(path.join(dataset, 'label'), { recursive: true }); await mkdir(path.join(dataset, 'mask'), { recursive: true });
-await mkdir(path.join(documents, 'Easy Labeling', 'Class Info'), { recursive: true });
+await mkdir(path.join(profiles, 'Class Info'), { recursive: true });
 const files = ['0-reference.png', '1-target-gray.png', '2-target-rgb.png'];
 const originals = new Map();
 for (const file of files) {
@@ -24,22 +26,21 @@ for (const file of files) {
 }
 const classes = 'names:\n  5: "person"\n  12: "bus"\n';
 await writeFile(path.join(dataset, 'label', 'classes.yaml'), classes);
-await writeFile(path.join(documents, 'Easy Labeling', 'Class Info', 'classes.yaml'), classes);
+await writeFile(path.join(profiles, 'Class Info', 'classes.yaml'), classes);
 const checks = [], network = [], errors = [];
+// The GPU name the machine reports (YOLOE_EXPECT_GPU, e.g. 'Intel' on a machine without an NVIDIA card).
+const gpuName = process.env.YOLOE_EXPECT_GPU ?? 'NVIDIA';
+const external = (workflow) => path.join(out, `${workflow}-external.json`);
+const exists = (file) => access(file).then(() => true, () => false);
 const launch = async (workflow, cpu = false) => {
-  const app = await _electron.launch({ executablePath, args: [`--user-data-dir=${path.join(out, 'app-profile')}`, ...(cpu ? ['--disable-gpu'] : [])],
-    env: { ...process.env, PATH: path.join(process.env.SystemRoot, 'System32'), PYTHONHOME: 'C:\\no-python', PYTHONPATH: 'C:\\no-python' } });
-  const page = await app.firstWindow(); page.setDefaultTimeout(30000);
+  // EASY_LABELING_TEST_PICK_FILE answers the library save/open dialogs with the external preset file.
+  const app = await launchDesktop(executablePath, sandbox, [dataset], { browserArgs: cpu ? ['--disable-gpu'] : [],
+    env: { PATH: path.join(process.env.SystemRoot, 'System32'), PYTHONHOME: 'C:\\no-python', PYTHONPATH: 'C:\\no-python',
+      EASY_LABELING_TEST_PICK_FILE: external(workflow) } });
+  const { page } = app; page.setDefaultTimeout(30000);
   page.on('pageerror', error => errors.push(error.message));
-  await page.route(/^https?:/, route => { network.push(route.request().url()); return route.abort(); });
-  await page.waitForFunction(() => Boolean(Reflect.get(window, '__easyLabelingTestApi')));
-  await app.evaluate(({ app, ipcMain, dialog }, { dataset, documents, extraPath }) => {
-    app.setPath('documents', documents);
-    ipcMain.removeHandler('easy-labeling:pick-directory'); ipcMain.handle('easy-labeling:pick-directory', () => dataset);
-    globalThis.__saveDialogs = 0;
-    dialog.showSaveDialog = async () => { globalThis.__saveDialogs++; return { canceled: false, filePath: extraPath }; };
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [extraPath] });
-  }, { dataset, documents, extraPath: path.join(out, `${workflow}-external.json`) });
+  // Requests leaving the app: its frontend (app.localhost) and IPC (ipc.localhost) stay local.
+  await page.route(url => /^https?:/.test(url.href) && !url.hostname.endsWith('.localhost'), route => { network.push(route.request().url()); return route.abort(); });
   await expect(page.locator('#selectImageFolderBtn')).toBeEnabled();
   await page.locator('#selectImageFolderBtn').click();
   await expect(page.locator('#imageCountBadge')).toHaveText('3', { timeout: 30000 }).catch(async error => {
@@ -51,11 +52,12 @@ const launch = async (workflow, cpu = false) => {
   await page.locator('#taskYoloeBtn').click(); await page.locator('#openYoloeSetupBtn').click();
   await expect(page.locator('#yoloePresetSelect')).toBeEnabled();
   await expect(page.locator('#yoloeBackendBadge')).toHaveText(cpu ? 'CPU' : 'GPU · WebGPU');
-  await expect(page.locator('#yoloeDeviceInfo')).toContainText(cpu ? 'GPU unavailable · Using CPU' : 'NVIDIA');
+  await expect(page.locator('#yoloeDeviceInfo')).toContainText(cpu ? 'GPU unavailable · Using CPU' : gpuName);
   return { app, page };
 };
 for (const workflow of ['detection', 'segmentation']) {
-  const name = `acceptance_${workflow}`, defaultFile = path.join(documents, 'Easy Labeling', 'YOLOE Presets', `${name}-${workflow}.yoloe.json`);
+  const name = `acceptance_${workflow}`, defaultFile = path.join(profiles, 'YOLOE Presets', `${name}-${workflow}.yoloe.json`);
+  await rm(external(workflow), { force: true });
   let { app, page } = await launch(workflow);
   try {
     await expect(page.locator('#yoloeExistingBoxSelect option')).toHaveCount(2);
@@ -63,11 +65,11 @@ for (const workflow of ['detection', 'segmentation']) {
     await page.locator('#yoloeReferenceSelect').selectOption(files[1]);
     await expect(page.locator('#yoloeReferenceSelect')).toBeEnabled();
     await page.locator('#yoloeExistingBoxSelect').selectOption('0'); await page.locator('#addYoloeExistingBtn').click();
-    await expect(page.locator('#yoloeExampleList > div')).toHaveCount(3);
+    await expect(page.locator('#yoloeExampleList .yoloe-example-row')).toHaveCount(3);
     await page.locator('#yoloeProfileName').fill(name); await page.locator('#yoloeImageSize').selectOption('1024');
     await page.locator('#yoloeConfidenceInput').fill('0.2');
     await page.locator('#saveYoloePresetBtn').click(); await expect(page.locator('#yoloeSetupStatus')).toContainText('Saved');
-    expect(await app.evaluate(() => globalThis.__saveDialogs)).toBe(0);
+    expect(await exists(external(workflow))).toBe(false);
     const saved = JSON.parse(await readFile(defaultFile, 'utf8'));
     expect(saved.references).toHaveLength(2); expect(saved.references.flatMap(r => r.examples)).toHaveLength(3);
     if (workflow === 'segmentation') {
@@ -75,19 +77,19 @@ for (const workflow of ['detection', 'segmentation']) {
       expect(e.mask.runs).toContain(0); expect(e.polygon).toBeUndefined();
     }
     await page.locator('#saveYoloePresetAsBtn').click(); await expect(page.locator('#yoloePresetLocation')).toContainText(`${workflow}-external.json`);
-    expect(await app.evaluate(() => globalThis.__saveDialogs)).toBe(1);
+    expect(await exists(external(workflow))).toBe(true);
     await page.locator('#yoloeConfidenceInput').fill('0.15'); await page.locator('#saveYoloePresetBtn').click();
     await expect(page.locator('#yoloeSetupStatus')).toContainText('Saved');
     expect(JSON.parse(await readFile(path.join(out, `${workflow}-external.json`), 'utf8')).settings.confidence).toBe(0.15);
-    expect(await app.evaluate(() => globalThis.__saveDialogs)).toBe(1);
+    expect(JSON.parse(await readFile(defaultFile, 'utf8')).settings.confidence).toBe(0.2);
     await page.locator('#clearYoloeExamplesBtn').click(); await page.locator('#loadYoloePresetBtn').click();
-    await expect(page.locator('#yoloeSetupStatus')).toContainText('Loaded'); await expect(page.locator('#yoloeExampleList > div')).toHaveCount(3);
+    await expect(page.locator('#yoloeSetupStatus')).toContainText('Loaded'); await expect(page.locator('#yoloeExampleList .yoloe-example-row')).toHaveCount(3);
   } finally { await app.close(); }
   ({ app, page } = await launch(workflow));
   try {
-    await expect(page.locator('#yoloeExampleList > div')).toHaveCount(0);
+    await expect(page.locator('#yoloeExampleList .yoloe-example-row')).toHaveCount(0);
     await page.locator('#yoloePresetSelect').selectOption(defaultFile);
-    await expect(page.locator('#yoloeSetupStatus')).toContainText('Loaded'); await expect(page.locator('#yoloeExampleList > div')).toHaveCount(3);
+    await expect(page.locator('#yoloeSetupStatus')).toContainText('Loaded'); await expect(page.locator('#yoloeExampleList .yoloe-example-row')).toHaveCount(3);
     await expect(page.locator('#yoloeImageSize')).toHaveValue('1024'); await expect(page.locator('#yoloeConfidenceInput')).toHaveValue('0.2');
     await page.screenshot({ path: path.join(out, `${workflow}-restored.png`) });
     await page.locator('#closeYoloeSetupBtn').click();
@@ -104,7 +106,7 @@ for (const workflow of ['detection', 'segmentation']) {
     const folderName = `inference-yoloe-26s-seg-${name}${workflow === 'segmentation' ? '-masks' : ''}`;
     const metadata = JSON.parse(await readFile(path.join(dataset, folderName, 'inference.json'), 'utf8'));
     expect(metadata.images).toEqual(files); expect(metadata.backend).toBe('webgpu'); expect(metadata.exampleCount).toBe(3);
-    expect(metadata.gpu).toContain('NVIDIA'); expect(metadata.detections).toBeGreaterThan(0);
+    expect(metadata.gpu).toContain(gpuName); expect(metadata.detections).toBeGreaterThan(0);
     const results = [];
     for (const file of files) {
       if (workflow === 'detection') {
@@ -129,7 +131,7 @@ const { app: cpuApp, page: cpuPage } = await launch('segmentation', true);
 let cpuPreview;
 try {
   await expect(cpuPage.locator('#yoloeModelSelect')).toHaveValue('yoloe-26n-seg');
-  await cpuPage.locator('#yoloePresetSelect').selectOption(path.join(documents, 'Easy Labeling', 'YOLOE Presets', 'acceptance_segmentation-segmentation.yoloe.json'));
+  await cpuPage.locator('#yoloePresetSelect').selectOption(path.join(profiles, 'YOLOE Presets', 'acceptance_segmentation-segmentation.yoloe.json'));
   await expect(cpuPage.locator('#yoloeSetupStatus')).toContainText('Loaded');
   await cpuPage.locator('#yoloeModelSelect').selectOption('yoloe-26n-seg');
   await cpuPage.locator('#previewYoloeSampleBtn').click();

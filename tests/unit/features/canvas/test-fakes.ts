@@ -24,6 +24,7 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
   public originY = "top";
   public fill: string | undefined;
   public stroke: string | undefined;
+  /** As in Fabric with strokeUniform: added to the scaled size (getScaledWidth, getCenterPoint, getBoundingRect). */
   public strokeWidth = 0;
   public strokeDashArray: number[] = [];
   public shadow: unknown = null;
@@ -63,17 +64,17 @@ abstract class FakeFabricObject<TType extends string> implements FabricObjectLik
 
   getCenterPoint(): { x: number; y: number } {
     return {
-      x: this.left + this.width / 2,
-      y: this.top + this.height / 2
+      x: this.left + this.getScaledWidth() / 2,
+      y: this.top + this.getScaledHeight() / 2
     };
   }
 
   getScaledWidth(): number {
-    return this.width * this.scaleX;
+    return this.width * this.scaleX + this.strokeWidth;
   }
 
   getScaledHeight(): number {
-    return this.height * this.scaleY;
+    return this.height * this.scaleY + this.strokeWidth;
   }
 
   getBoundingRect(): { left: number; top: number; width: number; height: number } {

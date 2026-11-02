@@ -76,7 +76,6 @@ export interface CanvasControllerDeps {
   historyService?: CanvasHistoryService;
   onDocumentMutation?(): void;
   edgeSamService?: import("../edgesam/types.js").EdgeSamService;
-  superResolutionService?: import("../super-resolution/types.js").SuperResolutionService;
 }
 
 export interface CanvasShell {
@@ -192,6 +191,10 @@ export interface CanvasController {
   isSegmentationPolygonDrawing?(): boolean;
   getSegmentationPolygonVertexCount?(): number;
   recalculateSegmentationSuperpixels?(regionSize: number): boolean;
+  /** recalculateSegmentationSuperpixels, computed natively first in the desktop app; null when a newer call superseded it. */
+  computeSegmentationSuperpixels?(regionSize: number): Promise<boolean | null>;
+  /** The superpixels the tool currently uses (tests compare native and TS results). */
+  getSegmentationSuperpixelResult?(): import("../segmentation/superpixels.js").SuperpixelResult | null;
   setSegmentationSuperpixelBoundaryVisible?(visible: boolean): void;
   getSegmentationSuperpixelRegionSize?(): number | null;
   getSegmentationSuperpixelSettings?(): SegmentationSuperpixelSettings;
@@ -221,33 +224,13 @@ export interface CanvasController {
   getEdgeSamStatus?(): EdgeSamStatus;
   getSegmentationPreprocessingConfig?(): SegmentationPreprocessingConfig;
   setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
-  setSegmentationPreprocessingSource?(source: "original" | "sr-roi"): boolean;
-  getSegmentationPreprocessingSource?(): "original" | "sr-roi";
-  /** Sets whether Processed uses the AI ROI and in which order the two steps run; may run AI first. */
-  setSegmentationProcessingPipeline?(next: { includeAi?: boolean; order?: import("../segmentation/preprocessing.js").SegmentationProcessingOrder }): Promise<boolean>;
-  getSegmentationProcessingOrder?(): import("../segmentation/preprocessing.js").SegmentationProcessingOrder;
-  /** True when the Processed -> AI result was made with earlier processing settings. */
-  isSegmentationProcessedAiStale?(): boolean;
-  rerunSegmentationProcessedAi?(): Promise<boolean>;
-  beginSegmentationSrRoiSelection?(): boolean;
-  cancelSegmentationSrRoiSelection?(): boolean;
-  isSegmentationSrRoiSelecting?(): boolean;
-  startSegmentationSrRoiSelection?(pointer: CanvasPoint): void;
-  continueSegmentationSrRoiSelection?(pointer: CanvasPoint): void;
-  finishSegmentationSrRoiSelection?(pointer: CanvasPoint): boolean;
-  getSegmentationSrRoi?(): WorkingImageRect | null;
-  resetSegmentationSrRoi?(): boolean;
-  getSegmentationSrPreviewInfo?(): {
-    mode: import("../super-resolution/types.js").SuperResolutionMode;
-    originalRoi: WorkingImageRect;
-    workingWidth: number;
-    workingHeight: number;
-    visible: boolean;
-  } | null;
-  focusSegmentationSrRoi?(): boolean;
-  setSegmentationSrOriginalComparison?(enabled: boolean): boolean;
-  setSegmentationSuperResolutionMode?(mode: "off" | import("../super-resolution/types.js").SuperResolutionMode): Promise<boolean>;
-  getSegmentationSuperResolutionMode?(): "off" | import("../super-resolution/types.js").SuperResolutionMode;
+  /**
+   * Desktop app: computes the Processed view for the current config merged with `config` in Rust, off the UI
+   * thread, so the following synchronous view/config call finds it ready. Null when there is nothing to wait
+   * for (no native bridge, no image, already cached): callers then stay synchronous. Resolves false when native
+   * work did not produce the image (colour-keeping config, native error): the synchronous call then uses TS.
+   */
+  prepareSegmentationProcessedImage?(config?: Partial<SegmentationPreprocessingConfig>): Promise<boolean> | null;
   setSegmentationViewSource?(source: SegmentationViewSourceMode): boolean;
   getSegmentationViewSource?(): SegmentationViewSourceMode;
   setSegmentationEdgeSamInputSource?(source: SegmentationImageSourceMode): boolean;

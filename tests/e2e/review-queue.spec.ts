@@ -36,7 +36,8 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
   await expect(page.locator("#reviewFilterSelect")).toHaveValue("has-issues");
   await expect(page.locator("#image-list [data-file-name]")).toHaveCount(17);
-  await expect(page.locator("#reviewQueueSummary")).toHaveText("1 / 17");
+  // sample_1 has no issue under the default rules, so opening Review moved on to an image that had one.
+  await expect(page.locator("#reviewQueueSummary")).toHaveText(/^\d+ \/ 17$/);
   await page.locator('#image-list [data-file-name="sample_1.jpg"]').click();
   await expect.poll(async () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi")?.getCurrentImageName?.() ?? "")).toBe("sample_1.jpg");
   await expect(page.locator("#activeOperationPanel")).toBeHidden();
@@ -68,6 +69,9 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await page.locator("#selectionGeometryWidth").press("Tab");
   await page.locator("#selectionGeometryHeight").fill("1");
   await page.locator("#selectionGeometryHeight").press("Tab");
+  // Nudge the box past the left edge (arrow keys do not stop at the image), so cleanup has something to remove.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  for (let step = 0; step < 15; step += 1) await page.keyboard.press("Shift+ArrowLeft");
   await page.locator("#saveLabelsBtn").click();
   await expect(page.locator("#documentStatus")).toContainText("Saved");
   await expect(page.locator("#reviewIssueList")).toContainText("Outside image");
@@ -84,4 +88,33 @@ test("review workspace filters quality findings, selects an affected box, naviga
   await page.locator("#refreshDatasetBtn").click();
   await expect(page.locator("#reviewStatusBadge")).toHaveText("Reviewed");
   await expect(page.locator("#reviewMinimumBoxSizeInput")).toHaveValue("2");
+});
+
+test("review findings follow label writes without opening the Review task", async ({ page }) => {
+  test.setTimeout(90_000);
+  const findingTypes = (name: string) => page.evaluate((imageName) => {
+    const finding = Reflect.get(window, "__easyLabelingTestApi").getReviewFindings()[imageName] as { issues: Array<{ type: string }> } | undefined;
+    return finding?.issues.map((issue) => issue.type) ?? null;
+  }, name);
+  await page.goto("/index.html");
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount()), { timeout: 30_000 }).toBe(207);
+  // Opening the folder checks every image in the background.
+  await expect.poll(() => page.evaluate(() => Object.keys(Reflect.get(window, "__easyLabelingTestApi").getReviewFindings()).length), { timeout: 30_000 }).toBe(17);
+  expect(await findingTypes("sample_2.jpg")).not.toContain("empty-label");
+
+  await page.locator("#taskReviewBtn").click();
+  await page.locator("#reviewFilterSelect").selectOption("all");
+  await page.locator('#image-list [data-file-name="sample_2.jpg"]').click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName())).toBe("sample_2.jpg");
+  await page.locator("#markReviewedBtn").click();
+  await expect(page.locator('#image-list [data-file-name="sample_2.jpg"]')).toHaveAttribute("data-review-status", "reviewed");
+  await page.locator('#image-list [data-file-name="sample_3.jpg"]').click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName())).toBe("sample_3.jpg");
+
+  // An automation-style write: only that image is rechecked, and it needs review again.
+  await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").writeDetectionLabelsForTest("sample_2.jpg", ""));
+  await expect.poll(() => findingTypes("sample_2.jpg")).toEqual(["empty-label"]);
+  await expect(page.locator('#image-list [data-file-name="sample_2.jpg"]')).toHaveAttribute("data-review-status", "needs-review");
+  await expect(page.locator("#activeOperationPanel")).toBeHidden();
 });

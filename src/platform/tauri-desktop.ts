@@ -1,5 +1,5 @@
-// Tauri counterpart of electron/preload.cjs: the same window globals, backed by Rust commands in
-// src-tauri/src/main.rs. The desktop app injects the compiled dist/platform/tauri-desktop.js as an
+// The desktop app's window globals (folder picker, profile libraries, sample folder, close guard, native
+// bridge), backed by Rust commands in src-tauri/src/main.rs. The desktop app injects the compiled dist/platform/tauri-desktop.js as an
 // initialization script (before page scripts) and defines __EASY_LABELING_IS_YOLOE__ around it.
 // It must stay a classic script: no imports, everything inside the IIFE.
 
@@ -28,6 +28,9 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
 
   // Rust errors arrive as "<DOMException name>: <message>".
   async function call<T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }): Promise<T> {
+    // Test and troubleshooting hook: an array at window.easyLabelingNativeTrace collects command names.
+    const trace: unknown = Reflect.get(window, "easyLabelingNativeTrace");
+    if (Array.isArray(trace)) trace.push(command);
     try {
       return await internals().invoke<T>(command, args, options);
     } catch (error) {
@@ -60,8 +63,12 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     }
   }
 
+  // Native paths behind the handles this script creates, so Rust can read the same files directly.
+  const filePaths = new WeakMap<object, string>();
+  const directoryPaths = new WeakMap<object, string>();
+
   function createFileHandle({ path, name }: NativeEntry) {
-    return {
+    const handle = {
       kind: "file" as const,
       name,
       async getFile(): Promise<File> {
@@ -89,9 +96,10 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
         };
       }
     };
+    filePaths.set(handle, path);
+    return handle;
   }
 
-  const directoryPaths = new WeakMap<object, string>();
 
   function createDirectoryHandle({ path, name }: NativeEntry): FileSystemDirectoryHandle {
     const handle = {
@@ -111,6 +119,9 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
       },
       async getFileHandle(entryName: string, options?: { create?: boolean }) {
         return createFileHandle(await call<NativeEntry>("fs_child", { base: path, name: entryName, directory: false, create: Boolean(options?.create) }));
+      },
+      async removeEntry(entryName: string): Promise<void> {
+        await call("fs_remove", { base: path, name: entryName });
       }
     };
     directoryPaths.set(handle, path);
@@ -118,7 +129,69 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     return handle as unknown as FileSystemDirectoryHandle;
   }
 
-  window.easyLabelingNative = Object.freeze({ invoke: call });
+  // Large uploads go through WebView2 shared memory (see src-tauri/src/shared_buffer.rs): raw invoke
+  // bodies cross WebView2 at ~17 MB/s. Rust posts the buffer; it can arrive before or after open resolves.
+  // Ids are unique across both directions (one Rust counter).
+  interface SharedBufferEvent { additionalData?: { easyLabelingUpload?: number; easyLabelingDownload?: number }; getBuffer(): ArrayBuffer }
+  const webview = (window as unknown as { chrome?: { webview?: { addEventListener(type: string, listener: (event: SharedBufferEvent) => void): void; releaseBuffer?(buffer: ArrayBuffer): void } } }).chrome?.webview;
+  const arrived = new Map<number, ArrayBuffer>();
+  const waiting = new Map<number, (buffer: ArrayBuffer) => void>();
+  // Ids given up on (bufferFor timed out): their buffer is released as soon as it arrives instead of being kept.
+  const abandoned = new Set<number>();
+  webview?.addEventListener("sharedbufferreceived", (event) => {
+    const id = event.additionalData?.easyLabelingUpload ?? event.additionalData?.easyLabelingDownload;
+    if (typeof id !== "number") return;
+    const buffer = event.getBuffer();
+    if (abandoned.delete(id)) {
+      webview?.releaseBuffer?.(buffer);
+      return;
+    }
+    const resolve = waiting.get(id);
+    waiting.delete(id);
+    if (resolve) resolve(buffer);
+    else arrived.set(id, buffer);
+  });
+  // A buffer that never arrives must not hang its caller: give up so it falls back to a raw transfer.
+  const bufferFor = async (id: number): Promise<ArrayBuffer> => {
+    const ready = arrived.get(id);
+    arrived.delete(id);
+    if (ready) return ready;
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        waiting.delete(id);
+        abandoned.add(id);
+        reject(new Error("Shared buffer did not arrive"));
+      }, 10_000);
+      waiting.set(id, (buffer) => {
+        clearTimeout(timer);
+        resolve(buffer);
+      });
+    });
+  };
+  /** Copies `bytes` into a new shared buffer and returns its id for a command's `x-shared-buffer` header. */
+  async function upload(bytes: Uint8Array): Promise<number> {
+    if (!webview) throw new Error("Shared buffers need WebView2");
+    const id = await call<number>("shared_buffer_open", { size: bytes.byteLength });
+    const buffer = await bufferFor(id);
+    new Uint8Array(buffer).set(bytes);
+    webview.releaseBuffer?.(buffer);
+    return id;
+  }
+  /** Runs a command that answers with a shared-buffer id and hands its bytes to `use`, then releases them. */
+  async function download<T>(command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => T): Promise<T> {
+    if (!webview) throw new Error("Shared buffers need WebView2");
+    const buffer = await bufferFor(await call<number>(command, args));
+    try {
+      return use(new Uint8Array(buffer));
+    } finally {
+      webview.releaseBuffer?.(buffer);
+    }
+  }
+
+  const pathOf = (handle: unknown): string | null =>
+    handle !== null && typeof handle === "object" ? filePaths.get(handle) ?? directoryPaths.get(handle) ?? null : null;
+
+  window.easyLabelingNative = Object.freeze(webview ? { invoke: call, upload, download, pathOf } : { invoke: call, pathOf });
 
   window.easyLabelingDesktop = Object.freeze({
     readYoloeModel: __EASY_LABELING_IS_YOLOE__
@@ -157,7 +230,7 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     }
   };
 
-  // Electron shows no page context menu; keep WebView2's only where text editing needs it.
+  // No page context menu, as in a native app; keep WebView2's only where text editing needs it.
   window.addEventListener("contextmenu", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea")))) {

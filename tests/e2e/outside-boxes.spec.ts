@@ -1,7 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 test("Save and Auto save preserve outside boxes; explicit cleanup covers all images in only the active folder with backups", async () => {
   test.setTimeout(120_000);
@@ -18,10 +22,9 @@ test("Save and Auto save preserve outside boxes; explicit cleanup covers all ima
   }
   await writeFile(path.join(comparison, "image.txt"), original);
   await writeFile(path.join(comparison, "second.txt"), allOutside);
-  const electron = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset, comparison]) } });
+  const app = await openDesktop([dataset, comparison, dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.locator("#selectImageFolderBtn").click();
@@ -133,7 +136,7 @@ test("Save and Auto save preserve outside boxes; explicit cleanup covers all ima
     await expect(page.locator("#outsideBoxesActions")).toBeHidden();
     expect(errors).toEqual([]);
   } finally {
-    await electron.close();
+    await app.close();
     expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
     expect(path.basename(dataset)).toMatch(/^easy-labeling-outside-/);
     await rm(dataset, { recursive: true, force: true });

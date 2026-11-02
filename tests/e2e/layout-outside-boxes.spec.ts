@@ -1,8 +1,12 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createBoxLayout } from "../../src/features/automation/layout.js";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 for (const count of [6, 5000]) test(`both Layout Apply buttons preserve ${count} boxes until explicit cleanup`, async () => {
   test.setTimeout(240_000);
@@ -14,10 +18,9 @@ for (const count of [6, 5000]) test(`both Layout Apply buttons preserve ${count}
     await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(dataset, `${name}.jpg`));
     await writeFile(path.join(labels, `${name}.txt`), "0 0.5 0.5 0.1 0.1\n");
   }
-  const electron = await _electron.launch({ args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset, INFERENCE_TEST_OFFSCREEN: "1" } });
+  const app = await openDesktop([dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
@@ -25,12 +28,12 @@ for (const count of [6, 5000]) test(`both Layout Apply buttons preserve ${count}
     const rectCount = () => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount());
     await expect.poll(rectCount).toBe(1);
     await expect(page.locator("#activeOperationPanel")).toBeHidden();
-    const size = await page.evaluate(async () => {
-      const image = new Image();
-      image.src = "./assets/sample/sample_1.jpg";
-      await image.decode();
-      return { width: image.naturalWidth, height: image.naturalHeight };
-    });
+    // The desktop app does not serve assets/sample; decode the same file from its bytes.
+    const jpeg = (await readFile(path.join(root, "assets/sample/sample_1.jpg"))).toString("base64");
+    const size = await page.evaluate(async (base64) => {
+      const image = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))]));
+      return { width: image.width, height: image.height };
+    }, jpeg);
     const positions = [
       { left: -5, top: 20 }, { left: 20, top: -5 },
       { left: size.width - 5, top: 20 }, { left: 20, top: size.height - 5 },
@@ -115,7 +118,7 @@ for (const count of [6, 5000]) test(`both Layout Apply buttons preserve ${count}
     expect(await readFile(path.join(labels, "second.txt"), "utf8")).toBe(secondBeforeCleanup);
     expect(errors).toEqual([]);
   } finally {
-    await electron.close();
+    await app.close();
     expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
     expect(path.basename(dataset)).toMatch(/^easy-labeling-layout-outside-/);
     await rm(dataset, { recursive: true, force: true });

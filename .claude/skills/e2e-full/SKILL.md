@@ -19,7 +19,7 @@ Get-NetTCPConnection -LocalPort 4173 -State Listen -ErrorAction SilentlyContinue
 
 ```bash
 git status --porcelain     # note what is already dirty
-npm run build
+npm run tauri:dev          # npm run build + the desktop exe the desktop specs drive (they skip without it)
 ```
 
 ## 2. Run

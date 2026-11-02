@@ -1,6 +1,7 @@
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { DirectoryHandleLike } from "../types/files.js";
-import { loadPreprocessingPresets, savePreprocessingPresets, upsertPreprocessingPreset, type PreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
+import { loadPreprocessingPresetLibrary, savePreprocessingPresets, serializePreprocessingPresets, upsertPreprocessingPreset, type StoredPreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
+import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
@@ -13,10 +14,8 @@ import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-sy
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
 import { createRefineController, resolveRefineShortcut } from "./refine-controller.js";
 import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
-import { saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
-import { getSuperResolutionModelLabel, isSuperResolutionMode } from "../features/super-resolution/model-registry.js";
-import type { SuperResolutionMode, SuperResolutionStatus } from "../features/super-resolution/types.js";
 import { bindInferenceControls } from "./inference-controller.js";
 import { bindYoloeControls } from "./yoloe-controller.js";
 import { getDefaultColorForClass } from "../features/canvas/colors.js";
@@ -134,6 +133,7 @@ export function createEventManagerAdapter(input: {
     URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
     easyLabelingDesktop: Window["easyLabelingDesktop"];
     showDirectoryPicker: Window["showDirectoryPicker"];
+    getEasyLabelingProfileDirectory: Window["getEasyLabelingProfileDirectory"];
   }>;
   documentRef?: Document;
 }): EventManager {
@@ -415,10 +415,18 @@ export function createEventManagerAdapter(input: {
                 : "No saved items; empty library ready"
             );
 
-            activeStep = "matching";
-            input.uiManager.updateWorkspaceStandbyStep("matching", "loading", "Starting the matching engine");
-            await automationController.prepareMatchingEngine();
-            input.uiManager.updateWorkspaceStandbyStep("matching", "ready", "Matching engine ready");
+            // The matching engine (OpenCV.js in a worker) starts once the workspace is idle: waiting for it here kept
+            // the standby open for up to half a minute on a busy machine. Template matching waits for it, or retries, when used.
+            input.uiManager.updateWorkspaceStandbyStep("matching", "ready", "Starts in the background");
+            const controller = automationController;
+            const startMatchingEngine = (): void => {
+              controller.prepareMatchingEngine().catch((error: unknown) => {
+                input.uiManager.notify(`Template matching engine did not start (${error instanceof Error ? error.message : String(error)}). It retries when used.`, 6000);
+              });
+            };
+            const idle = Reflect.get(globalThis, "requestIdleCallback") as ((callback: () => void, options: { timeout: number }) => number) | undefined;
+            if (idle) idle(startMatchingEngine, { timeout: 3000 });
+            else globalThis.setTimeout(startMatchingEngine, 1000);
           } else {
             input.uiManager.updateWorkspaceStandbyStep("automation", "warning", "Automation UI unavailable");
             input.uiManager.updateWorkspaceStandbyStep("matching", "warning", "Matching engine unavailable");
@@ -695,7 +703,7 @@ export function createEventManagerAdapter(input: {
       };
       const checkLabelFilters = (): void => {
         renderLists();
-        if (input.state.view.imageStatusFilter !== "all") runAsync(() => input.fileSystem.refreshReviewFindings());
+        if (input.state.view.imageStatusFilter !== "all") runAsync(async () => { await input.fileSystem.refreshReviewFindings(); });
       };
 
       elements.appBrand.addEventListener("click", (event) => {
@@ -869,9 +877,7 @@ export function createEventManagerAdapter(input: {
         const folder = input.state.session.labelFolderHandle;
         const filter = input.state.view.reviewFilter;
         runAsync(async () => {
-          const previousFindings = input.state.session.reviewFindings;
-          await input.fileSystem.refreshReviewFindings();
-          if (previousFindings === input.state.session.reviewFindings) return;
+          if (!await input.fileSystem.refreshReviewFindings()) return;
           if (folder !== input.state.session.labelFolderHandle || input.state.session.workflow !== "detection" || input.documentRef?.querySelector(".app-workspace")?.getAttribute("data-active-task") !== "review") return;
           if (input.state.session.imageFiles.some(file => !input.state.session.reviewFindings.has(file.name))) return;
           if (filter === input.state.view.reviewFilter) input.uiManager.setActiveTask?.("review");
@@ -1139,16 +1145,14 @@ export function createEventManagerAdapter(input: {
       rescanReviewButton?.addEventListener("click", () => {
         if (input.state.session.workflow !== "detection" || !input.state.session.imageFiles.length) return;
         runExclusive("rescan-review", async () => {
-          const findings = input.state.session.reviewFindings;
-          await input.fileSystem.refreshReviewFindings();
-          if (findings !== input.state.session.reviewFindings) input.uiManager.notify("Review rechecked. Current unsaved edits are included.");
+          if (await input.fileSystem.refreshReviewFindings({ all: true })) input.uiManager.notify("Review rechecked. Current unsaved edits are included.");
         }, rescanReviewButton);
       });
       if (elements.reviewFilterSelect) {
         elements.reviewFilterSelect.addEventListener("change", () => {
           input.state.view.reviewFilter = elements.reviewFilterSelect.value as typeof input.state.view.reviewFilter;
           input.uiManager.renderImageList();
-          if (input.state.view.reviewFilter !== "all") runAsync(() => input.fileSystem.refreshReviewFindings());
+          if (input.state.view.reviewFilter !== "all") runAsync(async () => { await input.fileSystem.refreshReviewFindings(); });
         });
         elements.markReviewedBtn.addEventListener("click", () => {
           const imageName = input.state.session.currentImageFile?.name;
@@ -1305,15 +1309,9 @@ export function createEventManagerAdapter(input: {
       });
       const segmentationDocument = input.documentRef;
       const viewOriginalButton = segmentationDocument?.getElementById("segmentationViewOriginalBtn");
-      const viewSrButton = segmentationDocument?.getElementById("segmentationViewSrBtn");
       const viewProcessedButton = segmentationDocument?.getElementById("segmentationViewProcessedBtn");
+      const viewToggleButton = segmentationDocument?.getElementById("canvasViewToggleBtn");
       const preprocessModeSelect = segmentationDocument?.getElementById("segmentationPreprocessModeSelect");
-      const pipelineSteps = segmentationDocument?.getElementById("segmentationPipelineSteps");
-      const pipelineAiToggle = segmentationDocument?.getElementById("segmentationPipelineAiToggle");
-      const pipelineSwapButton = segmentationDocument?.getElementById("segmentationPipelineSwapBtn");
-      const pipelineStale = segmentationDocument?.getElementById("segmentationPipelineStale");
-      const pipelineRerunButton = segmentationDocument?.getElementById("segmentationPipelineRerunBtn");
-      let pipelineBusy = false;
       const preprocessBlurInput = segmentationDocument?.getElementById("segmentationPreprocessBlurInput");
       const preprocessEdgeWeightInput = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightInput");
       const preprocessEdgeWeightValue = segmentationDocument?.getElementById("segmentationPreprocessEdgeWeightValue");
@@ -1333,26 +1331,11 @@ export function createEventManagerAdapter(input: {
       const preprocessDestripeSelect = preprocessElement("DestripeSelect");
       const edgeSamInputSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
       const superpixelInputSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
-      const focusSrRoiButton = segmentationDocument?.getElementById("segmentationFocusSrRoiBtn");
-      const compareOriginalButton = segmentationDocument?.getElementById("segmentationCompareOriginalBtn");
-      const selectSrRoiButton = segmentationDocument?.getElementById("segmentationSelectSrRoiBtn");
-      const resetSrRoiButton = segmentationDocument?.getElementById("segmentationResetSrRoiBtn");
-      const srSettingsGroup = segmentationDocument?.getElementById("segmentationSrSettingsGroup");
       const preprocessSettingsGroup = segmentationDocument?.getElementById("segmentationPreprocessSettingsGroup");
       const aiRegionConstraintToggle = segmentationDocument?.getElementById("segmentationAiRegionConstraintToggle");
       const aiRegionConstraintStatus = segmentationDocument?.getElementById("segmentationAiRegionConstraintStatus");
       const aiRegionConstraintSetButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintSetBtn");
       const aiRegionConstraintClearButton = segmentationDocument?.getElementById("segmentationAiRegionConstraintClearBtn");
-      const syncSrRoiSelectionButton = (selecting = preprocessingController().isSegmentationSrRoiSelecting?.() ?? false): void => {
-        const button = segmentationDocument?.getElementById("segmentationSelectSrRoiBtn");
-        if (!button) return;
-        button.classList.toggle("is-selecting", selecting);
-        button.setAttribute("aria-pressed", String(selecting));
-        if (selecting) {
-          const hint = segmentationDocument?.getElementById("segmentationSrResultStatus");
-          if (hint) hint.textContent = "Drag an ROI on the image · Esc to cancel";
-        }
-      };
       const syncAiRegionConstraint = (): void => {
         const constraint = input.canvasController.raw.getSegmentationAiRegionConstraint?.();
         if (!constraint) return;
@@ -1366,332 +1349,81 @@ export function createEventManagerAdapter(input: {
               : "Full image mask";
         }
       };
-      let panelViewSource: "original" | "sr-roi" | "processed" = preprocessingController().getSegmentationViewSource?.() ?? "original";
-      const syncSegmentationViewSource = (requestedSource?: "original" | "sr-roi" | "processed"): void => {
+      let panelViewSource: "original" | "processed" = preprocessingController().getSegmentationViewSource?.() ?? "original";
+      const syncSegmentationViewSource = (requestedSource?: "original" | "processed"): void => {
         panelViewSource = requestedSource ?? preprocessingController().getSegmentationViewSource?.() ?? "original";
-        viewOriginalButton?.classList.toggle("active", panelViewSource === "original");
-        viewSrButton?.classList.toggle("active", panelViewSource === "sr-roi");
-        viewProcessedButton?.classList.toggle("active", panelViewSource === "processed");
-        viewOriginalButton?.setAttribute("aria-pressed", String(panelViewSource === "original"));
-        viewSrButton?.setAttribute("aria-pressed", String(panelViewSource === "sr-roi"));
-        viewProcessedButton?.setAttribute("aria-pressed", String(panelViewSource === "processed"));
-        srSettingsGroup?.toggleAttribute("hidden", panelViewSource !== "sr-roi");
-        preprocessSettingsGroup?.toggleAttribute("hidden", panelViewSource !== "processed");
-        if (panelViewSource !== "sr-roi") {
-          const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
-          picker?.classList.remove("is-open");
-          viewSrButton?.setAttribute("aria-expanded", "false");
+        const processed = panelViewSource === "processed";
+        viewOriginalButton?.classList.toggle("active", !processed);
+        viewProcessedButton?.classList.toggle("active", processed);
+        viewOriginalButton?.setAttribute("aria-pressed", String(!processed));
+        viewProcessedButton?.setAttribute("aria-pressed", String(processed));
+        preprocessSettingsGroup?.toggleAttribute("hidden", !processed);
+        // Toolbar toggle: shows which image is on the canvas; a click switches to the other one.
+        if (viewToggleButton) {
+          viewToggleButton.classList.toggle("active", processed);
+          viewToggleButton.setAttribute("aria-pressed", String(processed));
+          const label = processed ? "Showing Processed · switch to Original (Q)" : "Showing Original · switch to Processed (Q)";
+          viewToggleButton.title = label;
+          viewToggleButton.setAttribute("aria-label", label);
+          const icon = viewToggleButton.querySelector("i");
+          if (icon) icon.className = processed ? "bi bi-activity" : "bi bi-image";
         }
       };
+      // Every view switch takes a ticket; a Processed switch still waiting for its native image gives up
+      // when a later switch has been requested meanwhile.
+      let viewSwitchTicket = 0;
       viewOriginalButton?.addEventListener("click", () => {
+        viewSwitchTicket += 1;
         preprocessingController().setSegmentationViewSource?.("original");
         syncSegmentationViewSource("original");
-        syncSuperResolutionControls();
+        syncInputSelects();
       });
-      viewProcessedButton?.addEventListener("click", () => {
+      viewProcessedButton?.addEventListener("click", async () => {
+        const ticket = ++viewSwitchTicket;
+        const preparing = preprocessingController().prepareSegmentationProcessedImage?.();
+        if (preparing) {
+          await preparing;
+          if (ticket !== viewSwitchTicket) return;
+        }
         const currentSource = preprocessingController().getSegmentationViewSource?.();
         const changed = preprocessingController().setSegmentationViewSource?.("processed");
         if (changed === false && currentSource !== "processed") {
           input.uiManager.notify("Processed preview could not be created for this image.", 3500);
         }
         syncSegmentationViewSource(changed === false && currentSource !== "processed" ? currentSource : "processed");
-        syncSuperResolutionControls();
+        syncInputSelects();
       });
-      const setSuperResolutionPickerVisible = (visible: boolean): void => {
-        const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
-        const button = segmentationDocument?.getElementById("segmentationViewSrBtn");
-        if (!(picker instanceof HTMLElement)) return;
-        picker.classList.toggle("is-open", visible);
-        button?.setAttribute("aria-expanded", String(visible));
-      };
-      const syncSuperResolutionControls = (): void => {
-        const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
-        if (select instanceof HTMLSelectElement) {
-          select.value = preprocessingController().getSegmentationSuperResolutionMode?.() ?? "off";
+      /** Q: Original <-> Processed. In the desktop app the processed image is computed natively first. */
+      const toggleProcessedView = async (): Promise<void> => {
+        const ticket = ++viewSwitchTicket;
+        const nextSource = preprocessingController().getSegmentationViewSource?.() === "processed" ? "original" : "processed";
+        // Without native preprocessing nothing is awaited and the switch stays synchronous.
+        const preparing = nextSource === "processed" ? preprocessingController().prepareSegmentationProcessedImage?.() : null;
+        if (preparing) {
+          await preparing;
+          if (ticket !== viewSwitchTicket) return;
         }
-        syncProcessingPipeline();
-        const edgeSamSelect = segmentationDocument?.getElementById("segmentationEdgeSamInputSelect");
-        const superpixelSelect = segmentationDocument?.getElementById("segmentationSuperpixelInputSelect");
-        if (edgeSamSelect instanceof HTMLSelectElement) {
-          edgeSamSelect.value = input.canvasController.raw.getSegmentationEdgeSamInputSource?.() ?? "original";
-        }
-        if (superpixelSelect instanceof HTMLSelectElement) {
-          superpixelSelect.value = input.canvasController.raw.getSegmentationSuperpixelInputSource?.() ?? "original";
-        }
-        const roiStatus = segmentationDocument?.getElementById("segmentationSrRoiStatus");
-        const resultStatus = segmentationDocument?.getElementById("segmentationSrResultStatus");
-        const roi = preprocessingController().getSegmentationSrRoi?.();
-        const preview = preprocessingController().getSegmentationSrPreviewInfo?.();
-        if (roiStatus) roiStatus.textContent = roi
-          ? `ROI ${roi.x}, ${roi.y} · ${roi.width} × ${roi.height} px`
-          : "No ROI selected";
-        if (resultStatus) resultStatus.textContent = preview
-          ? `Original ${preview.originalRoi.width} × ${preview.originalRoi.height} → ${getSuperResolutionModelLabel(preview.mode)} ${preview.workingWidth} × ${preview.workingHeight} · coordinates: Original`
-          : roi
-            ? "Coordinates: Original · Choose an AI enhancement."
-            : "Select an ROI to enable AI enhancement.";
-        const hasPreview = preview != null;
-        const selecting = preprocessingController().isSegmentationSrRoiSelecting?.() ?? false;
-        syncSrRoiSelectionButton(selecting);
-        if (focusSrRoiButton instanceof HTMLButtonElement) focusSrRoiButton.disabled = !hasPreview;
-        if (resetSrRoiButton instanceof HTMLButtonElement) resetSrRoiButton.disabled = !roi;
-        if (compareOriginalButton instanceof HTMLButtonElement) {
-          const source = preprocessingController().getSegmentationViewSource?.() ?? "original";
-          const showsSrPreview = source === "sr-roi" || (source === "processed" && preprocessingController().getSegmentationPreprocessingSource?.() === "sr-roi");
-          compareOriginalButton.disabled = !hasPreview || !showsSrPreview;
-          if (compareOriginalButton.disabled) {
-            preprocessingController().setSegmentationSrOriginalComparison?.(false);
-            compareOriginalButton.classList.remove("is-comparing");
-            compareOriginalButton.setAttribute("aria-pressed", "false");
-            const label = compareOriginalButton.querySelector("span");
-            if (label) label.textContent = "Hold Original";
-          }
-        }
-      };
-      function syncProcessingPipeline(): void {
-        const controller = preprocessingController();
-        const order = controller.getSegmentationProcessingOrder?.() ?? "ai-first";
-        const hasAi = (controller.getSegmentationSuperResolutionMode?.() ?? "off") !== "off";
-        if (pipelineSteps instanceof HTMLElement) pipelineSteps.dataset.order = order;
-        if (pipelineAiToggle instanceof HTMLInputElement) {
-          pipelineAiToggle.checked = controller.getSegmentationPreprocessingSource?.() === "sr-roi";
-          pipelineAiToggle.disabled = pipelineBusy || (!hasAi && !pipelineAiToggle.checked);
-          pipelineAiToggle.closest("label")?.setAttribute("title", hasAi ? "Use the AI enhancement of the ROI" : "Create an AI enhancement of an ROI first");
-        }
-        if (pipelineSwapButton instanceof HTMLButtonElement) pipelineSwapButton.disabled = pipelineBusy;
-        pipelineStale?.toggleAttribute("hidden", !(controller.isSegmentationProcessedAiStale?.() ?? false));
-        if (pipelineRerunButton instanceof HTMLButtonElement) {
-          pipelineRerunButton.disabled = pipelineBusy;
-          pipelineRerunButton.innerHTML = pipelineBusy
-            ? '<i class="bi bi-hourglass-split" aria-hidden="true"></i> Running AI…'
-            : '<i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run AI';
-        }
-        // The combined source follows the order, so name it by what it contains.
-        const combinedLabel = order === "processed-first" ? "AI on processed ROI" : "Processed AI ROI";
-        [edgeSamInputSelect, superpixelInputSelect].forEach((select) => {
-          const option = select instanceof HTMLSelectElement ? select.querySelector<HTMLOptionElement>('option[value="sr-roi-processed"]') : null;
-          if (option) option.textContent = combinedLabel;
-        });
-      }
-      /** Runs a pipeline change that may start the AI model, keeping the controls disabled meanwhile. */
-      const runPipelineChange = (change: () => Promise<boolean> | undefined, failure: string): void => {
-        if (pipelineBusy) return;
-        pipelineBusy = true;
-        syncProcessingPipeline();
-        runAsync(async () => {
-          try {
-            if (!await (change() ?? Promise.resolve(false))) input.uiManager.notify(failure, 3500);
-          } finally {
-            pipelineBusy = false;
-            syncSuperResolutionControls();
-            syncSegmentationViewSource();
-          }
-        });
-      };
-      const setSuperResolutionBusy = (mode: SuperResolutionMode | null): void => {
-        const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
-        const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
-        picker?.toggleAttribute("aria-busy", mode !== null);
-        picker?.querySelectorAll<HTMLButtonElement>("[data-segmentation-sr-mode]").forEach((button) => {
-          button.disabled = mode !== null;
-        });
-        const label = picker?.querySelector<HTMLElement>("[data-segmentation-sr-status]");
-        if (label) label.textContent = mode ? `Creating ${getSuperResolutionModelLabel(mode)}…` : "Choose AI enhancement";
-        if (select instanceof HTMLSelectElement) select.disabled = mode !== null;
-      };
-      const aiProgress = segmentationDocument?.getElementById("segmentationAiProgress");
-      const aiProgressStage = segmentationDocument?.getElementById("segmentationAiProgressStage");
-      const aiProgressModel = segmentationDocument?.getElementById("segmentationAiProgressModel");
-      const aiBackendBadge = segmentationDocument?.getElementById("segmentationAiBackendBadge");
-      const aiProgressTrack = aiProgress?.querySelector<HTMLElement>("[role='progressbar']");
-      const aiProgressBar = segmentationDocument?.getElementById("segmentationAiProgressBar");
-      const aiProgressUnits = segmentationDocument?.getElementById("segmentationAiProgressUnits");
-      const aiElapsed = segmentationDocument?.getElementById("segmentationAiElapsed");
-      const aiFallback = segmentationDocument?.getElementById("segmentationAiFallback");
-      let latestSuperResolutionStatus = input.canvasController.getSuperResolutionStatus?.() ?? null;
-      const isSuperResolutionBusy = (status: SuperResolutionStatus): boolean => ["loading-model", "preparing", "upscaling", "merging"].includes(status.phase);
-      const formatElapsed = (elapsedMs: number): string => {
-        const totalTenths = Math.floor(Math.max(0, elapsedMs) / 100);
-        const minutes = Math.floor(totalTenths / 600);
-        const seconds = Math.floor((totalTenths % 600) / 10);
-        return `Elapsed ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${totalTenths % 10}`;
-      };
-      const renderSuperResolutionStatus = (status: SuperResolutionStatus): void => {
-        latestSuperResolutionStatus = status;
-        if (!(aiProgress instanceof HTMLElement)) return;
-        const busy = isSuperResolutionBusy(status);
-        aiProgress.hidden = status.phase === "idle";
-        aiProgress.dataset.state = status.phase;
-        aiProgress.toggleAttribute("data-indeterminate", busy && status.progressPercent == null);
-        const stage = status.phase === "loading-model" ? "Loading model"
-          : status.phase === "preparing" ? "Preparing ROI"
-            : status.phase === "upscaling" ? "Enhancing tiles"
-              : status.phase === "merging" ? "Merging tiles"
-                : status.phase === "ready" ? "AI enhancement complete"
-                  : status.phase === "error" ? "AI enhancement failed"
-                    : "AI enhancement";
-        if (aiProgressStage) aiProgressStage.textContent = stage;
-        if (aiProgressModel) aiProgressModel.textContent = status.modelLabel ?? "";
-        if (aiBackendBadge) {
-          aiBackendBadge.textContent = status.backend === "webgpu" ? "GPU · WebGPU" : status.backend === "wasm" ? "CPU · WASM" : "";
-          aiBackendBadge.toggleAttribute("hidden", status.backend == null);
-        }
-        if (aiProgressTrack) {
-          if (status.progressPercent == null) aiProgressTrack.removeAttribute("aria-valuenow");
-          else aiProgressTrack.setAttribute("aria-valuenow", String(status.progressPercent));
-        }
-        if (aiProgressBar) aiProgressBar.style.width = status.progressPercent == null ? "0" : `${status.progressPercent}%`;
-        if (aiProgressUnits) aiProgressUnits.textContent = status.phase === "ready"
-          ? status.cacheHit ? "Completed · Cached result" : "Completed"
-          : status.totalUnits
-            ? `${status.completedUnits} / ${status.totalUnits} tiles · ${status.progressPercent ?? 0}%`
-            : status.message ?? stage;
-        if (aiElapsed) aiElapsed.textContent = formatElapsed(status.elapsedMs);
-        if (aiFallback) {
-          aiFallback.textContent = status.fallbackOccurred
-            ? status.phase === "ready" ? "WebGPU unavailable — completed with CPU / WASM" : "WebGPU unavailable — continuing on CPU / WASM"
-            : "";
-          aiFallback.toggleAttribute("hidden", !status.fallbackOccurred);
-          if (status.fallbackReason) aiFallback.setAttribute("title", status.fallbackReason);
-          else aiFallback.removeAttribute("title");
-        }
-        setSuperResolutionBusy(busy ? status.mode : null);
-        if (viewSrButton instanceof HTMLButtonElement) viewSrButton.disabled = busy;
-        if (selectSrRoiButton instanceof HTMLButtonElement) selectSrRoiButton.disabled = busy;
-        if (resetSrRoiButton instanceof HTMLButtonElement) resetSrRoiButton.disabled = busy || !preprocessingController().getSegmentationSrRoi?.();
-        if (busy && focusSrRoiButton instanceof HTMLButtonElement) focusSrRoiButton.disabled = true;
-        if (busy && compareOriginalButton instanceof HTMLButtonElement) compareOriginalButton.disabled = true;
-      };
-      const unsubscribeSuperResolutionStatus = input.canvasController.subscribeSuperResolutionStatus?.(renderSuperResolutionStatus) ?? (() => undefined);
-      const elapsedWindow = segmentationDocument?.defaultView;
-      const elapsedTimer = elapsedWindow?.setInterval(() => {
-        const status = latestSuperResolutionStatus;
-        if (!status || !status.startedAt || !isSuperResolutionBusy(status) || !aiElapsed) return;
-        aiElapsed.textContent = formatElapsed(Date.now() - status.startedAt);
-      }, 100);
-      const applySuperResolutionMode = (select: HTMLSelectElement): void => {
-        runAsync(async () => {
-          const requestedMode = select.value;
-          if (requestedMode !== "off" && !isSuperResolutionMode(requestedMode)) return;
-          setSuperResolutionBusy(requestedMode === "off" ? null : requestedMode);
-          try {
-            const changed = await preprocessingController().setSegmentationSuperResolutionMode?.(requestedMode) ?? false;
-            if (!changed && requestedMode !== preprocessingController().getSegmentationSuperResolutionMode?.()) {
-              input.uiManager.notify("AI image could not be created.", 4000);
-            }
-            if (preprocessingController().getSegmentationSuperResolutionMode?.() !== "off") {
-              preprocessingController().setSegmentationViewSource?.("sr-roi");
-              preprocessingController().focusSegmentationSrRoi?.();
-              setSuperResolutionPickerVisible(false);
-            }
-            syncSuperResolutionControls();
-            syncSegmentationViewSource();
-          } finally {
-            setSuperResolutionBusy(null);
-          }
-        });
-      };
-      const chooseSuperResolutionMode = async (mode: SuperResolutionMode): Promise<void> => {
-        setSuperResolutionBusy(mode);
-        try {
-          const changed = await preprocessingController().setSegmentationSuperResolutionMode?.(mode) ?? false;
-          if (!changed && preprocessingController().getSegmentationSuperResolutionMode?.() !== mode) {
-            input.uiManager.notify("AI image could not be created.", 4000);
-            return;
-          }
-          preprocessingController().setSegmentationViewSource?.("sr-roi");
-          preprocessingController().focusSegmentationSrRoi?.();
-          setSuperResolutionPickerVisible(false);
-          if (segmentationDocument?.activeElement instanceof HTMLElement) segmentationDocument.activeElement.blur();
-          syncSuperResolutionControls();
-          syncSegmentationViewSource();
-        } finally {
-          setSuperResolutionBusy(null);
-        }
-      };
-      const handleSuperResolutionView = (): void => {
-        const select = segmentationDocument?.getElementById("segmentationSuperResolutionSelect");
-        const picker = segmentationDocument?.getElementById("segmentationSrModePicker");
-        const mode = select instanceof HTMLSelectElement ? select.value : preprocessingController().getSegmentationSuperResolutionMode?.() ?? "off";
-        const roi = preprocessingController().getSegmentationSrRoi?.();
-        syncSegmentationViewSource("sr-roi");
-        if (!roi) {
-          setSuperResolutionPickerVisible(false);
-          const selecting = preprocessingController().beginSegmentationSrRoiSelection?.() ?? false;
-          syncSuperResolutionControls();
-          syncSrRoiSelectionButton(selecting);
-          segmentationDocument?.defaultView?.setTimeout(() => syncSrRoiSelectionButton(), 0);
+        const changed = preprocessingController().setSegmentationViewSource?.(nextSource);
+        if (changed === false) {
+          input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
           return;
         }
-        if (mode === "off") {
-          const willOpen = picker instanceof HTMLElement && !picker.classList.contains("is-open");
-          setSuperResolutionPickerVisible(willOpen);
-          if (willOpen) picker?.querySelector<HTMLButtonElement>("[data-segmentation-sr-mode]")?.focus();
-          return;
-        }
-        preprocessingController().setSegmentationViewSource?.("sr-roi");
-        syncSegmentationViewSource();
-        syncSuperResolutionControls();
+        syncSegmentationViewSource(nextSource);
+        syncInputSelects();
       };
-      input.windowRef.addEventListener("change", (event) => {
-        if (event.target instanceof HTMLSelectElement && event.target.id === "segmentationSuperResolutionSelect") applySuperResolutionMode(event.target);
-      });
-      input.windowRef.addEventListener("click", (event) => {
-        const target = event.target instanceof Element ? event.target.closest<HTMLElement>("#segmentationViewSrBtn, #segmentationSelectSrRoiBtn, [data-segmentation-sr-mode]") : null;
-        if (!target) return;
-        if (target.id === "segmentationSelectSrRoiBtn") {
-          setSuperResolutionPickerVisible(false);
-          const selecting = preprocessingController().beginSegmentationSrRoiSelection?.() ?? false;
-          syncSuperResolutionControls();
-          syncSrRoiSelectionButton(selecting);
-          segmentationDocument?.defaultView?.setTimeout(() => syncSrRoiSelectionButton(), 0);
-          return;
+      viewToggleButton?.addEventListener("click", () => { void toggleProcessedView(); });
+      /** The algorithm input selects follow the canvas view; show what the canvas controller chose. */
+      const syncInputSelects = (): void => {
+        if (edgeSamInputSelect instanceof HTMLSelectElement) {
+          edgeSamInputSelect.value = input.canvasController.raw.getSegmentationEdgeSamInputSource?.() ?? "original";
         }
-        if (target.id === "segmentationViewSrBtn") {
-          handleSuperResolutionView();
-          return;
+        if (superpixelInputSelect instanceof HTMLSelectElement) {
+          superpixelInputSelect.value = input.canvasController.raw.getSegmentationSuperpixelInputSource?.() ?? "original";
         }
-        const mode = target.dataset.segmentationSrMode;
-        if (mode && isSuperResolutionMode(mode)) runAsync(() => chooseSuperResolutionMode(mode));
-      }, { capture: true });
-      focusSrRoiButton?.addEventListener("click", () => {
-        preprocessingController().focusSegmentationSrRoi?.();
-      });
-      resetSrRoiButton?.addEventListener("click", () => {
-        setSuperResolutionPickerVisible(false);
-        preprocessingController().resetSegmentationSrRoi?.();
-        syncSuperResolutionControls();
-        syncSegmentationViewSource();
-      });
+      };
       input.windowRef.addEventListener("easy-labeling:image-change", () => {
-        setSuperResolutionPickerVisible(false);
-        syncSuperResolutionControls();
+        syncInputSelects();
         syncSegmentationViewSource();
-      });
-      const setOriginalComparison = (enabled: boolean): void => {
-        if (!(compareOriginalButton instanceof HTMLButtonElement) || compareOriginalButton.disabled) return;
-        preprocessingController().setSegmentationSrOriginalComparison?.(enabled);
-        compareOriginalButton.classList.toggle("is-comparing", enabled);
-        compareOriginalButton.setAttribute("aria-pressed", String(enabled));
-        const label = compareOriginalButton.querySelector("span");
-        if (label) label.textContent = enabled ? "Showing Original" : "Hold Original";
-      };
-      compareOriginalButton?.addEventListener("pointerdown", (event) => {
-        event.preventDefault();
-        setOriginalComparison(true);
-      });
-      compareOriginalButton?.addEventListener("pointerup", () => setOriginalComparison(false));
-      compareOriginalButton?.addEventListener("pointerleave", () => setOriginalComparison(false));
-      compareOriginalButton?.addEventListener("pointercancel", () => setOriginalComparison(false));
-      compareOriginalButton?.addEventListener("keydown", (event) => {
-        if (event.key !== " " && event.key !== "Enter") return;
-        event.preventDefault();
-        setOriginalComparison(true);
-      });
-      compareOriginalButton?.addEventListener("keyup", (event) => {
-        if (event.key !== " " && event.key !== "Enter") return;
-        event.preventDefault();
-        setOriginalComparison(false);
       });
       const syncFilterLabels = (): void => {
         for (const field of preprocessRanges) {
@@ -1702,13 +1434,15 @@ export function createEventManagerAdapter(input: {
       };
       const preprocessPresetSelect = preprocessElement("PresetSelect");
       let applyingPreprocessPreset = false;
-      const applyPreprocessing = (): void => {
+      // Only the latest change applies when an earlier one is still being computed natively.
+      let preprocessApplyTicket = 0;
+      const applyPreprocessing = async (): Promise<void> => {
         // A hand-made change no longer matches the chosen preset.
         if (!applyingPreprocessPreset && preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = "";
         if (!(preprocessModeSelect instanceof HTMLSelectElement)
           || !(preprocessBlurInput instanceof HTMLInputElement)
           || !(preprocessEdgeWeightInput instanceof HTMLInputElement)) return;
-        const changed = preprocessingController().setSegmentationPreprocessingConfig?.({
+        const config: Partial<SegmentationPreprocessingConfig> = {
           mode: preprocessModeSelect.value as import("../features/segmentation/preprocessing.js").SegmentationPreprocessMode,
           blurStrength: Number.parseInt(preprocessBlurInput.value, 10),
           edgeWeight: Number.parseInt(preprocessEdgeWeightInput.value, 10) / 100,
@@ -1718,11 +1452,20 @@ export function createEventManagerAdapter(input: {
             const slider = preprocessElement(`${field.id}Input`);
             return slider instanceof HTMLInputElement ? [[field.key, Number(slider.value) / field.scale]] : [];
           }))
-        });
+        };
         syncFilterLabels();
         if (preprocessEdgeWeightValue) preprocessEdgeWeightValue.textContent = `${preprocessEdgeWeightInput.value}%`;
+        const ticket = ++preprocessApplyTicket;
+        // Desktop app: compute the visible Processed image natively first; elsewhere this stays synchronous.
+        const preparing = preprocessingController().getSegmentationViewSource?.() === "processed"
+          ? preprocessingController().prepareSegmentationProcessedImage?.(config)
+          : null;
+        if (preparing) {
+          await preparing;
+          if (ticket !== preprocessApplyTicket) return;
+        }
+        const changed = preprocessingController().setSegmentationPreprocessingConfig?.(config);
         if (changed) input.uiManager.notify("Preprocessing updated.", 1800);
-        syncProcessingPipeline();
       };
       preprocessModeSelect?.addEventListener("change", applyPreprocessing);
       preprocessBlurInput?.addEventListener("change", applyPreprocessing);
@@ -1750,31 +1493,36 @@ export function createEventManagerAdapter(input: {
           if (slider instanceof HTMLInputElement) slider.value = String(Math.round(config[field.key] * field.scale));
         }
         applyingPreprocessPreset = true;
-        try { applyPreprocessing(); } finally { applyingPreprocessPreset = false; }
+        // The preset flag is read before applyPreprocessing first awaits.
+        try { void applyPreprocessing(); } finally { applyingPreprocessPreset = false; }
         if (preprocessPresetSelect instanceof HTMLSelectElement) preprocessPresetSelect.value = presetName;
       };
       preprocessElement("ResetBtn")?.addEventListener("click", () => setPreprocessPanel(DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG));
 
-      // Preprocessing presets live in the dataset's .easy-labeling folder.
-      let preprocessPresets: PreprocessingPreset[] = [];
+      // Preprocessing presets: files in the profile folder on the desktop app, the dataset's .easy-labeling file on the web.
+      let preprocessPresets: StoredPreprocessingPreset[] = [];
       const renderPreprocessPresets = (selected = preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : ""): void => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
         preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => new Option(preset.name, preset.name)));
         preprocessPresetSelect.value = preprocessPresets.some((preset) => preset.name === selected) ? selected : "";
       };
-      const refreshPreprocessPresets = (): void => {
-        runAsync(async () => {
-          preprocessPresets = await loadPreprocessingPresets(input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null);
-          renderPreprocessPresets();
-        });
+      const datasetFolder = () => input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
+      const reloadPreprocessPresets = async (selected?: string): Promise<void> => {
+        const { presets, errors } = await loadPreprocessingPresetLibrary(await openProfilePresetFolder(input.windowRef, "preprocessing"), datasetFolder());
+        preprocessPresets = presets;
+        renderPreprocessPresets(selected);
+        if (errors.length) input.uiManager.notify(`Some preprocessing preset files were skipped:\n${errors.join("\n")}`, 8000);
       };
+      const refreshPreprocessPresets = (): void => runAsync(() => reloadPreprocessPresets());
       const currentPreprocessConfig = (): SegmentationPreprocessingConfig | undefined => preprocessingController().getSegmentationPreprocessingConfig?.();
-      const storePreprocessPresets = (next: PreprocessingPreset[], selected: string): void => {
-        const folder = input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
-        if (!folder) { input.uiManager.notify("Open a dataset folder to keep preprocessing presets.", 4000); return; }
+      /** Web build: the dataset's preset file holds them all. */
+      const storeDatasetPreprocessPresets = (next: StoredPreprocessingPreset[], selected: string): boolean => {
+        const folder = datasetFolder();
+        if (!folder) { input.uiManager.notify("Open a dataset folder to keep preprocessing presets.", 4000); return false; }
         preprocessPresets = next;
         renderPreprocessPresets(selected);
-        runAsync(() => savePreprocessingPresets(folder, next));
+        runAsync(() => savePreprocessingPresets(folder, next.map(({ name, config }) => ({ name, config }))));
+        return true;
       };
       preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
       input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", refreshPreprocessPresets);
@@ -1789,34 +1537,44 @@ export function createEventManagerAdapter(input: {
         if (!(nameInput instanceof HTMLInputElement) || !config) return;
         const name = nameInput.value.trim() || (preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : "");
         if (!name) { input.uiManager.notify("Type a preset name.", 3000); nameInput.focus(); return; }
-        storePreprocessPresets(upsertPreprocessingPreset(preprocessPresets, name, config), name);
-        nameInput.value = "";
-        input.uiManager.notify(`Saved preprocessing preset "${name}".`, 2500);
+        runAsync(async () => {
+          const profile = await openProfilePresetFolder(input.windowRef, "preprocessing");
+          if (profile) {
+            await reloadPreprocessPresets(); // which file holds which preset now
+            const preset = upsertPreprocessingPreset([], name, config)[0]!;
+            const fileName = preprocessPresets.find((item) => item.name === preset.name)?.fileName ?? null;
+            // A file holding several presets keeps the others.
+            const inFile = fileName ? preprocessPresets.filter((item) => item.fileName === fileName).map(({ name, config }) => ({ name, config })) : [];
+            const saved = await profile.save(preset.name, serializePreprocessingPresets(upsertPreprocessingPreset(inFile, preset.name, preset.config)), fileName);
+            if (!saved) return;
+            await reloadPreprocessPresets(preset.name);
+            input.uiManager.notify(`Saved preprocessing preset "${preset.name}" to ${profile.name} / ${saved}.`, 3000);
+          } else {
+            const next = upsertPreprocessingPreset(preprocessPresets, name, config).map((preset) => ({ ...preset, fileName: null }));
+            if (!storeDatasetPreprocessPresets(next, name.trim())) return;
+            input.uiManager.notify(`Saved preprocessing preset "${name.trim()}".`, 2500);
+          }
+          nameInput.value = "";
+        });
       });
       preprocessElement("PresetDeleteBtn")?.addEventListener("click", () => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement) || !preprocessPresetSelect.value) return;
-        storePreprocessPresets(preprocessPresets.filter((preset) => preset.name !== preprocessPresetSelect.value), "");
-      });
-      pipelineAiToggle?.addEventListener("change", () => {
-        if (!(pipelineAiToggle instanceof HTMLInputElement)) return;
-        const includeAi = pipelineAiToggle.checked;
-        runPipelineChange(
-          () => preprocessingController().setSegmentationProcessingPipeline?.({ includeAi }),
-          includeAi ? "Select an ROI and generate an AI result before preprocessing it." : "Processing input could not be changed."
-        );
-      });
-      pipelineSwapButton?.addEventListener("click", () => {
-        const order = preprocessingController().getSegmentationProcessingOrder?.() === "processed-first" ? "ai-first" : "processed-first";
-        runPipelineChange(
-          () => preprocessingController().setSegmentationProcessingPipeline?.({ order }),
-          "AI could not run on the processed image."
-        );
-      });
-      pipelineRerunButton?.addEventListener("click", () => {
-        runPipelineChange(
-          () => preprocessingController().rerunSegmentationProcessedAi?.(),
-          "AI could not run on the processed image."
-        );
+        const preset = preprocessPresets.find((item) => item.name === preprocessPresetSelect.value);
+        if (!preset) return;
+        runAsync(async () => {
+          const profile = await openProfilePresetFolder(input.windowRef, "preprocessing");
+          if (profile && preset.fileName) {
+            const rest = preprocessPresets.filter((item) => item.fileName === preset.fileName && item.name !== preset.name).map(({ name, config }) => ({ name, config }));
+            if (rest.length) await profile.save(preset.name, serializePreprocessingPresets(rest), preset.fileName);
+            else await profile.remove(preset.fileName);
+          } else {
+            // A preset kept with the dataset (web build, or saved by an older version) is deleted from that file.
+            const folder = datasetFolder();
+            const remaining = preprocessPresets.filter((item) => item.fileName === null && item.name !== preset.name);
+            if (folder) await savePreprocessingPresets(folder, remaining.map(({ name, config }) => ({ name, config })));
+          }
+          await reloadPreprocessPresets("");
+        });
       });
       edgeSamInputSelect?.addEventListener("change", () => {
         if (!(edgeSamInputSelect instanceof HTMLSelectElement)) return;
@@ -1869,13 +1627,22 @@ export function createEventManagerAdapter(input: {
       cancelPolygonButton?.addEventListener("click", () => {
         if (input.canvasController.raw.cancelSegmentationPolygon?.()) input.uiManager.setWorkflow?.("segmentation");
       });
-      elements.segmentationSuperpixelModeBtn?.addEventListener("click", () => {
+      // Desktop app: computed natively first (computeSegmentationSuperpixels; null: a newer request took over);
+      // elsewhere synchronously.
+      const recalculateSuperpixels = (size: number): Promise<boolean | null> => input.canvasController.raw.computeSegmentationSuperpixels?.(size)
+        ?? Promise.resolve(input.canvasController.raw.recalculateSegmentationSuperpixels?.(size) ?? false);
+      elements.segmentationSuperpixelModeBtn?.addEventListener("click", async () => {
         cancelAiRegionConstraintDrawing();
         const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
-        if (!input.canvasController.raw.recalculateSegmentationSuperpixels?.(size)) {
+        const toolBefore = input.canvasController.raw.getSegmentationSummary?.().activeTool;
+        const calculated = await recalculateSuperpixels(size);
+        if (calculated === null) return;
+        if (!calculated) {
           input.uiManager.notify("Superpixels could not be calculated for this image.", 3500);
           return;
         }
+        // Another tool picked while the superpixels were computed wins.
+        if (input.canvasController.raw.getSegmentationSummary?.().activeTool !== toolBefore) return;
         input.canvasController.raw.setSegmentationTool?.("superpixel");
         input.uiManager.setWorkflow?.(input.state.session.workflow);
         setMode("draw");
@@ -1892,7 +1659,7 @@ export function createEventManagerAdapter(input: {
       });
       elements.segmentationRecalculateSuperpixelsBtn?.addEventListener("click", () => {
         const size = Number.parseInt(elements.segmentationSuperpixelSizeSlider?.value ?? "16", 10);
-        input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
+        void recalculateSuperpixels(size);
       });
       elements.segmentationSuperpixelSizeSlider?.addEventListener("input", (event) => {
         const slider = event.currentTarget;
@@ -1909,7 +1676,7 @@ export function createEventManagerAdapter(input: {
           elements.segmentationSuperpixelSizeValue.textContent = `${size} px`;
           input.canvasController.raw.setSegmentationSuperpixelSettings?.({ regionSize: size });
           elements.segmentationSuperpixelPresetButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
-          input.canvasController.raw.recalculateSegmentationSuperpixels?.(size);
+          void recalculateSuperpixels(size);
         });
       });
       elements.segmentationSuperpixelBoundaryToggle?.addEventListener("change", (event) => {
@@ -1932,10 +1699,24 @@ export function createEventManagerAdapter(input: {
       blurSelect?.addEventListener("change", readSuperpixelSettings);
       contrastSelect?.addEventListener("change", readSuperpixelSettings);
       edgeSensitivitySelect?.addEventListener("change", readSuperpixelSettings);
-      const savePresetLibrary = async (): Promise<void> => {
-        const folder = input.state.session.imageFolderHandle;
-        if (!folder) throw new Error("Open a dataset before saving a Superpixel preset.");
-        await saveSegmentationToolPresets(folder as unknown as import("../types/files.js").DirectoryHandleLike, input.state.session.segmentationToolPresets);
+      /** Desktop: the preset's own file in the profile folder; web: the dataset's preset file. False when the user declined. */
+      const storeSegmentationPreset = async (preset: SegmentationToolPreset): Promise<boolean> => {
+        const presets = input.state.session.segmentationToolPresets.presets;
+        const profile = await openProfilePresetFolder(input.windowRef, "segmentation");
+        if (profile) {
+          const saved = await saveSegmentationToolPresetFile(profile, preset);
+          if (!saved) return false;
+          input.uiManager.notify(`Saved Superpixel preset "${preset.name}" to ${profile.name} / ${saved}.`, 3000);
+        }
+        const index = presets.findIndex((item) => item.id === preset.id);
+        if (index < 0) presets.push(preset);
+        else presets[index] = preset;
+        if (!profile) {
+          const folder = input.state.session.imageFolderHandle;
+          if (!folder) throw new Error("Open a dataset before saving a Superpixel preset.");
+          await saveSegmentationToolPresets(folder as unknown as import("../types/files.js").DirectoryHandleLike, input.state.session.segmentationToolPresets);
+        }
+        return true;
       };
       const createPresetFromControls = (id: string, name: string): SegmentationToolPreset => {
         const settings = input.canvasController.raw.getSegmentationSuperpixelSettings?.();
@@ -1952,16 +1733,14 @@ export function createEventManagerAdapter(input: {
         const name = input.windowRef.prompt?.("Superpixel preset name:", "New preset")?.trim();
         if (!name) return;
         const id = globalThis.crypto?.randomUUID?.() ?? `segmentation-preset-${Date.now()}`;
-        input.state.session.segmentationToolPresets.presets.push(createPresetFromControls(id, name));
-        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+        runAsync(async () => { if (await storeSegmentationPreset(createPresetFromControls(id, name))) input.uiManager.setWorkflow?.("segmentation"); });
       });
       segmentationDocument?.getElementById("segmentationSavePresetBtn")?.addEventListener("click", () => {
         if (!(presetSelect instanceof HTMLSelectElement) || !presetSelect.value) return;
         const index = input.state.session.segmentationToolPresets.presets.findIndex((preset) => preset.id === presetSelect.value);
         if (index < 0) return;
         const existing = input.state.session.segmentationToolPresets.presets[index]!;
-        input.state.session.segmentationToolPresets.presets[index] = createPresetFromControls(existing.id, existing.name);
-        runAsync(async () => { await savePresetLibrary(); input.uiManager.setWorkflow?.("segmentation"); });
+        runAsync(async () => { if (await storeSegmentationPreset(createPresetFromControls(existing.id, existing.name))) input.uiManager.setWorkflow?.("segmentation"); });
       });
       presetSelect?.addEventListener("change", () => {
         if (!(presetSelect instanceof HTMLSelectElement)) return;
@@ -1975,7 +1754,7 @@ export function createEventManagerAdapter(input: {
         elements.segmentationSuperpixelBoundaryToggle.checked = preset.boundaryVisible;
         input.canvasController.raw.setSegmentationSuperpixelSettings?.(preset.settings);
         input.canvasController.raw.setSegmentationSuperpixelBoundaryVisible?.(preset.boundaryVisible);
-        input.canvasController.raw.recalculateSegmentationSuperpixels?.(preset.settings.regionSize);
+        void recalculateSuperpixels(preset.settings.regionSize);
         input.uiManager.setWorkflow?.("segmentation");
       });
       const applyAiPreview = (): boolean => {
@@ -2276,14 +2055,6 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
-        if (preprocessingController().isSegmentationSrRoiSelecting?.()
-          && mouseEvent.button === 0) {
-          suppressSelectionForSegmentationStroke = true;
-          rawCanvas.selection = false;
-          preprocessingController().startSegmentationSrRoiSelection?.(pointer);
-          return;
-        }
-
         const isAiSelect = input.state.session.workflow === "segmentation"
           && input.state.view.currentMode === "draw"
           && input.canvasController.raw.getSegmentationSummary?.().activeTool === "ai-select";
@@ -2360,10 +2131,6 @@ export function createEventManagerAdapter(input: {
         }
         input.state.view.lastMousePosition = pointer;
         syncSegmentationBrushCursorPreview(mouseEvent, pointer);
-        if (preprocessingController().isSegmentationSrRoiSelecting?.()) {
-          preprocessingController().continueSegmentationSrRoiSelection?.(pointer);
-          return;
-        }
         if (isMovingSegmentationRegion) {
           const moved = input.canvasController.raw.continueSegmentationRegionMove?.(pointer) ?? false;
           if (input.state.view.isCrosshairVisible) {
@@ -2402,14 +2169,6 @@ export function createEventManagerAdapter(input: {
           input.canvasController.raw.updateAllLabelTexts();
           rawCanvas.requestRenderAll();
           input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
-          return;
-        }
-        if (preprocessingController().isSegmentationSrRoiSelecting?.()) {
-          const pointer = getCanvasPointer(event.e) ?? input.state.view.lastMousePosition;
-          const selected = preprocessingController().finishSegmentationSrRoiSelection?.(pointer) ?? false;
-          clearTemporarySelectionSuppression();
-          syncSuperResolutionControls();
-          if (selected) setSuperResolutionPickerVisible(true);
           return;
         }
         if (isMovingSegmentationRegion) {
@@ -2742,35 +2501,14 @@ export function createEventManagerAdapter(input: {
           && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
           && event.key.toLowerCase() === "q") {
           event.preventDefault();
-          const nextSource = preprocessingController().getSegmentationViewSource?.() === "processed" ? "original" : "processed";
-          const changed = preprocessingController().setSegmentationViewSource?.(nextSource);
-          if (changed === false) {
-            input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
-            return;
-          }
-          syncSegmentationViewSource(nextSource);
-          syncSuperResolutionControls();
+          void toggleProcessedView();
           return;
         }
 
-        if (event.key === "Escape" && preprocessingController().isSegmentationSrRoiSelecting?.()) {
-          event.preventDefault();
-          preprocessingController().cancelSegmentationSrRoiSelection?.();
-          clearTemporarySelectionSuppression();
-          syncSuperResolutionControls();
-          return;
-        }
         if (input.state.session.workflow === "segmentation" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
           if (event.key.toLowerCase() === "q") {
             event.preventDefault();
-            const nextSource = preprocessingController().getSegmentationViewSource?.() === "processed" ? "original" : "processed";
-            const changed = preprocessingController().setSegmentationViewSource?.(nextSource);
-            if (changed === false) {
-              input.uiManager.notify("이미지 전처리 결과를 준비할 수 없습니다.");
-              return;
-            }
-            syncSegmentationViewSource(nextSource);
-            syncSuperResolutionControls();
+            void toggleProcessedView();
             return;
           }
           if (event.key === "Enter" && applyAiPreview()) {
@@ -3020,8 +2758,6 @@ export function createEventManagerAdapter(input: {
         disposeInference();
         disposeYoloe();
         disposeClassRemap();
-        unsubscribeSuperResolutionStatus();
-        if (elapsedTimer !== undefined) elapsedWindow?.clearInterval(elapsedTimer);
         automationController?.dispose();
       });
 

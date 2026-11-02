@@ -23,7 +23,7 @@ cd C:\Git\easy_labeling
 npm.cmd ci
 npm.cmd start
 # http://localhost:4173/ — YOLOE도 기본 ONNX 실행
-npm.cmd run electron:dist:yoloe:win
+npm.cmd run tauri:dist:yoloe:win
 ```
 
 ## 모델을 교체하는 개발자만 필요한 내보내기
@@ -35,7 +35,7 @@ uv sync --project runtime/yoloe --locked --group export
 npm.cmd run yoloe:prepare -- --model all
 npm.cmd run yoloe:export:onnx -- --size all
 npm.cmd run yoloe:models:record
-npm.cmd run electron:dist:yoloe:win
+npm.cmd run tauri:dist:yoloe:win
 ```
 
 내보내기 명령은 각 크기에서 640/1024/2048 해상도와 샘플 개수 1/2/3을 조합해 ONNX 출력을 PyTorch와 비교합니다. 기존 ONNX 가중치의 2048 지원만 검증하려면 `uv run --project runtime/yoloe --locked --group export python scripts/verify-yoloe-2048.py`를 실행합니다. 이 검증은 가중치를 다시 만들지 않고 모든 크기가 통과하면 manifest에 2048과 parity PASS를 기록합니다. 명령 종료 코드 0과 manifest의 parity PASS를 확인한 뒤 모델과 소스를 같은 커밋으로 갱신합니다. Python 구현을 비교 기준으로 사용할 개발자는 별도 `npm.cmd run yoloe:start`와 `http://localhost:4173/?yoloe=python`을 사용할 수 있습니다. 일반 버전 Inference와 YOLOE-26 설치형의 ONNX 실행에는 이 비교 서비스가 필요 없습니다.
@@ -110,9 +110,14 @@ uv run --project runtime/yoloe --locked python scripts/verify-yoloe-models.py
 npm run typecheck
 npm run test:unit
 npm run build
-npx playwright test tests/e2e/yoloe.spec.ts tests/e2e/inference.spec.ts tests/e2e/inference-electron.spec.ts --project=chromium
-# GPU 서비스와 모델이 준비된 상태에서 실제 Electron 검증:
+npm run tauri:dev
+npx playwright test tests/e2e/yoloe.spec.ts tests/e2e/inference.spec.ts tests/e2e/inference-desktop.spec.ts --project=chromium
+# GPU 서비스와 모델이 준비된 상태에서 실제 데스크톱 앱(디버그 빌드)과 Python 서비스 비교 검증:
 node scripts/verify-yoloe.mjs
+# YOLOE-26 설치본 검증(기본값 target/release/Easy Labeling YOLOE-26.exe, 설치 경로의 exe도 지정 가능):
+node scripts/verify-yoloe-onnx.mjs
+node scripts/verify-yoloe-onnx-models.mjs
+node scripts/verify-yoloe-presets.mjs
 # 기존 세포 데이터에서 Detection / Segmentation 품질 확인:
 uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py
 uv run --project runtime/yoloe --locked python scripts/verify-yoloe-cells.py --workflow segmentation

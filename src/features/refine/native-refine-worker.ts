@@ -1,3 +1,4 @@
+import { getNativeBridge } from "../../platform/native-bridge.js";
 import { getSegmentationPreprocessingKey, normalizeSegmentationPreprocessingConfig, type SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
 
 /** The slice of the Worker API refine-service.ts uses. */
@@ -16,7 +17,7 @@ type RefineSourceMessage = { kind: "original" } | { kind: "processed"; config?: 
  * Returns null outside the desktop app.
  */
 export function createNativeRefineWorker(createDecoder: () => Worker): RefineWorkerLike | null {
-  const native = globalThis.window?.easyLabelingNative;
+  const native = getNativeBridge("refine");
   if (!native) return null;
   // Keys are per service; the session keeps two services from reading each other's image.
   const session = Math.random().toString(36).slice(2);
@@ -61,13 +62,13 @@ export function createNativeRefineWorker(createDecoder: () => Worker): RefineWor
     postMessage(message, transfer = []) {
       const key = `${session}:${String(message.key)}`;
       let work: Promise<unknown>;
-      if (message.type === "image") {
+      if (message.type === "image" && typeof message.tiffPath === "string") {
+        work = ready = native.invoke("refine_load_tiff", { key, path: message.tiffPath }).then(() => null);
+      } else if (message.type === "image") {
         work = ready = (async () => {
           await decode({ type: "image", key: message.key, bitmap: message.bitmap }, transfer);
           const { gray, width, height } = await decode({ type: "gray", key: message.key }) as { gray: Uint8Array; width: number; height: number };
-          await native.invoke("refine_load_image", gray, {
-            headers: { "x-key": encodeURIComponent(key), "x-width": String(width), "x-height": String(height) }
-          });
+          await native.sendBytes("refine_load_image", gray, { "x-key": encodeURIComponent(key), "x-width": String(width), "x-height": String(height) });
           return null;
         })();
       } else if (message.type === "refine") {

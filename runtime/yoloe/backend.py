@@ -28,7 +28,8 @@ from ultralytics.data.augment import LoadVisualPrompt
 settings.update({"sync": False})
 
 MODELS = [f"yoloe-26{size}-seg" for size in "nsmlx"]
-ORIGINS = {"http://localhost:4173", "http://127.0.0.1:4173", "null"}
+# The Vite dev server and the desktop app (WebView2 serves its frontend at https://app.localhost).
+ORIGINS = {"http://localhost:4173", "http://127.0.0.1:4173", "https://app.localhost"}
 MAX_BODY = 48 * 1024 * 1024
 
 

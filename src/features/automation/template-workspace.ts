@@ -28,6 +28,8 @@ export interface TemplateWorkspace {
   setInteractionMode(mode: TemplateWorkspaceInteractionMode): void;
   getInteractionMode(): TemplateWorkspaceInteractionMode;
   setImage(image: CanvasImageSource, roi?: PixelRect | null): void;
+  /** Swaps in another rendering of the same-size image (Processed once ready), keeping ROI, results and view. */
+  replaceImage(image: CanvasImageSource): void;
   setMatchResult(result: TemplateMatchResult | null): void;
   setMatchResults(results: readonly TemplateWorkspaceMatch[]): void;
   setLayoutPreview(preview: TemplateWorkspaceLayoutPreview | null): void;
@@ -724,6 +726,11 @@ export function createTemplateWorkspace(input: {
       syncRoiState();
       render();
       centerImage();
+    },
+
+    replaceImage(nextImage): void {
+      image = nextImage;
+      render();
     },
 
     setMatchResult(result): void {

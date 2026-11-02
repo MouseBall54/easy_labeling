@@ -1,9 +1,7 @@
 import { anisotropicDiffusion, autoLevels, clahe, destripe, flattenBackground, median3x3 } from "./gray-filters.js";
 
-export type SegmentationImageSourceMode = "original" | "original-processed" | "sr-roi" | "sr-roi-processed";
-export type SegmentationViewSourceMode = "original" | "sr-roi" | "processed";
-/** Which step runs first when Processed uses the AI ROI. */
-export type SegmentationProcessingOrder = "ai-first" | "processed-first";
+export type SegmentationImageSourceMode = "original" | "original-processed";
+export type SegmentationViewSourceMode = "original" | "processed";
 
 export type SegmentationPreprocessMode = "original" | "edge" | "edge-blend";
 
@@ -85,6 +83,11 @@ export function normalizeSegmentationPreprocessingConfig(
 function hasGrayFilters(config: SegmentationPreprocessingConfig): boolean {
   return config.median || config.destripe !== "off" || config.flattenSigma > 0 || config.diffusionIterations > 0
     || config.claheClip > 0 || config.levelsClip > 0;
+}
+
+/** True when preprocessSegmentationImage keeps colour (Original mode, tone curve only) instead of the gray path. */
+export function keepsColour(config: SegmentationPreprocessingConfig): boolean {
+  return config.mode === "original" && !hasGrayFilters(config);
 }
 
 function finiteIn(value: number | undefined, low: number, high: number, fallback: number): number {
@@ -221,7 +224,7 @@ export function preprocessSegmentationImage(
     throw new Error("segmentation preprocessing image dimensions are invalid");
   }
   const config = normalizeSegmentationPreprocessingConfig(requestedConfig);
-  if (config.mode === "original" && !hasGrayFilters(config)) {
+  if (keepsColour(config)) {
     // Original mode keeps colour: the tone curve is applied per channel.
     const curve = toneCurve(config);
     const rgba = new Uint8ClampedArray(input.rgba);

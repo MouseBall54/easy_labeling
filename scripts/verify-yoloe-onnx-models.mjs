@@ -1,18 +1,19 @@
-import { _electron, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { launchDesktop } from "../tests/e2e/fixtures/tauri-app.ts";
 
 const output = path.resolve("output/yoloe-onnx-validation");
 await mkdir(output, { recursive: true });
 const images = await Promise.all(["0-reference.png", "1-target-gray.png"].map(async (file) =>
   "data:image/png;base64," + (await readFile(`tests/e2e/fixtures/yoloe-visual/${file}`)).toString("base64")));
-const executable = path.resolve(process.argv[2] ?? "release/yoloe26/win-unpacked/Easy Labeling YOLOE-26.exe");
-const app = await _electron.launch({ executablePath: executable, args: [`--user-data-dir=${path.join(output, "models-profile")}`],
-  env: { ...process.env, PATH: path.join(process.env.SystemRoot, "System32"), PYTHONHOME: "C:\\no-python", PYTHONPATH: "C:\\no-python" } });
+const executable = path.resolve(process.argv[2] ?? "target/release/Easy Labeling YOLOE-26.exe");
+const app = await launchDesktop(executable, path.join(output, "models-profile"), [], { env: { PATH: path.join(process.env.SystemRoot, "System32"), PYTHONHOME: "C:\\no-python", PYTHONPATH: "C:\\no-python" } });
 try {
-  const page = await app.firstWindow();
+  const { page } = app;
   const network = [];
-  await page.route(/^https?:/, (route) => { network.push(route.request().url()); return route.abort(); });
+  // Requests leaving the app: its frontend (app.localhost) and IPC (ipc.localhost) stay local.
+  await page.route((url) => /^https?:/.test(url.href) && !url.hostname.endsWith(".localhost"), (route) => { network.push(route.request().url()); return route.abort(); });
   const checks = await page.evaluate(async (images) => {
     const { requestYoloe } = await import("./dist/features/inference/yoloe.js");
     const pixels = new Uint8Array(180 * 500).fill(1);

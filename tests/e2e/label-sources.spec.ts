@@ -1,7 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { desktopExe, openDesktop } from "./fixtures/tauri-app.js";
+
+test.skip(!existsSync(desktopExe), `Desktop executable not built: ${desktopExe}`);
 
 for (const workflow of ["detection", "segmentation"] as const) test(`label folders: ${workflow} registration, shortcuts, safe comparison and native folder identity`, async () => {
   test.setTimeout(120_000);
@@ -25,13 +29,9 @@ for (const workflow of ["detection", "segmentation"] as const) test(`label folde
     await mkdir(path.join(folders[1], "mask"));
     await writeFile(path.join(folders[1], "mask/image.png"), "invalid PNG");
   }
-  const electron = await _electron.launch({
-    args: [path.join(root, "tests/e2e/fixtures/inference-electron.cjs")],
-    env: { ...process.env, INFERENCE_TEST_ROOT: root, INFERENCE_TEST_DATASET: dataset,
-      INFERENCE_TEST_PICKER_FOLDERS: JSON.stringify([dataset, ...folders, folders[0]]) }
-  });
+  const app = await openDesktop([dataset, ...folders, folders[0], dataset]);
   try {
-    const page = await electron.firstWindow();
+    const { page } = app;
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.locator("#selectImageFolderBtn").click();
@@ -194,7 +194,7 @@ for (const workflow of ["detection", "segmentation"] as const) test(`label folde
     }
     expect(errors).toEqual([]);
   } finally {
-    await electron.close();
+    await app.close();
     expect(path.dirname(dataset)).toBe(path.resolve(os.tmpdir()));
     expect(path.basename(dataset)).toMatch(/^easy-labeling-sources-/);
     await rm(dataset, { recursive: true, force: true });

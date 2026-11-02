@@ -187,7 +187,7 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
       state.currentMode = mode;
       canvas.selection = mode === "edit";
       canvas.defaultCursor = mode === "draw" ? "crosshair" : "default";
-      this.renderAll();
+      canvas.requestRenderAll();
     },
 
     setZoomPercentage(percentage: string): void {
@@ -229,10 +229,13 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
 
     resizeCanvas(): void {
       const container = deps.getCanvasContainerSize();
-      canvas.setDimensions({
-        width: container.width,
-        height: container.height
-      });
+      // setDimensions clears the canvas and queues a full redraw (seconds with thousands of boxes): only on a real change.
+      if (canvas.getWidth() !== container.width || canvas.getHeight() !== container.height) {
+        canvas.setDimensions({
+          width: container.width,
+          height: container.height
+        });
+      }
       syncCanvasOffset();
     },
 

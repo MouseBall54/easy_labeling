@@ -2,20 +2,24 @@ import type { AppState } from "../app/state.js";
 import { isOperationCancelledError, throwIfOperationCancelled } from "../app/operation.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
 import {
+  automationLibraryChanges,
   createEmptyAutomationLibrary,
   createDatasetAutomationLibrary,
   createPresetFileDocument,
   deleteLayoutFromLibrary,
   loadAutomationProfileFiles,
   loadAutomationLibrary,
-  mergeAutomationLibraries,
+  mergeNewestAutomationLibraries,
   mergePresetFileDocument,
   resolveAutomationSelectionId,
   saveAutomationLibrary,
   upsertById
 } from "../features/automation/automation-library-service.js";
 import { cropImageElementToPngDataUrl, imageElementToImageData, pngDataUrlToImageData } from "../features/automation/image-data.js";
-import { preprocessSegmentationImage } from "../features/segmentation/preprocessing.js";
+import { canPreprocessNatively, nativeAutomationPixels, type NativeAutomationPixels } from "../features/automation/native-automation-pixels.js";
+import { grayImageElement, isOpaque } from "../features/images/gray-image.js";
+import { grayBytesToRgba } from "../features/segmentation/native-preprocessing.js";
+import { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
 import { parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
 import {
@@ -42,6 +46,7 @@ import {
   type TemplateMatchResult,
 } from "../features/automation/types.js";
 import type { DirectoryHandleLike } from "../types/files.js";
+import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import { createAutomationBatchController } from "./automation-batch-controller.js";
 import { createAutomationLayoutPreview } from "./automation-layout-preview.js";
 import { createAutomationPresetForm } from "./automation-preset-form.js";
@@ -67,6 +72,7 @@ export interface AutomationWindow {
   openEasyLabelingLibraryFile?: (kind: EasyLabelingLibraryFileKind, startIn?: FileSystemDirectoryHandle | null) => Promise<EasyLabelingLibraryFile | null>;
   listEasyLabelingLibraryFiles?: (kind: EasyLabelingLibraryFileKind) => Promise<EasyLabelingLibraryFile[]>;
   saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
+  getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
 }
 
 function createId(prefix: string): string {
@@ -135,6 +141,12 @@ export function createAutomationController(input: {
   const elements = input.uiManager.elements;
   let library = createEmptyAutomationLibrary();
   let profileLibrary = createEmptyAutomationLibrary();
+  // Desktop app: presets and layouts are files in the profile folder (Template Presets, Layouts). Saving writes
+  // what changed since the library was read; items an older version kept in the dataset file stay there until
+  // edited (then they move to the profile folder) or deleted.
+  let datasetLibrary = createEmptyAutomationLibrary();
+  let savedLibrary = createEmptyAutomationLibrary();
+  let profileFileNames = { presets: new Map<string, string>(), layouts: new Map<string, string>() };
   let matchingService: TemplateMatchingService | null = null;
   let matchingWarmUpPromise: Promise<void> | null = null;
   let disposed = false;
@@ -215,9 +227,21 @@ export function createAutomationController(input: {
     return createNativeImageData(data, imageData.width, imageData.height);
   };
 
-  const createAutomationWorkspaceImage = (image: HTMLImageElement): CanvasImageSource => {
-    if (getAutomationInputSource() === "original") return image;
-    const imageData = prepareAutomationImageData(imageElementToImageData(image, input.documentRef));
+  /** The Preprocess panel's config when automation reads the Processed input, else null. */
+  const automationProcessing = (): SegmentationPreprocessingConfig | null => getAutomationInputSource() === "processed"
+    ? normalizeSegmentationPreprocessingConfig(input.canvasController.raw.getSegmentationPreprocessingConfig?.())
+    : null;
+
+  const nativePixelsImageData = (pixels: NativeAutomationPixels): ImageData =>
+    new ImageData(grayBytesToRgba(pixels.gray, pixels.sourceRgba) as Uint8ClampedArray<ArrayBuffer>, pixels.width, pixels.height);
+
+  /** The image automation matches against: natively when the desktop app can (see native-automation-pixels.ts). */
+  const prepareAutomationTarget = async (image: HTMLImageElement): Promise<ImageData> => {
+    const pixels = await nativeAutomationPixels(image, automationProcessing(), input.documentRef);
+    return pixels ? nativePixelsImageData(pixels) : prepareAutomationImageData(imageElementToImageData(image, input.documentRef));
+  };
+
+  const imageDataCanvas = (imageData: ImageData): HTMLCanvasElement => {
     const canvas = input.documentRef.createElement("canvas");
     canvas.width = imageData.width;
     canvas.height = imageData.height;
@@ -227,9 +251,41 @@ export function createAutomationController(input: {
     return canvas;
   };
 
+  const createAutomationWorkspaceImage = (image: HTMLImageElement): CanvasImageSource => {
+    if (getAutomationInputSource() === "original") return image;
+    return imageDataCanvas(prepareAutomationImageData(imageElementToImageData(image, input.documentRef)));
+  };
+
+  /** The Processed workspace image from native pixels: an opaque one as a decoded <img>, else a canvas. */
+  const nativeWorkspaceImage = (pixels: NativeAutomationPixels): Promise<CanvasImageSource> =>
+    !pixels.sourceRgba || isOpaque(pixels.sourceRgba)
+      ? grayImageElement(pixels.gray, pixels.width, pixels.height)
+      : Promise.resolve(imageDataCanvas(nativePixelsImageData(pixels)));
+
+  let workspaceImageToken = 0;
   const setTemplateWorkspaceImage = (image: HTMLImageElement, roi: PixelRect | null = null): void => {
-    workspace.setImage(createAutomationWorkspaceImage(image), roi);
-    elements.templateMatchingInputSource.textContent = `Base input: ${getAutomationInputSource() === "processed" ? "Processed" : "Original"}`;
+    const token = ++workspaceImageToken;
+    const processing = automationProcessing();
+    const setLabel = (text: string): void => { elements.templateMatchingInputSource.textContent = `Base input: ${text}`; };
+    if (!processing || !canPreprocessNatively(processing)) {
+      workspace.setImage(createAutomationWorkspaceImage(image), roi);
+      setLabel(processing ? "Processed" : "Original");
+      return;
+    }
+    // Desktop app: show the original at once and swap in the Processed image when Rust has computed it.
+    workspace.setImage(image, roi);
+    setLabel("Processed (preparing...)");
+    void nativeAutomationPixels(image, processing, input.documentRef)
+      .then((pixels) => pixels ? nativeWorkspaceImage(pixels) : createAutomationWorkspaceImage(image))
+      .catch((error: unknown) => {
+        console.warn("Native Processed workspace image failed; using the TS path.", error);
+        return createAutomationWorkspaceImage(image);
+      })
+      .then((processed) => {
+        if (token !== workspaceImageToken) return;
+        workspace.replaceImage(processed);
+        setLabel("Processed");
+      });
   };
 
   const prepareMatchingEngine = (): Promise<void> => {
@@ -452,13 +508,55 @@ export function createAutomationController(input: {
 
   const persistLibrary = async (): Promise<void> => {
     const folder = input.state.session.imageFolderHandle;
-    if (!folder) {
-      throw new Error("Load an image folder before saving automation settings");
+    const [presetFolder, layoutFolder] = await Promise.all([
+      openProfilePresetFolder(input.windowRef, "preset"),
+      openProfilePresetFolder(input.windowRef, "layout")
+    ]);
+    if (!presetFolder || !layoutFolder) {
+      if (!folder) {
+        throw new Error("Load an image folder before saving automation settings");
+      }
+      await saveAutomationLibrary(
+        folder as unknown as DirectoryHandleLike,
+        createDatasetAutomationLibrary(library, profileLibrary)
+      );
+      return;
     }
-    await saveAutomationLibrary(
-      folder as unknown as DirectoryHandleLike,
-      createDatasetAutomationLibrary(library, profileLibrary)
-    );
+    const changes = automationLibraryChanges(savedLibrary, library);
+    for (const layout of changes.layouts) {
+      const saved = await layoutFolder.save(layout.name, `${JSON.stringify(layout, null, 2)}\n`, profileFileNames.layouts.get(layout.id));
+      if (!saved) throw new Error(`Layout "${layout.name}" was not saved.`);
+      profileFileNames.layouts.set(layout.id, saved);
+    }
+    for (const preset of changes.presets) {
+      const contents = serializeAutomationLibrary(createPresetFileDocument(library, preset.id));
+      const saved = await presetFolder.save(preset.name, contents, profileFileNames.presets.get(preset.id));
+      if (!saved) throw new Error(`Preset "${preset.name}" was not saved.`);
+      profileFileNames.presets.set(preset.id, saved);
+    }
+    for (const [ids, files, target] of [
+      [changes.deletedPresetIds, profileFileNames.presets, presetFolder],
+      [changes.deletedLayoutIds, profileFileNames.layouts, layoutFolder]
+    ] as const) {
+      for (const id of ids) {
+        const fileName = files.get(id);
+        if (fileName) await target.remove(fileName);
+        files.delete(id);
+      }
+    }
+    // Deleting an item kept in the dataset file deletes it there, so it does not come back.
+    const keptInDataset = (id: string) => !changes.deletedPresetIds.includes(id) && !changes.deletedLayoutIds.includes(id);
+    if (folder && [...datasetLibrary.presets, ...datasetLibrary.layouts].some((item) => !keptInDataset(item.id))) {
+      const presets = datasetLibrary.presets.filter((preset) => keptInDataset(preset.id) && keptInDataset(preset.layoutId ?? ""));
+      datasetLibrary = {
+        ...datasetLibrary,
+        presets,
+        layouts: datasetLibrary.layouts.filter((layout) => keptInDataset(layout.id)),
+        templates: datasetLibrary.templates.filter((template) => presets.some((preset) => preset.templateId === template.id))
+      };
+      await saveAutomationLibrary(folder as unknown as DirectoryHandleLike, datasetLibrary);
+    }
+    savedLibrary = library;
   };
 
   const downloadJsonFile = (contents: string, fileName: string): void => {
@@ -1009,7 +1107,7 @@ export function createAutomationController(input: {
     throwIfOperationCancelled(operation.signal);
     operation.update({ detail: "Running OpenCV template matching" });
     const result = await matchWithRecovery({
-      target: prepareAutomationImageData(imageElementToImageData(targetImage, input.documentRef)),
+      target: await prepareAutomationTarget(targetImage),
       template: templateImageData,
       preprocessing,
       matching,
@@ -1230,7 +1328,7 @@ export function createAutomationController(input: {
       throwIfOperationCancelled(operation.signal);
       operation.update({ detail: "Running OpenCV template matching" });
       result = await matchWithRecovery({
-        target: prepareAutomationImageData(imageElementToImageData(targetImage, input.documentRef)),
+        target: await prepareAutomationTarget(targetImage),
         template: templateImageData,
         preprocessing: template.preprocessing,
         matching: preset.matching,
@@ -1291,6 +1389,7 @@ export function createAutomationController(input: {
     getLibrary: () => library,
     match: matchWithRecovery,
     prepareImageData: prepareAutomationImageData,
+    prepareTargetImageData: prepareAutomationTarget,
     cancelActiveMatch: () => matchingService?.cancelPending(),
     setRelatedControlsDisabled: (running) => {
       elements.openTemplateMatchingBtn.disabled = running;
@@ -1499,11 +1598,6 @@ export function createAutomationController(input: {
           input.uiManager.notify("Choose a layout to delete.");
           return;
         }
-        if (profileLibrary.layouts.some((candidate) => candidate.id === layout.id)) {
-          setLayoutSetupError("Saved profile layouts are read-only. Delete the JSON file from the Layouts folder instead.");
-          input.uiManager.notify("This layout comes from the saved Layouts folder and cannot be deleted here.", 6000);
-          return;
-        }
         if (!input.windowRef.confirm(`Delete layout "${layout.name}" and its presets?`)) {
           return;
         }
@@ -1656,6 +1750,10 @@ export function createAutomationController(input: {
         if (elements.openTemplateMatchingBtn.disabled) {
           return;
         }
+        const release = (): void => {
+          elements.openTemplateMatchingBtn.disabled = false;
+          elements.openTemplateMatchingBtn.removeAttribute("aria-busy");
+        };
         elements.openTemplateMatchingBtn.disabled = true;
         elements.openTemplateMatchingBtn.setAttribute("aria-busy", "true");
         void runCancellableMatchingOperation({
@@ -1677,6 +1775,8 @@ export function createAutomationController(input: {
           }
           throwIfOperationCancelled(operation.signal);
           elements.templateMatchingModal.show();
+          // The engine may still be starting in the background: closing the setup meanwhile must not lock the button.
+          release();
           elements.templateMatchTimings.textContent = "Loading OpenCV engine...";
           setMatchingEngineStatus("loading", "Matching engine: Loading");
           operation.update({ detail: "Initializing OpenCV matching engine" });
@@ -1687,8 +1787,7 @@ export function createAutomationController(input: {
         }).catch((error: unknown) => {
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to open template setup", 5000);
         }).finally(() => {
-          elements.openTemplateMatchingBtn.disabled = false;
-          elements.openTemplateMatchingBtn.removeAttribute("aria-busy");
+          release();
           if (!elements.templateMatchingModal._isShown) {
             elements.openTemplateMatchingBtn.focus();
           }
@@ -1744,9 +1843,6 @@ export function createAutomationController(input: {
       elements.deleteAutomationPresetBtn.addEventListener("click", () => {
         void (async () => {
           const preset = activePresetId ? library.presets.find((candidate) => candidate.id === activePresetId) : null;
-          if (preset && profileLibrary.presets.some((candidate) => candidate.id === preset.id)) {
-            throw new Error("This preset comes from the saved Template Presets folder. Delete its JSON file there instead.");
-          }
           if (!preset || !input.windowRef.confirm(`Delete preset "${preset.name}"?`)) {
             return;
           }
@@ -2092,10 +2188,11 @@ export function createAutomationController(input: {
       const folder = input.state.session.imageFolderHandle;
       const selectedLayoutId = elements.boxLayoutSelect.value;
       const selectedPresetId = elements.automationPresetSelect.value;
-      const datasetLibrary = folder
+      datasetLibrary = folder
         ? await loadAutomationLibrary(folder as unknown as DirectoryHandleLike)
         : createEmptyAutomationLibrary();
       profileLibrary = createEmptyAutomationLibrary();
+      profileFileNames = { presets: new Map(), layouts: new Map() };
       library = datasetLibrary;
       if (input.windowRef.listEasyLabelingLibraryFiles) {
         try {
@@ -2105,7 +2202,8 @@ export function createAutomationController(input: {
           ]);
           const profile = loadAutomationProfileFiles(layoutFiles, presetFiles);
           profileLibrary = profile.document;
-          library = mergeAutomationLibraries(profileLibrary, datasetLibrary);
+          profileFileNames = profile.fileNames;
+          library = mergeNewestAutomationLibraries(profileLibrary, datasetLibrary);
           if (profile.errors.length > 0) {
             input.uiManager.notify(
               `Some saved automation files were skipped:\n${profile.errors.join("\n")}`,
@@ -2119,6 +2217,7 @@ export function createAutomationController(input: {
           );
         }
       }
+      savedLibrary = library;
       layoutGhostVisible = false;
       const layoutId = resolveAutomationSelectionId(library.layouts, selectedLayoutId, options.selectFirst ?? false);
       const presetId = resolveAutomationSelectionId(library.presets, selectedPresetId, options.selectFirst ?? false);

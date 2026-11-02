@@ -1,0 +1,462 @@
+// Writes golden fixtures for the Rust core from the TS implementations (the reference).
+// Run after `npm run build`: node scripts/migration/gen-golden.mjs
+// Small fixtures go to crates/el-bench/fixtures/<module>/ (committed); --bench also writes the
+// SEM-sized benchmark inputs to crates/el-bench/fixtures/generated/ (git-ignored).
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage } from "../../dist/features/segmentation/preprocessing.js";
+import { normalizeRefineParams, refineBoxes } from "../../dist/domain/refine/edge-refine.js";
+import { inspectDetectionLabels } from "../../dist/features/review/quality.js";
+import { parseYoloRows } from "../../dist/domain/yolo/yolo.js";
+import { createSlicoSuperpixels, normalizeSuperpixelSettings } from "../../dist/features/segmentation/superpixels.js";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const fixtures = path.join(root, "crates/el-bench/fixtures");
+
+export function seeded(seed) {
+  let state = seed;
+  return () => {
+    state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+/** Bright blocks (cellW x cellH grid) on a sloped, striped, noisy background with a few impulses. */
+export function syntheticImage(width, height, seed, cellW = 40, cellH = 50) {
+  const random = seeded(seed);
+  const image = new Float32Array(width * height);
+  const [bx0, bx1, by0, by1] = [cellW * 0.2, cellW * 0.8, cellH * 0.2, cellH * 0.84];
+  for (let y = 0; y < height; y += 1) {
+    const stripe = (random() - 0.5) * 12;
+    for (let x = 0; x < width; x += 1) {
+      const block = x % cellW > bx0 && x % cellW < bx1 && y % cellH > by0 && y % cellH < by1 ? 120 : 0;
+      image[y * width + x] = 40 + (x * 0.2 * 200) / width + (y * 0.1 * 150) / height + stripe + block + (random() - 0.5) * 30 + (random() < 0.002 ? 200 : 0);
+    }
+  }
+  return image;
+}
+
+export const toGray = (image) => Uint8Array.from(image, (value) => Math.max(0, Math.min(255, Math.round(value))));
+
+/** One jittered box per grid cell, classes cycling through `classes`. */
+export function gridBoxes(width, height, cellW, cellH, seed, classes) {
+  const random = seeded(seed);
+  const jitter = () => (random() - 0.5) * cellW * 0.12;
+  const boxes = [];
+  for (let row = 0; row < Math.floor(height / cellH); row += 1) {
+    for (let column = 0; column < Math.floor(width / cellW); column += 1) {
+      const x0 = column * cellW + cellW * 0.22 + jitter();
+      const y0 = row * cellH + cellH * 0.22 + jitter();
+      boxes.push({ id: `b${row}-${column}`, classId: classes[(row + column) % classes.length], x0, y0, x1: x0 + cellW * 0.55 + jitter(), y1: y0 + cellH * 0.6 + jitter() });
+    }
+  }
+  return boxes;
+}
+
+const bytesOf = (typed) => Buffer.from(typed.buffer, typed.byteOffset, typed.byteLength);
+
+function writePreprocess() {
+  const dir = path.join(fixtures, "preprocess");
+  mkdirSync(dir, { recursive: true });
+  const configs = {
+    "median": { mode: "original", median: true },
+    "destripe-rows": { mode: "original", destripe: "rows" },
+    "destripe-columns": { mode: "original", destripe: "columns" },
+    "flatten-40": { mode: "original", flattenSigma: 40 },
+    "flatten-7": { mode: "original", flattenSigma: 7 },
+    "diffusion": { mode: "original", diffusionIterations: 6, diffusionKappa: 15 },
+    "clahe": { mode: "original", claheClip: 2.5, claheTiles: 6 },
+    "levels": { mode: "original", levelsClip: 1.5 },
+    "contrast-gamma": { mode: "original", contrast: 1.6, gamma: 0.7 },
+    "edge": { mode: "edge", blurStrength: 3 },
+    "edge-blend": { mode: "edge-blend" },
+    "everything": { mode: "edge-blend", edgeWeight: 0.3, median: true, destripe: "rows", flattenSigma: 60, diffusionIterations: 3, claheClip: 3, levelsClip: 0.5, contrast: 1.2, gamma: 1.3 },
+    "neutral": {}
+  };
+  // Odd sizes plus single-row/column/pixel images reach the border clamps of every filter.
+  const images = [[96, 72], [1, 23], [23, 1], [1, 1]];
+  const cases = [];
+  for (const [width, height] of images) {
+    const input = syntheticImage(width, height, width * 1000 + height, 16, 12);
+    const inputFile = `input-${width}x${height}.f32`;
+    writeFileSync(path.join(dir, inputFile), bytesOf(input));
+    for (const [name, requested] of Object.entries(configs)) {
+      if (width * height < 100 && name !== "everything" && name !== "neutral") continue;
+      const config = normalizeSegmentationPreprocessingConfig(requested);
+      const output = preprocessGray(Float32Array.from(input), width, height, config);
+      const outputFile = `${name}-${width}x${height}.f32`;
+      writeFileSync(path.join(dir, outputFile), bytesOf(output));
+      cases.push({ name: `${name}-${width}x${height}`, width, height, input: inputFile, config, output: outputFile });
+    }
+  }
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases, null, 1));
+  return cases.length;
+}
+
+/** The Processed view (preprocessSegmentationImage): RGBA in, RGBA out, for configs that take the gray path. */
+function writeView() {
+  const dir = path.join(fixtures, "view");
+  mkdirSync(dir, { recursive: true });
+  const [width, height] = [96, 72];
+  const random = seeded(31);
+  const luma = syntheticImage(width, height, 33, 16, 12);
+  // A colour image with uneven alpha, and the gray (R = G = B) image SEM data gives.
+  const colour = new Uint8ClampedArray(width * height * 4);
+  const gray = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    const v = luma[i];
+    colour.set([v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, i % 7 === 0 ? 128 : 255], i * 4);
+    gray.set([v, v, v, 255], i * 4);
+  }
+  const configs = {
+    "median": { mode: "original", median: true },
+    "clahe-contrast": { mode: "original", claheClip: 2, contrast: 1.4, gamma: 0.8 },
+    "edge": { mode: "edge", blurStrength: 2 },
+    "edge-blend": { mode: "edge-blend" },
+    "everything": { mode: "edge-blend", edgeWeight: 0.3, median: true, destripe: "rows", flattenSigma: 60, diffusionIterations: 3, claheClip: 3, levelsClip: 0.5, contrast: 1.2, gamma: 1.3 }
+  };
+  const cases = [];
+  for (const [inputName, rgba] of [["colour", colour], ["gray", gray]]) {
+    const inputFile = `input-${inputName}-${width}x${height}.u8`;
+    writeFileSync(path.join(dir, inputFile), bytesOf(rgba));
+    for (const [name, requested] of Object.entries(configs)) {
+      const config = normalizeSegmentationPreprocessingConfig(requested);
+      const output = preprocessSegmentationImage({ width, height, rgba }, config);
+      const outputFile = `${name}-${inputName}.u8`;
+      writeFileSync(path.join(dir, outputFile), bytesOf(output));
+      cases.push({ name: `${name}-${inputName}`, width, height, input: inputFile, config, output: outputFile });
+    }
+  }
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases, null, 1));
+  return cases.length;
+}
+
+const float64Hex = (value) => {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  return view.getBigUint64(0).toString(16).padStart(16, "0");
+};
+
+/** Dense YOLO text in the app's 15-decimal format with near duplicates, small boxes and one box past the edge. */
+export function denseYolo(count, seed) {
+  const random = seeded(seed);
+  const columns = Math.ceil(Math.sqrt(count));
+  const lines = [];
+  for (let index = 0; index < count; index += 1) {
+    const cx = ((index % columns) + 0.5 + (random() - 0.5) * 0.2) / columns;
+    const cy = (Math.floor(index / columns) + 0.5 + (random() - 0.5) * 0.2) / columns;
+    const size = index % 97 === 0 ? 0.0004 : 0.5 / columns;
+    lines.push(`${index % 3} ${cx.toFixed(15)} ${cy.toFixed(15)} ${size.toFixed(15)} ${size.toFixed(15)}`);
+    if (index % 53 === 0) lines.push(`${index % 3} ${(cx + 0.00001).toFixed(15)} ${cy.toFixed(15)} ${size.toFixed(15)} ${size.toFixed(15)}`);
+  }
+  lines.push("1 0.999000000000000 0.500000000000000 0.010000000000000 0.010000000000000");
+  return `${lines.join("\n")}\n`;
+}
+
+/** inspectDetectionLabels on dense and malformed label text, plus the JS number semantics it relies on. */
+function writeReview() {
+  const dir = path.join(fixtures, "review");
+  mkdirSync(dir, { recursive: true });
+  const defaults = { minimumBoxSizePx: 4, duplicateIouThreshold: 0.9, requiredClassIds: [] };
+  const messy = [
+    "\uFEFF0 0.5 0.5 0.1 0.1",
+    "0  0.5 0.5 0.1 0.1",
+    "0\t0.5 0.5 0.1 0.1",
+    "1 0.5abc 0.5 0.1 0.1\r",
+    "2 .5 .5 .1 .1",
+    "3 1e-1 5E-1 1e0 1e0",
+    "4 Infinity 0.5 0.1 0.1",
+    "5 NaN 0.5 0.1 0.1",
+    "6 0.5 0.5",
+    "7",
+    "8 -0.1 0.5 0.1 0.1",
+    "9 0.5 0.5 -0.1 0.1",
+    "10 0.5 0.5 0 0",
+    "\u00A0 11 0.5 0.5 0.1 0.1",
+    "12\u0085 0.5 0.5 0.1 0.1",
+    "x 0x10 0.5 0.1 0.1",
+    "\uD55C\uAE00 0.5 0.5 0.1 0.1",
+    "13 0.5 0.5 0.1 0.1 extra fields",
+    "  ",
+    "\r",
+    "0 0.5 0.5 0.1 0.1",
+    "0 +0.5 0.50 1e-1 0.1e0"
+  ].join("\n");
+  const tiny = ["0 0.1 0.1 0.05 0.05", "0 0.9 0.9 0.05 0.05", "1 0.5 0.5 0.2 0.2", "0 NaN 0.5 0.1 0.1", "0 0.1 0.1 0.05 0.05"].join("\n");
+  const cases = [
+    ["dense-600-defaults", denseYolo(600, 1), 2048, 1536, defaults],
+    ["dense-600-required-fractional-min", denseYolo(600, 2), 2048, 1536, { minimumBoxSizePx: 2.5, duplicateIouThreshold: 0.5, requiredClassIds: ["0", "5", "12"] }],
+    ["messy-fields", messy, 640, 480, { minimumBoxSizePx: 1e21, duplicateIouThreshold: 0.9, requiredClassIds: ["7", "13", "99"] }],
+    ["threshold-zero", tiny, 100, 100, { minimumBoxSizePx: 1, duplicateIouThreshold: 0, requiredClassIds: [] }],
+    ["threshold-one", tiny, 100, 100, { minimumBoxSizePx: 1, duplicateIouThreshold: 1, requiredClassIds: ["1"] }],
+    ["one-pixel-image", tiny, 1, 1, defaults],
+    ["empty", "", 1, 1, defaults],
+    ["blank-lines", "\n \r\n\t\n\uFEFF\n", 1, 1, { ...defaults, requiredClassIds: ["0"] }],
+    ["crlf", "0 0.5 0.5 0.1 0.1\r\n0 0.5 0.5 0.1 0.1\r\n", 300, 200, defaults],
+    // Boxes on the image edges (sample_1 rows): floating-point error just past an edge is not "outside"; 1e-7 of the width is.
+    ["edge-tolerance", [
+      "1 0.474935177182368 0.008461538461538 0.044079515989628 0.016923076923077",
+      "1 0.614520311149525 0.014615384615385 0.041486603284356 0.029230769230769",
+      "1 0.696629213483146 0.986153846153846 0.044943820224719 0.027692307692308",
+      "0 0.05 0.5 0.1000002 0.1",
+      "0 0.95 0.5 0.1000002 0.1"
+    ].join("\n"), 1157, 650, defaults]
+  ].map(([name, text, width, height, settings]) => ({
+    name,
+    text,
+    width,
+    height,
+    settings,
+    expected: inspectDetectionLabels({ yoloText: text, imageWidth: width, imageHeight: height, settings }),
+    // The label count the image list shows (refreshImageWorkflowStatus).
+    rows: parseYoloRows(text, 1, 1).length
+  }));
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
+  const floats = ["0.5", "  \uFEFF\u00A01.25abc", "5.", ".5", "-.5e1x", "1e", "1e+", "2E-1", "+Infinityx", "-Infinity", "1e400", "0x10", "1_000", "007", "", ".", "-", "abc",
+    "undefined", "\u00851", "e5", "+.e1", "-0", "0.000000000000000000001", "123456789012345678901234567890", "4.9e-324", "2.2250738585072011e-308", "0.1000000000000000055511151231257827",
+    "\u20281", "\u30001.5", "\u180E1", "1.7976931348623159e308"];
+  const numbers = [4, 2.5, 0.1 + 0.2, 1e21, 123456789012345680000, 1.5e-7, 0.000001, 1e-7, -0, -12.5, 5e-324, Number.MAX_VALUE, 100, Infinity, -Infinity, NaN, 1 / 3, 1e20, 1.25e-6, 9007199254740993];
+  writeFileSync(path.join(dir, "js.json"), JSON.stringify({
+    parseFloat: floats.map((input) => ({ input, bits: float64Hex(parseFloat(input)) })),
+    numberToString: numbers.map((value) => ({ bits: float64Hex(value), text: String(value) })),
+    hypot: hypotPairs().map(([a, b]) => ({ a: float64Hex(a), b: float64Hex(b), bits: float64Hex(Math.hypot(a, b)) }))
+  }, null, 1));
+  return cases.length;
+}
+
+/**
+ * The contrast/gamma tone curve (Math.pow in TS, powf in Rust) at every slider step (0.20 to 3.00 by 0.05, the
+ * panel divides its 20..300 value by 100), each with the other one neutral, plus a few combinations: preprocessGray
+ * of a 0..255 ramp returns the curve itself. Compared bit for bit.
+ */
+function writeToneCurves() {
+  const dir = path.join(fixtures, "preprocess");
+  const steps = Array.from({ length: 57 }, (_, index) => (20 + index * 5) / 100);
+  const pairs = [
+    ...steps.map((gamma) => [1, gamma]),
+    ...steps.filter((contrast) => contrast !== 1).map((contrast) => [contrast, 1]),
+    [1.6, 0.7], [0.5, 2.2], [2.5, 0.35], [1.25, 1.45]
+  ];
+  const ramp = Float32Array.from({ length: 256 }, (_, index) => index);
+  const outputs = new Float32Array(pairs.length * 256);
+  const cases = pairs.map(([contrast, gamma], index) => {
+    const config = normalizeSegmentationPreprocessingConfig({ mode: "original", contrast, gamma });
+    outputs.set(preprocessGray(Float32Array.from(ramp), 256, 1, config), index * 256);
+    return config;
+  });
+  writeFileSync(path.join(dir, "tone-curves.f32"), bytesOf(outputs));
+  writeFileSync(path.join(dir, "tone-curves.json"), JSON.stringify(cases));
+  return cases.length;
+}
+
+/** Math.hypot inputs: what SLICO feeds it (pixel minus fractional centre offsets) and the special values. */
+function hypotPairs() {
+  const random = seeded(41);
+  const pairs = [[0, 0], [-0, 0], [3, 4], [-3, -4], [1e-310, 1e-310], [1e300, 1e300], [Infinity, NaN], [NaN, 1], [-Infinity, 2], [5e-324, 0], [0.1, 0.2]];
+  for (let index = 0; index < 400; index += 1) {
+    pairs.push([Math.round(random() * 64) - 32 - random(), (random() - 0.5) * 70]);
+  }
+  return pairs;
+}
+
+/**
+ * createSlicoSuperpixels on a colour and a gray image (two sizes) over region sizes and settings, including a
+ * size larger than the small image. Labels as i32, boundaries as u8, region statistics with their f64 bits.
+ */
+function writeSuperpixels() {
+  const dir = path.join(fixtures, "superpixels");
+  mkdirSync(dir, { recursive: true });
+  const settingsList = {
+    "default": {},
+    "plain": { blur: "off", contrast: "off", edgeSensitivity: "low" },
+    "strong": { blur: "high", contrast: "high", edgeSensitivity: "high" },
+    "light": { blur: "low", contrast: "low", edgeSensitivity: "medium" }
+  };
+  const cases = [];
+  for (const [width, height] of [[96, 72], [37, 23], [1, 1], [1, 9], [9, 1]]) {
+    const random = seeded(51 + width + height);
+    const luma = syntheticImage(width, height, 53 + width, 16, 12);
+    const colour = new Uint8ClampedArray(width * height * 4);
+    const gray = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i += 1) {
+      const v = luma[i];
+      colour.set([v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, v + (random() - 0.5) * 80, 255], i * 4);
+      gray.set([v, v, v, 255], i * 4);
+    }
+    for (const [inputName, rgba] of [["colour", colour], ["gray", gray]]) {
+      const inputFile = `input-${inputName}-${width}x${height}.u8`;
+      writeFileSync(path.join(dir, inputFile), bytesOf(rgba));
+      // Region size 2 only on the small images: on the larger one it would add thousands of regions to the fixture.
+      for (const regionSize of width * height < 50 ? [2, 5] : width < 50 ? [2, 5, 8, 16, 40] : [5, 8, 16, 40]) {
+        for (const [settingsName, requested] of Object.entries(settingsList)) {
+          const settings = normalizeSuperpixelSettings({ ...requested, regionSize });
+          const result = createSlicoSuperpixels({ width, height, rgba }, regionSize, 5, settings);
+          const name = `${inputName}-${width}x${height}-r${regionSize}-${settingsName}`;
+          writeFileSync(path.join(dir, `${name}.labels.i32`), bytesOf(result.labels));
+          writeFileSync(path.join(dir, `${name}.boundaries.u8`), bytesOf(result.boundaries));
+          cases.push({
+            name, width, height, input: inputFile, regionSize: settings.regionSize, settings: { blur: settings.blur, contrast: settings.contrast, edgeSensitivity: settings.edgeSensitivity },
+            expectedRegionSize: result.regionSize,
+            regions: result.regions.map((region) => ({ pixelCount: region.pixelCount, meanIntensity: float64Hex(region.meanIntensity), meanEdgeStrength: float64Hex(region.meanEdgeStrength), neighbors: region.neighbors }))
+          });
+        }
+      }
+    }
+  }
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
+  return cases.length;
+}
+
+/** tiff.js (the app's TIFF decoder) loaded in Node; readRGBAImage is what toCanvas draws. */
+function loadTiffJs() {
+  const shim = { exports: {} };
+  const source = readFileSync(path.join(root, "node_modules/tiff.js/tiff.min.js"), "utf8");
+  new Function("module", "exports", "require", "process", source)(shim, shim.exports, createRequire(import.meta.url), process);
+  const Tiff = shim.exports.Tiff ?? shim.exports;
+  Tiff.initialize?.({ TOTAL_MEMORY: 64 * 1024 * 1024 });
+  return Tiff;
+}
+
+/**
+ * Expected pixels of the TIFF inputs in fixtures/tiff/ (written by make-tiff-fixtures.py): tiff.js output,
+ * stored as one gray byte per pixel when it is gray (R = G = B, opaque).
+ */
+function writeTiff() {
+  const dir = path.join(fixtures, "tiff");
+  const Tiff = loadTiffJs();
+  const inputs = JSON.parse(readFileSync(path.join(dir, "inputs.json"), "utf8"));
+  const cases = inputs.map((input) => {
+    const bytes = readFileSync(path.join(dir, input.file));
+    let tiff = null;
+    try {
+      tiff = new Tiff({ buffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) });
+      const [width, height] = [tiff.width(), tiff.height()];
+      const rgba = new Uint8Array(tiff.readRGBAImage());
+      const gray = new Uint8Array(width * height);
+      let isGray = true;
+      for (let index = 0; index < gray.length; index += 1) {
+        const [r, g, b, a] = rgba.subarray(index * 4, index * 4 + 4);
+        isGray &&= r === g && g === b && a === 255;
+        gray[index] = r;
+      }
+      const expected = isGray ? input.file.replace(/\.tif$/, ".gray") : null;
+      if (expected) writeFileSync(path.join(dir, expected), gray);
+      return { ...input, width, height, tiffjs: isGray ? "gray" : "colour", expected };
+    } catch (error) {
+      // tiff.js throws Tiff.Exception objects with a `message` field.
+      return { ...input, tiffjs: `error: ${error?.message ?? String(error)}`, expected: null };
+    } finally {
+      tiff?.close?.();
+    }
+  });
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases, null, 1));
+  return cases.length;
+}
+
+function writeRefine() {
+  const dir = path.join(fixtures, "refine");
+  mkdirSync(dir, { recursive: true });
+  const variants = {
+    "default": {},
+    "flank-median": { crit: "flank", polarity: "brightInside", comb: "median" },
+    "peak-segments": { crit: "peak", sigma: 0, segments: 3 },
+    "thr-step": { crit: "thr", contextRing: 0, gradStep: 4 },
+    "box-outside": { crit: "grad", scanSpan: "boxOutside", extendStart: 6, extendEnd: 9, avoidNeighbors: false, iterations: 4 },
+    "side-rules": { scanSpan: "outside", extendEnd: 5, sides: { L: "off", R: "flank", T: "inherit", B: "thr" }, sideRules: { R: { rangeOut: 4, polarity: "darkInside" }, T: { sigma: 2.5, inset: 0.3 } } },
+    "review-limits": { peerTolerance: 0.5, reviewBelow: 0.8, areaGrowLimit: 0.05, areaShrinkLimit: 0.05 },
+    "extremes": { rangeIn: 2000, rangeOut: 300, contextRing: 200, sigma: 12, gradStep: 40, segments: 100, iterations: 6, inset: 0.49 },
+    "huge-extend": { scanSpan: "boxOutside", extendStart: 4000, extendEnd: 4000, avoidNeighbors: false, sideRules: { L: { rangeIn: 2000, polarity: "darkInside" }, B: { rangeOut: 2000, segments: 1 } } },
+    "strongest": { scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest" },
+    "no-near-weight": { nearWeight: false, rangeIn: 14, rangeOut: 14 },
+    "peak-side-near": { crit: "peak", sideRules: { L: { nearWeight: false, rangeOut: 20 }, B: { nearWeight: false } } },
+    "thr-strongest": { crit: "thr", sideRules: { T: { partMode: "strongest", scanSpan: "outside", extendStart: 6, extendEnd: 9 }, R: { partMode: "strongest", scanSpan: "boxOutside", extendEnd: 5 } } },
+    "pair-grow": { pairTB: "grow", pairLR: "grow" },
+    "pair-shrink-near": { pairTB: "shrink", pairTBPick: "nearest", pairLR: "shrink", pairLRPick: "nearest" },
+    "pair-mixed": { pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest", iterations: 3 },
+    "pair-side-off": { pairTB: "grow", sides: { T: "off" } },
+    "pair-strongest-parts": { pairLR: "grow", scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest", crit: "thr" },
+    "pair-band": { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false }
+  };
+  const paramsFor = (raw) => ({ 0: normalizeRefineParams(raw), 1: normalizeRefineParams({ ...raw, crit: "thr", rangeIn: 5 }) });
+  const cases = [];
+  const addCase = (name, image, boxes, raw, neighbours = boxes) => {
+    const paramsByClass = paramsFor(raw);
+    const expected = refineBoxes({ gray: image.gray, width: image.width, height: image.height }, boxes, paramsByClass, neighbours);
+    // neighbours is omitted when it is the box list itself (the common case), to keep the fixture small.
+    cases.push({ name, width: image.width, height: image.height, image: image.file, boxes, ...(neighbours === boxes ? {} : { neighbours }), paramsByClass, expected });
+  };
+  const makeImage = (width, height, seed, cellW, cellH) => {
+    const gray = toGray(syntheticImage(width, height, seed, cellW, cellH));
+    const file = `gray-${width}x${height}.u8`;
+    writeFileSync(path.join(dir, file), bytesOf(gray));
+    return { gray, width, height, file };
+  };
+
+  // Every parameter variant on 15 boxes (the existing parity-test layout).
+  const small = makeImage(203, 151, 7, 40, 50);
+  const smallBoxes = gridBoxes(203, 151, 40, 50, 11, ["0", "1"]);
+  for (const [name, raw] of Object.entries(variants)) addCase(`small-${name}`, small, smallBoxes, raw);
+  // Edge cases: no boxes, boxes outside / across the border / degenerate, a class without params.
+  addCase("small-empty", small, [], {});
+  addCase("small-edges", small, [
+    { id: "across-left", classId: "0", x0: -6, y0: 20, x1: 14, y1: 44 },
+    { id: "across-bottom-right", classId: "1", x0: 190, y0: 140, x1: 215, y1: 160 },
+    { id: "outside", classId: "0", x0: 300, y0: 300, x1: 320, y1: 330 },
+    { id: "zero-width", classId: "0", x0: 60, y0: 60, x1: 60, y1: 80 },
+    { id: "one-pixel", classId: "1", x0: 100.4, y0: 70.6, x1: 101.4, y1: 71.6 },
+    { id: "no-params-class", classId: "7", x0: 49, y0: 61, x1: 71, y1: 91 }
+  ], {});
+  // 500+ boxes on a dense grid (576 boxes, three classes; class 2 has no params).
+  const dense = makeImage(384, 288, 21, 16, 12);
+  const denseBoxes = gridBoxes(384, 288, 16, 12, 23, ["0", "1", "2"]);
+  addCase("dense-576-default", dense, denseBoxes, {});
+  addCase("dense-576-box-outside", dense, denseBoxes, variants["box-outside"]);
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
+  return cases.length;
+}
+
+/** SEM-sized inputs for the benches; not committed (tens of MB). */
+function writeBenchInputs() {
+  const dir = path.join(fixtures, "generated");
+  mkdirSync(dir, { recursive: true });
+  const manifest = [];
+  for (const [width, height] of [[2048, 1536], [4096, 3072]]) {
+    const gray = toGray(syntheticImage(width, height, 5, 64, 48));
+    const file = `sem-${width}x${height}.u8`;
+    writeFileSync(path.join(dir, file), bytesOf(gray));
+    for (const count of [500, 1000]) {
+      // Cells sized so the grid holds at least `count` boxes; keep the first `count`.
+      const columns = Math.ceil(Math.sqrt((count * width) / height));
+      const cellW = Math.floor(width / columns);
+      const cellH = Math.floor(height / Math.ceil(count / columns));
+      const boxes = gridBoxes(width, height, cellW, cellH, 9, ["0", "1"]).slice(0, count);
+      const boxesFile = `boxes-${width}x${height}-${count}.json`;
+      writeFileSync(path.join(dir, boxesFile), JSON.stringify(boxes));
+      manifest.push({ width, height, image: file, boxes: boxesFile, count: boxes.length });
+    }
+  }
+  writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 1));
+  // Normalized settings shared by the Rust and TS benches: default refine params for classes 0/1, and the
+  // Processed-view configs (a typical one and the heavy one from the audit's preprocess-view scenario).
+  writeFileSync(path.join(dir, "review-5000.txt"), denseYolo(5000, 1));
+  writeFileSync(path.join(dir, "refine-params.json"), JSON.stringify({ 0: normalizeRefineParams({}), 1: normalizeRefineParams({ crit: "thr" }) }));
+  writeFileSync(path.join(dir, "preprocess-configs.json"), JSON.stringify({
+    default: normalizeSegmentationPreprocessingConfig({}),
+    typical: normalizeSegmentationPreprocessingConfig({ mode: "original", median: true, claheClip: 2 }),
+    heavy: normalizeSegmentationPreprocessingConfig({ mode: "original", flattenSigma: 200, diffusionIterations: 20 })
+  }));
+  return manifest.length;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.log(`preprocess cases: ${writePreprocess()}`);
+  console.log(`tone curves: ${writeToneCurves()}`);
+  console.log(`view cases: ${writeView()}`);
+  console.log(`review cases: ${writeReview()}`);
+  console.log(`refine cases: ${writeRefine()}`);
+  console.log(`tiff cases: ${writeTiff()}`);
+  console.log(`superpixel cases: ${writeSuperpixels()}`);
+  if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);
+}

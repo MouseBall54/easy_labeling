@@ -26,12 +26,13 @@ import { detectionsToYolo, type Detection } from "../features/inference/yolo.js"
 import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
-import { isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
+import { isNotFoundError, readFileText, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import { getSubdirectoryHandle } from "../platform/file-system-access.js";
 import { inspectDetectionLabels } from "../features/review/quality.js";
 import { createReviewStateDocument, parseReviewStateDocument } from "../features/review/review-state.js";
 import type { ReviewImageStatus } from "../features/review/types.js";
-import type { ReviewSettings } from "../features/review/types.js";
+import type { ReviewFinding, ReviewSettings } from "../features/review/types.js";
+import { getNativeBridge, NativeJobCancelledError } from "../platform/native-bridge.js";
 import { createBundledSampleDirectory } from "../features/sample/sample-test-directory.js";
 import {
   markDocumentSaveError,
@@ -39,11 +40,12 @@ import {
   markDocumentSaving,
   markImageDocumentsClean
 } from "../app/document-status.js";
-import { loadSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { loadSegmentationToolPresetLibrary } from "../features/segmentation/preset-service.js";
+import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import { encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
 import { writeBinaryFileByName } from "../platform/file-system-access.js";
 import type { YoloeResult } from "../features/inference/yoloe.js";
-import { removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
+import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
 interface LabelFileEdit { name: string; original: string | null; text: string }
@@ -210,7 +212,8 @@ export interface RuntimeFileSystem extends FileSystem {
   }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   loadDefaultClassInfo(): Promise<void>;
-  refreshReviewFindings(): Promise<void>;
+  /** Checks images never checked or changed since their check (every image with `all`); false when stopped. */
+  refreshReviewFindings(options?: { all?: boolean }): Promise<boolean>;
   setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void>;
   updateReviewSettings(settings: ReviewSettings): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
@@ -261,8 +264,26 @@ export function createFileSystemAdapter(input: {
   let pendingLoadedYolo: string | null = null;
   let pendingLoadedSegmentationSnapshot: import("../features/segmentation/types.js").SegmentationDocumentSnapshot | null = null;
   let operationChain: Promise<void> = Promise.resolve();
-  let operationRevision = 0;
-  let reviewScan: { controller: AbortController; promise: Promise<void> } | null = null;
+  // Review findings follow label changes image by image: writers queue the images they changed, opening a
+  // folder queues every image, and the Review task queues images whose label or image file changed since
+  // their last check (file stamps). One run at a time checks only the queued images.
+  let reviewGeneration = 0;
+  let reviewSource: { reviewFolder: unknown; labelFolder: unknown } | null = null;
+  const reviewQueue = new Set<string>();
+  const reviewStamps = new Map<string, string>();
+  // Findings set outside a run (the open image after a save) win over a run that started before them.
+  const reviewUpdatedAt = new Map<string, number>();
+  let reviewEpoch = 0;
+  let reviewStateChanged = false;
+  let reviewRun: Promise<boolean> | null = null;
+  let reviewRunShown = false;
+  // Label rows per .txt file read by the checks (TS path), so filling the image list's counts reads no file twice.
+  const reviewRowCounts = new Map<string, number>();
+  // The count after a run; a switch to another source stops it, so old counts never land on the new source.
+  let reviewCountAbort: AbortController | null = null;
+  // Findings of label sources switched away from (this image folder only): switching back rechecks changed files only.
+  const reviewCache = new Map<unknown, { reviewFolder: unknown; settings: string; findings: Map<string, ReviewFinding>; stamps: Map<string, string> }>();
+  let reviewCacheImageFolder: unknown = null;
 
   const captureSessionSnapshot = () => ({
     imageFolderHandle: input.state.session.imageFolderHandle,
@@ -315,6 +336,8 @@ export function createFileSystemAdapter(input: {
     input.state.view.hiddenLabelClasses = snapshot.hiddenLabelClasses;
     pendingLoadedYolo = null;
     pendingLoadedSegmentationSnapshot = null;
+    // Restored findings keep no stamps: the next Review rechecks them without reopening reviewed images.
+    resetReviewTracking();
 
     if (connectedDeps) {
       const uiManager = connectedDeps.uiManager as RuntimeUiManager;
@@ -328,8 +351,7 @@ export function createFileSystemAdapter(input: {
   };
 
   const enqueueOperation = async (operation: () => Promise<void>): Promise<void> => {
-    operationRevision += 1;
-    reviewScan?.controller.abort();
+    reviewCountAbort?.abort(); // background label reads wait for the operation; the drain counts again afterwards
     operationChain = operationChain.then(operation, operation);
     await operationChain;
   };
@@ -376,12 +398,44 @@ export function createFileSystemAdapter(input: {
     urlRuntime: input.windowRef.URL
   });
 
+  // Desktop app: the image after the one on screen, decoded in the background so "next" finds it ready
+  // (native TIFFs also stay resident in Rust next to the current one). Used once, for that same handle.
+  let prefetched: { fileHandle: FileHandleLike; image: Promise<HTMLImageElement>; modified: Promise<number | null> } | null = null;
+  // The file's modification time (null when unknown), to tell whether a prefetched decode is still current.
+  const modifiedAt = (fileHandle: FileHandleLike): Promise<number | null> => {
+    const native = getNativeBridge("prefetch");
+    const path = native?.pathOf(fileHandle);
+    return native && path ? native.invoke<number>("fs_mtime", { path }).catch(() => null) : Promise.resolve(null);
+  };
+  const decodeForSession = async (fileHandle: FileHandleLike): Promise<HTMLImageElement> => {
+    const ahead = prefetched?.fileHandle === fileHandle ? prefetched : null;
+    prefetched = null;
+    if (!ahead) return decodeImage(fileHandle);
+    // A file changed on disk since it was decoded ahead is decoded again.
+    const [before, now] = await Promise.all([ahead.modified, modifiedAt(fileHandle)]);
+    if (before === null || before !== now) return decodeImage(fileHandle);
+    return ahead.image.catch(() => decodeImage(fileHandle));
+  };
+  const prefetchNextImage = (): void => {
+    if (!getNativeBridge("prefetch")) return;
+    const { imageFiles, currentImageFile } = input.state.session;
+    const index = currentImageFile ? imageFiles.findIndex((file) => file === currentImageFile) : -1;
+    const next = index >= 0 ? imageFiles[index + 1] as unknown as FileHandleLike | undefined : undefined;
+    if (!next || prefetched?.fileHandle === next) return;
+    const modified = modifiedAt(next);
+    const image = decodeImage(next);
+    // A failed decode is retried when the image is opened.
+    image.catch(() => undefined);
+    prefetched = { fileHandle: next, image, modified };
+  };
+
   const imageDimensions = new WeakMap<FileHandleLike, { size: number; lastModified: number; width: number; height: number }>();
   const readImageDimensions = async (fileHandle: FileHandleLike): Promise<{ width: number; height: number }> => {
     const file = await fileHandle.getFile();
     const cached = imageDimensions.get(fileHandle);
     if (cached && cached.size === file.size && cached.lastModified === file.lastModified) return cached;
-    const image = await decodeImage({
+    // TIFFs keep their own handle, so the desktop app can decode them natively from its path.
+    const image = await decodeImage(/\.(tif|tiff)$/i.test(fileHandle.name) ? fileHandle : {
       kind: "file",
       name: fileHandle.name,
       getFile: async () => file,
@@ -406,6 +460,8 @@ export function createFileSystemAdapter(input: {
     if (!(currentImage instanceof HTMLImageElement)) {
       return;
     }
+    // Every path that shows an image (open, next/prev, refresh) comes here: decode the next one once this is on screen.
+    setTimeout(prefetchNextImage, 0);
 
     canvasController.loadImageSession({
       image: currentImage,
@@ -499,7 +555,7 @@ export function createFileSystemAdapter(input: {
   };
 
   const imageSessionService = createImageSessionService(new LiveImageSessionState(input.state), {
-    decodeImage: async ({ fileHandle }) => decodeImage(fileHandle),
+    decodeImage: async ({ fileHandle }) => decodeForSession(fileHandle),
     readCurrentLabelsAsYolo: () => {
       if (!connectedDeps) {
         return "";
@@ -568,6 +624,8 @@ export function createFileSystemAdapter(input: {
       throwIfOperationCancelled(operation?.signal);
       await activateLabelFolder(folder, operation);
       throwIfOperationCancelled(operation?.signal);
+      const edited = new Set(edits.map((edit) => edit.name));
+      queueReview(input.state.session.imageFiles.filter((file) => edited.has(`${imageFileNameToBaseName(file.name)}.txt`)).map((file) => file.name), true);
     } catch (error) {
       const failures: unknown[] = [];
       for (const edit of written) {
@@ -640,25 +698,63 @@ export function createFileSystemAdapter(input: {
     }
   };
 
+  function resetReviewTracking(): void {
+    reviewGeneration += 1;
+    reviewQueue.clear();
+    reviewStamps.clear();
+    reviewUpdatedAt.clear();
+    reviewRowCounts.clear();
+    reviewCountAbort?.abort();
+    reviewSource = { reviewFolder: getReviewFolder(), labelFolder: input.state.session.labelFolderHandle };
+  }
+
+  /**
+   * Reloads review-state.json. A new review or label folder brings back that source's findings from earlier
+   * in this image folder (rechecking changed files), or checks every image in the background.
+   */
   const loadReviewState = async (): Promise<void> => {
     const imageFolder = getReviewFolder();
-    input.state.session.reviewState = createReviewStateDocument();
-    input.state.session.reviewFindings = new Map();
-    if (!imageFolder) {
-      return;
+    const sameSource = reviewSource?.reviewFolder === imageFolder && reviewSource.labelFolder === input.state.session.labelFolderHandle;
+    if (reviewStateChanged) {
+      // Statuses reopened by a batch write still belong to the source being left.
+      reviewStateChanged = false;
+      await persistReviewState((sameSource ? imageFolder : reviewSource?.reviewFolder) as DirectoryHandleLike | null);
     }
-    try {
-      const reviewDirectory = await getSubdirectoryHandle(imageFolder, ".easy-labeling");
-      input.state.session.reviewState = parseReviewStateDocument(await readTextFileByName(reviewDirectory, "review-state.json"));
-    } catch (error: unknown) {
-      if (!isNotFoundError(error) && connectedDeps) {
-        (connectedDeps.uiManager as RuntimeUiManager).notify("Review state was invalid and has been reset.", 5000);
+    const { session } = input.state;
+    if (!sameSource) {
+      if (reviewCacheImageFolder !== session.imageFolderHandle) {
+        reviewCache.clear();
+        reviewCacheImageFolder = session.imageFolderHandle;
+      } else if (reviewSource?.labelFolder) {
+        reviewCache.set(reviewSource.labelFolder, { reviewFolder: reviewSource.reviewFolder, settings: JSON.stringify(session.reviewState.settings), findings: session.reviewFindings, stamps: new Map(reviewStamps) });
+      }
+      session.reviewFindings = new Map();
+      resetReviewTracking();
+    }
+    session.reviewState = createReviewStateDocument();
+    if (imageFolder) {
+      try {
+        const reviewDirectory = await getSubdirectoryHandle(imageFolder, ".easy-labeling");
+        input.state.session.reviewState = parseReviewStateDocument(await readTextFileByName(reviewDirectory, "review-state.json"));
+      } catch (error: unknown) {
+        if (!isNotFoundError(error) && connectedDeps) {
+          (connectedDeps.uiManager as RuntimeUiManager).notify("Review state was invalid and has been reset.", 5000);
+        }
       }
     }
+    if (sameSource) return;
+    const cached = reviewCache.get(session.labelFolderHandle);
+    if (cached?.reviewFolder === imageFolder && cached.settings === JSON.stringify(session.reviewState.settings)) {
+      session.reviewFindings = cached.findings;
+      cached.stamps.forEach((stamp, name) => reviewStamps.set(name, stamp));
+      // After the switch and once the page is idle, so reading the stamps does not delay the labels on screen.
+      // The drain also counts the label rows the image list shows for this source.
+      void afterOperationsWhenIdle().then(() => queueOutdatedReviews()).then(() => drainReviewQueue())
+        .catch((error: unknown) => console.warn("Background label review failed.", error));
+    } else queueReview(session.imageFiles.map((file) => file.name));
   };
 
-  const persistReviewState = async (): Promise<void> => {
-    const imageFolder = getReviewFolder();
+  const persistReviewState = async (imageFolder = getReviewFolder()): Promise<void> => {
     if (!imageFolder) {
       return;
     }
@@ -683,80 +779,272 @@ export function createFileSystemAdapter(input: {
     }
     const { width, height } = yoloText.trim() ? await readImageDimensions(file as unknown as FileHandleLike) : { width: 1, height: 1 };
     input.state.session.reviewFindings.set(file.name, inspectDetectionLabels({ yoloText, imageWidth: width, imageHeight: height, settings: input.state.session.reviewState.settings }));
+    reviewEpoch += 1;
+    reviewUpdatedAt.set(file.name, reviewEpoch);
+    reviewStamps.delete(file.name);
+    reviewRowCounts.delete(`${imageFileNameToBaseName(file.name)}.txt`);
   };
 
-  const refreshReviewFindings = async (parentSignal?: AbortSignal): Promise<void> => {
-    if (reviewScan && !reviewScan.controller.signal.aborted) return reviewScan.promise;
-    const controller = new AbortController();
-    const { signal } = controller;
-    const cancel = () => controller.abort();
-    parentSignal?.addEventListener("abort", cancel, { once: true });
-    if (parentSignal?.aborted) cancel();
-    const promise = (async () => {
-      const operation = (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.beginOperation({ title: "Checking labels", detail: "All images · Requested review", cancellable: true, blockCanvas: false });
-      operation?.signal.addEventListener("abort", cancel, { once: true });
-      const events = ["easy-labeling:document-status-change", "easy-labeling:workflow-change"];
-      events.forEach(event => input.windowRef.addEventListener?.(event, cancel));
-      let worker: Worker | null = null;
-      let workerError: Error | null = null;
-      let pendingReject: ((reason: unknown) => void) | null = null;
-      const stopWorker = () => { worker?.terminate(); pendingReject?.(signal.reason); };
-      signal.addEventListener("abort", stopWorker, { once: true });
-      try {
-        throwIfOperationCancelled(signal);
-        const files = [...input.state.session.imageFiles];
-        const settings = structuredClone(input.state.session.reviewState.settings);
-        const findings = new Map();
-        const labelFolder = input.state.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
-        await imageSessionService.refreshImageWorkflowStatus(signal);
-        for (const [index, imageFile] of files.entries()) {
-          throwIfOperationCancelled(signal);
-          operation?.update({ detail: `Checking ${imageFile.name}`, current: index, total: files.length });
-          const editedText = imageFile.name === input.state.session.currentImageFile?.name ? currentEditedReviewText() : null;
-          let yoloText = editedText ?? "";
-          if (editedText === null && labelFolder) {
-            try {
-              yoloText = await readTextFileByName(labelFolder, `${imageFileNameToBaseName(imageFile.name)}.txt`);
-            } catch (error: unknown) {
-              if (!isNotFoundError(error)) throw error;
-            }
-          }
-          const { width, height } = yoloText.trim()
-            ? await readImageDimensions(imageFile as unknown as FileHandleLike) : { width: 1, height: 1 };
-          throwIfOperationCancelled(signal);
-          const inspection = { yoloText, imageWidth: width, imageHeight: height, settings };
-          if (typeof Worker === "undefined") findings.set(imageFile.name, inspectDetectionLabels(inspection));
-          else {
-            if (!worker) {
-              worker = new Worker(new URL("../../workers/review-worker.js", import.meta.url), { type: "module" });
-              worker.onerror = (event) => { workerError = new Error(event.message || "Review worker failed."); pendingReject?.(workerError); };
-            }
-            if (workerError) throw workerError;
-            const result = await new Promise<ReturnType<typeof inspectDetectionLabels>>((resolve, reject) => {
-              pendingReject = reject;
-              worker!.onmessage = ({ data }) => { if (data.id !== index) return; if (data.error) reject(new Error(data.error)); else resolve(data.result); };
-              worker!.postMessage({ id: index, input: inspection });
-            });
-            pendingReject = null;
-            findings.set(imageFile.name, result);
-          }
+  /** Label and image file stamps per image (review_stamps in src-tauri/src/review.rs), compared as strings. */
+  const readReviewStamps = async (files: readonly FileSystemFileHandle[], labelFolder: DirectoryHandleLike | null): Promise<string[]> => {
+    const format = (stamps: ReadonlyArray<readonly [number, number] | null>) => JSON.stringify(stamps.map((stamp) => stamp && [Math.floor(stamp[0]), stamp[1]]));
+    const native = getNativeBridge("review");
+    if (native && files.length) {
+      const labelFolderPath = labelFolder ? native.pathOf(labelFolder) : null;
+      const paths = files.map((file) => native.pathOf(file));
+      if ((!labelFolder || labelFolderPath) && paths.every((path) => path !== null)) {
+        try {
+          const stamps = await native.invoke<Array<[[number, number] | null, [number, number] | null]>>("review_stamps", {
+            request: { labelFolder: labelFolderPath, images: files.map((file, index) => ({ name: file.name, path: paths[index] })) }
+          });
+          return stamps.map(format);
+        } catch (error) {
+          console.warn("Native review stamps failed; reading them in TS.", error);
         }
-        throwIfOperationCancelled(signal);
-        input.state.session.reviewFindings = findings;
+      }
+    }
+    const stampOf = async (handle: () => Promise<FileHandleLike>): Promise<[number, number] | null> => {
+      try {
+        const file = await (await handle()).getFile();
+        return [file.lastModified ?? 0, file.size ?? 0];
       } catch (error) {
-        if (!signal.aborted && !isOperationCancelledError(error)) throw error;
+        if (isNotFoundError(error)) return null;
+        throw error;
+      }
+    };
+    return Promise.all(files.map(async (file) => format([
+      labelFolder ? await stampOf(() => labelFolder.getFileHandle(`${imageFileNameToBaseName(file.name)}.txt`)) : null,
+      await stampOf(async () => file as unknown as FileHandleLike)
+    ])));
+  };
+
+  /** Queues images for the background review; `reopenReviewed` marks reviewed ones as needing review again (batch or outside changes). */
+  function queueReview(imageNames: Iterable<string>, reopenReviewed = false): void {
+    const { reviewState } = input.state.session;
+    for (const name of imageNames) {
+      reviewQueue.add(name);
+      reviewRowCounts.delete(`${imageFileNameToBaseName(name)}.txt`); // its file changed or is unchecked
+      if (reopenReviewed && reviewState.images[name]?.status === "reviewed") {
+        reviewState.images[name] = { status: "needs-review", reviewedAt: null };
+        reviewStateChanged = true;
+      }
+    }
+    if (reviewQueue.size || reviewStateChanged) drainReviewQueue().catch((error: unknown) => console.warn("Background label review failed.", error));
+  }
+
+  /** Queues images never checked and images whose files changed since their check (reopening reviewed ones); returns how many checked images changed. */
+  const queueOutdatedReviews = async (): Promise<number> => {
+    const { session } = input.state;
+    const generation = reviewGeneration;
+    const files = [...session.imageFiles];
+    const isChecked = (name: string) => reviewStamps.has(name) && session.reviewFindings.has(name);
+    const checked = files.filter((file) => isChecked(file.name) && !reviewQueue.has(file.name));
+    const stamps = await readReviewStamps(checked, session.labelFolderHandle as unknown as DirectoryHandleLike | null);
+    if (generation !== reviewGeneration) return 0;
+    const changed = checked.filter((file, index) => reviewStamps.has(file.name) && stamps[index] !== reviewStamps.get(file.name)).map((file) => file.name);
+    queueReview(files.filter((file) => !isChecked(file.name)).map((file) => file.name));
+    queueReview(changed, true);
+    // Their label rows are recounted with the other uncounted ones once the checks are done.
+    changed.forEach((name) => session.imageWorkflowStatus.delete(name));
+    return changed.length;
+  };
+
+  /**
+   * Lets folder switches and saves finish first (their results decide what is current), then waits for an idle
+   * moment, so the labels they loaded are drawn before background review work reads other files.
+   */
+  async function afterOperationsWhenIdle(): Promise<void> {
+    // An operation started while waiting (a label folder switch, say) is waited for too.
+    for (let chain = operationChain; ; chain = operationChain) {
+      await chain.catch(() => undefined);
+      await new Promise<void>((resolve) => {
+        const idle = Reflect.get(globalThis, "requestIdleCallback") as ((callback: () => void, options: { timeout: number }) => number) | undefined;
+        if (idle) idle(() => resolve(), { timeout: 500 });
+        else resolve();
+      });
+      if (chain === operationChain) return;
+    }
+  }
+
+  /** Runs the queued checks until the queue is empty. False when the user stopped it. */
+  function drainReviewQueue(show = false): Promise<boolean> {
+    reviewRunShown ||= show;
+    if (reviewRun) return reviewRun;
+    const run = (async () => {
+      try {
+        // Images queued while the list is counted join this run (a drain call meanwhile returns it), so loop again.
+        let counted = true;
+        do {
+          do {
+            await afterOperationsWhenIdle();
+            if (!await checkQueuedReviews()) return false;
+          } while (reviewQueue.size || reviewStateChanged);
+          // The image list shows "…" for images whose labels were never counted: count them once the checks are done
+          // (one Rust call on the desktop app), so the list is complete without opening Review.
+          await afterOperationsWhenIdle();
+          const { imageFiles, imageWorkflowStatus } = input.state.session;
+          counted = true;
+          if (imageFiles.some((file) => !imageWorkflowStatus.has(file.name))) {
+            const controller = new AbortController();
+            reviewCountAbort = controller;
+            try {
+              await imageSessionService.refreshImageWorkflowStatus(controller.signal, reviewRowCounts);
+            } catch (error) {
+              if (!isOperationCancelledError(error)) throw error;
+              counted = false; // an operation or a switch stopped it
+            } finally {
+              if (reviewCountAbort === controller) reviewCountAbort = null;
+            }
+          }
+        } while (reviewQueue.size || reviewStateChanged || !counted);
+        return true;
       } finally {
-        worker?.terminate();
-        signal.removeEventListener("abort", stopWorker);
-        operation?.signal.removeEventListener("abort", cancel);
-        parentSignal?.removeEventListener("abort", cancel);
-        events.forEach(event => input.windowRef.removeEventListener?.(event, cancel));
-        operation?.finish();
+        reviewRun = null;
+        reviewRunShown = false;
         (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.renderImageList();
       }
-    })().finally(() => { if (reviewScan?.controller === controller) reviewScan = null; });
-    reviewScan = { controller, promise };
-    return promise;
+    })();
+    reviewRun = run;
+    return run;
+  }
+
+  /**
+   * Desktop app: reviews the given images in Rust (crates/el-core/src/review_folder.rs), same findings as
+   * the loop in checkQueuedReviews. Null entries (sizes that need a full decode) and a null result (no
+   * native side, unknown paths, or a native error) are left to that TS loop.
+   */
+  const reviewFolderNatively = async (
+    files: readonly FileSystemFileHandle[],
+    labelFolder: DirectoryHandleLike | null,
+    settings: ReviewSettings,
+    signal: AbortSignal,
+    onProgress: (done: number, total: number) => void
+  ): Promise<ReadonlyArray<ReviewFinding | null> | null> => {
+    const native = getNativeBridge("review");
+    if (!native || files.length === 0) return null;
+    const labelFolderPath = labelFolder ? native.pathOf(labelFolder) : null;
+    const paths = files.map((file) => native.pathOf(file));
+    if ((labelFolder && !labelFolderPath) || paths.some((path) => path === null)) return null;
+    const currentName = input.state.session.currentImageFile?.name;
+    try {
+      return await native.runJob<Array<ReviewFinding | null>>("review_folder", (jobId) => ({
+        request: {
+          jobId,
+          labelFolder: labelFolderPath,
+          images: files.map((file, index) => ({ name: file.name, path: paths[index], editedText: file.name === currentName ? currentEditedReviewText() : null })),
+          settings
+        }
+      }), { signal, onProgress });
+    } catch (error) {
+      if (signal.aborted || error instanceof NativeJobCancelledError) throw error;
+      console.warn("Native review failed; checking on the TS path.", error);
+      return null;
+    }
+  };
+
+  /** Checks the queued images and merges their findings. False when the user stopped the check. */
+  const checkQueuedReviews = async (): Promise<boolean> => {
+    const generation = reviewGeneration;
+    const startedAt = reviewEpoch;
+    const chain = operationChain;
+    if (reviewStateChanged) {
+      reviewStateChanged = false;
+      await persistReviewState();
+    }
+    const files = input.state.session.imageFiles.filter((file) => reviewQueue.has(file.name));
+    reviewQueue.clear();
+    if (!files.length || generation !== reviewGeneration) return true;
+    const controller = new AbortController();
+    const { signal } = controller;
+    let operation: RuntimeOperationHandle | undefined;
+    // Background checks stay quiet; once a caller waits on them (the Review task), they show progress and can be stopped.
+    const progress = (done: number) => {
+      const uiManager = connectedDeps?.uiManager as RuntimeUiManager | undefined;
+      if (!operation && reviewRunShown && uiManager) {
+        operation = uiManager.beginOperation({ title: "Checking labels", detail: "Changed images · Review", cancellable: true, blockCanvas: false });
+        operation.signal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+      operation?.update({ detail: `Checking labels (${done}/${files.length})`, current: done, total: files.length });
+    };
+    const commit = (name: string, finding: ReviewFinding, stamp: string | undefined): void => {
+      if (generation !== reviewGeneration || (reviewUpdatedAt.get(name) ?? 0) > startedAt) return;
+      input.state.session.reviewFindings.set(name, finding);
+      if (stamp) reviewStamps.set(name, stamp);
+    };
+    // A queued operation (a switch, an image change) reads first: the rest waits in the queue for the drain.
+    const yieldToOperation = (index: number): boolean => {
+      if (generation !== reviewGeneration) return true; // another source: its own run checks it
+      if (chain === operationChain) return false;
+      files.slice(index).forEach((file) => reviewQueue.add(file.name));
+      return true;
+    };
+    let worker: Worker | null = null;
+    let workerError: Error | null = null;
+    let pendingReject: ((reason: unknown) => void) | null = null;
+    const stopWorker = () => { worker?.terminate(); pendingReject?.(signal.reason); };
+    signal.addEventListener("abort", stopWorker, { once: true });
+    try {
+      progress(0);
+      const settings = structuredClone(input.state.session.reviewState.settings);
+      const labelFolder = input.state.session.labelFolderHandle as unknown as DirectoryHandleLike | null;
+      // Stamps first: a write during the check then shows up as a change.
+      const stamps = await readReviewStamps(files, labelFolder);
+      const nativeFindings = await reviewFolderNatively(files, labelFolder, settings, signal, progress);
+      for (const [index, imageFile] of files.entries()) {
+        throwIfOperationCancelled(signal);
+        if (generation !== reviewGeneration) return true;
+        if (!nativeFindings && yieldToOperation(index)) return true;
+        const nativeFinding = nativeFindings?.[index];
+        if (nativeFinding) {
+          commit(imageFile.name, nativeFinding, stamps[index]);
+          continue;
+        }
+        progress(index);
+        const editedText = imageFile.name === input.state.session.currentImageFile?.name ? currentEditedReviewText() : null;
+        let yoloText = editedText ?? "";
+        if (editedText === null && labelFolder) {
+          try {
+            const labelFileName = `${imageFileNameToBaseName(imageFile.name)}.txt`;
+            const labelFile = await labelFolder.getFileHandle(labelFileName);
+            if (yieldToOperation(index)) return true; // the lookup is a round trip on the desktop app
+            yoloText = await readFileText(labelFile);
+            if (generation === reviewGeneration) reviewRowCounts.set(labelFileName, parseYoloRows(yoloText, 1, 1).length);
+          } catch (error: unknown) {
+            if (!isNotFoundError(error)) throw error;
+          }
+        }
+        const { width, height } = yoloText.trim()
+          ? await readImageDimensions(imageFile as unknown as FileHandleLike) : { width: 1, height: 1 };
+        throwIfOperationCancelled(signal);
+        const inspection = { yoloText, imageWidth: width, imageHeight: height, settings };
+        if (typeof Worker === "undefined") commit(imageFile.name, inspectDetectionLabels(inspection), stamps[index]);
+        else {
+          if (!worker) {
+            worker = new Worker(new URL("../../workers/review-worker.js", import.meta.url), { type: "module" });
+            worker.onerror = (event) => { workerError = new Error(event.message || "Review worker failed."); pendingReject?.(workerError); };
+          }
+          if (workerError) throw workerError;
+          const result = await new Promise<ReturnType<typeof inspectDetectionLabels>>((resolve, reject) => {
+            pendingReject = reject;
+            worker!.onmessage = ({ data }) => { if (data.id !== index) return; if (data.error) reject(new Error(data.error)); else resolve(data.result); };
+            worker!.postMessage({ id: index, input: inspection });
+          });
+          pendingReject = null;
+          commit(imageFile.name, result, stamps[index]);
+        }
+      }
+      return true;
+    } catch (error) {
+      if (signal.aborted || isOperationCancelledError(error)) {
+        reviewQueue.clear();
+        return false;
+      }
+      throw error;
+    } finally {
+      worker?.terminate();
+      signal.removeEventListener("abort", stopWorker);
+      operation?.finish();
+    }
   };
 
   const activateImageFolder = async (
@@ -771,7 +1059,11 @@ export function createFileSystemAdapter(input: {
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
     input.state.session.labelFolders = input.state.session.labelFolderHandle ? [input.state.session.labelFolderHandle] : [];
     input.state.session.segmentationLabelFolders = [imageFolderHandle as unknown as FileSystemDirectoryHandle];
-    input.state.session.segmentationToolPresets = await loadSegmentationToolPresets(imageFolderHandle);
+    const segmentationPresets = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"), imageFolderHandle);
+    input.state.session.segmentationToolPresets = segmentationPresets.document;
+    if (segmentationPresets.errors.length) {
+      (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(`Some Superpixel preset files were skipped:\n${segmentationPresets.errors.join("\n")}`, 8000);
+    }
     throwIfOperationCancelled(operation?.signal);
     await loadReviewState();
     await refreshCurrentReviewFinding(pendingLoadedYolo ?? "");
@@ -881,7 +1173,7 @@ export function createFileSystemAdapter(input: {
             }
             throwIfOperationCancelled(operation?.signal);
             await loadReviewState();
-            await refreshReviewFindings(operation?.signal);
+            await queueOutdatedReviews();
             reportProgress?.(
               "labels",
               labelSelection.labelFolderStatus === "missing" ? "warning" : "ready",
@@ -1100,13 +1392,16 @@ export function createFileSystemAdapter(input: {
         await refreshClassFileStateFromAvailableFolder();
       },
 
-      async refreshReviewFindings(): Promise<void> {
-        const folder = input.state.session.labelFolderHandle;
-        const revision = operationRevision;
-        const documentRevision = getCurrentDocumentStatus(input.state)?.revision;
-        await operationChain;
-        if (revision !== operationRevision || folder !== input.state.session.labelFolderHandle || documentRevision !== getCurrentDocumentStatus(input.state)?.revision) return;
-        await refreshReviewFindings();
+      async refreshReviewFindings(options?: { all?: boolean }): Promise<boolean> {
+        await operationChain.catch(() => undefined);
+        // Shown from the start: the checks queued below may begin before the drain call.
+        reviewRunShown = true;
+        if (options?.all) {
+          // Recheck all also recounts the image list's label rows, as opening the folder does.
+          await imageSessionService.refreshImageWorkflowStatus();
+          queueReview(input.state.session.imageFiles.map((file) => file.name));
+        } else await queueOutdatedReviews();
+        return drainReviewQueue(true);
       },
 
       async setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void> {
@@ -1122,15 +1417,14 @@ export function createFileSystemAdapter(input: {
 
       async updateReviewSettings(settings: ReviewSettings): Promise<void> {
         await enqueueOperation(async () => {
-          const revision = operationRevision;
-          const documentRevision = getCurrentDocumentStatus(input.state)?.revision;
           input.state.session.reviewState.settings = settings;
           input.state.session.reviewFindings = new Map();
+          resetReviewTracking();
           (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.renderImageList();
           await persistReviewState();
-          if (revision !== operationRevision || documentRevision !== getCurrentDocumentStatus(input.state)?.revision) return;
-          await refreshReviewFindings();
+          queueReview(input.state.session.imageFiles.map((file) => file.name));
         });
+        await drainReviewQueue(true);
       },
 
       async saveLabels(isAuto = false): Promise<void> {
@@ -1354,6 +1648,7 @@ export function createFileSystemAdapter(input: {
         }
         const trimmed = yoloData.trim();
         await writeTextFileByName(folder, `${imageFileNameToBaseName(imageFileName)}.txt`, trimmed);
+        queueReview([imageFileName], true);
         const status = input.state.session.imageWorkflowStatus.get(imageFileName) ?? createEmptyImageWorkflowStatus();
         status.detection.hasAnnotation = trimmed.length > 0;
         input.state.session.imageWorkflowStatus.set(imageFileName, status);

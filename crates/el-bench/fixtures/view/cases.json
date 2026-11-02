@@ -1,0 +1,222 @@
+[
+ {
+  "name": "median-colour",
+  "width": 96,
+  "height": 72,
+  "input": "input-colour-96x72.u8",
+  "config": {
+   "mode": "original",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1,
+   "gamma": 1,
+   "median": true,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 0,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "median-colour.u8"
+ },
+ {
+  "name": "clahe-contrast-colour",
+  "width": 96,
+  "height": 72,
+  "input": "input-colour-96x72.u8",
+  "config": {
+   "mode": "original",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1.4,
+   "gamma": 0.8,
+   "median": false,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 2,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "clahe-contrast-colour.u8"
+ },
+ {
+  "name": "edge-colour",
+  "width": 96,
+  "height": 72,
+  "input": "input-colour-96x72.u8",
+  "config": {
+   "mode": "edge",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1,
+   "gamma": 1,
+   "median": false,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 0,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "edge-colour.u8"
+ },
+ {
+  "name": "edge-blend-colour",
+  "width": 96,
+  "height": 72,
+  "input": "input-colour-96x72.u8",
+  "config": {
+   "mode": "edge-blend",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1,
+   "gamma": 1,
+   "median": false,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 0,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "edge-blend-colour.u8"
+ },
+ {
+  "name": "everything-colour",
+  "width": 96,
+  "height": 72,
+  "input": "input-colour-96x72.u8",
+  "config": {
+   "mode": "edge-blend",
+   "blurStrength": 2,
+   "edgeWeight": 0.3,
+   "contrast": 1.2,
+   "gamma": 1.3,
+   "median": true,
+   "destripe": "rows",
+   "flattenSigma": 60,
+   "diffusionIterations": 3,
+   "diffusionKappa": 20,
+   "claheClip": 3,
+   "claheTiles": 8,
+   "levelsClip": 0.5
+  },
+  "output": "everything-colour.u8"
+ },
+ {
+  "name": "median-gray",
+  "width": 96,
+  "height": 72,
+  "input": "input-gray-96x72.u8",
+  "config": {
+   "mode": "original",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1,
+   "gamma": 1,
+   "median": true,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 0,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "median-gray.u8"
+ },
+ {
+  "name": "clahe-contrast-gray",
+  "width": 96,
+  "height": 72,
+  "input": "input-gray-96x72.u8",
+  "config": {
+   "mode": "original",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1.4,
+   "gamma": 0.8,
+   "median": false,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 2,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "clahe-contrast-gray.u8"
+ },
+ {
+  "name": "edge-gray",
+  "width": 96,
+  "height": 72,
+  "input": "input-gray-96x72.u8",
+  "config": {
+   "mode": "edge",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1,
+   "gamma": 1,
+   "median": false,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 0,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "edge-gray.u8"
+ },
+ {
+  "name": "edge-blend-gray",
+  "width": 96,
+  "height": 72,
+  "input": "input-gray-96x72.u8",
+  "config": {
+   "mode": "edge-blend",
+   "blurStrength": 2,
+   "edgeWeight": 0.65,
+   "contrast": 1,
+   "gamma": 1,
+   "median": false,
+   "destripe": "off",
+   "flattenSigma": 0,
+   "diffusionIterations": 0,
+   "diffusionKappa": 20,
+   "claheClip": 0,
+   "claheTiles": 8,
+   "levelsClip": 0
+  },
+  "output": "edge-blend-gray.u8"
+ },
+ {
+  "name": "everything-gray",
+  "width": 96,
+  "height": 72,
+  "input": "input-gray-96x72.u8",
+  "config": {
+   "mode": "edge-blend",
+   "blurStrength": 2,
+   "edgeWeight": 0.3,
+   "contrast": 1.2,
+   "gamma": 1.3,
+   "median": true,
+   "destripe": "rows",
+   "flattenSigma": 60,
+   "diffusionIterations": 3,
+   "diffusionKappa": 20,
+   "claheClip": 3,
+   "claheTiles": 8,
+   "levelsClip": 0.5
+  },
+  "output": "everything-gray.u8"
+ }
+]

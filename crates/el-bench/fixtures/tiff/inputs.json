@@ -1,0 +1,72 @@
+[
+ {
+  "file": "pil-none.tif",
+  "native": true,
+  "note": "Pillow, raw"
+ },
+ {
+  "file": "pil-lzw.tif",
+  "native": true,
+  "note": "Pillow, tiff_lzw"
+ },
+ {
+  "file": "pil-lzw-predictor.tif",
+  "native": true,
+  "note": "Pillow, tiff_lzw"
+ },
+ {
+  "file": "pil-deflate.tif",
+  "native": true,
+  "note": "Pillow, tiff_adobe_deflate"
+ },
+ {
+  "file": "pil-packbits.tif",
+  "native": true,
+  "note": "Pillow, packbits"
+ },
+ {
+  "file": "strips-5-rows.tif",
+  "native": true,
+  "note": "uncompressed, 5 rows per strip (last strip short)"
+ },
+ {
+  "file": "tiles-16.tif",
+  "native": true,
+  "note": "uncompressed 16x16 tiles, partial edge tiles"
+ },
+ {
+  "file": "min-is-white.tif",
+  "native": true,
+  "note": "photometric WhiteIsZero (shown inverted)"
+ },
+ {
+  "file": "two-pages.tif",
+  "native": true,
+  "note": "first page is shown"
+ },
+ {
+  "file": "orientation-3.tif",
+  "native": false,
+  "note": "rotated: tiff.js flips it, left to tiff.js"
+ },
+ {
+  "file": "rgb.tif",
+  "native": false,
+  "note": "RGB, left to tiff.js"
+ },
+ {
+  "file": "gray16.tif",
+  "native": false,
+  "note": "16-bit, left to tiff.js"
+ },
+ {
+  "file": "gray-alpha.tif",
+  "native": false,
+  "note": "gray + alpha, left to tiff.js"
+ },
+ {
+  "file": "truncated.tif",
+  "native": false,
+  "note": "damaged file, left to tiff.js"
+ }
+]

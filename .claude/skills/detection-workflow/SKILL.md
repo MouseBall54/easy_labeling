@@ -117,6 +117,16 @@ validated (including reserved-Windows-filename checks) by
 (minBoxSizePx=4, duplicateIou=0.9); per-image review status
 (`needs-review`/`reviewed`) is persisted in a schema-versioned JSON doc.
 
+Findings are kept current image by image (`queueReview` in
+`src/bootstrap/file-system-adapter.ts`): opening a folder or a new label source
+checks every image in the background, and any code that writes label files for
+other images must call `queueReview(names, true)`, which rechecks them and moves
+reviewed ones back to `needs-review`. `writeDetectionLabels` (automation) and
+`commitLabelFileEdits` (class remap, outside-box cleanup) already do. The Review
+task rechecks only images whose label or image file stamp (mtime, size) changed;
+"Recheck" rechecks all. A save of the open image refreshes its finding directly
+and keeps its status.
+
 ## Gotcha checklist
 
 - Don't confuse `canvas-controller.ts` (dispatcher) with

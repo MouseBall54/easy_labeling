@@ -218,10 +218,12 @@ class FakeDocument {
   }
 }
 
-function createRect(labelClass: string): { type: string; labelClass: string } {
+function createRect(labelClass: string): { type: string; labelClass: string; getScaledWidth(): number; getScaledHeight(): number } {
   return {
     type: "rect",
-    labelClass
+    labelClass,
+    getScaledWidth: () => 12,
+    getScaledHeight: () => 8
   };
 }
 

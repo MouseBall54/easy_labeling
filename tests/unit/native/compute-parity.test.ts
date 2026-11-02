@@ -4,11 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { normalizeRefineParams, refineBoxes, type RefineBoxInput } from "../../../src/domain/refine/edge-refine.js";
-import { normalizeSegmentationPreprocessingConfig, preprocessGray, type SegmentationPreprocessingConfig } from "../../../src/features/segmentation/preprocessing.js";
+import { keepsColour, normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../../../src/features/segmentation/preprocessing.js";
+import { inspectDetectionLabels } from "../../../src/features/review/quality.js";
+import { grayBytesToRgba } from "../../../src/features/segmentation/native-preprocessing.js";
 
-// The desktop app runs Rust ports of these algorithms (src-tauri/compute). Build the CLI with
-// `cargo build --release -p easy-labeling-compute` (in src-tauri) to run these checks.
-const cli = [process.env.EASY_LABELING_COMPUTE_CLI ?? "", "src-tauri/target/release/compute-cli.exe", "src-tauri/target/release/compute-cli"].filter(Boolean)
+// The desktop app runs Rust ports of these algorithms (crates/el-core). Build the CLI with
+// `cargo build --release -p el-core` to run these checks.
+const cli = [process.env.EASY_LABELING_COMPUTE_CLI ?? "", "target/release/compute-cli.exe", "target/release/compute-cli"].filter(Boolean)
   .map((file) => path.resolve(file))
   .find((file) => existsSync(file));
 const scratch = mkdtempSync(path.join(os.tmpdir(), "compute-parity-"));
@@ -74,6 +76,25 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
     expect(worst).toBeLessThanOrEqual(1e-3);
   });
 
+  // The desktop Processed view: Rust gray bytes + grayBytesToRgba must equal preprocessSegmentationImage exactly.
+  const colourRandom = seeded(5);
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  image.forEach((value, index) => {
+    rgba.set([value + (colourRandom() - 0.5) * 60, value + (colourRandom() - 0.5) * 60, value, index % 11 === 0 ? 90 : 255], index * 4);
+  });
+  it.each(configs.filter((config) => !keepsColour(normalizeSegmentationPreprocessingConfig(config))).map((config) => [JSON.stringify(config), config] as const))(
+    "processed view %s",
+    (_label, requested) => {
+      const config = normalizeSegmentationPreprocessingConfig(requested);
+      const expected = preprocessSegmentationImage({ width, height, rgba }, config);
+      const gray = new Uint8Array(runCli("view", { width, height, config }, new Uint8Array(rgba.buffer.slice(0))));
+      const actual = grayBytesToRgba(gray, rgba);
+      expect(actual.length).toBe(expected.length);
+      const firstDifference = actual.findIndex((value, index) => value !== expected[index]);
+      expect(firstDifference).toBe(-1);
+    }
+  );
+
   const gray = Uint8Array.from(image, (value) => Math.max(0, Math.min(255, Math.round(value))));
   const random = seeded(11);
   const boxes: RefineBoxInput[] = [];
@@ -99,7 +120,13 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
     { scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest" },
     { nearWeight: false, rangeIn: 14, rangeOut: 14 },
     { crit: "peak", sideRules: { L: { nearWeight: false, rangeOut: 20 }, B: { nearWeight: false } } },
-    { crit: "thr", sideRules: { T: { partMode: "strongest", scanSpan: "outside", extendStart: 6, extendEnd: 9 }, R: { partMode: "strongest", scanSpan: "boxOutside", extendEnd: 5 } } }
+    { crit: "thr", sideRules: { T: { partMode: "strongest", scanSpan: "outside", extendStart: 6, extendEnd: 9 }, R: { partMode: "strongest", scanSpan: "boxOutside", extendEnd: 5 } } },
+    { pairTB: "grow", pairLR: "grow" },
+    { pairTB: "shrink", pairTBPick: "nearest", pairLR: "shrink", pairLRPick: "nearest" },
+    { pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest", iterations: 3 },
+    { pairTB: "grow", sides: { T: "off" } },
+    { pairLR: "grow", scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest", crit: "thr" },
+    { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false }
   ];
 
   it.each(paramVariants.map((params) => [JSON.stringify(params), params] as const))("refineBoxes %s", (_label, raw) => {
@@ -119,5 +146,29 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
       expect(other.conf).toBeCloseTo(result.conf, 9);
       expect(other.areaChange).toBeCloseTo(result.areaChange, 9);
     });
+  });
+
+  // Label review: random lines built from awkward tokens (JS whitespace and number edge cases).
+  it("review findings for 300 random label files", () => {
+    const pick = seeded(23);
+    const tokens = ["0", "1", "2", "0.5", "0.25", ".5", "5.", "1e-1", "2E-2", "0.5abc", "-0.1", "1.5", "0", "NaN", "Infinity", "-Infinity", "0x10", "", "abc",
+      "\uFEFF0", "\u00A00.3", "\u00850.3", "0.3\r", "\t0.2", "1e400", "0.000001", "0.9999999999999999", "+0.4"];
+    const cases = Array.from({ length: 300 }, () => {
+      const lines = Array.from({ length: Math.floor(pick() * 40) }, () => {
+        if (pick() < 0.7) return [0, 1, 2, 3, 4].map((field) => field === 0 ? String(Math.floor(pick() * 3)) : (pick() * 1.2 - 0.1).toFixed(Math.floor(pick() * 16))).join(" ");
+        return Array.from({ length: Math.floor(pick() * 7) }, () => tokens[Math.floor(pick() * tokens.length)]).join(pick() < 0.8 ? " " : "  ");
+      });
+      if (pick() < 0.3 && lines.length > 1) lines.push(lines[Math.floor(pick() * lines.length)]!);
+      return { text: lines.join(pick() < 0.2 ? "\r\n" : "\n"), width: [1, 100, 2048][Math.floor(pick() * 3)]!, height: [1, 75, 1536][Math.floor(pick() * 3)]! };
+    });
+    for (const settings of [
+      { minimumBoxSizePx: 4, duplicateIouThreshold: 0.9, requiredClassIds: [] },
+      { minimumBoxSizePx: 2.5, duplicateIouThreshold: 0, requiredClassIds: ["1", "7"] },
+      { minimumBoxSizePx: 1, duplicateIouThreshold: 0.3, requiredClassIds: ["0"] }
+    ]) {
+      const expected = cases.map((input) => inspectDetectionLabels({ yoloText: input.text, imageWidth: input.width, imageHeight: input.height, settings }));
+      const actual = JSON.parse(runCli("review", { settings }, new TextEncoder().encode(JSON.stringify(cases))).toString("utf8"));
+      expect(actual).toEqual(expected);
+    }
   });
 });

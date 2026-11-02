@@ -16,6 +16,13 @@ export type RefineScanSpan = "box" | "boxOutside" | "outside";
  * one search over all of them together, or a search per part keeping the most confident one.
  */
 export type RefinePartMode = "together" | "strongest";
+/**
+ * Opposite sides (top + bottom, left + right) picked as a pair: off (each side alone), or the pair that
+ * grows / shrinks the box along that axis first, judged by the net change of its height or width.
+ */
+export type RefinePairMode = "off" | "grow" | "shrink";
+/** Among the pairs of the preferred kind: the clearest edges (the weaker side's strength) or the least movement. */
+export type RefinePairPick = "strongest" | "nearest";
 
 export interface RefineParams {
   enabled: boolean;
@@ -45,6 +52,10 @@ export interface RefineParams {
   sides: Record<RefineSide, RefineSideMode>;
   /** Per-side overrides of the edge rule; the side's criterion lives in `sides`. */
   sideRules: Record<RefineSide, RefineSideRule>;
+  pairTB: RefinePairMode;
+  pairTBPick: RefinePairPick;
+  pairLR: RefinePairMode;
+  pairLRPick: RefinePairPick;
   iterations: number;
   reviewBelow: number;
   /** Flag boxes whose area grew by more than this fraction (1 = doubled); 0 disables. */
@@ -87,7 +98,8 @@ export interface RefineResult {
   flagged: boolean;
 }
 
-export const REFINE_SIDES: readonly RefineSide[] = ["L", "R", "T", "B"];
+/** Side order of results, settings and loops: top, bottom, right, left. */
+export const REFINE_SIDES: readonly RefineSide[] = ["T", "B", "R", "L"];
 export const REFINE_CRITERIA: readonly RefineCriterion[] = ["grad", "flank", "peak", "thr"];
 const SIDE_MODES: readonly RefineSideMode[] = ["off", "inherit", ...REFINE_CRITERIA];
 const MIN_SIZE = 2;
@@ -108,8 +120,12 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   nearWeight: true,
   extendStart: 0,
   extendEnd: 0,
-  sides: Object.freeze({ L: "inherit", R: "inherit", T: "inherit", B: "inherit" }) as Record<RefineSide, RefineSideMode>,
-  sideRules: Object.freeze({ L: {}, R: {}, T: {}, B: {} }) as Record<RefineSide, RefineSideRule>,
+  sides: Object.freeze({ T: "inherit", B: "inherit", R: "inherit", L: "inherit" }) as Record<RefineSide, RefineSideMode>,
+  sideRules: Object.freeze({ T: {}, B: {}, R: {}, L: {} }) as Record<RefineSide, RefineSideRule>,
+  pairTB: "off",
+  pairTBPick: "strongest",
+  pairLR: "off",
+  pairLRPick: "strongest",
   iterations: 2,
   reviewBelow: 0.35,
   areaGrowLimit: 1,
@@ -145,6 +161,9 @@ export type RefineLimitedKey = keyof typeof REFINE_PARAM_LIMITS;
 const clamp = (value: number, low: number, high: number): number => (value < low ? low : value > high ? high : value);
 const limit = (key: RefineLimitedKey, value: number): number => clamp(value, REFINE_PARAM_LIMITS[key][0], REFINE_PARAM_LIMITS[key][1]);
 const num = (value: unknown, fallback: number): number => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
+
+const pairMode = (value: unknown, fallback: RefinePairMode): RefinePairMode => (value === "off" || value === "grow" || value === "shrink" ? value : fallback);
+const pairPick = (value: unknown, fallback: RefinePairPick): RefinePairPick => (value === "strongest" || value === "nearest" ? value : fallback);
 
 /** Accepts legacy refine-module values: boolean sides, R (both ranges) and K (segments). */
 export function normalizeSideMode(value: unknown, fallback: RefineSideMode): RefineSideMode {
@@ -191,12 +210,16 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     extendStart: limit("extendStart", Math.round(num(p.extendStart, d.extendStart))),
     extendEnd: limit("extendEnd", Math.round(num(p.extendEnd, d.extendEnd))),
     sides: {
-      L: normalizeSideMode(sides.L, d.sides.L),
-      R: normalizeSideMode(sides.R, d.sides.R),
       T: normalizeSideMode(sides.T, d.sides.T),
-      B: normalizeSideMode(sides.B, d.sides.B)
+      B: normalizeSideMode(sides.B, d.sides.B),
+      R: normalizeSideMode(sides.R, d.sides.R),
+      L: normalizeSideMode(sides.L, d.sides.L)
     },
-    sideRules: { L: normalizeSideRule(rules.L), R: normalizeSideRule(rules.R), T: normalizeSideRule(rules.T), B: normalizeSideRule(rules.B) },
+    sideRules: { T: normalizeSideRule(rules.T), B: normalizeSideRule(rules.B), R: normalizeSideRule(rules.R), L: normalizeSideRule(rules.L) },
+    pairTB: pairMode(p.pairTB, d.pairTB),
+    pairTBPick: pairPick(p.pairTBPick, d.pairTBPick),
+    pairLR: pairMode(p.pairLR, d.pairLR),
+    pairLRPick: pairPick(p.pairLRPick, d.pairLRPick),
     iterations: limit("iterations", Math.round(num(p.iterations, d.iterations))),
     reviewBelow: limit("reviewBelow", num(p.reviewBelow, d.reviewBelow)),
     areaGrowLimit: limit("areaGrowLimit", num(p.areaGrowLimit, d.areaGrowLimit)),
@@ -359,20 +382,11 @@ function findEdge(
   context: EdgeContext | null,
   step: number,
   near: boolean
-): { pos: number; conf: number; strength: number } | null {
+): EdgeCandidate | null {
   const n = P.length;
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (let i = 0; i < n; i += 1) {
-    if (P[i] < lo) lo = P[i];
-    if (P[i] > hi) hi = P[i];
-  }
-  const range = hi - lo;
-  if (range < 1e-6) return null;
-  const dd = new Float32Array(Math.max(0, n - 2));
-  for (let i = 1; i < n - 1; i += 1) dd[i - 1] = Math.abs(raw[i + 1] - 2 * raw[i] + raw[i - 1]);
-  const noise = dd.length ? kthSmallest(dd, dd.length >> 1) / (0.6745 * Math.sqrt(6)) : 0;
-  const snr = range / (noise + 0.5);
+  const stats = profileStats(raw, P);
+  if (!stats) return null;
+  const { lo, hi, snr } = stats;
   const weight = edgeWeight(n, c, near);
   let pos: number | null = null;
 
@@ -410,30 +424,117 @@ function findEdge(
       }
     }
     if (peak < 0) return null;
-    if (crit === "peak") {
-      pos = peak + parabola((i) => P[i], peak, n);
-    } else {
-      let base = Infinity;
-      for (let i = peak; i >= 0 && i < n; i += out) if (P[i] < base) base = P[i];
-      if (context && context.polarity !== 0 && context.outside < P[peak]) base = context.outside;
-      const level = (P[peak] + base) / 2;
-      for (let i = peak; i + out >= 0 && i + out < n; i += out) {
-        if (P[i + out] <= level) {
-          const a = P[i] - level;
-          const b = P[i + out] - level;
-          pos = i + out * (a / (a - b));
-          break;
-        }
-      }
-    }
+    pos = bandEdge(P, peak, crit, out, context);
   }
   if (pos === null || !Number.isFinite(pos)) return null;
+  return scoredEdge(pos, snr, n);
+}
+
+interface EdgeCandidate { pos: number; conf: number; strength: number }
+
+/** Range and contrast-to-noise ratio of a profile; null when it is flat. */
+function profileStats(raw: Float32Array, P: Float32Array): { lo: number; hi: number; snr: number } | null {
+  const n = P.length;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < n; i += 1) {
+    if (P[i] < lo) lo = P[i];
+    if (P[i] > hi) hi = P[i];
+  }
+  const range = hi - lo;
+  if (range < 1e-6) return null;
+  const dd = new Float32Array(Math.max(0, n - 2));
+  for (let i = 1; i < n - 1; i += 1) dd[i - 1] = Math.abs(raw[i + 1] - 2 * raw[i] + raw[i - 1]);
+  const noise = dd.length ? kthSmallest(dd, dd.length >> 1) / (0.6745 * Math.sqrt(6)) : 0;
+  return { lo, hi, snr: range / (noise + 0.5) };
+}
+
+/** Bright band criteria: the band centre (peak) or its outer 50% level (flank) for the band peaking at `peak`. */
+function bandEdge(P: Float32Array, peak: number, crit: RefineCriterion, out: 1 | -1, context: EdgeContext | null): number | null {
+  const n = P.length;
+  if (crit === "peak") return peak + parabola((i) => P[i], peak, n);
+  let base = Infinity;
+  for (let i = peak; i >= 0 && i < n; i += out) if (P[i] < base) base = P[i];
+  if (context && context.polarity !== 0 && context.outside < P[peak]) base = context.outside;
+  const level = (P[peak] + base) / 2;
+  for (let i = peak; i + out >= 0 && i + out < n; i += out) {
+    if (P[i + out] <= level) {
+      const a = P[i] - level;
+      const b = P[i + out] - level;
+      return i + out * (a / (a - b));
+    }
+  }
+  return null;
+}
+
+function scoredEdge(pos: number, snr: number, n: number): EdgeCandidate {
   let conf = clamp((snr - 3) / 12, 0, 1);
   // Strength is the unclamped contrast-to-noise ratio: confidence saturates at 1, strength still ranks
   // a strong edge above a merely clear one when parts of a side compete.
   let strength = snr;
   if (pos < 1 || pos > n - 2) { conf *= 0.3; strength *= 0.3; } // edge on the search limit: the real one is probably beyond it
   return { pos, conf, strength };
+}
+
+/**
+ * Every edge findEdge weighs on this profile, best first (at most `max`): local maxima of its score (every
+ * crossing for the 50% level, nearest first). Each is scored as findEdge scores its pick, scaled by its share
+ * of the best score, so the first one matches findEdge.
+ */
+function findEdgeCandidates(
+  raw: Float32Array,
+  P: Float32Array,
+  crit: RefineCriterion,
+  out: 1 | -1,
+  c: number,
+  sign: -1 | 0 | 1,
+  context: EdgeContext | null,
+  step: number,
+  near: boolean,
+  max: number
+): EdgeCandidate[] {
+  const n = P.length;
+  const stats = profileStats(raw, P);
+  if (!stats) return [];
+  const { lo, hi, snr } = stats;
+  const weight = edgeWeight(n, c, near);
+  const picks: { pos: number | null; score: number }[] = [];
+  if (crit === "grad") {
+    const { before, after } = gradientSpan(step);
+    const gradient = gradientAt(P, step, sign);
+    const from = Math.max(1, before);
+    const to = n - Math.max(1, after);
+    const score = (i: number): number => gradient(i) * weight(i);
+    for (let i = from; i < to; i += 1) {
+      const g = score(i);
+      if (g > 0 && (i === from || g > score(i - 1)) && (i === to - 1 || g >= score(i + 1))) {
+        picks.push({ pos: i + (after - before) / 2 + parabola(gradient, i, n), score: g });
+      }
+    }
+  } else if (crit === "thr") {
+    const level = context && context.polarity !== 0 ? (context.inside + context.outside) / 2 : (lo + hi) / 2;
+    for (let i = 0; i < n - 1; i += 1) {
+      const a = P[i] - level;
+      const b = P[i + 1] - level;
+      if (a * b <= 0 && a !== b && (sign === 0 || Math.sign(b - a) === sign)) {
+        const x = i + a / (a - b);
+        picks.push({ pos: x, score: -Math.abs(x - c) });
+      }
+    }
+  } else {
+    for (let i = 1; i < n - 1; i += 1) {
+      if (P[i] >= P[i - 1] && P[i] >= P[i + 1]) picks.push({ pos: bandEdge(P, i, crit, out, context), score: (P[i] - lo) * weight(i) });
+    }
+  }
+  picks.sort((a, b) => b.score - a.score);
+  const best = picks[0]?.score ?? 0;
+  const found: EdgeCandidate[] = [];
+  for (const pick of picks) {
+    if (found.length >= max) break;
+    if (pick.pos === null || !Number.isFinite(pick.pos)) continue;
+    found.push(scoredEdge(pick.pos, crit === "thr" ? snr : snr * pick.score / best, n));
+  }
+  return found;
 }
 
 function median(values: Float32Array, count: number): number {
@@ -654,6 +755,130 @@ function strongestPart(parts: readonly ({ strength: number } | null)[]): number 
   return best;
 }
 
+/** At most this many candidates per segment and per side when opposite sides are picked as a pair. */
+const PAIR_CANDIDATES = 5;
+
+export interface SideCandidate { value: number; conf: number; strength: number }
+
+/**
+ * Candidate edges of one side, strongest first: every segment's candidates (all scanned parts together),
+ * clustered by position (within max(2, gradStep) samples). A cluster is placed by the side's combine rule and
+ * scored like searchRange scores the side (median of its segments x the share of segments it appears in);
+ * clusters under half the best confidence are dropped, as searchRange drops weak segments.
+ */
+function sideCandidates(img: GrayImage, w: SideWindow, crit: RefineCriterion, p: RefineParams, sign: -1 | 0 | 1, context: EdgeContext | null): SideCandidate[] {
+  const kernel = gaussKernel(p.sigma);
+  const total = w.positions.length;
+  const segments = Math.max(1, Math.min(p.segments, total));
+  const found: (EdgeCandidate & { segment: number })[] = [];
+  for (let k = 0; k < segments; k += 1) {
+    const from = Math.floor(k * total / segments);
+    const to = Math.max(from + 1, Math.floor((k + 1) * total / segments));
+    const profile = sampleProfile(img, w, from, to);
+    const edges = findEdgeCandidates(profile, smooth(profile, kernel), crit, w.geometry.out, w.c, sign, context, p.gradStep, p.nearWeight, PAIR_CANDIDATES);
+    for (const edge of edges) found.push({ ...edge, segment: k });
+  }
+  found.sort((a, b) => a.pos - b.pos);
+  const gap = Math.max(2, p.gradStep);
+  const clusters: (typeof found)[] = [];
+  for (const edge of found) {
+    const last = clusters[clusters.length - 1];
+    if (last && edge.pos - last[last.length - 1]!.pos <= gap) last.push(edge);
+    else clusters.push([edge]);
+  }
+  const merged = clusters.map((members): SideCandidate => {
+    const positions = Float32Array.from(members, (e) => e.pos).sort();
+    const pos = p.comb === "outer" ? quantile(positions, w.geometry.out < 0 ? 0.1 : 0.9) : quantile(positions, 0.5);
+    const coverage = new Set(members.map((e) => e.segment)).size / segments;
+    return {
+      value: w.base + pos + 0.5,
+      conf: quantile(Float32Array.from(members, (e) => e.conf).sort(), 0.5) * coverage,
+      strength: quantile(Float32Array.from(members, (e) => e.strength).sort(), 0.5) * coverage
+    };
+  });
+  const best = Math.max(0, ...merged.map((e) => e.conf));
+  return merged.filter((e) => e.conf >= best * 0.5).sort((a, b) => b.strength - a.strength).slice(0, PAIR_CANDIDATES);
+}
+
+export interface AxisPairChoice {
+  /** Chosen edge of the low side (L or T) and the high side (R or B); null keeps that side where it is. */
+  low: SideCandidate | null;
+  high: SideCandidate | null;
+  /** Kind of the chosen pair, when a kind was preferred and both sides had candidates. */
+  group: "grow" | "shrink" | null;
+  /** No pair of the preferred kind: the pick came from the other kind. */
+  fallback: boolean;
+  /** Pairs the pick chose from. */
+  pool: number;
+}
+
+/**
+ * Picks one edge per side of an axis from their candidates. A pair grows or shrinks the axis by its net
+ * span change (no change counts as either); pairs shorter than MIN_SIZE are dropped. The preferred kind is
+ * used when it has a pair, the other kind otherwise. A side without candidates stays; the other side is
+ * then picked alone. strongest: largest weaker-side strength, then least movement; nearest: the reverse.
+ */
+export function pickAxisPair(
+  low: readonly SideCandidate[],
+  high: readonly SideCandidate[],
+  current: readonly [number, number],
+  prefer: "grow" | "shrink" | null,
+  pick: RefinePairPick
+): AxisPairChoice {
+  const none: AxisPairChoice = { low: null, high: null, group: null, fallback: false, pool: 0 };
+  if (!low.length && !high.length) return none;
+  const before = current[1] - current[0];
+  const pairs: { low: SideCandidate | null; high: SideCandidate | null; change: number; moved: number; strength: number }[] = [];
+  for (const l of low.length ? low : [null]) {
+    for (const h of high.length ? high : [null]) {
+      const a = l?.value ?? current[0];
+      const b = h?.value ?? current[1];
+      if (b - a < MIN_SIZE) continue;
+      pairs.push({ low: l, high: h, change: b - a - before, moved: Math.abs(a - current[0]) + Math.abs(b - current[1]), strength: Math.min(l?.strength ?? Infinity, h?.strength ?? Infinity) });
+    }
+  }
+  if (!pairs.length) return none;
+  const grouped = prefer !== null && low.length > 0 && high.length > 0;
+  const preferred = grouped ? pairs.filter((pair) => (prefer === "grow" ? pair.change >= 0 : pair.change <= 0)) : pairs;
+  const pool = preferred.length ? preferred : pairs;
+  const better = (a: typeof pool[number], b: typeof pool[number]): boolean => (pick === "strongest"
+    ? a.strength > b.strength || (a.strength === b.strength && a.moved < b.moved)
+    : a.moved < b.moved || (a.moved === b.moved && a.strength > b.strength));
+  let best = pool[0]!;
+  for (const pair of pool) if (better(pair, best)) best = pair;
+  const fallback = grouped && !preferred.length;
+  return {
+    low: best.low,
+    high: best.high,
+    group: grouped ? (fallback ? (prefer === "grow" ? "shrink" : "grow") : prefer) : null,
+    fallback,
+    pool: pool.length
+  };
+}
+
+interface PairAxis { axis: "TB" | "LR"; low: RefineSide; high: RefineSide; mode: "pairTB" | "pairLR"; pick: "pairTBPick" | "pairLRPick" }
+const PAIR_AXES: readonly PairAxis[] = [
+  { axis: "TB", low: "T", high: "B", mode: "pairTB", pick: "pairTBPick" },
+  { axis: "LR", low: "L", high: "R", mode: "pairLR", pick: "pairLRPick" }
+];
+/** The pair applies when it is on and neither of its sides is off. */
+const pairApplies = (params: RefineParams, a: PairAxis): boolean =>
+  params[a.mode] !== "off" && params.sides[a.low] !== "off" && params.sides[a.high] !== "off";
+
+/** First pass: the preferred kind and pick rule; later passes keep the nearest pair (no drifting outward). */
+function choosePair(img: GrayImage, box: RefineRect, a: PairAxis, params: RefineParams, context: EdgeContext | null, neighbours: readonly RefineRect[], first: boolean) {
+  const candidates = (side: RefineSide): SideCandidate[] => {
+    const p = sideParams(params, side);
+    const w = sideWindow(img, box, side, p, neighbours);
+    return sideCandidates(img, w, p.crit, p, edgeSign(resolvePolarity(p, context), w.geometry.out), context);
+  };
+  const low = candidates(a.low);
+  const high = candidates(a.high);
+  const current: [number, number] = [box[SIDE_GEOMETRY[a.low].key], box[SIDE_GEOMETRY[a.high].key]];
+  const prefer = first ? params[a.mode] as "grow" | "shrink" : null;
+  return { low, high, current, choice: pickAxisPair(low, high, current, prefer, first ? params[a.pick] : "nearest") };
+}
+
 function refineSide(
   img: GrayImage,
   box: RefineRect,
@@ -724,6 +949,21 @@ export interface RefineSideDiagnostics {
    */
   score: Float32Array | null;
   scoreShift: number;
+  /** Set when the side is picked as a pair with its opposite side (first pass over the current box). */
+  pair?: {
+    axis: "TB" | "LR";
+    prefer: "grow" | "shrink";
+    pick: RefinePairPick;
+    group: "grow" | "shrink" | null;
+    fallback: boolean;
+    /** Pairs the pick chose from. */
+    pool: number;
+    /** This side's candidate edges (image coordinates), strongest first. */
+    candidates: number[];
+    chosen: number | null;
+    /** Height or width change of the chosen pair. */
+    spanChange: number;
+  };
 }
 
 /** Whole-side averaged profile and context, for plotting while tuning (refinement itself works per segment). */
@@ -750,6 +990,25 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
     });
   } else {
     firstPass = searchRange(img, w, 0, w.positions.length, params.crit, params, sign, context, segments)?.value ?? null;
+  }
+  let pair: RefineSideDiagnostics["pair"];
+  const a = PAIR_AXES.find((axis) => axis.low === side || axis.high === side)!;
+  if (pairApplies(classParams, a)) {
+    const { low, high, current, choice } = choosePair(img, box, a, classParams, context, neighbours, true);
+    const chosen = (side === a.low ? choice.low : choice.high)?.value ?? null;
+    const span = (choice.high?.value ?? current[1]) - (choice.low?.value ?? current[0]);
+    pair = {
+      axis: a.axis,
+      prefer: classParams[a.mode] as "grow" | "shrink",
+      pick: classParams[a.pick],
+      group: choice.group,
+      fallback: choice.fallback,
+      pool: choice.pool,
+      candidates: (side === a.low ? low : high).map((edge) => edge.value),
+      chosen,
+      spanChange: span - (current[1] - current[0])
+    };
+    firstPass = chosen;
   }
   const n = raw.length;
   const weightAt = edgeWeight(n, w.c, params.nearWeight);
@@ -781,7 +1040,8 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
     firstPass,
     weight,
     score,
-    scoreShift: (after - before) / 2
+    scoreShift: (after - before) / 2,
+    ...(pair ? { pair } : {})
   };
 }
 
@@ -801,9 +1061,24 @@ export function refineBox(
   const context = measureContext(img, current, { ...params, rangeOut: Math.max(...REFINE_SIDES.map((side) => perSide[side].rangeOut)) });
   for (let iteration = 0; iteration < params.iterations; iteration += 1) {
     const next = { ...current };
+    // Confidence of paired sides, recorded in side order below so sideConf keeps its key order (T, B, R, L).
+    const paired = new Map<RefineSide, number>();
+    for (const a of PAIR_AXES) {
+      if (!pairApplies(params, a)) continue;
+      const { choice } = choosePair(img, current, a, params, context, neighbours, iteration === 0);
+      for (const [side, edge] of [[a.low, choice.low], [a.high, choice.high]] as const) {
+        if (edge) next[SIDE_GEOMETRY[side].key] = edge.value;
+        paired.set(side, edge?.conf ?? 0);
+      }
+    }
     for (const side of REFINE_SIDES) {
       const mode = params.sides[side];
       if (mode === "off") continue;
+      const pairedConf = paired.get(side);
+      if (pairedConf !== undefined) {
+        sideConf[side] = pairedConf;
+        continue;
+      }
       const result = refineSide(img, current, side, perSide[side].crit, perSide[side], context, neighbours);
       if (result) {
         next[SIDE_GEOMETRY[side].key] = result.value;

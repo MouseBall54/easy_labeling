@@ -10,7 +10,7 @@ import {
 } from "../../../../src/features/segmentation/working-image.js";
 
 const srX2 = {
-  source: "sr-roi" as const,
+  source: "original-processed" as const,
   width: 2048,
   height: 2048,
   originalWidth: 1024,
@@ -26,13 +26,13 @@ const srX4 = {
 };
 
 describe("segmentation working image coordinates", () => {
-  it("maps SR x2 points to Original coordinates without inline scale factors", () => {
+  it("maps 2x working points to Original coordinates without inline scale factors", () => {
     expect(getWorkingImageScale(srX2)).toEqual({ x: 2, y: 2 });
     expect(workingPointToOriginal({ x: 1200, y: 600 }, srX2)).toEqual({ x: 600, y: 300 });
     expect(originalPointToWorking({ x: 600, y: 300 }, srX2)).toEqual({ x: 1200, y: 600 });
   });
 
-  it("maps SR x4 points to Original coordinates through the same descriptor contract", () => {
+  it("maps 4x working points to Original coordinates through the same descriptor contract", () => {
     expect(getWorkingImageScale(srX4)).toEqual({ x: 4, y: 4 });
     expect(workingPointToOriginal({ x: 2400, y: 1200 }, srX4)).toEqual({ x: 600, y: 300 });
     expect(originalPointToWorking({ x: 600, y: 300 }, srX4)).toEqual({ x: 2400, y: 1200 });
@@ -52,9 +52,9 @@ describe("segmentation working image coordinates", () => {
     expect(workingMaskToOriginal({ descriptor, mask })).toEqual(new Uint8Array([0, 1, 1, 0]));
   });
 
-  it("maps SR ROI points and masks into the ROI position on the Original image", () => {
+  it("maps ROI working points and masks into the ROI position on the Original image", () => {
     const descriptor = {
-      source: "sr-roi" as const,
+      source: "original-processed" as const,
       width: 4,
       height: 4,
       originalWidth: 6,
@@ -81,7 +81,7 @@ describe("segmentation working image coordinates", () => {
 
   it("derives a 600x400 x2 working ROI from a 300x200 Original ROI", () => {
     const descriptor = {
-      source: "sr-roi" as const,
+      source: "original-processed" as const,
       width: 600,
       height: 400,
       originalWidth: 1000,
@@ -96,7 +96,7 @@ describe("segmentation working image coordinates", () => {
 
   it("keeps same-resolution restoration ROI coordinates and restores its mask to Original", () => {
     const descriptor = {
-      source: "sr-roi" as const,
+      source: "original-processed" as const,
       width: 3,
       height: 2,
       originalWidth: 7,

@@ -1,14 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
+import { encodePng, grayPixels, grayPng, grayTiff, withExifOrientation, withPngExif, writeReviewDataset, yoloLabels } from "./fixtures/review-dataset.js";
 import { launchDesktop as launch } from "./fixtures/tauri-app.js";
 
 // Drives the real Tauri executable (npm run tauri:dev, or EASY_LABELING_TAURI_EXE) through WebView2's CDP port.
 const root = path.resolve(".");
-const exe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "src-tauri/target/debug/Easy Labeling.exe");
+const exe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "target/debug/Easy Labeling.exe");
 test.skip(!existsSync(exe), `Tauri executable not built: ${exe}`);
 const launchDesktop = (sandbox: string, pickDirectories: string[]) => launch(exe, sandbox, pickDirectories);
 
@@ -138,6 +139,7 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
         return { id: String(index), classId: "0", x0, y0, x1: x0 + 60, y1: y0 + 50 };
       });
       const paramsByClass = { 0: normalizeRefineParams({}) };
+      const pairParams = { 0: normalizeRefineParams({ pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest" }) };
       const processed = { kind: "processed", config: { mode: "edge-blend", median: true, claheClip: 2 } };
       const run = async () => {
         const refine = createRefineService();
@@ -146,7 +148,8 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
         const onProcessed = await refine.refine(image, boxes, paramsByClass, boxes, processed);
         const crop = await refine.crop(image, { x0: 10.5, y0: 20, x1: 60, y1: 71.2 }, processed);
         const elapsed = performance.now() - started;
-        return { original, onProcessed, crop: { ...crop, gray: Array.from(crop.gray) }, elapsed };
+        const paired = await refine.refine(image, boxes, pairParams, boxes, { kind: "original" });
+        return { original, onProcessed, paired, crop: { ...crop, gray: Array.from(crop.gray) }, elapsed };
       };
       const native = await run();
       const bridge = Reflect.get(window, "easyLabelingNative");
@@ -159,7 +162,7 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
     });
     expect(outcome.bridge).toBe(true);
     expect(outcome.native.original).toHaveLength(40);
-    for (const key of ["original", "onProcessed"] as const) {
+    for (const key of ["original", "onProcessed", "paired"] as const) {
       outcome.native[key].forEach((result: { id: string; weakSides: string[]; box: Record<string, number> }, index: number) => {
         const expected = outcome.js[key][index];
         expect(result.id).toBe(expected.id);
@@ -176,3 +179,1022 @@ test("Tauri native refine agrees with the JS refine worker in the app", async ()
   }
 });
 
+
+test("Tauri Processed view is computed natively, matches the TS result and keeps the UI thread free", async () => {
+  test.setTimeout(240_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "sem");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "sem.png"), grayPng(4096, 3072));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("sem.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden();
+
+    // Runs `trigger` and waits for `done`, recording main-thread long tasks meanwhile.
+    const measure = (step: "view" | "heavy") => page.evaluate(async (which) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const longTasks: number[] = [];
+      const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => longTasks.push(entry.duration)));
+      observer.observe({ type: "longtask" });
+      const started = performance.now();
+      if (which === "view") {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+      } else {
+        (document.getElementById("segmentationPreprocessFlattenInput") as HTMLInputElement).value = "200";
+        const diffusion = document.getElementById("segmentationPreprocessDiffusionInput") as HTMLInputElement;
+        diffusion.value = "20";
+        diffusion.dispatchEvent(new Event("change"));
+      }
+      const done = () => which === "view"
+        ? api.getSegmentationViewSource() === "processed"
+        : api.getSegmentationPreprocessingConfig().flattenSigma === 200 && api.getSegmentationPreprocessingConfig().diffusionIterations === 20;
+      while (!done()) await new Promise((resolve) => setTimeout(resolve, 5));
+      const elapsed = performance.now() - started;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      observer.disconnect();
+      return { elapsed, maxLongTask: Math.max(0, ...longTasks) };
+    }, step);
+
+    // Keep the original pixels to compute the TS reference and timing in the same page afterwards.
+    await page.evaluate(() => {
+      const element = Reflect.get(window, "__easyLabelingTestApi").getCanvasBackgroundElement() as HTMLImageElement;
+      const canvas = document.createElement("canvas");
+      canvas.width = element.naturalWidth || element.width;
+      canvas.height = element.naturalHeight || element.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(element, 0, 0);
+      Reflect.set(window, "__originalRgba", context.getImageData(0, 0, canvas.width, canvas.height));
+    });
+    const view = await measure("view");
+    const heavy = await measure("heavy");
+
+    const check = await page.evaluate(async () => {
+      const load = (file: string): Promise<any> => import(file);
+      const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const original = Reflect.get(window, "__originalRgba") as ImageData;
+      const hash = async (bytes: Uint8ClampedArray) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+      // The shown image: an <img> (opaque natively processed views) or a canvas; read either back the same way.
+      const element = api.getCanvasBackgroundElement() as HTMLImageElement | HTMLCanvasElement;
+      const shownCanvas = document.createElement("canvas");
+      shownCanvas.width = element instanceof HTMLImageElement ? element.naturalWidth : element.width;
+      shownCanvas.height = element instanceof HTMLImageElement ? element.naturalHeight : element.height;
+      shownCanvas.getContext("2d")!.drawImage(element, 0, 0);
+      const shown = shownCanvas.getContext("2d")!.getImageData(0, 0, shownCanvas.width, shownCanvas.height).data;
+      const config = normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig());
+      const started = performance.now();
+      const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, config);
+      const tsMs = performance.now() - started;
+      const defaultStarted = performance.now();
+      preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, normalizeSegmentationPreprocessingConfig({}));
+      const tsDefaultMs = performance.now() - defaultStarted;
+      return { same: await hash(shown) === await hash(expected), size: [shownCanvas.width, shownCanvas.height], shownAs: element.tagName, tsMs, tsDefaultMs };
+    });
+    console.log(`4096x3072 Processed view, default config: native ${view.elapsed.toFixed(0)} ms (longest UI task ${view.maxLongTask.toFixed(0)} ms), TS on the UI thread ${check.tsDefaultMs.toFixed(0)} ms`);
+    console.log(`4096x3072 flatten 200 + diffusion 20: native ${heavy.elapsed.toFixed(0)} ms (longest UI task ${heavy.maxLongTask.toFixed(0)} ms), TS on the UI thread ${check.tsMs.toFixed(0)} ms`);
+    expect(check.size).toEqual([4096, 3072]);
+    expect(check.same).toBe(true);
+    // An opaque natively processed view is shown as a decoded <img>, not drawn into a canvas on the UI thread.
+    expect(check.shownAs).toBe("IMG");
+    // The UI thread only converts and copies pixels; the filters run in Rust.
+    expect(heavy.maxLongTask).toBeLessThan(check.tsMs / 2);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+/**
+ * Rechecks the whole folder on the native path, then with the native review and label scan switched off;
+ * returns both runs' findings and image statuses (sorted JSON) and times.
+ */
+async function reviewBothWays(page: Page) {
+  return page.evaluate(async () => {
+    const api = Reflect.get(window, "__easyLabelingTestApi");
+    const sorted = (record: Record<string, unknown>) => JSON.stringify(Object.keys(record).sort().map((name) => [name, record[name]]));
+    const run = async () => {
+      const started = performance.now();
+      await api.refreshReviewFindings({ all: true });
+      const ms = performance.now() - started;
+      return { ms, json: sorted(api.getReviewFindings()), statuses: sorted(api.getImageWorkflowStatuses()) };
+    };
+    const native = await run();
+    window.easyLabelingNativeOff = ["review", "label-scan"];
+    try {
+      return { native, ts: await run() };
+    } finally {
+      window.easyLabelingNativeOff = [];
+    }
+  });
+}
+
+test("Tauri folder review in Rust gives the TS findings, with decoder fallbacks and unsaved edits", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "review");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  const write = (name: string, data: Buffer | string) => writeFile(path.join(dataset, name), data);
+  for (let index = 0; index < 3; index += 1) {
+    await write(`a_png_${index}.png`, grayPng(2048, 1536, index + 1));
+    await write(`label/a_png_${index}.txt`, yoloLabels(5000, index + 1));
+    await write(`b_tif_${index}.tif`, grayTiff(2048, 1536, index + 7));
+    await write(`label/b_tif_${index}.txt`, yoloLabels(5000, index + 7));
+  }
+  // EXIF orientation 6: the browser reports 650x1157, so a 0.004-wide box is 2.6 px (small), not 4.6 px.
+  await write("c_rotated.jpg", withExifOrientation(await readFile(path.join(root, "assets/sample/sample_1.jpg")), 6));
+  await write("label/c_rotated.txt", "0 0.5 0.5 0.004 0.5\n");
+  // eXIf in a PNG: Rust leaves the size to the TS decoder for this image only.
+  await write("d_exif.png", withPngExif(grayPng(300, 200)));
+  await write("label/d_exif.txt", "0 0.5 0.5 0.01 0.5\n");
+  await write("e_no_label.png", grayPng(64, 64));
+  await write("f_messy.png", grayPng(640, 480));
+  await write("label/f_messy.txt", "﻿0 0.5 0.5 0.1 0.1\r\n0  0.5 0.5 0.1 0.1\r\n1 0.5abc .5 1e-1 0.1\r\nx NaN 0.5\r\n  2 0.99 0.5 0.1 0.1\r\n");
+  await write("g_empty.png", grayPng(64, 64));
+  await write("label/g_empty.txt", "");
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("a_png_0.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    // Unsaved edits on the open image: both paths must review them instead of its 5,000-box file.
+    await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").seedDetectionBoxesForTest(3));
+    await expect.poll(() => rectCount(page)).toBe(3);
+
+    const { native, ts } = await reviewBothWays(page);
+    const findings = Object.fromEntries(JSON.parse(native.json)) as Record<string, { issues: Array<{ type: string; rectIndexes: number[] }> }>;
+    expect(Object.keys(findings)).toHaveLength(11);
+    expect(native.json).toBe(ts.json);
+      expect(native.statuses).toBe(ts.statuses);
+    expect(findings["c_rotated.jpg"]!.issues.map((issue) => issue.type)).toEqual(["small-box"]);
+    expect(findings["d_exif.png"]!.issues.map((issue) => issue.type)).toEqual(["small-box"]);
+    expect(findings["a_png_0.png"]!.issues.every((issue) => issue.rectIndexes.every((index) => index < 3))).toBe(true);
+    expect(findings["a_png_1.png"]!.issues.length).toBeGreaterThan(10);
+    console.log(`11-image review: native ${native.ms.toFixed(0)} ms, TS ${ts.ms.toFixed(0)} ms`);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+for (const format of ["tif", "png"] as const) {
+  test(`Tauri folder review of 60 ${format.toUpperCase()} images with 5,000 boxes each: native vs TS`, async () => {
+    test.setTimeout(600_000);
+    const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+    const dataset = path.join(sandbox, "review");
+    await writeReviewDataset(dataset, { images: 60, boxes: 5000, format });
+    // A whole second survives utimes exactly (a restored millisecond time can come back 1 ms off).
+    const trap = path.join(dataset, "label", "img_003.txt");
+    const trapTime = new Date("2024-01-01T00:00:00Z");
+    await utimes(trap, trapTime, trapTime);
+    const app = await launchDesktop(sandbox, [dataset]);
+    try {
+      const { page } = app;
+      await page.locator("#selectImageFolderBtn").click();
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 120_000 }).toBe(`img_000.${format}`);
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 120_000 });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+
+      // Cancelling the Rust job: the review of the folder is too quick to stop from the UI (~0.1 s), so ask
+      // for the 60 images ten times over and cancel once the job reports progress. The job ends early,
+      // unregisters itself, and a normal review still runs afterwards.
+      const names = Array.from({ length: 60 }, (_, index) => `img_${String(index).padStart(3, "0")}.${format}`);
+      const images = Array.from({ length: 10 }, () => names.map((name) => ({ name, path: path.join(dataset, name), editedText: null }))).flat();
+      const stopped = await page.evaluate(async ({ images, labelFolder }) => {
+        const native = window.easyLabelingNative!;
+        const jobId = "e2e-cancel";
+        const settings = { minimumBoxSizePx: 4, duplicateIouThreshold: 0.9, requiredClassIds: [] };
+        const started = performance.now();
+        let settled = false;
+        const running = native.invoke("review_folder", { request: { jobId, labelFolder, images, settings } })
+          .then(() => "finished", (error: unknown) => String((error as Error)?.message ?? error))
+          .finally(() => { settled = true; });
+        let progress: { done: number; total: number } | null = null;
+        while (!settled && !(progress && progress.done > 0)) {
+          progress = await native.invoke<{ done: number; total: number } | null>("job_progress", { id: jobId });
+        }
+        await native.invoke("job_cancel", { id: jobId });
+        const outcome = await running;
+        return { outcome, ms: performance.now() - started, progress, after: await native.invoke("job_progress", { id: jobId }) };
+      }, { images, labelFolder: path.join(dataset, "label") });
+      expect(stopped.outcome).toContain("Native job cancelled");
+      expect(stopped.progress?.total).toBe(600);
+      expect(stopped.progress!.done).toBeLessThan(600);
+      expect(stopped.after).toBeNull();
+
+      const { native, ts } = await reviewBothWays(page);
+      expect(native.json).toBe(ts.json);
+      expect(native.statuses).toBe(ts.statuses);
+      console.log(`60 ${format} x 5,000 boxes review: native ${native.ms.toFixed(0)} ms, TS ${ts.ms.toFixed(0)} ms; cancelled 600-image job after ${stopped.ms.toFixed(0)} ms (${stopped.progress?.done}/600 done at cancel)`);
+
+      // Edited outside the app: the Review task rechecks only img_007 (new stamp). img_003 changes too but
+      // keeps its size and time, so it must keep its old finding until a full recheck.
+      await writeFile(trap, (await readFile(trap, "utf8")).replace(/^0 /, "9 "));
+      await utimes(trap, trapTime, trapTime);
+      await writeFile(path.join(dataset, "label", "img_007.txt"), "0 0.5 0.5 0.1 0.1\n");
+      const incremental = await page.evaluate(async (format) => {
+        const api = Reflect.get(window, "__easyLabelingTestApi");
+        const trapFinding = () => JSON.stringify(api.getReviewFindings()[`img_003.${format}`]);
+        const before = trapFinding();
+        Reflect.set(window, "easyLabelingNativeTrace", []);
+        const started = performance.now();
+        await api.refreshReviewFindings();
+        const ms = performance.now() - started;
+        const trace = [...Reflect.get(window, "easyLabelingNativeTrace") as string[]];
+        const kept = trapFinding() === before;
+        const changed = api.getReviewFindings()[`img_007.${format}`];
+        const fullStarted = performance.now();
+        await api.refreshReviewFindings({ all: true });
+        return { ms, fullMs: performance.now() - fullStarted, trace, kept, changed, trapRechecked: trapFinding() !== before };
+      }, format);
+      expect(incremental.trace).toEqual(expect.arrayContaining(["review_stamps", "review_folder"]));
+      expect(incremental.kept).toBe(true);
+      expect(incremental.changed).toEqual({ issues: [], highestSeverity: null });
+      expect(incremental.trapRechecked).toBe(true);
+      expect(errors).toEqual([]);
+      console.log(`60 ${format} x 5,000 boxes, one label file changed: Review ${incremental.ms.toFixed(0)} ms, full recheck ${incremental.fullMs.toFixed(0)} ms`);
+    } finally {
+      await app.close();
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+    }
+  });
+}
+
+test("Tauri decodes 8-bit gray TIFFs natively with the pixels tiff.js shows", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "tiff");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  // The golden inputs (every compression, strips, tiles, WhiteIsZero, pages, and files left to tiff.js)
+  // plus SEM-sized uncompressed scans; the damaged file stays in the Rust golden test.
+  const fixtures = path.join(root, "crates/el-bench/fixtures/tiff");
+  const inputs = (JSON.parse(await readFile(path.join(fixtures, "inputs.json"), "utf8")) as Array<{ file: string; native: boolean }>)
+    .filter((input) => input.file !== "truncated.tif");
+  for (const input of inputs) await copyFile(path.join(fixtures, input.file), path.join(dataset, input.file));
+  await writeFile(path.join(dataset, "sem-2048.tif"), grayTiff(2048, 1536));
+  await writeFile(path.join(dataset, "sem-4096.tif"), grayTiff(4096, 3072));
+  const files = [...inputs, { file: "sem-2048.tif", native: true }, { file: "sem-4096.tif", native: true }];
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).not.toBe("");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+
+    const results = await page.evaluate(async (names) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      // Record native TIFF decodes (successful ones; Rust declines files outside its scope) through a stand-in bridge,
+      // by file: the app also decodes the next image ahead.
+      const bridge = window.easyLabelingNative!;
+      const nativeDecodes: string[] = [];
+      window.easyLabelingNative = {
+        ...bridge,
+        download: async (command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => unknown) => {
+          const result = await bridge.download!(command, args, use as never);
+          if (command === "tiff_bmp_shared") nativeDecodes.push(String(args.path).replace(/\\/g, "/"));
+          return result;
+        }
+      } as typeof bridge;
+      const decode = async (name: string) => {
+        const before = nativeDecodes.length;
+        const times: number[] = [];
+        let image: HTMLImageElement | null = null;
+        for (let run = 0; run < (name.startsWith("sem-") ? 3 : 1); run += 1) {
+          const started = performance.now();
+          image = await api.decodeImageForTest(name);
+          times.push(performance.now() - started);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = image!.naturalWidth;
+        canvas.height = image!.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(image!, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(pixels)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+        const native = nativeDecodes.slice(before).some((decoded) => decoded.endsWith(`/${name}`));
+        return { size: `${canvas.width}x${canvas.height}`, digest, native, ms: times.sort((a, b) => a - b)[Math.floor(times.length / 2)]! };
+      };
+      try {
+        const out = [];
+        for (const name of names) {
+          window.easyLabelingNativeOff = [];
+          const native = await decode(name);
+          window.easyLabelingNativeOff = ["tiff"];
+          const tiffJs = await decode(name);
+          out.push({ name, native, tiffJs });
+        }
+        return out;
+      } finally {
+        window.easyLabelingNativeOff = [];
+        window.easyLabelingNative = bridge;
+      }
+    }, files.map((file) => file.file));
+
+    for (const [index, result] of results.entries()) {
+      expect.soft(result.native.native, `${result.name} decoded natively`).toBe(files[index]!.native);
+      expect.soft(result.tiffJs.native, `${result.name} with the switch off`).toBe(false);
+      expect.soft(result.native.size, result.name).toBe(result.tiffJs.size);
+      expect.soft(result.native.digest, `${result.name} pixels`).toBe(result.tiffJs.digest);
+    }
+    for (const result of results.filter((entry) => entry.name.startsWith("sem-"))) {
+      console.log(`${result.name}: native ${result.native.ms.toFixed(0)} ms, tiff.js ${result.tiffJs.ms.toFixed(0)} ms`);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri Processed view and refine read a natively decoded TIFF in Rust instead of uploading it", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "sem");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "sem.tif"), grayTiff(4096, 3072));
+
+  // Opens the TIFF with the given native features off, switches to Processed (Q) and refines on it,
+  // logging the Tauri commands each step sends.
+  const run = async (off: string[]) => {
+    const app = await launchDesktop(sandbox, [dataset]);
+    try {
+      const { page } = app;
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.evaluate((list) => { window.easyLabelingNativeOff = list; }, off);
+      await page.locator("#selectImageFolderBtn").click();
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("sem.tif");
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+      const outcome = await page.evaluate(async (offList) => {
+        const load = (file: string): Promise<any> => import(file);
+        const api = Reflect.get(window, "__easyLabelingTestApi");
+        // src/platform/tauri-desktop.ts records every command name in this array.
+        const commands: string[] = [];
+        Reflect.set(window, "easyLabelingNativeTrace", commands);
+        const image = api.getCanvasBackgroundElement() as HTMLImageElement;
+
+        const longTasks: number[] = [];
+        const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => longTasks.push(entry.duration)));
+        observer.observe({ type: "longtask" });
+        const started = performance.now();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+        while (api.getSegmentationViewSource() !== "processed") await new Promise((resolve) => setTimeout(resolve, 5));
+        const viewMs = performance.now() - started;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        observer.disconnect();
+        const viewCommands = commands.splice(0);
+
+        const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+        const hash = async (bytes: Uint8ClampedArray) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+        const shownElement = api.getCanvasBackgroundElement() as HTMLImageElement | HTMLCanvasElement;
+        const shownCanvas = document.createElement("canvas");
+        shownCanvas.width = shownElement instanceof HTMLImageElement ? shownElement.naturalWidth : shownElement.width;
+        shownCanvas.height = shownElement instanceof HTMLImageElement ? shownElement.naturalHeight : shownElement.height;
+        shownCanvas.getContext("2d")!.drawImage(shownElement, 0, 0);
+        const shown = shownCanvas.getContext("2d")!.getImageData(0, 0, shownCanvas.width, shownCanvas.height).data;
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(image, 0, 0);
+        const original = context.getImageData(0, 0, canvas.width, canvas.height);
+        const config = normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig());
+        const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, config);
+
+        const [{ createRefineService }, { normalizeRefineParams }] = await Promise.all([load("./dist/features/refine/refine-service.js"), load("./dist/domain/refine/edge-refine.js")]);
+        const boxes = Array.from({ length: 40 }, (_, index) => {
+          const x0 = (index % 8) * 480 + 100;
+          const y0 = Math.floor(index / 8) * 560 + 120;
+          return { id: String(index), classId: "0", x0, y0, x1: x0 + 150, y1: y0 + 110 };
+        });
+        const paramsByClass = { 0: normalizeRefineParams({}) };
+        const processed = { kind: "processed", config: { mode: "edge-blend", median: true, claheClip: 2 } };
+        const refine = async () => {
+          const service = createRefineService();
+          const refineStarted = performance.now();
+          const onOriginal = await service.refine(image, boxes, paramsByClass, boxes, { kind: "original" });
+          const firstMs = performance.now() - refineStarted;
+          const onProcessed = await service.refine(image, boxes, paramsByClass, boxes, processed);
+          const crop = await service.crop(image, { x0: 1000.5, y0: 700, x1: 1060, y1: 771.2 }, processed);
+          return { onOriginal, onProcessed, crop: { ...crop, gray: Array.from(crop.gray) }, firstMs };
+        };
+        const nativeRefine = await refine();
+        const refineCommands = commands.splice(0);
+        window.easyLabelingNativeOff = [...offList, "refine"];
+        const workerRefine = await refine();
+        window.easyLabelingNativeOff = offList;
+        return {
+          viewMs,
+          maxLongTask: Math.max(0, ...longTasks),
+          viewCommands,
+          viewSame: await hash(shown) === await hash(expected),
+          shownAs: shownElement.tagName,
+          refineCommands,
+          nativeRefine,
+          workerRefine
+        };
+      }, off);
+      expect(errors).toEqual([]);
+      return outcome;
+    } finally {
+      await app.close();
+    }
+  };
+
+  try {
+    const resident = await run([]);
+    const uploaded = await run(["tiff"]);
+    for (const outcome of [resident, uploaded]) {
+      expect(outcome.viewSame).toBe(true);
+      expect(outcome.shownAs).toBe("IMG");
+      expect(outcome.viewCommands).toContain("preprocess_view_run_shared");
+      expect(outcome.nativeRefine.onOriginal).toHaveLength(40);
+      for (const key of ["onOriginal", "onProcessed"] as const) {
+        outcome.nativeRefine[key].forEach((result: { id: string; weakSides: string[]; box: Record<string, number> }, index: number) => {
+          const expected = outcome.workerRefine[key][index];
+          expect(result.id).toBe(expected.id);
+          expect(result.weakSides).toEqual(expected.weakSides);
+          for (const side of ["x0", "y0", "x1", "y1"] as const) expect(result.box[side]).toBeCloseTo(expected.box[side], 9);
+        });
+      }
+      expect(outcome.nativeRefine.crop).toEqual(outcome.workerRefine.crop);
+    }
+    // Native TIFF: Rust reads its own decode. tiff.js image: the page extracts and uploads the pixels.
+    expect(resident.viewCommands).toContain("preprocess_view_load_tiff");
+    expect(resident.viewCommands).not.toContain("preprocess_view_load");
+    expect(resident.refineCommands).toContain("refine_load_tiff");
+    expect(resident.refineCommands).not.toContain("refine_load_image");
+    expect(uploaded.viewCommands).toContain("preprocess_view_load");
+    expect(uploaded.refineCommands).toContain("refine_load_image");
+    for (const [name, outcome] of [["resident", resident], ["uploaded", uploaded]] as const) {
+      console.log(`4096x3072 TIFF ${name}: Processed ${outcome.viewMs.toFixed(0)} ms (longest UI task ${outcome.maxLongTask.toFixed(0)} ms), first refine ${outcome.nativeRefine.firstMs.toFixed(0)} ms`);
+    }
+  } finally {
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri Processed view of a transparent PNG stays a canvas with the TS pixels", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "alpha");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  // Gray content with an alpha ramp in the left half: the gray <img> cannot carry it, so the canvas path stays.
+  const [width, height] = [640, 480];
+  const gray = grayPixels(width, height, 5);
+  const rgba = new Uint8Array(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    rgba.fill(gray[index]!, index * 4, index * 4 + 3);
+    rgba[index * 4 + 3] = index % width < width / 2 ? 80 + (index % 160) : 255;
+  }
+  await writeFile(path.join(dataset, "alpha.png"), encodePng(rgba, width, height, 4));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("alpha.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    const check = await page.evaluate(async () => {
+      const load = (file: string): Promise<any> => import(file);
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const image = api.getCanvasBackgroundElement() as HTMLImageElement;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+      while (api.getSegmentationViewSource() !== "processed") await new Promise((resolve) => setTimeout(resolve, 5));
+      const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+      const readBack = (source: CanvasImageSource, w: number, h: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(source, 0, 0);
+        return context.getImageData(0, 0, w, h);
+      };
+      const original = readBack(image, image.naturalWidth, image.naturalHeight);
+      const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig()));
+      // The view canvas holds the RGBA through putImageData; the TS result goes through the same kind of canvas
+      // (willReadFrequently, as the workflow creates it) so alpha premultiplication rounds both alike.
+      const expectedCanvas = document.createElement("canvas");
+      expectedCanvas.width = original.width;
+      expectedCanvas.height = original.height;
+      const expectedContext = expectedCanvas.getContext("2d", { willReadFrequently: true })!;
+      expectedContext.putImageData(new ImageData(expected, original.width, original.height), 0, 0);
+      const shownElement = api.getCanvasBackgroundElement() as HTMLCanvasElement;
+      const shown = shownElement.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, original.width, original.height).data;
+      const reference = expectedContext.getImageData(0, 0, original.width, original.height).data;
+      let differing = 0;
+      for (let index = 0; index < shown.length; index += 1) if (shown[index] !== reference[index]) differing += 1;
+      return { shownAs: shownElement.tagName, differing, transparent: original.data.some((value, index) => index % 4 === 3 && value < 255) };
+    });
+    expect(check.transparent).toBe(true);
+    expect(check.shownAs).toBe("CANVAS");
+    expect(check.differing).toBe(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri automation prepares Original and Processed inputs natively with the TS matches", async () => {
+  test.setTimeout(900_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "automation");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await mkdir(path.join(dataset, ".easy-labeling"), { recursive: true });
+  // AUTOMATION_E2E_SIZE=4096x3072 re-measures on SEM-sized images (the default keeps the run short).
+  const [width, height] = (process.env.AUTOMATION_E2E_SIZE ?? "2048x1536").split("x").map(Number) as [number, number];
+  await writeFile(path.join(dataset, "img_0.tif"), grayTiff(width, height, 1));
+  await writeFile(path.join(dataset, "img_1.tif"), grayTiff(width, height, 2));
+  await writeFile(path.join(dataset, "img_2.png"), grayPng(width, height, 3));
+  // The template is a crop of img_0; the other images hold similar blocks with other noise.
+  const roi = { x: 300, y: 200, width: 96, height: 72 };
+  const source = grayPixels(width, height, 1);
+  const crop = new Uint8Array(roi.width * roi.height);
+  for (let y = 0; y < roi.height; y += 1) crop.set(source.subarray((roi.y + y) * width + roi.x, (roi.y + y) * width + roi.x + roi.width), y * roi.width);
+  const now = "2026-10-30T00:00:00.000Z";
+  await writeFile(path.join(dataset, ".easy-labeling", "automation-library.json"), JSON.stringify({
+    schemaVersion: 2,
+    layouts: [],
+    templates: [{
+      schemaVersion: 1, id: "template-1", name: "Block", sourceImageName: "img_0.tif", sourceImageSize: { width, height }, roi,
+      pngDataUrl: `data:image/png;base64,${encodePng(crop, roi.width, roi.height, 1).toString("base64")}`,
+      preprocessing: { grayscale: true, gaussianBlurEnabled: false, blurKernelSize: 3, blurSigma: 0, gaussianNoiseEnabled: false, gaussianNoiseSigma: 0, gaussianNoiseSeed: 1 },
+      createdAt: now, updatedAt: now
+    }],
+    presets: [{
+      schemaVersion: 2, id: "preset-1", name: "Blocks", templateId: "template-1", layoutId: null, outputMode: "multiple-detection-boxes",
+      relationOffset: { x: 0, y: 0 }, manualOffset: { x: 0, y: 0 },
+      matching: { minimumScore: 0.5, searchRoi: null, mode: "accurate" },
+      multipleDetection: { classId: "0", maximumDetections: 12, strictNonOverlap: true, nmsIouThreshold: 0.3, paddingX: 0, paddingY: 0 },
+      existingLabelsPolicy: "replace", createdAt: now, updatedAt: now
+    }]
+  }));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("img_0.tif");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    await page.locator("#taskAutomateBtn").click();
+    await expect(page.locator("#automationPresetSelect option[value='preset-1']")).toHaveCount(1);
+    await page.locator("#automationPresetSelect").selectOption("preset-1");
+    // A Processed input that takes the TS path seconds on this size.
+    await page.evaluate(() => {
+      (document.getElementById("segmentationPreprocessFlattenInput") as HTMLInputElement).value = "100";
+      const diffusion = document.getElementById("segmentationPreprocessDiffusionInput") as HTMLInputElement;
+      diffusion.value = "10";
+      diffusion.dispatchEvent(new Event("change"));
+    });
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationPreprocessingConfig().diffusionIterations)).toBe(10);
+
+    // Runs the preset on the current image, a dry-run batch and opens the template editor, all with the
+    // given input source and native features off; returns what each produced and how long the UI stalled.
+    const runAll = (mode: "original" | "processed", off: string[]) => page.evaluate(async ({ mode, off }) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      // Fails with the step's name instead of hanging until the test timeout.
+      const until = async (condition: () => boolean, step: string) => {
+        const deadline = performance.now() + 120_000;
+        while (!condition()) {
+          if (performance.now() > deadline) throw new Error(`${mode} with native off [${off.join()}]: timed out waiting for ${step}`);
+          await sleep(10);
+        }
+      };
+      const measure = async (step: string, action: () => void, done: () => boolean) => {
+        const tasks: number[] = [];
+        const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => tasks.push(entry.duration)));
+        observer.observe({ type: "longtask" });
+        const started = performance.now();
+        action();
+        await until(done, step);
+        const ms = performance.now() - started;
+        await sleep(100);
+        observer.disconnect();
+        return { ms: Math.round(ms), longestTask: Math.round(Math.max(0, ...tasks)) };
+      };
+      window.easyLabelingNativeOff = off;
+      const select = document.getElementById("detectionAutomationInputSelect") as HTMLSelectElement;
+      select.value = mode;
+      select.dispatchEvent(new Event("change"));
+
+      const panel = document.getElementById("activeOperationPanel")!;
+      let operation = "idle";
+      const watcher = new MutationObserver(() => { operation = panel.hidden ? (operation === "running" ? "done" : operation) : "running"; });
+      watcher.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
+      const current = await measure("the current-image run", () => (document.getElementById("runAutomationCurrentBtn") as HTMLButtonElement).click(), () => operation === "done");
+      watcher.disconnect();
+      const boxes = JSON.stringify((api.getRectGeometries() as Array<Record<string, unknown>>).map(({ annotationId: _, ...box }) => box));
+
+      document.getElementById("runAutomationBatchBtn")!.click();
+      const dryRun = document.getElementById("batchDryRunToggle") as HTMLInputElement;
+      if (!dryRun.checked) dryRun.click();
+      const stage = document.getElementById("automationBatchStage")!;
+      const summary = document.getElementById("automationBatchResultSummary")!;
+      stage.textContent = "";
+      summary.textContent = "";
+      const batch = await measure("the batch", () => document.getElementById("confirmAutomationBatchBtn")!.click(),
+        () => stage.textContent!.includes("Batch complete") && summary.textContent!.includes("Processed 3"));
+      const rows = [...document.querySelectorAll("#automationBatchResultList .automation-batch-result-row")].map((row) => ({
+        file: row.querySelector(".automation-result-file")?.textContent ?? "",
+        state: row.querySelector(".automation-result-state")?.textContent ?? "",
+        metrics: [...row.querySelectorAll(".automation-result-metric")].map((metric) => metric.textContent ?? "").filter((text) => !/ms\b/.test(text)),
+        imageDataMs: Number(/ImageData ([\d.]+) ms/.exec(row.querySelector<HTMLElement>(".automation-result-state")?.title ?? "")?.[1] ?? NaN),
+        workerMs: Number(/Worker ([\d.]+) ms/.exec(row.querySelector<HTMLElement>(".automation-result-state")?.title ?? "")?.[1] ?? NaN)
+      }));
+
+      // Bootstrap ignores a close while the modal is still fading in: wait for its shown event first.
+      const modal = document.getElementById("templateMatchingModal")!;
+      let modalShown = false;
+      modal.addEventListener("shown.bs.modal", () => { modalShown = true; }, { once: true });
+      const label = document.getElementById("templateMatchingInputSource")!;
+      label.textContent = "";
+      const editor = await measure("the template editor image", () => document.getElementById("openTemplateMatchingBtn")!.click(),
+        () => label.textContent === `Base input: ${mode === "processed" ? "Processed" : "Original"}`);
+      const labels = label.textContent;
+      await until(() => modalShown, "the template editor to open");
+      const close = [...modal.querySelectorAll<HTMLButtonElement>(".modal-footer button")].find((button) => button.textContent?.trim() === "Close");
+      close?.click();
+      await until(() => !modal.classList.contains("show"), "the template editor to close");
+      window.easyLabelingNativeOff = [];
+      return { current, boxes, batch, rows, editor, labels, summary: summary.textContent };
+    }, { mode, off });
+
+    for (const mode of ["original", "processed"] as const) {
+      const native = await runAll(mode, []);
+      const ts = await runAll(mode, ["preprocessing", "tiff"]);
+      expect(JSON.parse(native.boxes).length, `${mode}: boxes on the current image`).toBeGreaterThan(0);
+      expect(native.boxes, `${mode}: current-image boxes`).toBe(ts.boxes);
+      const results = (rows: typeof native.rows) => rows.map(({ imageDataMs: _, workerMs: __, ...row }) => row);
+      expect(results(native.rows), `${mode}: batch results`).toEqual(results(ts.rows));
+      expect(native.rows.some((row) => row.state.includes("match")), `${mode}: batch matched something`).toBe(true);
+      expect(native.labels).toBe(ts.labels);
+      const imageData = (rows: typeof native.rows) => rows.map((row) => `${row.file} ${row.imageDataMs.toFixed(0)}`).join(", ");
+      console.log(`${mode}: current native ${native.current.ms} ms (UI ${native.current.longestTask}) vs TS ${ts.current.ms} ms (UI ${ts.current.longestTask}); `
+        + `batch native ${native.batch.ms} ms (UI ${native.batch.longestTask}) vs TS ${ts.batch.ms} ms (UI ${ts.batch.longestTask}); `
+        + `editor native ${native.editor.ms} ms (UI ${native.editor.longestTask}) vs TS ${ts.editor.ms} ms (UI ${ts.editor.longestTask})`);
+      console.log(`${mode}: batch ImageData native [${imageData(native.rows)}] vs TS [${imageData(ts.rows)}]`);
+      console.log(`${mode}: template matching in the OpenCV worker [${native.rows.map((row) => `${row.file} ${row.workerMs.toFixed(0)}`).join(", ")}] (${width}x${height})`);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri superpixels are computed natively with the TS result from TIFF, PNG and Processed inputs", async () => {
+  test.setTimeout(600_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "superpixels");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "img_0.tif"), grayTiff(2048, 1536, 1));
+  await writeFile(path.join(dataset, "img_1.png"), grayPng(2048, 1536, 2));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("img_0.tif");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    await page.locator('label[for="segmentationWorkflowTab"]').click({ timeout: 30_000 });
+
+    // Recomputes the superpixels of the current input with the given native features off: returns a digest
+    // of labels, boundaries and regions, the time to the result and the longest UI task meanwhile.
+    const compute = (off: string[]) => page.evaluate(async (offList) => {
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      window.easyLabelingNativeOff = offList;
+      // A settings change empties the superpixel cache, so the next calculation really runs. Recalculate works
+      // without picking the superpixel tool (which needs a paint class this dataset does not have).
+      const blur = document.getElementById("segmentationBlurSelect") as HTMLSelectElement;
+      for (const value of ["low", "medium"]) {
+        blur.value = value;
+        blur.dispatchEvent(new Event("change"));
+      }
+      const tasks: number[] = [];
+      const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => tasks.push(entry.duration)));
+      observer.observe({ type: "longtask" });
+      const started = performance.now();
+      document.getElementById("segmentationRecalculateSuperpixelsBtn")!.click();
+      const deadline = started + 120_000;
+      while (!api.getSegmentationSuperpixels()) {
+        if (performance.now() > deadline) throw new Error(`superpixels with [${offList.join()}] off never arrived`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const ms = performance.now() - started;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      observer.disconnect();
+      window.easyLabelingNativeOff = [];
+      const result = api.getSegmentationSuperpixels();
+      const hash = async (bytes: ArrayBufferView) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength).slice()))).map((b) => b.toString(16).padStart(2, "0")).join("");
+      return {
+        labels: await hash(result.labels),
+        boundaries: await hash(result.boundaries),
+        regions: await hash(new TextEncoder().encode(JSON.stringify(result.regions))),
+        count: result.regions.length,
+        ms: Math.round(ms),
+        longestTask: Math.round(Math.max(0, ...tasks))
+      };
+    }, off);
+
+    const cases: Array<[string, () => Promise<unknown>, string[]]> = [
+      ["TIFF original", async () => undefined, ["superpixels"]],
+      ["PNG original", async () => {
+        await page.locator("#nextImageBtn").click({ timeout: 30_000 });
+        await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("img_1.png");
+        await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+      }, ["superpixels"]],
+      ["PNG Processed", async () => {
+        await page.evaluate(() => {
+          const select = document.getElementById("segmentationSuperpixelInputSelect") as HTMLSelectElement;
+          select.value = "original-processed";
+          select.dispatchEvent(new Event("change"));
+        });
+        await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getSegmentationSuperpixelInputSource())).toBe("original-processed");
+      }, ["superpixels", "preprocessing"]]
+    ];
+    for (const [name, setUp, tsOff] of cases) {
+      await setUp();
+      const native = await compute([]);
+      const ts = await compute(tsOff);
+      expect(native.count, name).toBeGreaterThan(1000);
+      expect({ labels: native.labels, boundaries: native.boundaries, regions: native.regions }, name).toEqual({ labels: ts.labels, boundaries: ts.boundaries, regions: ts.regions });
+      console.log(`2048x1536 superpixels, ${name}: native ${native.ms} ms (longest UI task ${native.longestTask} ms) vs TS ${ts.ms} ms (UI ${ts.longestTask} ms)`);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri reads opaque image pixels off the UI thread exactly as the page canvas does", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "pixels");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "gray.tif"), grayTiff(1024, 768, 4));
+  await writeFile(path.join(dataset, "gray.png"), grayPng(1024, 768, 5));
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("gray.png");
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    const results = await page.evaluate(async () => {
+      const load = (file: string): Promise<any> => import(file);
+      const { readOpaquePixelsOffThread } = await load("./dist/features/images/off-thread-pixels.js");
+      const api = Reflect.get(window, "__easyLabelingTestApi");
+      const fromCanvas = async (draw: (context: CanvasRenderingContext2D) => void, type: string, quality?: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 640;
+        canvas.height = 480;
+        draw(canvas.getContext("2d")!);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), type, quality));
+        const image = new Image();
+        image.src = URL.createObjectURL(blob);
+        await image.decode();
+        return image;
+      };
+      const gradient = (alpha: boolean) => (context: CanvasRenderingContext2D) => {
+        for (let y = 0; y < 480; y += 8) for (let x = 0; x < 640; x += 8) {
+          context.fillStyle = `rgba(${x % 256}, ${(x + y) % 256}, ${y % 256}, ${alpha && x < 320 ? 0.4 : 1})`;
+          context.fillRect(x, y, 8, 8);
+        }
+      };
+      const images: Array<[string, HTMLImageElement]> = [
+        ["native TIFF", await api.decodeImageForTest("gray.tif")],
+        ["PNG file", await api.decodeImageForTest("gray.png")],
+        ["colour JPEG", await fromCanvas(gradient(false), "image/jpeg", 0.9)],
+        ["transparent PNG", await fromCanvas(gradient(true), "image/png")]
+      ];
+      const out = [];
+      for (const [name, image] of images) {
+        const width = image.naturalWidth;
+        const height = image.naturalHeight;
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(image, 0, 0, width, height);
+        const page = context.getImageData(0, 0, width, height).data;
+        const worker: Uint8ClampedArray | null = await readOpaquePixelsOffThread(image, width, height);
+        let differing = 0;
+        if (worker) for (let index = 0; index < page.length; index += 1) if (worker[index] !== page[index]) differing += 1;
+        out.push({ name, read: worker !== null, differing });
+      }
+      return out;
+    });
+    expect(results).toEqual([
+      { name: "native TIFF", read: true, differing: 0 },
+      { name: "PNG file", read: true, differing: 0 },
+      { name: "colour JPEG", read: true, differing: 0 },
+      // With transparency the page reads the pixels itself.
+      { name: "transparent PNG", read: false, differing: 0 }
+    ]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri decodes the next image ahead and keeps both TIFFs resident for the Processed view", async () => {
+  test.setTimeout(300_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "prefetch");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  for (const index of [0, 1, 2]) await writeFile(path.join(dataset, `img_${index}.tif`), grayTiff(2048, 1536, index + 1));
+
+  const run = async (off: string[]) => {
+    const app = await launchDesktop(sandbox, [dataset]);
+    try {
+      const { page } = app;
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      // Record which files Rust decodes for display, and every command name.
+      await page.evaluate((offList) => {
+        window.easyLabelingNativeOff = offList;
+        Reflect.set(window, "easyLabelingNativeTrace", []);
+        const bridge = window.easyLabelingNative!;
+        const decoded: string[] = [];
+        Reflect.set(window, "__decoded", decoded);
+        window.easyLabelingNative = {
+          ...bridge,
+          download: async (command: string, args: Record<string, unknown>, use: (bytes: Uint8Array) => unknown) => {
+            const result = await bridge.download!(command, args, use as never);
+            if (command === "tiff_bmp_shared") decoded.push(String(args.path).replace(/\\/g, "/").split("/").pop()!);
+            return result;
+          }
+        } as typeof bridge;
+      }, off);
+      await page.locator("#selectImageFolderBtn").click();
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("img_0.tif");
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+      const decodedNow = () => page.evaluate(() => [...(Reflect.get(window, "__decoded") as string[])]);
+      if (off.length === 0) await expect.poll(decodedNow, { timeout: 30_000 }).toContain("img_1.tif");
+      else await page.waitForTimeout(1_500);
+      const beforeNext = await decodedNow();
+      await page.locator("#nextImageBtn").click();
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("img_1.tif");
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+      const check = await page.evaluate(async () => {
+        const load = (file: string): Promise<any> => import(file);
+        const api = Reflect.get(window, "__easyLabelingTestApi");
+        const trace = Reflect.get(window, "easyLabelingNativeTrace") as string[];
+        trace.length = 0;
+        const image = api.getCanvasBackgroundElement() as HTMLImageElement;
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+        while (api.getSegmentationViewSource() !== "processed") await new Promise((resolve) => setTimeout(resolve, 5));
+        const { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage } = await load("./dist/features/segmentation/preprocessing.js");
+        const readBack = (source: CanvasImageSource, width: number, height: number) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d", { willReadFrequently: true })!;
+          context.drawImage(source, 0, 0);
+          return context.getImageData(0, 0, width, height);
+        };
+        const original = readBack(image, image.naturalWidth, image.naturalHeight);
+        const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig()));
+        const shown = readBack(api.getCanvasBackgroundElement() as CanvasImageSource, original.width, original.height).data;
+        let differing = 0;
+        for (let index = 0; index < shown.length; index += 1) if (shown[index] !== expected[index]) differing += 1;
+        return { differing, commands: [...trace] };
+      });
+      expect(errors).toEqual([]);
+      return { beforeNext, afterNext: await decodedNow(), ...check };
+    } finally {
+      await app.close();
+    }
+  };
+
+  try {
+    const ahead = await run([]);
+    // img_1 was decoded before "next" and not again after it.
+    expect(ahead.beforeNext).toContain("img_1.tif");
+    expect(ahead.afterNext.filter((name) => name === "img_1.tif")).toHaveLength(1);
+    expect(ahead.differing).toBe(0);
+    expect(ahead.commands).toContain("preprocess_view_load_tiff");
+    const plain = await run(["prefetch"]);
+    expect(plain.beforeNext).not.toContain("img_1.tif");
+    expect(plain.afterNext).toContain("img_1.tif");
+    expect(plain.differing).toBe(0);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri presets save into their profile folders without a dialog and list from there", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "presets");
+  const profiles = path.join(sandbox, "profiles");
+  await mkdir(path.join(dataset, ".easy-labeling"), { recursive: true });
+  await mkdir(path.join(dataset, "label"));
+  await writeFile(path.join(dataset, "a.png"), grayPng(64, 48));
+  // Saved by an older version with the dataset: listed, and left as it is by saves.
+  const legacyPath = path.join(dataset, ".easy-labeling", "preprocessing-presets.json");
+  const legacy = `${JSON.stringify({ schemaVersion: 1, presets: [{ name: "Old dataset", config: {} }] })}\n`;
+  await writeFile(legacyPath, legacy);
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCurrentImageName()), { timeout: 60_000 }).toBe("a.png");
+    await page.evaluate(() => document.getElementById("taskPreprocessingBtn")!.click());
+    const options = () => page.evaluate(() => [...document.querySelectorAll<HTMLOptionElement>("#segmentationPreprocessPresetSelect option")].map((option) => option.value).filter(Boolean));
+    await expect.poll(options).toEqual(["Old dataset"]);
+
+    await page.evaluate(() => {
+      (document.getElementById("segmentationPreprocessPresetName") as HTMLInputElement).value = "SEM fins";
+      document.getElementById("segmentationPreprocessPresetSaveBtn")!.click();
+    });
+    const file = path.join(profiles, "Preprocessing Presets", "SEM fins.json");
+    await expect.poll(() => existsSync(file)).toBe(true);
+    expect(JSON.parse(await readFile(file, "utf8")).presets.map((preset: { name: string }) => preset.name)).toEqual(["SEM fins"]);
+    await expect.poll(options).toEqual(["SEM fins", "Old dataset"]);
+    expect(await readFile(legacyPath, "utf8")).toBe(legacy);
+
+    await page.evaluate(() => {
+      (document.getElementById("segmentationPreprocessPresetSelect") as HTMLSelectElement).value = "SEM fins";
+      document.getElementById("segmentationPreprocessPresetDeleteBtn")!.click();
+    });
+    await expect.poll(() => existsSync(file)).toBe(false);
+    await expect.poll(options).toEqual(["Old dataset"]);
+
+    // Every preset kind has its profile folder, where the folder handles write, list and remove files.
+    const folders = await page.evaluate(async () => {
+      const names: string[] = [];
+      for (const kind of ["preset", "layout", "yoloe", "refine", "preprocessing", "segmentation"] as const) {
+        const folder = await window.getEasyLabelingProfileDirectory!(kind) as FileSystemDirectoryHandle & { removeEntry(name: string): Promise<void> };
+        const handle = await folder.getFileHandle("probe.json", { create: true });
+        const writable = await handle.createWritable();
+        await writable.write("{}");
+        await writable.close();
+        await folder.removeEntry("probe.json");
+        const left: string[] = [];
+        for await (const entry of (folder as unknown as { values(): AsyncIterable<{ name: string }> }).values()) left.push(entry.name);
+        names.push(`${folder.name}:${left.length}`);
+      }
+      return names;
+    });
+    expect(folders).toEqual(["Template Presets:0", "Layouts:0", "YOLOE Presets:0", "Refine Presets:0", "Preprocessing Presets:0", "Segmentation Presets:0"]);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});
+
+test("Tauri shows class names from dataset files as text, never as markup", async () => {
+  test.setTimeout(120_000);
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+  const dataset = path.join(sandbox, "untrusted");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await writeFile(path.join(dataset, "a.png"), grayPng(200, 100));
+  // A class name with markup, and a label row whose class field is markup (no spaces, as YOLO rows split on them).
+  // Class names come from the profile Class Info folder by default (and from the label folder otherwise).
+  const classes = "0: <img src=x onerror=\"window.__classNameRan=1\">\n";
+  await mkdir(path.join(sandbox, "profiles", "Class Info"), { recursive: true });
+  await writeFile(path.join(sandbox, "profiles", "Class Info", "classes.yaml"), classes);
+  await writeFile(path.join(dataset, "label", "classes.yaml"), classes);
+  const labels = "0 0.5 0.5 0.2 0.2\n<img/src=x/onerror=window.__labelClassRan=1> 0.25 0.25 0.1 0.1\n";
+  await writeFile(path.join(dataset, "label", "a.txt"), labels);
+  const app = await launchDesktop(sandbox, [dataset]);
+  try {
+    const { page } = app;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.locator("#selectImageFolderBtn").click();
+    await expect.poll(() => rectCount(page), { timeout: 60_000 }).toBe(2);
+    await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+    await expect(page.locator("#label-list")).toContainText('<img src=x onerror="window.__classNameRan=1">');
+    await expect(page.locator("#label-list")).toContainText("<img/src=x/onerror=window.__labelClassRan=1>");
+    expect(await page.locator("#label-list img").count()).toBe(0);
+    // A broken image's onerror would have run by now.
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => [Reflect.get(window, "__classNameRan"), Reflect.get(window, "__labelClassRan")])).toEqual([undefined, undefined]);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+  }
+});

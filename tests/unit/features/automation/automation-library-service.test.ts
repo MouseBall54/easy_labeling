@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  automationLibraryChanges,
   createEmptyAutomationLibrary,
   createDatasetAutomationLibrary,
   createPresetFileDocument,
   loadAutomationProfileFiles,
-  mergeAutomationLibraries,
+  mergeNewestAutomationLibraries,
   mergePresetFileDocument,
   resolveAutomationSelectionId
 } from "../../../../src/features/automation/automation-library-service.js";
@@ -126,9 +127,11 @@ describe("automation preset files", () => {
     expect(result.errors).toHaveLength(2);
     expect(result.errors.join("\n")).toMatch(/broken-layout\.json/);
     expect(result.errors.join("\n")).toMatch(/broken-preset\.json/);
+    expect(Object.fromEntries(result.fileNames.layouts)).toEqual({ "layout-2": "2-layout.json", "layout-10": "10-layout.json" });
+    expect(Object.fromEntries(result.fileNames.presets)).toEqual({ "preset-1": "preset.json" });
   });
 
-  it("lets dataset entries override matching profile ids without collapsing different ids with the same name", () => {
+  it("keeps the newer entry per id, the dataset's on a tie, without collapsing different ids with the same name", () => {
     const profileLayout = createLayout("shared");
     profileLayout.name = "Same name";
     const otherProfileLayout = createLayout("profile-only");
@@ -144,12 +147,33 @@ describe("automation preset files", () => {
       ...createEmptyAutomationLibrary(),
       layouts: [localLayout]
     };
-    const merged = mergeAutomationLibraries(profile, local);
+    const merged = mergeNewestAutomationLibraries(profile, local);
 
     expect(merged.layouts.map((layout) => [layout.id, layout.name])).toEqual([
       ["shared", "Dataset override"],
       ["profile-only", "Same name"]
     ]);
+    // A profile file saved after the dataset copy (the copy an older version kept) wins.
+    profileLayout.updatedAt = "now+1";
+    expect(mergeNewestAutomationLibraries(profile, local).layouts[0]?.name).toBe("Same name");
+  });
+
+  it("lists what changed since the files were saved", () => {
+    const saved = createLibrary();
+    expect(automationLibraryChanges(saved, saved)).toEqual({ layouts: [], presets: [], deletedLayoutIds: [], deletedPresetIds: [] });
+    // A layout edit rewrites the layout file and every preset file that carries that layout.
+    const edited = structuredClone(saved);
+    edited.layouts[0]!.name = "Renamed";
+    const changes = automationLibraryChanges(saved, edited);
+    expect(changes.layouts.map((layout) => layout.id)).toEqual(["layout-used"]);
+    expect(changes.presets.map((preset) => preset.id)).toEqual(["preset-1"]);
+    // So does a template edit, for its preset.
+    const retemplated = structuredClone(saved);
+    retemplated.templates[0]!.roi = { x: 1, y: 1, width: 5, height: 5 };
+    expect(automationLibraryChanges(saved, retemplated)).toMatchObject({ layouts: [], presets: [{ id: "preset-1" }] });
+    // Deleting a layout deletes its presets.
+    const deleted = { ...saved, layouts: saved.layouts.slice(1), presets: [] };
+    expect(automationLibraryChanges(saved, deleted)).toMatchObject({ deletedLayoutIds: ["layout-used"], deletedPresetIds: ["preset-1"] });
   });
 
   it("preserves an existing selection and selects the first item only when requested", () => {
