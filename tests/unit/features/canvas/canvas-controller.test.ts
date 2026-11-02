@@ -469,6 +469,26 @@ describe("features/canvas/canvas-controller", () => {
     expect(canvas.calcOffsetCalls).toBe(6);
   });
 
+  it("refits an image at its fit view when the canvas area changes, and keeps a zoomed view", () => {
+    const area = { width: 800, height: 600 };
+    const state = createState();
+    state.currentImage = { width: 400, height: 300 } as HTMLImageElement;
+    const deps = { ...createDeps(), getCanvasContainerSize: () => area };
+    const controller = createCanvasController(state, deps);
+    const canvas = controller.canvas as FakeCanvas;
+    controller.resizeCanvas();
+    controller.resetZoom();
+    Object.assign(area, { width: 1200, height: 900 });
+    controller.resizeCanvas();
+    expect(canvas.viewportTransform[0]).toBeCloseTo(2.85);
+    expect(canvas.viewportTransform[4]).toBeCloseTo(30);
+
+    canvas.setViewportTransform([5, 0, 0, 5, -40, -60]);
+    Object.assign(area, { width: 800, height: 600 });
+    controller.resizeCanvas();
+    expect(canvas.viewportTransform).toEqual([5, 0, 0, 5, -40, -60]);
+  });
+
   it("centers coordinate jumps and renders a zoom-stable target pulse", () => {
     const controller = createCanvasController(createState(), createDeps());
     const canvas = controller.canvas as FakeCanvas;

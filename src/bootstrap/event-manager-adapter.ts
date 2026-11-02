@@ -1923,6 +1923,22 @@ export function createEventManagerAdapter(input: {
         input.canvasController.raw.resetZoom();
         input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
       });
+      // The window and the side panels both change the canvas area. Waits for the size to settle: each change
+      // redraws every box, and dragging a window edge or a panel transition fires many in a row.
+      const canvasArea = input.documentRef?.querySelector<HTMLElement>("main.canvas-container");
+      if (canvasArea && typeof ResizeObserver !== "undefined") {
+        let settle: ReturnType<typeof setTimeout> | null = null;
+        new ResizeObserver(() => {
+          if (settle !== null) clearTimeout(settle);
+          settle = setTimeout(() => {
+            settle = null;
+            if (!canvasArea.clientWidth || !canvasArea.clientHeight) return;
+            input.canvasController.raw.resizeCanvas();
+            input.canvasController.raw.updateAllLabelTexts();
+            input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));
+          }, 100);
+        }).observe(canvasArea);
+      }
       elements.zoomInput.addEventListener("change", () => {
         input.canvasController.raw.setZoomPercentage(elements.zoomInput.value);
         input.windowRef.dispatchEvent?.(new Event("easy-labeling:canvas-view-change"));

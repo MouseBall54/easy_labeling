@@ -59,6 +59,15 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
     canvas.calcOffset?.();
   };
 
+  /** Viewport that fits the current image into an area of this size, centred. */
+  const fitTransform = (width: number, height: number): [number, number, number, number, number, number] | null => {
+    if (!state.currentImage) {
+      return null;
+    }
+    const scale = Math.min(width / state.currentImage.width, height / state.currentImage.height) * 0.95;
+    return [scale, 0, 0, scale, (width - state.currentImage.width * scale) / 2, (height - state.currentImage.height * scale) / 2];
+  };
+
   const addBaseImageObject = (imageObject: FabricObjectLike): void => {
     if (typeof canvas.insertAt === "function") {
       canvas.insertAt(0, imageObject);
@@ -208,20 +217,13 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
     },
 
     resetZoom(): void {
-      if (!state.currentImage) {
+      const container = deps.getCanvasContainerSize();
+      const fit = fitTransform(container.width, container.height);
+      if (!fit) {
         return;
       }
 
-      const container = deps.getCanvasContainerSize();
-      const scale = Math.min(container.width / state.currentImage.width, container.height / state.currentImage.height) * 0.95;
-      canvas.setViewportTransform([
-        scale,
-        0,
-        0,
-        scale,
-        (container.width - state.currentImage.width * scale) / 2,
-        (container.height - state.currentImage.height * scale) / 2
-      ]);
+      canvas.setViewportTransform(fit);
       syncCanvasOffset();
       this.renderAll();
       deps.updateZoomDisplay();
@@ -230,13 +232,22 @@ export function createCanvasShell(state: CanvasControllerState, deps: Pick<Canva
     resizeCanvas(): void {
       const container = deps.getCanvasContainerSize();
       // setDimensions clears the canvas and queues a full redraw (seconds with thousands of boxes): only on a real change.
-      if (canvas.getWidth() !== container.width || canvas.getHeight() !== container.height) {
-        canvas.setDimensions({
-          width: container.width,
-          height: container.height
-        });
+      if (canvas.getWidth() === container.width && canvas.getHeight() === container.height) {
+        syncCanvasOffset();
+        return;
       }
-      syncCanvasOffset();
+      // An image still at its fit view refits the new size; a zoomed or panned view stays where the user put it.
+      const fit = fitTransform(canvas.getWidth(), canvas.getHeight());
+      const fitted = fit?.every((value, index) => Math.abs(value - canvas.viewportTransform[index]!) < 1e-3) ?? false;
+      canvas.setDimensions({
+        width: container.width,
+        height: container.height
+      });
+      if (fitted) {
+        this.resetZoom();
+      } else {
+        syncCanvasOffset();
+      }
     },
 
     goToCoords(x: number, y: number): void {
