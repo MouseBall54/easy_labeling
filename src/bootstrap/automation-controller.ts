@@ -1750,6 +1750,10 @@ export function createAutomationController(input: {
         if (elements.openTemplateMatchingBtn.disabled) {
           return;
         }
+        const release = (): void => {
+          elements.openTemplateMatchingBtn.disabled = false;
+          elements.openTemplateMatchingBtn.removeAttribute("aria-busy");
+        };
         elements.openTemplateMatchingBtn.disabled = true;
         elements.openTemplateMatchingBtn.setAttribute("aria-busy", "true");
         void runCancellableMatchingOperation({
@@ -1771,6 +1775,8 @@ export function createAutomationController(input: {
           }
           throwIfOperationCancelled(operation.signal);
           elements.templateMatchingModal.show();
+          // The engine may still be starting in the background: closing the setup meanwhile must not lock the button.
+          release();
           elements.templateMatchTimings.textContent = "Loading OpenCV engine...";
           setMatchingEngineStatus("loading", "Matching engine: Loading");
           operation.update({ detail: "Initializing OpenCV matching engine" });
@@ -1781,8 +1787,7 @@ export function createAutomationController(input: {
         }).catch((error: unknown) => {
           input.uiManager.notify(error instanceof Error ? error.message : "Unable to open template setup", 5000);
         }).finally(() => {
-          elements.openTemplateMatchingBtn.disabled = false;
-          elements.openTemplateMatchingBtn.removeAttribute("aria-busy");
+          release();
           if (!elements.templateMatchingModal._isShown) {
             elements.openTemplateMatchingBtn.focus();
           }

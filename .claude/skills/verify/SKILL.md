@@ -68,7 +68,7 @@ Then run the specs for the touched area with `npx playwright test <spec> --proje
 | segmentation tools, masks, overlay | `segmentation-draw`, `segmentation-preprocessing-panel`, `workflow-switching` |
 | detection canvas, boxes, clipboard, arrange | `detection-bulk-operation`, `alignment-history`, `detection-clipboard`, `outside-boxes` |
 | file system, autosave, label loading | `folder-switch-autosave`, `label-sources`, `label-folder-resolution`, `label-fast-load` |
-| automation | `automation-workflow`, `automation-view` |
+| automation | `automation-workflow`, `automation-view`, `sample-test-data` |
 | YOLO/YOLOE inference | `inference`, `yoloe`, `yoloe-usability` |
 | modals, layout, theme, toolbar | `modal-drag`, `ui-consistency`, `ux-stage1`, `ux-stage2` |
 | `main.ts`, `createApp.ts`, `index.html`, `runtime.ts` | `bootstrap-smoke`, `unsupported-env`, `mobile-unsupported` |
