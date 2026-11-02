@@ -41,7 +41,10 @@ for (const count of counts) {
       await writeFile(path.join(dataset, `label/image-${index}.txt`), text);
     }
     // A WebView2 profile kept between runs keeps its V8 code cache warm, as an installed app's would be.
-    const app = await launchDesktop(desktopExe, path.join(os.tmpdir(), "easy-labeling-perf-tauri-profile"), [dataset]);
+    const profile = path.join(os.tmpdir(), "easy-labeling-perf-tauri-profile");
+    // Only the WebView2 cache carries over: a layout saved by an earlier run would refuse this run's same name.
+    await rm(path.join(profile, "profiles"), { recursive: true, force: true });
+    const app = await launchDesktop(desktopExe, profile, [dataset]);
     const result: Record<string, number> = {};
     try {
       const { page } = app;
