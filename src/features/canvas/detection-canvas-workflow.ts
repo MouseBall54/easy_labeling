@@ -158,6 +158,19 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
 
   const history = shell.history;
 
+  /** Sets a box's class and colours; returns false when it already had that class. */
+  const relabelRect = (rect: FabricRectLike, classId: string, updateLabelText: (rect: FabricRectLike) => void): boolean => {
+    if (rect.labelClass === classId) {
+      return false;
+    }
+    rect.set("labelClass", classId);
+    const color = colorForClass(classId);
+    rect.set({ fill: `${color}33`, stroke: color });
+    rect.originalYolo = null;
+    updateLabelText(rect);
+    return true;
+  };
+
   const captureRectSnapshots = (): CanvasHistoryRectSnapshot[] => {
     const rects = canvas.getObjects("rect").filter(isRectObject);
     return createRectSnapshotsByAnnotationId(rects);
@@ -1120,6 +1133,21 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       return rects.length;
     },
 
+    updateBoxClasses(updates: readonly { annotationId: string; classId: string }[]): number {
+      const byId = new Map(updates.map((update) => [update.annotationId, update.classId]));
+      const rects = canvas.getObjects("rect").filter(isRectObject).filter((rect) => byId.has(ensureAnnotationId(rect)));
+      const before = captureRectSnapshots();
+      const selectionBefore = captureSelectionSnapshot();
+      const changed = rects.filter((rect) => relabelRect(rect, byId.get(ensureAnnotationId(rect))!, (target) => this.updateLabelText(target))).length;
+      if (changed === 0) {
+        return 0;
+      }
+      deps.updateLabelList();
+      canvas.requestRenderAll();
+      pushHistoryIfRectsChanged({ before, after: captureRectSnapshots(), selectionBefore, selectionAfter: captureSelectionSnapshot() });
+      return changed;
+    },
+
     subscribeHistory(listener: (entry: CanvasHistoryEntry) => void): () => void {
       return history.subscribe(listener);
     },
@@ -1703,15 +1731,9 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       let changed = false;
 
       uniqueRects.forEach((rect) => {
-        if (rect.labelClass === classId) {
-          return;
+        if (relabelRect(rect, classId, (target) => this.updateLabelText(target))) {
+          changed = true;
         }
-        rect.set("labelClass", classId);
-        const color = colorForClass(classId);
-        rect.set({ fill: `${color}33`, stroke: color });
-        rect.originalYolo = null;
-        this.updateLabelText(rect);
-        changed = true;
       });
 
       if (!changed) {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createCanvasController, createCanvasControllerForWorkflow, createCanvasShell, type CanvasControllerDeps, type CanvasControllerState } from "../../../../src/features/canvas/canvas-controller.js";
 import { createCanvasHistoryService } from "../../../../src/features/canvas/history.js";
 import { createBoxLayout } from "../../../../src/features/automation/layout.js";
-import type { FabricRectLike } from "../../../../src/features/canvas/fabric-types.js";
+import { ensureAnnotationId, type FabricRectLike } from "../../../../src/features/canvas/fabric-types.js";
 import { createFakeFabricRuntime, createRect, FakeCanvas } from "./test-fakes.js";
 
 function createState(overrides: Partial<CanvasControllerState> = {}): CanvasControllerState {
@@ -453,6 +453,31 @@ describe("features/canvas/canvas-controller", () => {
     controller.canvas.discardActiveObject();
     expect(controller.setSelectedLabelClass?.("7")).toBe(false);
     expect(history.getPastEntries()).toHaveLength(1);
+  });
+
+  it("updateBoxClasses relabels several boxes as one undo step", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history, getColorForClass: (labelClass) => `cls-${labelClass ?? "0"}` }));
+    const rects = [
+      createRect({ left: 5, top: 6, width: 10, height: 12, labelClass: "1" }),
+      createRect({ left: 25, top: 16, width: 9, height: 10, labelClass: "2" }),
+      createRect({ left: 45, top: 16, width: 9, height: 10, labelClass: "3" })
+    ];
+    controller.canvas.add(...rects);
+    rects.forEach((rect) => controller.drawLabelText(rect));
+    const ids = rects.map((rect) => ensureAnnotationId(rect));
+
+    expect(controller.updateBoxClasses?.([{ annotationId: ids[0], classId: "5" }, { annotationId: ids[2], classId: "5" }])).toBe(2);
+    expect(rects.map((rect) => rect.labelClass)).toEqual(["5", "2", "5"]);
+    expect(rects[0].stroke).toBe("cls-5");
+    expect(rects[0].originalYolo).toBeNull();
+    expect(history.getPastEntries()).toHaveLength(1);
+
+    controller.undo();
+    expect(rects.map((rect) => rect.labelClass)).toEqual(["1", "2", "3"]);
+
+    expect(controller.updateBoxClasses?.([{ annotationId: ids[1], classId: "2" }])).toBe(0);
+    expect(history.getPastEntries()).toHaveLength(0);
   });
 
   it("recalculates Fabric offsets after viewport and size changes", () => {
