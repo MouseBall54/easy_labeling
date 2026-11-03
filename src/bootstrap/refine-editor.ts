@@ -27,6 +27,7 @@ import {
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { reclassRuleOf } from "../domain/refine/reclass.js";
 import { createReclassEditor } from "./reclass-editor.js";
 
 export interface RefineEditorStore {
@@ -224,8 +225,7 @@ function markup(prefix: string): string {
       </div>
     </section>
     <section class="inspector-section" data-mode-only="reclass">
-      <div class="section-heading-row"><h3>Rules</h3><span class="section-value">Checked from the first</span></div>
-      <p class="refine-hint">Flags boxes for another class by their centre brightness or by how much refining (Edge settings) shrinks them against the loaded box. Boxes never move. Click a rule to pick its classes above.</p>
+      <div class="section-heading-row"><h3 title="Flags boxes for another class by their centre brightness or by how much refining (Edge settings) shrinks them against the loaded box. Boxes never move.">Rule</h3></div>
       <div data-ref="reclassRoot"></div>
     </section>
     <section class="inspector-section" data-mode-only="edge">
@@ -270,8 +270,6 @@ export function createRefineEditor(input: {
   const ref = <T extends HTMLElement>(name: string): T => root.querySelector<T>(`[data-ref="${name}"]`)!;
   const reclassEditor = createReclassEditor({ root: ref("reclassRoot"), prefix, documentRef: doc, store });
   const mode = (): RefineMode => store.getDoc().mode;
-  /** Reclass mode: the rule the class chips edit, or null when there is none. */
-  const selectedRule = (): number | null => { const index = reclassEditor.selected(); return index >= 0 ? index : null; };
   let selected = new Set<string>(); // empty = editing the default
   let scope: RefineEditScope = "all";
   const targetListeners: (() => void)[] = [];
@@ -320,22 +318,17 @@ export function createRefineEditor(input: {
       : (patch.sideRules?.[side] as Record<string, unknown> | undefined)?.[key] !== undefined);
   };
   const targetsChanged = (): void => { render(); targetListeners.forEach((listener) => listener()); };
-  reclassEditor.onSelect(targetsChanged);
-  /** Reclass mode: sets the selected rule's classes ([] = every class). */
+  /** Reclass mode: sets the rule's classes ([] = every class). */
   const setRuleClasses = (classIds: readonly string[]): void => {
-    const index = selectedRule();
-    if (index === null) { store.notify("Add a rule first."); return; }
     const docNow = store.getDoc();
-    setDoc({ ...docNow, reclass: docNow.reclass.map((rule, i) => (i === index ? { ...rule, fromClasses: [...classIds] } : rule)) });
+    setDoc({ ...docNow, reclass: [{ ...reclassRuleOf(docNow.reclass), fromClasses: [...classIds] }] });
     targetListeners.forEach((listener) => listener());
   };
 
   // ---------------------------------------------------------------- classes
-  /** Reclass mode: the chips show the selected rule's classes; "All" = every class. */
+  /** Reclass mode: the chips show the rule's classes; "All" = every class. */
   const renderRuleChips = (): void => {
-    const docNow = store.getDoc();
-    const index = selectedRule();
-    const from = index === null ? [] : docNow.reclass[index].fromClasses;
+    const from = reclassRuleOf(store.getDoc().reclass).fromClasses;
     // Rule classes without a box on this image stay listed, or saving would silently widen the rule.
     const ids = [...new Set([...store.classIds(), ...from])];
     const chip = (classId: string | null, label: string): HTMLButtonElement => {
@@ -343,7 +336,6 @@ export function createRefineEditor(input: {
       button.type = "button";
       button.className = "refine-class-chip";
       button.dataset.classId = classId ?? "";
-      button.disabled = index === null;
       button.setAttribute("aria-pressed", String(classId === null ? from.length === 0 : from.includes(classId)));
       if (classId === null) button.title = "The rule checks every class";
       else {
@@ -358,8 +350,7 @@ export function createRefineEditor(input: {
     ref("chips").replaceChildren(chip(null, "All"), ...ids.map((classId) => { const name = store.className(classId); return chip(classId, name ? `${classId} ${name}` : classId); }));
     ref("chips").hidden = false;
     root.querySelector<HTMLElement>('[data-act="all"]')!.hidden = false;
-    ref("hint").textContent = index === null ? "Add a rule below, then pick the classes it checks."
-      : `Rule ${index + 1} checks ${from.length ? `class ${from.join(", ")}` : "every class"}. Click a rule to pick its classes.`;
+    ref("hint").textContent = `The rule checks ${from.length ? `class ${from.join(", ")}` : "every class"}.`;
   };
   const renderChips = (): void => {
     if (mode() === "reclass") { renderRuleChips(); return; }
@@ -558,7 +549,7 @@ export function createRefineEditor(input: {
     processingSelect.value = pinned?.name ?? "";
     const sideBox = ref("sideBox");
     sideBox.dataset.scope = scope;
-    ref("contextDetails").hidden = scope !== "all";
+    ref("contextDetails").hidden = scope !== "all" || docNow.mode !== "edge";
     ref("scope").querySelectorAll<HTMLButtonElement>("[data-scope]").forEach((button) => {
       const value = button.dataset.scope as RefineEditScope;
       button.setAttribute("aria-pressed", String(value === scope));
@@ -632,8 +623,7 @@ export function createRefineEditor(input: {
     if (!chip) return;
     const classId = chip.dataset.classId ?? "";
     if (mode() === "reclass") {
-      const index = selectedRule();
-      const from = index === null ? [] : store.getDoc().reclass[index].fromClasses;
+      const from = reclassRuleOf(store.getDoc().reclass).fromClasses;
       setRuleClasses(!classId ? [] : from.includes(classId) ? from.filter((id) => id !== classId) : [...from, classId]);
       return;
     }
@@ -753,8 +743,7 @@ export function createRefineEditor(input: {
     setTargets(classIds) { selected = new Set(classIds); targetsChanged(); },
     caseClasses() {
       if (mode() === "edge") { const t = targets(); return t === "default" ? [] : t; }
-      const index = selectedRule();
-      return index === null ? [] : [...store.getDoc().reclass[index].fromClasses];
+      return [...reclassRuleOf(store.getDoc().reclass).fromClasses];
     },
     onTargetsChange(listener) { targetListeners.push(listener); },
     onPresetChange(listener) { presetListeners.push(listener); },

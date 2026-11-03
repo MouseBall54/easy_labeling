@@ -225,7 +225,7 @@ export function createRefineLab(input: {
     presetBanner.hidden = !edit?.runWith;
     presetBanner.textContent = !edit?.runWith ? ""
       : draft.mode === "reclass"
-        ? `Reclass with "${edit.name}": edits here update this preset. To edit the Lab rules, choose Lab rules under Reclass with in the Refine pane.`
+        ? `Reclass with "${edit.name}": edits here update this preset. To edit the Lab rule, choose Lab rule under Reclass with in the Refine pane.`
         : `Run with "${edit.name}": edits here update this preset, which refines every class. To edit class settings, choose Class settings under Run with in the Refine pane.`;
     presetSyncRow.hidden = !edit || edit.runWith;
     presetSync.checked = Boolean(edit?.sync);
@@ -406,7 +406,7 @@ export function createRefineLab(input: {
   const drawReclass = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, X: (x: number) => number, Y: (y: number) => number, detail: boolean): void => {
     if (!r.reclass) return;
     const { rule } = r.reclass;
-    const crop = centreCrop(c.local, rule.crop, c.reclassImg);
+    const crop = centreCrop(c.local, rule, c.reclassImg);
     context.save();
     if (detail && rule.bright.enabled) {
       context.fillStyle = "rgba(230, 73, 128, 0.35)";
@@ -428,6 +428,76 @@ export function createRefineLab(input: {
         focused: false
       }, () => Number.POSITIVE_INFINITY));
     }
+  };
+
+  // ---------------------------------------------------------------- surroundings
+  /**
+   * Where Surroundings reads (Edge mode): the box core (inner 50%) and the background ring that starts past the
+   * widest outward search, as measureContext in edge-refine.ts samples them. Null in Reclass mode or with the ring off.
+   */
+  const surroundings = (c: LabCase, r: LabResult): { core: RefineRect; inner: RefineRect; outer: RefineRect; from: number; to: number } | null => {
+    if (reclassMode() || r.params.contextRing <= 0) return null;
+    const { x0, y0, x1, y1 } = c.local;
+    const [w, h] = [x1 - x0, y1 - y0];
+    const from = Math.max(...REFINE_SIDES.map((side) => sideParams(r.params, side).rangeOut)) + 1;
+    const to = from + r.params.contextRing;
+    const around = (d: number): RefineRect => ({ x0: Math.round(x0) - d, y0: Math.round(y0) - d, x1: Math.round(x1) + d, y1: Math.round(y1) + d });
+    return { core: { x0: x0 + w * 0.25, y0: y0 + h * 0.25, x1: x1 - w * 0.25, y1: y1 - h * 0.25 }, inner: around(from), outer: around(to), from, to };
+  };
+  const SURROUND_COLOR = "rgba(240, 173, 78, 0.95)";
+  /** Zoom view: the background ring (amber band), the box core (dotted) and the neighbour boxes the search avoids. */
+  const drawSurroundings = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, X: (x: number) => number, Y: (y: number) => number): void => {
+    if (reclassMode()) return;
+    const rect = (b: RefineRect): [number, number, number, number] => [X(b.x0), Y(b.y0), X(b.x1) - X(b.x0), Y(b.y1) - Y(b.y0)];
+    const tag = (text: string, x: number, y: number, color: string): void => {
+      context.font = "600 11px system-ui, sans-serif";
+      context.fillStyle = "rgba(0, 0, 0, 0.6)";
+      context.fillRect(x, y - 12, context.measureText(text).width + 6, 15);
+      context.fillStyle = color;
+      context.fillText(text, x + 3, y);
+    };
+    context.save();
+    for (const n of c.neighbours) {
+      context.setLineDash(r.params.avoidNeighbors ? [6, 3] : [2, 4]);
+      context.strokeStyle = r.params.avoidNeighbors ? "rgba(200, 200, 200, 0.9)" : "rgba(200, 200, 200, 0.45)";
+      context.lineWidth = 1.5;
+      context.strokeRect(...rect(n));
+      tag(r.params.avoidNeighbors ? "neighbour" : "neighbour (ignored)", X(n.x0) + 2, Y(n.y0) + 14, "#e6e6e6");
+    }
+    const ring = surroundings(c, r);
+    if (ring) {
+      const d = r.sides.T ?? r.sides.L;
+      context.beginPath();
+      context.rect(...rect(ring.outer));
+      context.rect(...rect(ring.inner));
+      context.fillStyle = "rgba(240, 173, 78, 0.18)";
+      context.fill("evenodd");
+      context.setLineDash([5, 3]);
+      context.strokeStyle = SURROUND_COLOR;
+      context.lineWidth = 1;
+      context.strokeRect(...rect(ring.outer));
+      context.strokeRect(...rect(ring.inner));
+      context.setLineDash([2, 2]);
+      context.lineWidth = 1.5;
+      context.strokeRect(...rect(ring.core));
+      tag(`background ring${d?.outside != null ? ` ${Math.round(d.outside)}` : ""}`, X(ring.outer.x0) + 2, Y(ring.outer.y0) + 14, SURROUND_COLOR);
+      tag(`core${d?.inside != null ? ` ${Math.round(d.inside)}` : ""}`, X(ring.core.x0) + 2, Y(ring.core.y0) + 14, SURROUND_COLOR);
+    }
+    context.restore();
+  };
+  /** Readout lines saying what each Surroundings setting does on this case. */
+  const surroundingsText = (c: LabCase, r: LabResult, d: RefineSideDiagnostics): string[] => {
+    const ring = surroundings(c, r);
+    const n = c.neighbours.length;
+    return [
+      ring && d.inside !== null && d.outside !== null
+        ? `Surroundings: box core (dotted) ${Math.round(d.inside)} → background ring (amber, ${ring.from}–${ring.to} px out) ${Math.round(d.outside)}: ${POLARITY_TEXT[d.detectedPolarity]}`
+        : "Surroundings: background ring off, polarity is not measured",
+      n ? `${n} neighbour box${n === 1 ? "" : "es"} nearby (grey dashed): ${r.params.avoidNeighbors ? "the outward search stops halfway to them" : "ignored, the search may reach into them"}` : "No neighbour boxes near this one",
+      r.params.peerTolerance > 0
+        ? `Row/column tolerance ${r.params.peerTolerance} px: checked across all boxes when refining on the canvas (not per case here)`
+        : "Row/column alignment flags off"
+    ];
   };
 
   // ---------------------------------------------------------------- drawing
@@ -498,6 +568,9 @@ export function createRefineLab(input: {
         vx0 = Math.min(vx0, requested.x0 - 6); vy0 = Math.min(vy0, requested.y0 - 6);
         vx1 = Math.max(vx1, requested.x1 + 6); vy1 = Math.max(vy1, requested.y1 + 6);
       }
+      // The fitted view also holds the background ring Surroundings sample.
+      const ring = surroundings(c, r)?.outer;
+      if (ring) { vx0 = Math.min(vx0, ring.x0 - 4); vy0 = Math.min(vy0, ring.y0 - 4); vx1 = Math.max(vx1, ring.x1 + 4); vy1 = Math.max(vy1, ring.y1 + 4); }
     }
     // The view is not clipped to the image: ranges reaching past the border stay visible over a hatched area.
     const [vw, vh] = [vx1 - vx0, vy1 - vy0];
@@ -546,6 +619,7 @@ export function createRefineLab(input: {
         context.strokeRect(...band);
       }
     }
+    if (detail) drawSurroundings(context, c, r, X, Y);
     // Original box: dashed white over a dark halo so it reads on any background.
     const original = [X(c.local.x0), Y(c.local.y0), (c.local.x1 - c.local.x0) * s, (c.local.y1 - c.local.y0) * s] as const;
     context.setLineDash([4, 3]);
@@ -803,9 +877,6 @@ export function createRefineLab(input: {
 
     const moved = r.result && !off ? r.result.box[SIDE_KEY[activeSide]] - originalCoordinate : 0;
     const outward = (d.out > 0 ? moved : -moved);
-    const detected = d.inside !== null && d.outside !== null
-      ? `Inside ${Math.round(d.inside)} → outside ${Math.round(d.outside)}: ${POLARITY_TEXT[d.detectedPolarity]}`
-      : "Background ring off: polarity is not measured";
     const usedPolarity = r.params.polarity === "auto"
       ? `Auto → ${POLARITY_TEXT[d.polarity]}`
       : `${POLARITY_TEXT[d.polarity]} (fixed)${d.detectedPolarity !== 0 && d.detectedPolarity !== d.polarity ? " · differs from the image" : ""}`;
@@ -817,7 +888,7 @@ export function createRefineLab(input: {
         r.result ? imageToOutward(d, c.local[SIDE_KEY[activeSide]], r.result.box[SIDE_KEY[activeSide]]) : null),
       off || !d.pair ? "" : pairText(d.pair),
       off || !d.parts ? "" : `Parts (strength): ${partNames(d, c.local).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
-      detected,
+      ...surroundingsText(c, r, d),
       `Polarity used: ${usedPolarity}`,
       r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
     ].filter(Boolean).map((line, index) => {
@@ -890,8 +961,8 @@ export function createRefineLab(input: {
     const lines = !r.reclass
       ? [`No rule checks class ${c.classId}${name(c.classId) ? ` ${name(c.classId)}` : ""}.`]
       : [
-        `${r.reclass.match ? "Match" : "No match"}: rule ${draft.reclass.indexOf(r.reclass.rule) + 1} · ${describeReclassRule(r.reclass.rule, name)}`,
-        `Centre ${Math.round(r.reclass.rule.crop * 100)}%: ${reclassText(r.reclass)}`,
+        `${r.reclass.match ? "Match" : "No match"}: ${describeReclassRule(r.reclass.rule, name)}`,
+        `Centre ${Math.round(r.reclass.rule.cropX * 100)}% wide × ${Math.round(r.reclass.rule.cropY * 100)}% high: ${reclassText(r.reclass)}`,
         ...(r.reclass.rule.shrink.enabled ? ["Area is the refined box (Edge settings) against the box as loaded from the label file."] : [])
       ];
     readout.replaceChildren(...lines.map((line, index) => {

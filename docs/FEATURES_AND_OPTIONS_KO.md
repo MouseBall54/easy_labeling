@@ -333,14 +333,15 @@ Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리�
 
 **Mode (Edge / Reclass):** Refine 탭과 Refine Lab 맨 위의 **Mode**로 경계 맞추기(Edge)와 Reclass를 나눠 쓴다. 두 곳은 같은 모드 값을 쓰고, 모드는 `refine-settings.json`에 저장된다.
 
-- Lab 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rules다.
+- Lab 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule이다.
+- Edge 모드의 Lab 확대 화면은 **Surroundings** 설정이 읽는 곳을 함께 그린다. 주황 띠는 Background ring(검색 범위 바깥의 배경 밝기 측정 영역), 점선 사각형은 박스 core(안쪽 50%)이고, 각 라벨에 측정한 중앙값이 붙는다. 회색 점선 박스는 이웃 박스로, Stop halfway to neighbours를 켜면 바깥 검색이 그 중간에서 멈춘다(끄면 `neighbour (ignored)`). 아래 설명 줄에 core → ring 밝기와 극성, 이웃 수, Row/column tolerance(캔버스에서 여러 박스를 정렬할 때만 검사)가 나온다.
 - 프리셋은 모드마다 따로 저장하고 불러온다. 데스크톱 앱은 Reclass 프리셋을 `Reclass Presets` 폴더에 둔다. 예전 Refine 프리셋에 같이 저장된 Reclass 규칙은 쓰지 않는다(Edge 프리셋으로만 읽는다).
 - Image(Original/Processed와 Processing)도 모드마다 따로다. 예를 들어 경계는 Processed로 찾고 Reclass 판정은 Original 밝기로 할 수 있다. 예전 설정 파일은 Reclass도 Edge와 같은 이미지로 시작한다.
-- Reclass 모드에서 Classes 칩은 선택한 규칙의 검사 대상 클래스(From)다. 규칙 블록을 누르면 그 규칙이 선택되고, **All**은 모든 클래스를 검사한다.
+- Reclass 모드에서 Classes 칩은 규칙의 검사 대상 클래스(From)다. **All**은 모든 클래스를 검사한다.
 - Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & find candidates**는 저장한 뒤 캔버스에서 후보를 찾는다.
 - Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Find candidates를 보여 준다. Review의 `N`/`Shift+N`/`F`는 현재 모드의 대상(Refine 검토 대상 또는 Reclass 후보)만 다룬다. `E`/`Shift+E`는 모드와 상관없이 경계를 맞춘다.
 
-- 규칙은 Refine Lab의 Reclass 모드 **Rules**에서 만든다. 규칙마다 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop 비율, 판정 조합(OR: 하나라도 / AND: 모두)을 정한다.
+- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 **Use this rule**로 켜고, 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop의 가로 비율(Centre width %)과 세로 비율(Centre height %), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 저장된 규칙이 없으면 꺼진 기본 규칙이 보인다. 예전 버전의 Centre crop % 하나는 가로·세로 모두에 쓰이고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
 - 판정은 세 가지다.
   - **Mean ≥:** 가운데 crop의 평균 밝기(0~255)가 기준 이상
   - **Bright pixels ≥ %:** 가운데 crop에서 Bright level 이상인 픽셀의 비율이 기준 이상
