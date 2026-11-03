@@ -721,6 +721,13 @@ test("refine: boxes whose area changes past the limit are outlined red and queue
   await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-area-flag-pane.png" });
   await page.locator("#canvas-container").screenshot({ path: "test-results/refine-area-flag-canvas.png" });
 
+  // Hiding review marks clears the overlay without leaving the queue.
+  await page.locator("#refineShowReviewToggle").uncheck();
+  await expect.poll(redPixels).toBe(0);
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
+  await page.locator("#refineShowReviewToggle").check();
+  await expect.poll(redPixels).toBeGreaterThan(50);
+
   // N jumps to the flagged box; approving it clears the red outline.
   await page.keyboard.press("n");
   await page.keyboard.press("f");

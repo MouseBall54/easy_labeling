@@ -451,7 +451,7 @@ export function createRefineController(input: {
     const sy = (y: number): number => v[3] * y + v[5];
     context.save();
     context.font = "600 11px system-ui, sans-serif";
-    for (const box of reviewQueue()) {
+    for (const box of byId<HTMLInputElement>("refineShowReviewToggle").checked ? reviewQueue() : []) {
       const result = records.get(box.id)?.result;
       const weak = result?.weakSides ?? [];
       const [x0, y0, x1, y1] = [sx(box.x0), sy(box.y0), sx(box.x1), sy(box.y1)];
@@ -580,6 +580,7 @@ export function createRefineController(input: {
       byId("refinePrevReviewBtn").addEventListener("click", () => navigateReview(-1));
       byId("refineNextReviewBtn").addEventListener("click", () => navigateReview(1));
       byId("refineApproveBtn").addEventListener("click", approve);
+      byId("refineShowReviewToggle").addEventListener("change", drawOverlay);
       byId("openRefineLabBtn").addEventListener("click", openLab);
       byId("taskRefineBtn").addEventListener("click", () => runShortcut("toggle"));
       byId("inspectorRefineTabBtn").addEventListener("click", () => input.uiManager.setInspectorTab("refine"));

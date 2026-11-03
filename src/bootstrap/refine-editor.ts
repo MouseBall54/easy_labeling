@@ -206,14 +206,14 @@ function markup(prefix: string): string {
       <div class="section-heading-row"><h3>Edges</h3><span class="section-value">Click a side to edit it alone</span></div>
       <div class="refine-side-editor">
         <div class="refine-side-box" data-ref="sideBox" title="Click a side to edit its own rule; click the centre for all sides"></div>
-        ${(["T", "L", "R", "B"] as RefineSide[]).map(slot).join("")}
+        ${(["T", "B", "L", "R"] as RefineSide[]).map(slot).join("")}
       </div>
     </section>
     <section class="inspector-section">
       <div class="section-heading-row"><h3>Edge rule</h3></div>
       <div class="refine-scope" role="group" aria-label="Sides this rule applies to" data-ref="scope">
         <button type="button" data-scope="all" title="Rule shared by every side">All sides</button>
-        ${(["T", "L", "R", "B"] as RefineSide[]).map((side) => `<button type="button" data-scope="${side}" title="${SIDE_NAMES[side]} edge only">${SIDE_NAMES[side]}</button>`).join("")}
+        ${(["T", "B", "L", "R"] as RefineSide[]).map((side) => `<button type="button" data-scope="${side}" title="${SIDE_NAMES[side]} edge only">${SIDE_NAMES[side]}</button>`).join("")}
       </div>
       <div class="refine-scope-hint" data-ref="scopeHint">
         <span data-ref="scopeText"></span>
