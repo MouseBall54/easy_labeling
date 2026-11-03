@@ -442,7 +442,14 @@ export function createRefineController(input: {
     if (!image || !isDetection()) return setStatus("Open an image in the Detection workflow first.");
     await loadSettings();
     const rules = settings.reclass;
-    if (!rules.some((rule) => rule.enabled && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled))) return setStatus("No reclass rule is on.");
+    if (!rules.some((rule) => rule.enabled && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled))) {
+      // Candidates from an earlier run no longer stand.
+      reclassGeneration += 1;
+      candidates.clear();
+      renderReviewCounter();
+      raw.canvas.requestRenderAll?.();
+      return setStatus("No reclass rule is on.");
+    }
     const token = ++reclassGeneration;
     const started = performance.now();
     const boxes = visibleRects().map(toBox);
@@ -581,6 +588,8 @@ export function createRefineController(input: {
     if (!active) {
       if (overlay.width > 1) context.clearRect(0, 0, overlay.width, overlay.height);
       dimExcept(null);
+      overlay.dataset.pins = "0";
+      overlay.dataset.tags = "0";
       return;
     }
     if (overlay.width !== width || overlay.height !== height) {

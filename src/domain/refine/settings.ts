@@ -252,7 +252,8 @@ export function saveRefinePreset(
     preset.imageSource = image.imageSource;
     preset.processing = image.processing ? { name: image.processing.name, config: { ...image.processing.config } } : null;
   }
-  if (reclass) preset.reclass = normalizeReclassRules(reclass);
+  // A preset without rules leaves the rules alone when applied, like presets saved before reclass existed.
+  if (reclass?.length) preset.reclass = normalizeReclassRules(reclass);
   const index = doc.presets.findIndex((item) => item.name === trimmed);
   const presets = index < 0 ? [...doc.presets, preset] : doc.presets.map((item, i) => (i === index ? preset : item));
   return { ...doc, presets };
@@ -271,7 +272,7 @@ export function applyRefinePreset(doc: RefineSettingsDocument, name: string, tar
   if (!preset) return doc;
   const image = {
     ...(preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : {}),
-    ...(preset.reclass ? { reclass: normalizeReclassRules(preset.reclass) } : {})
+    ...(preset.reclass?.length ? { reclass: normalizeReclassRules(preset.reclass) } : {})
   };
   if (target === "default") return { ...doc, ...image, default: normalizeRefineParams(preset.params) };
   const classes = { ...doc.classes };

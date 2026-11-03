@@ -478,4 +478,11 @@ describe("domain/refine/settings", () => {
     const files = parseRefinePresetFiles([{ name: "p.json", contents: serializeRefinePresets(withPreset.presets) }]);
     expect(files.presets[0].reclass).toEqual([rule]);
   });
+
+  it("keeps the current reclass rules when a preset saved without any is applied", () => {
+    const rule = { ...createReclassRule(), toClass: "4" };
+    const empty = saveRefinePreset(createRefineSettings(), "tuned", createRefineSettings().default, undefined, []);
+    const current = { ...createRefineSettings(), reclass: [rule] };
+    expect(applyRefinePreset(current, "tuned", ["2"], empty.presets).reclass).toEqual([rule]);
+  });
 });

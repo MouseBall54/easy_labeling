@@ -121,6 +121,8 @@ async function settingsFile(page: Page): Promise<{ classes: Record<string, { sid
 }
 
 const lab = (page: Page) => page.locator("#refineLabModal");
+/** Expands the Lab Reclass section (it stays as it was left between openings). */
+const openReclass = (page: Page) => page.locator("#refineLabEditor [data-ref='reclassDetails']").evaluate((details) => { (details as HTMLDetailsElement).open = true; });
 
 async function openLab(page: Page): Promise<void> {
   await page.locator("#openRefineLabBtn").click();
@@ -947,6 +949,35 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await saveLab(page);
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"min":200');
   await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 200");
+
+  // Turning every rule off clears the candidates an earlier Find left.
+  await openLab(page);
+  await openReclass(page);
+  await page.locator("#refineLabReclass0-meanMin").fill("120");
+  await saveLab(page);
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await openLab(page);
+  await openReclass(page);
+  await page.locator("#refineLabReclass0-enabled").uncheck();
+  await saveLab(page);
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
+  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  await expect(page.locator("#refineOverlayCanvas")).toHaveAttribute("data-pins", "0");
+});
+
+test("refine lab: keeps rule classes that have no box on this image", async ({ page }) => {
+  await openSemDataset(page, { settings: { default: {}, reclass: [reclassRule({ fromClasses: ["7"] })] } });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineReclassSummary")).toContainText("class 7 → 1");
+  await openLab(page);
+  await openReclass(page);
+  await expect(page.locator("#refineLabReclass0-from option[value='7']")).toHaveJSProperty("selected", true);
+  await page.locator("#refineLabReclass0-meanMin").fill("140");
+  await saveLab(page);
+  await expect(page.locator("#refineReclassSummary")).toContainText("class 7 → 1 · mean ≥ 140");
 });
 
 test("reclass: pins stay readable on a 3072 x 2048 image with 700 boxes", async ({ page }, testInfo) => {

@@ -38,12 +38,18 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     return new Option(name ? `${classId} ${name}` : classId, classId);
   };
 
-  /** Builds the blocks; rebuilt only when the rule count or class list changes, so typing keeps focus. */
+  /** Rule count, listed classes and rule classes missing from that list: what the blocks are built from. */
+  const shapeOf = (): string => {
+    const classIds = store.classIds();
+    const hidden = rules().map((rule) => rule.fromClasses.filter((classId) => !classIds.includes(classId)).join(","));
+    return `${rules().length}|${classIds.join(",")}|${hidden.join(";")}`;
+  };
+  /** Builds the blocks; rebuilt only when their shape changes, so typing keeps focus. */
   let shape = "";
   const build = (): void => {
     const list = rules();
     const classIds = store.classIds();
-    shape = `${list.length}|${classIds.join(",")}`;
+    shape = shapeOf();
     root.replaceChildren();
     list.forEach((_, index) => {
       const block = element("div", { className: "refine-fields reclass-rule" });
@@ -70,7 +76,8 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
       head.append(tools);
 
       const from = element("select", { className: "form-select form-select-sm", id: id(index, "from"), multiple: true, size: Math.min(4, Math.max(2, classIds.length)), title: "Classes this rule checks; none selected = every class" });
-      classIds.forEach((classId) => from.add(classOption(classId)));
+      // Classes with no box on this image stay listed, or saving would silently widen the rule to every class.
+      [...new Set([...classIds, ...list[index].fromClasses])].forEach((classId) => from.add(classOption(classId)));
       from.addEventListener("change", () => update(index, (rule) => ({ ...rule, fromClasses: [...from.selectedOptions].map((option) => option.value) })));
       // A text field with suggestions: the target class may not have any box yet.
       const to = element("input", { type: "text", className: "form-control form-control-sm", id: id(index, "to"), title: "Class id a matching box changes to" });
@@ -131,7 +138,7 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
 
   return {
     render() {
-      if (shape !== `${rules().length}|${store.classIds().join(",")}`) build();
+      if (shape !== shapeOf()) build();
       sync();
     }
   };
