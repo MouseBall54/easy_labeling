@@ -311,22 +311,21 @@ export function createRefineController(input: {
     pane.querySelectorAll<HTMLElement>("[data-refine-mode]").forEach((section) => { section.hidden = section.dataset.refineMode !== mode; });
     byId("refineShowReviewToggle").closest("label")!.title = mode === "reclass" ? "Pins on reclass candidates" : "Pins and weak-side marks on boxes to review";
     const own = Object.keys(settings.classes).length;
-    const lab = settings.reclass;
+    const lab = settings.reclass[0];
     byId("refineSettingsSummary").textContent = mode === "reclass"
-      ? `Lab rules: ${lab.length ? `${lab.length} rule${lab.length === 1 ? "" : "s"}` : "none"} · image ${imageText(settings.reclassImageSource, settings.reclassProcessing)}`
+      ? `Lab rule: ${!lab ? "not set" : lab.enabled ? "on" : "off"} · image ${imageText(settings.reclassImageSource, settings.reclassProcessing)}`
       : `Class settings: image ${imageText(settings.imageSource, settings.processing)} · `
         + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
     // Reclass with: the Lab rules or one reclass preset, the chosen rules summarised below.
     const reclassPresets = allReclassPresets();
     const reclassDatasetNames = new Set(settings.reclassPresets.map((preset) => preset.name));
     const reclassSelect = byId<HTMLSelectElement>("refineReclassPresetSelect");
-    reclassSelect.replaceChildren(new Option("Lab rules", ""), ...reclassPresets.map((preset) =>
+    reclassSelect.replaceChildren(new Option("Lab rule", ""), ...reclassPresets.map((preset) =>
       new Option(`${refinePresetLabel(preset)}${reclassDatasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name)));
     const config = reclassConfig();
     reclassSelect.value = config.preset?.name ?? "";
-    const rules = config.rules;
-    byId("refineReclassSummary").textContent = (!rules.length ? "No rules · set them up in Refine Lab"
-      : rules.length === 1 ? describeReclassRule(rules[0], className) : `${rules.length} rules (checked in order)`)
+    const [rule] = config.rules;
+    byId("refineReclassSummary").textContent = (!rule ? "No rule · set it up in Refine Lab" : `${describeReclassRule(rule, className)}${rule.enabled ? "" : " (off)"}`)
       + (config.preset ? ` · ${imageText(config.preset.imageSource, config.preset.processing)}` : "");
     // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
     const presets = allPresets();
@@ -780,7 +779,7 @@ export function createRefineController(input: {
       byId("refineReclassPresetSelect").addEventListener("change", (event) => {
         const name = (event.target as HTMLSelectElement).value;
         changeSettings({ ...settings, activeReclassPreset: name || null });
-        setStatus(name ? `Finding candidates with ${name}.` : "Finding candidates with the Lab rules.");
+        setStatus(name ? `Finding candidates with ${name}.` : "Finding candidates with the Lab rule.");
       });
       byId("refineModeToggle").addEventListener("click", (event) => {
         const mode = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode;

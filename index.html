@@ -563,9 +563,9 @@
                         </section>
                         <section class="inspector-section" data-refine-mode="reclass" hidden>
                             <div class="section-heading-row"><h3>Reclass with</h3><span id="refineReclassCounter" class="section-value">0 candidates</span></div>
-                            <select id="refineReclassPresetSelect" class="form-select form-select-sm" aria-label="Rules used when finding candidates"><option value="">Lab rules</option></select>
+                            <select id="refineReclassPresetSelect" class="form-select form-select-sm" aria-label="Rule used when finding candidates"><option value="">Lab rule</option></select>
                             <p id="refineReclassSummary" class="refine-hint"></p>
-                            <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rules flag on this image; nothing changes until you reclass them"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
+                            <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rule flags on this image; nothing changes until you reclass them"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
                             <div class="refine-run-grid mt-2">
                                 <button id="refineReclassSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change the selected candidates to their rule's class">Reclass selected</button>
                                 <button id="refineReclassAllBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change every candidate to its rule's class (one undo step)">Reclass all</button>
@@ -861,7 +861,7 @@
                             </div>
                             <label class="refine-lab-opacity" title="Search range fill opacity"><span>Range opacity</span><input id="refineLabBandOpacity" type="range" class="form-range" min="0" max="100" step="5" value="35"></label>
                             <button id="refineLabFitBtn" type="button" class="btn btn-sm btn-outline-secondary" title="Show the whole case (double-click the view). Wheel zooms, drag pans." disabled>Fit</button>
-                            <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review</span>
+                            <span class="refine-lab-legend"><i class="is-original"></i>Original <i class="is-result"></i>Result <i class="is-band"></i>Search range <i class="is-weak"></i>Review <i class="is-surround" title="Surroundings: background ring (amber band), box core (dotted), neighbour boxes (grey dashed)"></i>Surroundings</span>
                         </div>
                         <canvas id="refineLabZoom" class="refine-lab-zoom" title="Wheel: zoom · drag: pan · double-click: fit" aria-label="Zoomed case with original and refined box"></canvas>
                         <canvas id="refineLabProfile" class="refine-lab-profile" aria-label="Mean brightness and its change across the chosen edge"></canvas>

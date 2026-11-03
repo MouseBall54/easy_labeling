@@ -10,6 +10,7 @@ import {
   measureReclass,
   normalizeReclassRule,
   normalizeReclassRules,
+  reclassRuleOf,
   type ReclassRule
 } from "../../../src/domain/refine/reclass.js";
 
@@ -31,7 +32,8 @@ describe("domain/refine/reclass", () => {
       fromClasses: [],
       toClass: "0",
       combine: "or",
-      crop: 0.5,
+      cropX: 0.5,
+      cropY: 0.5,
       mean: { enabled: true, min: 128 },
       bright: { enabled: false, level: 160, minRatio: 0.2 },
       shrink: { enabled: false, minRatio: 0.3 }
@@ -40,32 +42,39 @@ describe("domain/refine/reclass", () => {
 
   it("clamps and repairs rule values read from a file", () => {
     const parsed = normalizeReclassRule({ crop: 5, mean: { enabled: true, min: "300" }, bright: { minRatio: -1 }, combine: "x", toClass: 3 });
-    expect(parsed.crop).toBe(1);
+    expect([parsed.cropX, parsed.cropY]).toEqual([1, 1]);
+    // Width and height read on their own; an older single crop sets both.
+    expect(normalizeReclassRule({ crop: 0.3, cropY: 0.8 })).toMatchObject({ cropX: 0.3, cropY: 0.8 });
     expect(parsed.mean).toEqual({ enabled: true, min: 255 });
     expect(parsed.bright.minRatio).toBe(0);
     expect(parsed.combine).toBe("or");
     expect(parsed.toClass).toBe("3");
     expect(normalizeReclassRules("nope")).toEqual([]);
     expect(normalizeReclassRules([{ toClass: "1" }, "bad", null])).toHaveLength(1);
+    // One rule: files from versions with several keep the first.
+    expect(normalizeReclassRules([{ toClass: "1" }, { toClass: "2" }]).map((r) => r.toClass)).toEqual(["1"]);
+    expect(reclassRuleOf([])).toMatchObject({ enabled: false, cropX: 0.5, cropY: 0.5 });
   });
 
   it("crops the centre in whole pixels, at least one pixel, inside the image", () => {
-    expect(centreCrop(FULL, 0.5, { width: 10, height: 10 })).toEqual({ x0: 3, y0: 3, x1: 8, y1: 8 });
-    const edge = centreCrop({ x0: -4, y0: -4, x1: 2, y1: 2 }, 1, { width: 10, height: 10 });
+    expect(centreCrop(FULL, { cropX: 0.5, cropY: 0.5 }, { width: 10, height: 10 })).toEqual({ x0: 3, y0: 3, x1: 8, y1: 8 });
+    // Width and height shares are separate: a wide, flat strip through the centre.
+    expect(centreCrop(FULL, { cropX: 0.8, cropY: 0.2 }, { width: 10, height: 10 })).toEqual({ x0: 1, y0: 4, x1: 9, y1: 6 });
+    const edge = centreCrop({ x0: -4, y0: -4, x1: 2, y1: 2 }, { cropX: 1, cropY: 1 }, { width: 10, height: 10 });
     expect(edge.x0).toBeGreaterThanOrEqual(0);
     expect(edge.x1 - edge.x0).toBeGreaterThanOrEqual(1);
     expect(edge.y1 - edge.y0).toBeGreaterThanOrEqual(1);
-    const tiny = centreCrop({ x0: 4, y0: 4, x1: 6, y1: 6 }, 0.1, { width: 10, height: 10 });
+    const tiny = centreCrop({ x0: 4, y0: 4, x1: 6, y1: 6 }, { cropX: 0.1, cropY: 0.1 }, { width: 10, height: 10 });
     expect([tiny.x1 - tiny.x0, tiny.y1 - tiny.y0]).toEqual([1, 1]);
   });
 
   it("measures the mean and the share of bright pixels in the crop", () => {
     const img = square(4, 200, 50);
-    expect(measureReclass(img, FULL, { crop: 0.4, bright: { enabled: true, level: 160, minRatio: 0 } })).toEqual({ mean: 200, brightRatio: 1 });
-    const whole = measureReclass(img, FULL, { crop: 1, bright: { enabled: true, level: 160, minRatio: 0 } });
+    expect(measureReclass(img, FULL, { cropX: 0.4, cropY: 0.4, bright: { enabled: true, level: 160, minRatio: 0 } })).toEqual({ mean: 200, brightRatio: 1 });
+    const whole = measureReclass(img, FULL, { cropX: 1, cropY: 1, bright: { enabled: true, level: 160, minRatio: 0 } });
     expect(whole.mean).toBeCloseTo(74);
     expect(whole.brightRatio).toBeCloseTo(0.16);
-    const outside = measureReclass(img, { x0: -20, y0: -20, x1: -10, y1: -10 }, { crop: 0.5, bright: { enabled: true, level: 160, minRatio: 0 } });
+    const outside = measureReclass(img, { x0: -20, y0: -20, x1: -10, y1: -10 }, { cropX: 0.5, cropY: 0.5, bright: { enabled: true, level: 160, minRatio: 0 } });
     expect(Number.isFinite(outside.mean)).toBe(true);
   });
 

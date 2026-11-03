@@ -471,7 +471,7 @@ describe("domain/refine/settings", () => {
     expect(parseRefineSettings(JSON.stringify({ default: {} })).reclass).toEqual([]);
     const read = parseRefineSettings(JSON.stringify({ default: { crit: "flank" }, reclass: [{ toClass: "0", crop: 9 }, "bad"] }));
     expect(read.reclass).toHaveLength(1);
-    expect(read.reclass[0]).toMatchObject({ toClass: "0", crop: 1 });
+    expect(read.reclass[0]).toMatchObject({ toClass: "0", cropX: 1, cropY: 1 });
     expect(read.default.crit).toBe("flank");
     expect(parseRefineSettings(serializeRefineSettings(read)).reclass).toEqual(read.reclass);
 

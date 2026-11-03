@@ -121,6 +121,8 @@ async function settingsFile(page: Page): Promise<{ classes: Record<string, { sid
 }
 
 const lab = (page: Page) => page.locator("#refineLabModal");
+/** Readout line for the box core and background ring medians Surroundings measured. */
+const surroundingsLine = (inside: number, outside: number): RegExp => new RegExp(`box core \\(dotted\\) ${inside} → background ring \\([^)]*\\) ${outside}:`);
 /** Switches the Lab to Reclass mode (a no-op when it is already there). */
 const openReclass = (page: Page) => page.locator("#refineLabEditor [data-ref='mode'] [data-mode='reclass']").click();
 
@@ -599,7 +601,7 @@ test("refine: processed image follows the Preprocess panel's contrast and gamma"
   await openLab(page);
   await lab(page).locator('[data-image-source="processed"]').click();
   // 180 -> (180 - 127.5) * 2 + 127.5 = 232.5; 40 -> clipped to 0.
-  await expect(page.locator("#refineLabReadout")).toContainText("Inside 233 → outside 0");
+  await expect(page.locator("#refineLabReadout")).toContainText(surroundingsLine(233, 0));
   await saveLab(page);
   await expect(page.locator("#refineSettingsSummary")).toContainText("image Processed (live Preprocess panel)");
   await setPreprocess("segmentationPreprocessContrastInput", "100");
@@ -607,7 +609,7 @@ test("refine: processed image follows the Preprocess panel's contrast and gamma"
   await expect(page.locator("#segmentationPreprocessGammaValue")).toHaveText("2.00");
   await openLab(page);
   // 40 -> 255 * (40 / 255) ^ 0.5 = 101; 180 -> 214.
-  await expect(page.locator("#refineLabReadout")).toContainText("Inside 214 → outside 101");
+  await expect(page.locator("#refineLabReadout")).toContainText(surroundingsLine(214, 101));
 });
 
 test("preprocess: SEM filters reach the processed image and Reset restores the defaults", async ({ page }) => {
@@ -625,7 +627,7 @@ test("preprocess: SEM filters reach the processed image and Reset restores the d
   await page.keyboard.press("r");
   await openLab(page);
   await lab(page).locator('[data-image-source="processed"]').click();
-  await expect(page.locator("#refineLabReadout")).toContainText("Inside 180 → outside 40");
+  await expect(page.locator("#refineLabReadout")).toContainText(surroundingsLine(180, 40));
   await saveLab(page);
 
   await setPreprocess("segmentationPreprocessMedianToggle", true);
@@ -634,7 +636,7 @@ test("preprocess: SEM filters reach the processed image and Reset restores the d
   await expect(page.locator("#segmentationPreprocessClaheValue")).toHaveText("4.0");
   await expect(page.locator("#segmentationPreprocessLevelsValue")).toHaveText("1.0%");
   await openLab(page);
-  await expect(page.locator("#refineLabReadout")).not.toContainText("Inside 180 → outside 40");
+  await expect(page.locator("#refineLabReadout")).not.toContainText(surroundingsLine(180, 40));
   await expect(page.locator("#refineLabReadout")).toContainText("bright → dark");
   await lab(page).locator(".btn-close").click();
 
@@ -679,7 +681,7 @@ test("presets: preprocessing presets feed Refine Lab, refine presets keep their 
   await lab(page).locator('[data-image-source="processed"]').click();
   await expect(page.locator("#refineLabProcessing option", { hasText: "High contrast" })).toHaveCount(1);
   await page.locator("#refineLabProcessing").selectOption("High contrast");
-  await expect(page.locator("#refineLabReadout")).toContainText("Inside 233 → outside 0");
+  await expect(page.locator("#refineLabReadout")).toContainText(surroundingsLine(233, 0));
   await lab(page).locator('[data-ref="presetName"]').fill("Fins HC");
   await lab(page).locator('[data-act="savePreset"]').click();
   await saveLab(page);
@@ -928,13 +930,13 @@ test("reclass: says so when no rule is on", async ({ page }) => {
   await expect(page.locator("#refineRunPresetSelect")).toBeVisible();
   await page.locator("#refineModeToggle [data-mode='reclass']").click();
   await expect(page.locator("#refineRunPresetSelect")).toBeHidden();
-  await expect(page.locator("#refineReclassSummary")).toContainText("No rules");
+  await expect(page.locator("#refineReclassSummary")).toContainText("No rule ·");
   await page.locator("#refineFindReclassBtn").click();
   await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
   await expect.poll(async () => (await settingsFile(page) as { mode?: string } | null)?.mode).toBe("reclass");
 });
 
-test("refine lab: Reclass mode has its own presets and image, and the class chips edit the selected rule", async ({ page }) => {
+test("refine lab: Reclass mode has its own presets and image, one rule whose classes are the chips, and a width/height centre crop", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page, { extra: DARK_CENTRE, settings: { ...reclassSettings(reclassRule({ mean: { enabled: true, min: 120 } })), presets: [{ name: "Edge one", params: {} }] } });
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
@@ -947,18 +949,19 @@ test("refine lab: Reclass mode has its own presets and image, and the class chip
   await expect(page.locator("#refineLabProfile")).toBeHidden();
   await expect(page.locator("#refineLabApplyBtn")).toHaveText("Save & find candidates");
 
-  // Rule 1 is selected: its classes are the chips.
+  // One rule, no add/move/delete; its classes are the chips.
+  await expect(editor.locator(".reclass-rule")).toHaveCount(1);
+  await expect(editor.locator("[data-ref='contextDetails']")).toBeHidden();
+  await expect(editor.locator("[data-act='addReclassRule'], [data-act='reclassDelete'], [data-act='reclassUp']")).toHaveCount(0);
+  await expect(editor.locator("[data-mode-only='reclass'] p.refine-hint")).toHaveCount(0);
   await expect(editor.locator(".refine-class-chip[data-class-id='']")).toHaveAttribute("aria-pressed", "true");
   await editor.locator(".refine-class-chip[data-class-id='0']").click();
   await expect(editor.locator(".refine-class-chip[data-class-id='0']")).toHaveAttribute("aria-pressed", "true");
-  await expect(editor.locator("[data-ref='hint']")).toContainText("Rule 1 checks class 0");
-  await expect(page.locator("#refineLabReclass0-fromText")).toHaveText("From 0");
-  // A new rule is selected and checks every class until chips are picked.
-  await editor.locator("[data-act='addReclassRule']").click();
-  await expect(editor.locator(".reclass-rule.is-selected")).toHaveAttribute("data-index", "1");
-  await expect(editor.locator(".refine-class-chip[data-class-id='0']")).toHaveAttribute("aria-pressed", "false");
-  await editor.locator(".reclass-rule[data-index='0']").click();
-  await expect(editor.locator(".refine-class-chip[data-class-id='0']")).toHaveAttribute("aria-pressed", "true");
+  await expect(editor.locator("[data-ref='hint']")).toHaveText("The rule checks class 0.");
+  // Width and height of the centre crop are set apart.
+  await page.locator("#refineLabReclass0-cropX").fill("80");
+  await page.locator("#refineLabReclass0-cropY").fill("20");
+  await expect(page.locator("#refineLabReadout")).toContainText("Centre 80% wide × 20% high");
 
   // The reclass image is its own; the edge image stays Original.
   await editor.locator("[data-ref='imageSource'] [data-image-source='processed']").click();
@@ -967,6 +970,7 @@ test("refine lab: Reclass mode has its own presets and image, and the class chip
   await editor.locator("[data-ref='mode']").scrollIntoViewIfNeeded();
   await lab(page).screenshot({ path: "test-results/refine-lab-reclass-mode-light.png" });
   await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await page.locator("#refineLabReclass0-shrinkRatio").scrollIntoViewIfNeeded();
   await lab(page).screenshot({ path: "test-results/refine-lab-reclass-mode-dark.png" });
   await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
   await editor.locator("[data-ref='mode'] [data-mode='edge']").click();
@@ -974,20 +978,28 @@ test("refine lab: Reclass mode has its own presets and image, and the class chip
   await expect(editor.locator("[data-ref='presetSelect'] option", { hasText: "Voids" })).toHaveCount(0);
   await expect(editor.locator("[data-ref='imageSource'] [data-image-source='original']")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#refineLabProfile")).toBeVisible();
+  // Surroundings say on the case what they read: the core, the background ring and the neighbours.
+  await expect(page.locator("#refineLabReadout")).toContainText("Surroundings: box core (dotted)");
+  await expect(page.locator("#refineLabReadout")).toContainText("background ring (amber");
+  await expect(page.locator("#refineLabReadout")).toContainText("neighbour box");
+  await lab(page).screenshot({ path: "test-results/refine-lab-surroundings-light.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await lab(page).screenshot({ path: "test-results/refine-lab-surroundings-dark.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
   await openReclass(page);
   await saveLab(page);
 
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"reclassImageSource":"processed"');
   const saved = await settingsFile(page) as unknown as Record<string, unknown> & { reclass: { fromClasses: string[] }[]; reclassPresets: { name: string; reclass: unknown[]; imageSource: string }[] };
   expect(saved).toMatchObject({ mode: "reclass", imageSource: "original", presets: [{ name: "Edge one" }] });
-  expect(saved.reclass.map((rule) => rule.fromClasses)).toEqual([["0"], []]);
+  expect(saved.reclass).toMatchObject([{ fromClasses: ["0"], cropX: 0.8, cropY: 0.2 }]);
   expect(saved.reclassPresets).toMatchObject([{ name: "Voids", imageSource: "processed" }]);
-  expect(saved.reclassPresets[0].reclass).toHaveLength(2);
+  expect(saved.reclassPresets[0].reclass).toMatchObject([{ fromClasses: ["0"], cropX: 0.8, cropY: 0.2 }]);
 
   // The pane finds candidates with a chosen reclass preset.
   await expect(page.locator("#refineReclassPresetSelect option", { hasText: "Voids" })).toHaveCount(1);
   await page.locator("#refineReclassPresetSelect").selectOption("Voids");
-  await expect(page.locator("#refineReclassSummary")).toContainText("2 rules");
+  await expect(page.locator("#refineReclassSummary")).toContainText("class 0 → 1");
   await expect(page.locator("#refineReclassSummary")).toContainText("Processed");
   await expect.poll(async () => (await settingsFile(page) as { activeReclassPreset?: string } | null)?.activeReclassPreset).toBe("Voids");
   await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-reclass-mode.png" });
@@ -1001,7 +1013,9 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await openLab(page);
   await page.locator("#refineLabSource").selectOption("all");
   await openReclass(page);
-  await page.locator("#refineLabEditor [data-act='addReclassRule']").click();
+  // With no saved rule the default one stays off until it is turned on.
+  await expect(page.locator("#refineLabReclass0-enabled")).not.toBeChecked();
+  await page.locator("#refineLabReclass0-enabled").check();
   await page.locator("#refineLabReclass0-to").fill("1");
   await page.locator("#refineLabReclass0-meanMin").fill("120");
 

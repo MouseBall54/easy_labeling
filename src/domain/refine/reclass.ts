@@ -11,8 +11,9 @@ export interface ReclassRule {
   fromClasses: string[];
   toClass: string;
   combine: "and" | "or";
-  /** Centre crop as a fraction of the box width and height (0.1-1). */
-  crop: number;
+  /** Centre crop as a fraction of the box width (cropX) and height (cropY), 0.1-1. Older files hold one `crop` for both. */
+  cropX: number;
+  cropY: number;
   mean: { enabled: boolean; min: number };
   /** Bright pixels are >= level; the check passes when their share of the crop is >= minRatio. */
   bright: { enabled: boolean; level: number; minRatio: number };
@@ -30,7 +31,8 @@ export function createReclassRule(): ReclassRule {
     fromClasses: [],
     toClass: "0",
     combine: "or",
-    crop: 0.5,
+    cropX: 0.5,
+    cropY: 0.5,
     mean: { enabled: true, min: 128 },
     bright: { enabled: false, level: 160, minRatio: 0.2 },
     shrink: { enabled: false, minRatio: 0.3 }
@@ -57,7 +59,8 @@ export function normalizeReclassRule(value: unknown): ReclassRule {
     fromClasses: Array.isArray(v.fromClasses) ? [...new Set(v.fromClasses.map((id) => classId(id, "")).filter(Boolean))] : [],
     toClass: classId(v.toClass, d.toClass),
     combine: v.combine === "and" ? "and" : "or",
-    crop: bounded(v.crop, d.crop, 0.1, 1),
+    cropX: bounded(v.cropX ?? v.crop, d.cropX, 0.1, 1),
+    cropY: bounded(v.cropY ?? v.crop, d.cropY, 0.1, 1),
     mean: { enabled: flag(mean.enabled, d.mean.enabled), min: bounded(mean.min, d.mean.min, 0, 255) },
     bright: {
       enabled: flag(bright.enabled, d.bright.enabled),
@@ -68,25 +71,31 @@ export function normalizeReclassRule(value: unknown): ReclassRule {
   };
 }
 
+/** Reclass runs one rule: the first one of the list (files from versions with several keep only it). */
 export function normalizeReclassRules(value: unknown): ReclassRule[] {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "object" && item !== null).map(normalizeReclassRule) : [];
+  return Array.isArray(value) ? value.filter((item) => typeof item === "object" && item !== null).slice(0, 1).map(normalizeReclassRule) : [];
+}
+
+/** The rule the editor shows: the saved one, else a default that stays off until it is turned on. */
+export function reclassRuleOf(rules: readonly ReclassRule[]): ReclassRule {
+  return rules[0] ?? { ...createReclassRule(), enabled: false };
 }
 
 /** Centre crop in whole pixels, clipped to the image, never smaller than 1 x 1. */
-export function centreCrop(box: RefineRect, crop: number, bounds: { width: number; height: number }): RefineRect {
-  const axis = (lo: number, hi: number, size: number): [number, number] => {
-    const span = Math.max(1, Math.round((hi - lo) * crop));
+export function centreCrop(box: RefineRect, crop: Pick<ReclassRule, "cropX" | "cropY">, bounds: { width: number; height: number }): RefineRect {
+  const axis = (lo: number, hi: number, size: number, share: number): [number, number] => {
+    const span = Math.max(1, Math.round((hi - lo) * share));
     const start = Math.round((lo + hi) / 2 - span / 2);
     const a = Math.min(Math.max(0, start), size - 1);
     return [a, Math.max(a + 1, Math.min(size, start + span))];
   };
-  const [x0, x1] = axis(box.x0, box.x1, bounds.width);
-  const [y0, y1] = axis(box.y0, box.y1, bounds.height);
+  const [x0, x1] = axis(box.x0, box.x1, bounds.width, crop.cropX);
+  const [y0, y1] = axis(box.y0, box.y1, bounds.height, crop.cropY);
   return { x0, y0, x1, y1 };
 }
 
-export function measureReclass(img: GrayImage, box: RefineRect, rule: Pick<ReclassRule, "crop" | "bright">): { mean: number; brightRatio: number } {
-  const { x0, y0, x1, y1 } = centreCrop(box, rule.crop, img);
+export function measureReclass(img: GrayImage, box: RefineRect, rule: Pick<ReclassRule, "cropX" | "cropY" | "bright">): { mean: number; brightRatio: number } {
+  const { x0, y0, x1, y1 } = centreCrop(box, rule, img);
   let sum = 0;
   let bright = 0;
   for (let y = y0; y < y1; y += 1) {
