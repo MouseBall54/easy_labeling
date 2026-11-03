@@ -4,9 +4,26 @@ import type { RefineEditorStore } from "./refine-editor.js";
 /**
  * Reclass rules in the Refine Lab: one block per rule, checked from the first. Edits go to the Lab draft
  * (store.setDoc) like every other Lab setting, so cases re-judge live and nothing is saved until Save.
+ * One rule is selected at a time; the editor's class chips edit that rule's classes (fromClasses).
  */
-export function createReclassEditor(input: { root: HTMLElement; prefix: string; documentRef: Document; store: RefineEditorStore }): { render(): void } {
+export interface ReclassEditor {
+  render(): void;
+  /** Index of the selected rule, or -1 when there are none. */
+  selected(): number;
+  onSelect(listener: () => void): void;
+}
+
+export function createReclassEditor(input: { root: HTMLElement; prefix: string; documentRef: Document; store: RefineEditorStore }): ReclassEditor {
   const { root, prefix, documentRef: doc, store } = input;
+  let selectedIndex = 0;
+  const selectListeners: (() => void)[] = [];
+  const selected = (): number => Math.min(selectedIndex, rules().length - 1);
+  const select = (index: number): void => {
+    if (index === selected()) return;
+    selectedIndex = index;
+    render();
+    selectListeners.forEach((listener) => listener());
+  };
   const rules = (): ReclassRule[] => store.getDoc().reclass;
   const commit = (next: ReclassRule[]): void => store.setDoc({ ...store.getDoc(), reclass: next.map(normalizeReclassRule) });
   const update = (index: number, patch: (rule: ReclassRule) => ReclassRule): void => commit(rules().map((rule, i) => (i === index ? patch(structuredClone(rule)) : rule)));
@@ -38,12 +55,11 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     return new Option(name ? `${classId} ${name}` : classId, classId);
   };
 
-  /** Rule count, listed classes and rule classes missing from that list: what the blocks are built from. */
-  const shapeOf = (): string => {
-    const classIds = store.classIds();
-    const hidden = rules().map((rule) => rule.fromClasses.filter((classId) => !classIds.includes(classId)).join(","));
-    return `${rules().length}|${classIds.join(",")}|${hidden.join(";")}`;
-  };
+  /** Rule count and listed classes: what the blocks are built from. */
+  const shapeOf = (): string => `${rules().length}|${store.classIds().join(",")}`;
+  const fromText = (rule: ReclassRule): string => (rule.fromClasses.length
+    ? `From ${rule.fromClasses.map((classId) => { const name = store.className(classId); return name ? `${classId} ${name}` : classId; }).join(", ")}`
+    : "From every class");
   /** Builds the blocks; rebuilt only when their shape changes, so typing keeps focus. */
   let shape = "";
   const build = (): void => {
@@ -54,6 +70,9 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     list.forEach((_, index) => {
       const block = element("div", { className: "refine-fields reclass-rule" });
       block.dataset.index = String(index);
+      // Any click inside a rule (its fields too) makes it the rule the class chips edit.
+      block.addEventListener("click", () => select(index));
+      block.addEventListener("focusin", () => select(index));
       const head = element("div", { className: "section-heading-row" });
       head.append(check(index, "enabled", `Rule ${index + 1}`, (on) => update(index, (rule) => ({ ...rule, enabled: on }))));
       const tools = element("div", { className: "compact-icon-group" });
@@ -74,11 +93,8 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
       tool("reclassDown", "bi-arrow-down", "Check this rule later", () => move(1));
       tool("reclassDelete", "bi-trash", "Delete this rule", () => commit(rules().filter((__, i) => i !== index)));
       head.append(tools);
+      const from = element("p", { className: "refine-hint reclass-from mb-1", id: id(index, "fromText") });
 
-      const from = element("select", { className: "form-select form-select-sm", id: id(index, "from"), multiple: true, size: Math.min(4, Math.max(2, classIds.length)), title: "Classes this rule checks; none selected = every class" });
-      // Classes with no box on this image stay listed, or saving would silently widen the rule to every class.
-      [...new Set([...classIds, ...list[index].fromClasses])].forEach((classId) => from.add(classOption(classId)));
-      from.addEventListener("change", () => update(index, (rule) => ({ ...rule, fromClasses: [...from.selectedOptions].map((option) => option.value) })));
       // A text field with suggestions: the target class may not have any box yet.
       const to = element("input", { type: "text", className: "form-control form-control-sm", id: id(index, "to"), title: "Class id a matching box changes to" });
       const suggestions = element("datalist", { id: id(index, "toClasses") });
@@ -93,7 +109,7 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
 
       block.append(
         head,
-        row(label("from", "From classes"), from),
+        from,
         row(label("to", "Change to"), to),
         suggestions,
         row(label("combine", "Combine"), combine),
@@ -110,7 +126,10 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     });
     const add = element("button", { type: "button", className: "btn btn-outline-secondary btn-sm mt-2", textContent: "Add rule", title: "Add a rule; rules are checked from the first" });
     add.dataset.act = "addReclassRule";
-    add.addEventListener("click", () => commit([...rules(), createReclassRule()]));
+    add.addEventListener("click", () => {
+      commit([...rules(), createReclassRule()]);
+      select(rules().length - 1);
+    });
     root.append(add);
   };
 
@@ -121,8 +140,8 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     rules().forEach((rule, index) => {
       const get = <T extends HTMLElement>(field: string): T | null => root.querySelector<T>(`#${id(index, field)}`);
       get<HTMLInputElement>("enabled")!.checked = rule.enabled;
-      const from = get<HTMLSelectElement>("from")!;
-      [...from.options].forEach((option) => { option.selected = rule.fromClasses.includes(option.value); });
+      get("fromText")!.textContent = fromText(rule);
+      root.querySelector<HTMLElement>(`.reclass-rule[data-index="${index}"]`)!.classList.toggle("is-selected", index === selected());
       setValue(get("to"), rule.toClass);
       setValue(get("combine"), rule.combine);
       setValue(get("crop"), String(Math.round(rule.crop * 100)));
@@ -136,10 +155,13 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     });
   };
 
+  function render(): void {
+    if (shape !== shapeOf()) build();
+    sync();
+  }
   return {
-    render() {
-      if (shape !== shapeOf()) build();
-      sync();
-    }
+    render,
+    selected,
+    onSelect(listener) { selectListeners.push(listener); }
   };
 }

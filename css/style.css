@@ -4696,9 +4696,38 @@ body.dark-mode .loading-overlay {
     width: 96px;
 }
 
-.refine-scope.refine-image-source {
+.refine-scope.refine-image-source,
+.refine-scope.refine-mode {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-bottom: 0;
+}
+
+/* Edge / Reclass: sections of the other mode are hidden (they use grid/flex display rules). */
+[data-mode-only][hidden],
+[data-refine-mode][hidden],
+.refine-lab-view-column [hidden] {
+    display: none !important;
+}
+
+/* The rule the Reclass class chips edit. */
+.reclass-rule {
+    padding: 6px;
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.reclass-rule + .reclass-rule {
+    margin-top: 6px;
+}
+
+.reclass-rule.is-selected {
+    border-color: var(--workbench-primary);
+    box-shadow: inset 0 0 0 1px var(--workbench-primary);
+}
+
+.refine-class-chip:disabled {
+    opacity: 0.55;
 }
 
 /* Preprocessing filter groups (single-channel SEM/TEM filters) */
