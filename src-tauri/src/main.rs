@@ -50,6 +50,7 @@ fn profile_directory_name(kind: &str) -> CommandResult<&'static str> {
         "layout" => "Layouts",
         "yoloe" => "YOLOE Presets",
         "refine" => "Refine Presets",
+        "reclass" => "Reclass Presets",
         "preprocessing" => "Preprocessing Presets",
         "segmentation" => "Segmentation Presets",
         "class-info" => "Class Info",

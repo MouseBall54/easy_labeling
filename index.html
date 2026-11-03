@@ -550,25 +550,33 @@
 
                     <section id="inspectorRefinePane" class="inspector-pane refine-pane" data-inspector-pane="refine" hidden>
                         <section class="inspector-section">
-                            <div class="section-heading-row"><h3>Reclass</h3><span id="refineReclassCounter" class="section-value">0 candidates</span></div>
-                            <p id="refineReclassSummary" class="refine-hint mt-0"></p>
+                            <div class="section-heading-row"><h3>Mode</h3></div>
+                            <div id="refineModeToggle" class="refine-scope refine-mode" role="group" aria-label="Refine mode">
+                                <button type="button" data-mode="edge" title="Snap box edges to the image">Edge</button>
+                                <button type="button" data-mode="reclass" title="Flag boxes for another class by their pixels; boxes never move">Reclass</button>
+                            </div>
+                        </section>
+                        <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Settings</h3></div>
+                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit presets, classes, edge rules and reclass rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
+                            <p id="refineSettingsSummary" class="refine-hint"></p>
+                        </section>
+                        <section class="inspector-section" data-refine-mode="reclass" hidden>
+                            <div class="section-heading-row"><h3>Reclass with</h3><span id="refineReclassCounter" class="section-value">0 candidates</span></div>
+                            <select id="refineReclassPresetSelect" class="form-select form-select-sm" aria-label="Rules used when finding candidates"><option value="">Lab rules</option></select>
+                            <p id="refineReclassSummary" class="refine-hint"></p>
                             <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rules flag on this image; nothing changes until you reclass them"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
                             <div class="refine-run-grid mt-2">
                                 <button id="refineReclassSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change the selected candidates to their rule's class">Reclass selected</button>
                                 <button id="refineReclassAllBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change every candidate to its rule's class (one undo step)">Reclass all</button>
                             </div>
                         </section>
-                        <section class="inspector-section">
-                            <div class="section-heading-row"><h3>Settings</h3></div>
-                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit classes, presets and edge rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
-                            <p id="refineSettingsSummary" class="refine-hint"></p>
-                        </section>
-                        <section class="inspector-section">
+                        <section class="inspector-section" data-refine-mode="edge">
                             <div class="section-heading-row"><h3>Run with</h3></div>
                             <select id="refineRunPresetSelect" class="form-select form-select-sm" aria-label="Settings used when refining"><option value="">Class settings</option></select>
                             <p id="refineRunPresetDetail" class="refine-hint"></p>
                         </section>
-                        <section class="inspector-section">
+                        <section class="inspector-section" data-refine-mode="edge">
                             <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Selection previews live</span></div>
                             <div class="refine-run-grid">
                                 <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected</button>

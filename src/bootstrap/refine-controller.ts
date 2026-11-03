@@ -3,13 +3,16 @@ import { REFINE_SIDES, type RefineBoxInput, type RefineParams, type RefineRect, 
 import {
   createRefineSettings,
   mergeRefinePresets,
+  parseReclassPresetFiles,
   parseRefinePresetFiles,
   parseRefineSettings,
   resolveRefineParams,
+  serializeReclassPresets,
   serializeRefinePresets,
   serializeRefineSettings,
   REFINE_SETTINGS_FILE,
   refinePresetLabel,
+  type ReclassPreset,
   type RefineImageSource,
   type RefinePreset,
   type RefineProcessing,
@@ -18,7 +21,7 @@ import {
 import { extractVisibleRectSelection, getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike, type YoloMetadata } from "../features/canvas/fabric-types.js";
-import { describeReclassRule, evaluateReclass, ruleApplies, type ReclassMatch } from "../domain/refine/reclass.js";
+import { describeReclassRule, evaluateReclass, ruleApplies, type ReclassMatch, type ReclassRule } from "../domain/refine/reclass.js";
 import { createRefineService, type RefineImageInput, type RefineService } from "../features/refine/refine-service.js";
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
@@ -82,58 +85,91 @@ export function createRefineController(input: {
   let settings: RefineSettingsDocument = createRefineSettings();
   let settingsFolder: unknown = undefined;
   /**
-   * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets). A preset saved or
-   * edited here moves out of refine-settings.json into its own file; presets an older version saved in the
-   * dataset stay there as they are (listed first, as before) until edited or deleted.
+   * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets, Reclass Presets). A
+   * preset saved or edited here moves out of refine-settings.json into its own file; presets an older version
+   * saved in the dataset stay there as they are (listed first, as before) until edited or deleted.
    */
   const hasProfileFolder = typeof windowRef.getEasyLabelingProfileDirectory === "function";
-  let profilePresets: RefinePreset[] = [];
-  /** Profile file holding each preset name, with every preset in that file (exported files hold several). */
-  let profileFiles = new Map<string, { fileName: string; presets: RefinePreset[] }>();
-  /** The dataset's presets as read, to tell untouched ones from edits. */
-  let datasetPresets: RefinePreset[] = [];
-  const allPresets = (): RefinePreset[] => mergeRefinePresets(settings.presets, profilePresets);
-  const refreshProfilePresets = async (): Promise<void> => {
-    if (!windowRef.listEasyLabelingLibraryFiles) return;
-    try {
-      const files = new Map<string, { fileName: string; presets: RefinePreset[] }>();
-      const errors: string[] = [];
-      let presets: RefinePreset[] = [];
-      for (const file of await windowRef.listEasyLabelingLibraryFiles("refine")) {
-        const parsed = parseRefinePresetFiles([file]);
-        errors.push(...parsed.errors);
-        const entry = { fileName: file.name, presets: parsed.presets };
-        parsed.presets.forEach((preset) => files.set(preset.name, entry));
-        presets = [...presets.filter((item) => !parsed.presets.some((preset) => preset.name === item.name)), ...parsed.presets];
+  interface PresetLibrary<T extends { name: string }> {
+    /** Presets in the profile folder. */
+    presets: T[];
+    /** The dataset's presets as read, to tell untouched ones from edits. */
+    dataset: T[];
+    refresh(): Promise<void>;
+    save(presets: readonly T[]): Promise<void>;
+    remove(name: string): Promise<void>;
+  }
+  const presetLibrary = <T extends { name: string }>(
+    kind: "refine" | "reclass",
+    parse: (files: readonly { name: string; contents: string }[]) => { presets: T[]; errors: string[] },
+    serialize: (presets: readonly T[]) => string
+  ): PresetLibrary<T> => {
+    /** Profile file holding each preset name, with every preset in that file (exported files hold several). */
+    let files = new Map<string, { fileName: string; presets: T[] }>();
+    const library: PresetLibrary<T> = {
+      presets: [],
+      dataset: [],
+      async refresh() {
+        if (!windowRef.listEasyLabelingLibraryFiles) return;
+        try {
+          const next = new Map<string, { fileName: string; presets: T[] }>();
+          const errors: string[] = [];
+          let presets: T[] = [];
+          for (const file of await windowRef.listEasyLabelingLibraryFiles(kind)) {
+            const parsed = parse([file]);
+            errors.push(...parsed.errors);
+            const entry = { fileName: file.name, presets: parsed.presets };
+            parsed.presets.forEach((preset) => next.set(preset.name, entry));
+            presets = [...presets.filter((item) => !parsed.presets.some((preset) => preset.name === item.name)), ...parsed.presets];
+          }
+          library.presets = presets;
+          files = next;
+          if (errors.length) input.uiManager.notify(`Some saved ${kind} preset files were skipped:\n${errors.join("\n")}`, 8000);
+        } catch (error: unknown) {
+          input.uiManager.notify(`Unable to scan saved ${kind} presets: ${error instanceof Error ? error.message : String(error)}`, 6000);
+        }
+      },
+      /** Writes presets into their profile files (the file holding the name, else `<name>.json`). */
+      async save(presets) {
+        const folder = await openProfilePresetFolder(windowRef, kind);
+        if (!folder) return;
+        for (const preset of presets) {
+          const file = files.get(preset.name);
+          const contents = serialize(file ? file.presets.map((item) => (item.name === preset.name ? preset : item)) : [preset]);
+          await folder.save(preset.name, contents, file?.fileName);
+        }
+        await library.refresh();
+        renderPane();
+      },
+      async remove(name) {
+        const file = files.get(name);
+        const folder = await openProfilePresetFolder(windowRef, kind);
+        if (!file || !folder) return;
+        const rest = file.presets.filter((preset) => preset.name !== name);
+        if (rest.length) await folder.save(name, serialize(rest), file.fileName);
+        else await folder.remove(file.fileName);
+        await library.refresh();
+        renderPane();
       }
-      profilePresets = presets;
-      profileFiles = files;
-      if (errors.length) input.uiManager.notify(`Some saved refine preset files were skipped:\n${errors.join("\n")}`, 8000);
-    } catch (error: unknown) {
-      input.uiManager.notify(`Unable to scan saved refine presets: ${error instanceof Error ? error.message : String(error)}`, 6000);
-    }
+    };
+    return library;
   };
-  /** Writes presets into their profile files (the file holding the name, else `<name>.json`). */
-  const saveProfilePresets = async (presets: readonly RefinePreset[]): Promise<void> => {
-    const folder = await openProfilePresetFolder(windowRef, "refine");
-    if (!folder) return;
-    for (const preset of presets) {
-      const file = profileFiles.get(preset.name);
-      const contents = serializeRefinePresets(file ? file.presets.map((item) => (item.name === preset.name ? preset : item)) : [preset]);
-      await folder.save(preset.name, contents, file?.fileName);
+  const edgeLibrary = presetLibrary<RefinePreset>("refine", parseRefinePresetFiles, serializeRefinePresets);
+  const reclassLibrary = presetLibrary<ReclassPreset>("reclass", parseReclassPresetFiles, serializeReclassPresets);
+  const allPresets = (): RefinePreset[] => mergeRefinePresets(settings.presets, edgeLibrary.presets);
+  const allReclassPresets = (): ReclassPreset[] => mergeRefinePresets(settings.reclassPresets, reclassLibrary.presets);
+  const refreshProfilePresets = (): Promise<void> => Promise.all([edgeLibrary.refresh(), reclassLibrary.refresh()]).then(() => undefined);
+  /** Desktop: new and edited presets leave the dataset list for their profile files (listed at once; the files follow). */
+  const moveToProfile = <T extends { name: string }>(presets: T[], library: PresetLibrary<T>): T[] => {
+    if (!hasProfileFolder) return presets;
+    const moved = presets.filter((preset) => !library.dataset.some((item) => JSON.stringify(item) === JSON.stringify(preset)));
+    const rest = presets.filter((preset) => !moved.includes(preset));
+    library.dataset = rest;
+    if (moved.length) {
+      library.presets = [...library.presets.filter((preset) => !moved.some((item) => item.name === preset.name)), ...moved];
+      library.save(moved).catch((error: unknown) => input.uiManager.notify(`Preset could not be saved: ${error instanceof Error ? error.message : String(error)}`, 6000));
     }
-    await refreshProfilePresets();
-    renderPane();
-  };
-  const deleteProfilePreset = async (name: string): Promise<void> => {
-    const file = profileFiles.get(name);
-    const folder = await openProfilePresetFolder(windowRef, "refine");
-    if (!file || !folder) return;
-    const rest = file.presets.filter((preset) => preset.name !== name);
-    if (rest.length) await folder.save(name, serializeRefinePresets(rest), file.fileName);
-    else await folder.remove(file.fileName);
-    await refreshProfilePresets();
-    renderPane();
+    return rest;
   };
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const records = new Map<string, RefineRecord>();
@@ -172,6 +208,15 @@ export function createRefineController(input: {
     }
     return { params: (classId) => resolveRefineParams(settings, classId), image: imageInput(settings.imageSource, settings.processing), label: "class settings" };
   };
+  /** What Find candidates uses: the Reclass-with preset (its rules and image) or the Lab rules. */
+  const reclassConfig = (): { rules: ReclassRule[]; image: RefineImageInput; preset: ReclassPreset | undefined } => {
+    const preset = settings.activeReclassPreset ? allReclassPresets().find((item) => item.name === settings.activeReclassPreset) : undefined;
+    return preset
+      ? { rules: preset.reclass, image: imageInput(preset.imageSource, preset.processing), preset }
+      : { rules: settings.reclass, image: imageInput(settings.reclassImageSource, settings.reclassProcessing), preset };
+  };
+  const imageText = (source: RefineImageSource, processing: RefineProcessing | null): string =>
+    source === "processed" ? `Processed (${processing?.name || "live Preprocess panel"})` : "Original";
   const setStatus = (text: string): void => { status.textContent = text; };
   /** One-line rule summary shown under each Run-with choice. */
   const describePreset = (preset: RefineSettingsDocument["presets"][number]): string => {
@@ -246,13 +291,14 @@ export function createRefineController(input: {
     const record = records.get(box.id);
     return Boolean(record?.result.flagged && !record.reviewed && sameRect(record.result.box, box));
   };
-  /** Boxes to look at: Refine flags and reclass candidates, top to bottom, each once. */
+  const reclassMode = (): boolean => settings.mode === "reclass";
+  /** Boxes to look at, top to bottom: Refine flags in Edge mode, reclass candidates in Reclass mode. */
   const reviewQueue = (): RefineBoxInput[] => {
-    if (!records.size && !candidates.size) return [];
+    if (reclassMode() ? !candidates.size : !records.size) return [];
     return visibleRects()
-      .filter((rect) => { const id = ensureAnnotationId(rect); const record = records.get(id); return candidates.has(id) || (record?.result.flagged && !record.reviewed); })
+      .filter((rect) => { const id = ensureAnnotationId(rect); const record = records.get(id); return reclassMode() ? candidates.has(id) : Boolean(record?.result.flagged && !record.reviewed); })
       .map(toBox)
-      .filter((box) => candidates.has(box.id) || refineFlagged(box))
+      .filter((box) => reclassMode() || refineFlagged(box))
       .sort((a, b) => (a.y0 - b.y0) || (a.x0 - b.x0));
   };
   const className = (id: string): string | undefined => input.state.session.classNames.get(id);
@@ -260,13 +306,28 @@ export function createRefineController(input: {
   // ---------------------------------------------------------------- settings
   /** The pane only applies settings: summary line plus the class list for "Refine class". Editing lives in the Lab. */
   const renderPane = (): void => {
+    const mode = settings.mode;
+    byId("refineModeToggle").querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === mode)));
+    pane.querySelectorAll<HTMLElement>("[data-refine-mode]").forEach((section) => { section.hidden = section.dataset.refineMode !== mode; });
+    byId("refineShowReviewToggle").closest("label")!.title = mode === "reclass" ? "Pins on reclass candidates" : "Pins and weak-side marks on boxes to review";
     const own = Object.keys(settings.classes).length;
-    const processing = settings.imageSource === "processed" ? ` (${settings.processing?.name || "live Preprocess panel"})` : "";
-    byId("refineSettingsSummary").textContent = `Class settings: image ${settings.imageSource === "processed" ? "Processed" : "Original"}${processing} · `
-      + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
-    const rules = settings.reclass;
-    byId("refineReclassSummary").textContent = !rules.length ? "No rules · set them up in Refine Lab"
-      : rules.length === 1 ? describeReclassRule(rules[0], className) : `${rules.length} rules (checked in order)`;
+    const lab = settings.reclass;
+    byId("refineSettingsSummary").textContent = mode === "reclass"
+      ? `Lab rules: ${lab.length ? `${lab.length} rule${lab.length === 1 ? "" : "s"}` : "none"} · image ${imageText(settings.reclassImageSource, settings.reclassProcessing)}`
+      : `Class settings: image ${imageText(settings.imageSource, settings.processing)} · `
+        + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
+    // Reclass with: the Lab rules or one reclass preset, the chosen rules summarised below.
+    const reclassPresets = allReclassPresets();
+    const reclassDatasetNames = new Set(settings.reclassPresets.map((preset) => preset.name));
+    const reclassSelect = byId<HTMLSelectElement>("refineReclassPresetSelect");
+    reclassSelect.replaceChildren(new Option("Lab rules", ""), ...reclassPresets.map((preset) =>
+      new Option(`${refinePresetLabel(preset)}${reclassDatasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name)));
+    const config = reclassConfig();
+    reclassSelect.value = config.preset?.name ?? "";
+    const rules = config.rules;
+    byId("refineReclassSummary").textContent = (!rules.length ? "No rules · set them up in Refine Lab"
+      : rules.length === 1 ? describeReclassRule(rules[0], className) : `${rules.length} rules (checked in order)`)
+      + (config.preset ? ` · ${imageText(config.preset.imageSource, config.preset.processing)}` : "");
     // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
     const presets = allPresets();
     const datasetNames = new Set(settings.presets.map((preset) => preset.name));
@@ -299,12 +360,14 @@ export function createRefineController(input: {
     if (folder === settingsFolder) return;
     settingsFolder = folder;
     settings = createRefineSettings();
-    datasetPresets = [];
+    edgeLibrary.dataset = [];
+    reclassLibrary.dataset = [];
     if (folder) {
       try {
         const directory = await getSubdirectoryHandle(folder as unknown as DirectoryHandleLike, ".easy-labeling");
         settings = parseRefineSettings(await readTextFileByName(directory, REFINE_SETTINGS_FILE));
-        datasetPresets = settings.presets;
+        edgeLibrary.dataset = settings.presets;
+        reclassLibrary.dataset = settings.reclassPresets;
       } catch (error: unknown) {
         if (!isNotFoundError(error)) input.uiManager.notify("Refine settings were invalid; defaults are in use.", 5000);
       }
@@ -314,15 +377,10 @@ export function createRefineController(input: {
   };
   const changeSettings = (next: RefineSettingsDocument): void => {
     // Desktop: new and edited presets go to the profile folder instead of the dataset file.
-    const moved = hasProfileFolder ? next.presets.filter((preset) => !datasetPresets.some((item) => JSON.stringify(item) === JSON.stringify(preset))) : [];
-    if (moved.length) {
-      next = { ...next, presets: next.presets.filter((preset) => !moved.includes(preset)) };
-      datasetPresets = next.presets;
-      // Listed at once; the files follow.
-      profilePresets = [...profilePresets.filter((preset) => !moved.some((item) => item.name === preset.name)), ...moved];
-      saveProfilePresets(moved).catch((error: unknown) => input.uiManager.notify(`Refine preset could not be saved: ${error instanceof Error ? error.message : String(error)}`, 6000));
-    } else if (hasProfileFolder) datasetPresets = next.presets;
+    next = { ...next, presets: moveToProfile(next.presets, edgeLibrary), reclassPresets: moveToProfile(next.reclassPresets, reclassLibrary) };
+    const modeChanged = next.mode !== settings.mode;
     settings = next;
+    if (modeChanged) { renderReviewCounter(); raw.canvas.requestRenderAll?.(); }
     renderPane();
     schedulePreview();
     clearTimeout(saveTimer);
@@ -424,11 +482,12 @@ export function createRefineController(input: {
   const approve = (): void => {
     const selected = selectedRects();
     if (!selected.length) { setStatus("Select a flagged box to approve."); return; }
+    // Approve settles what the current mode reviews: a Refine flag, or a reclass candidate.
     selected.forEach((rect) => {
       const id = ensureAnnotationId(rect);
       const record = records.get(id);
-      if (record) record.reviewed = true;
-      if (candidates.delete(id)) dismissed.set(id, signature(toBox(rect)));
+      if (!reclassMode() && record) record.reviewed = true;
+      if (reclassMode() && candidates.delete(id)) dismissed.set(id, signature(toBox(rect)));
     });
     raw.canvas.requestRenderAll?.();
     navigateReview(1);
@@ -441,7 +500,8 @@ export function createRefineController(input: {
     const image = syncImage();
     if (!image || !isDetection()) return setStatus("Open an image in the Detection workflow first.");
     await loadSettings();
-    const rules = settings.reclass;
+    const config = reclassConfig();
+    const rules = config.rules;
     if (!rules.some((rule) => rule.enabled && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled))) {
       // Candidates from an earlier run no longer stand.
       reclassGeneration += 1;
@@ -469,11 +529,11 @@ export function createRefineController(input: {
           areaChange.set(result.id, base > 0 ? area(result.box) / base - 1 : null);
         }
       }
-      // Pixels: one crop around every target, from the image Refine reads.
+      // Pixels: one crop around every target, from the image the reclass checks read.
       let matches: ReclassMatch[] = [];
       if (targets.length) {
         const union = targets.reduce<RefineRect>((u, b) => ({ x0: Math.min(u.x0, b.x0), y0: Math.min(u.y0, b.y0), x1: Math.max(u.x1, b.x1), y1: Math.max(u.y1, b.y1) }), targets[0]);
-        const crop = await getService().crop(image, union, imageInput(settings.imageSource, settings.processing));
+        const crop = await getService().crop(image, union, config.image);
         const local = targets.map((box) => ({ id: box.id, classId: box.classId, box: { x0: box.x0 - crop.x0, y0: box.y0 - crop.y0, x1: box.x1 - crop.x0, y1: box.y1 - crop.y0 } }));
         matches = evaluateReclass(crop, local, rules, areaChange);
       }
@@ -515,7 +575,8 @@ export function createRefineController(input: {
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       const image = syncImage();
-      const selected = paneOpen() && isDetection() ? selectedRects().map(toBox) : [];
+      // The would-be edges preview only in Edge mode.
+      const selected = paneOpen() && isDetection() && !reclassMode() ? selectedRects().map(toBox) : [];
       if (!image || !selected.length || selected.length > PREVIEW_LIMIT) {
         if (preview.length) { preview = []; raw.canvas.requestRenderAll?.(); }
         if (selected.length > PREVIEW_LIMIT) setStatus(`Preview shows up to ${PREVIEW_LIMIT} selected boxes.`);
@@ -542,8 +603,8 @@ export function createRefineController(input: {
     if (!byId<HTMLInputElement>("refineShowReviewToggle").checked) return [];
     const selected = new Set(selectedRects().map((rect) => ensureAnnotationId(rect)));
     return reviewQueue().map((box) => {
-      const result = refineFlagged(box) ? records.get(box.id)!.result : undefined;
-      const match = candidates.get(box.id);
+      const result = !reclassMode() && refineFlagged(box) ? records.get(box.id)!.result : undefined;
+      const match = reclassMode() ? candidates.get(box.id) : undefined;
       const name = match ? className(match.toClass) : undefined;
       return {
         id: box.id,
@@ -676,13 +737,16 @@ export function createRefineController(input: {
           const wanted = new Set(ids);
           void run(rects().map(toBox).filter((box) => wanted.has(box.id)), false);
         },
+        findCandidatesOnCanvas: () => { void findCandidates(); },
         collectCases,
         cropImage: (image, rect, source, processing) => getService().crop(image, rect, imageInput(source, processing)),
         loadPreprocessingPresets: async () => (await loadPreprocessingPresetLibrary(await openProfilePresetFolder(windowRef, "preprocessing"),
           input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null)).presets.map((preset) => ({ name: preset.name, config: { ...preset.config } })),
         imageFolder: () => input.state.session.imageFolderHandle as FileSystemDirectoryHandle | null,
-        profilePresets: () => profilePresets,
-        deleteProfilePreset: hasProfileFolder ? deleteProfilePreset : undefined,
+        profilePresets: () => edgeLibrary.presets,
+        deleteProfilePreset: hasProfileFolder ? edgeLibrary.remove : undefined,
+        profileReclassPresets: () => reclassLibrary.presets,
+        deleteProfileReclassPreset: hasProfileFolder ? reclassLibrary.remove : undefined,
         allBoxes: () => rects().map(toBox),
         loadedBox: (id) => { syncImage(); return loadedBoxes.get(id) ?? null; },
         classIds,
@@ -712,6 +776,15 @@ export function createRefineController(input: {
         const name = (event.target as HTMLSelectElement).value;
         changeSettings({ ...settings, activePreset: name || null });
         setStatus(name ? `Refining with ${name} for every class.` : "Refining with class settings.");
+      });
+      byId("refineReclassPresetSelect").addEventListener("change", (event) => {
+        const name = (event.target as HTMLSelectElement).value;
+        changeSettings({ ...settings, activeReclassPreset: name || null });
+        setStatus(name ? `Finding candidates with ${name}.` : "Finding candidates with the Lab rules.");
+      });
+      byId("refineModeToggle").addEventListener("click", (event) => {
+        const mode = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode;
+        if ((mode === "edge" || mode === "reclass") && mode !== settings.mode) changeSettings({ ...settings, mode });
       });
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);

@@ -39,7 +39,7 @@ declare global {
     };
   }
 
-  type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe" | "refine" | "preprocessing" | "segmentation";
+  type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe" | "refine" | "reclass" | "preprocessing" | "segmentation";
   type EasyLabelingProfileDirectoryKind = EasyLabelingLibraryFileKind | "class-info";
 
   interface EasyLabelingLibraryFile {

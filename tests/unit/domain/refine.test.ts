@@ -14,10 +14,16 @@ import {
   type RefineRect
 } from "../../../src/domain/refine/edge-refine.js";
 import {
+  applyReclassPreset,
   applyRefinePreset,
   createRefineSettings,
+  deleteReclassPreset,
   deleteRefinePreset,
+  importReclassPresets,
   importRefinePresets,
+  parseReclassPresetFiles,
+  saveReclassPreset,
+  serializeReclassPresets,
   mergeRefinePresets,
   parseRefinePresetFiles,
   saveRefinePreset,
@@ -469,20 +475,50 @@ describe("domain/refine/settings", () => {
     expect(read.default.crit).toBe("flank");
     expect(parseRefineSettings(serializeRefineSettings(read)).reclass).toEqual(read.reclass);
 
-    const rule = { ...createReclassRule(), toClass: "4" };
-    const withPreset = saveRefinePreset(createRefineSettings(), "p", createRefineSettings().default, undefined, [rule]);
-    expect(applyRefinePreset(createRefineSettings(), "p", "default", withPreset.presets).reclass).toEqual([rule]);
-    const plain = saveRefinePreset(createRefineSettings(), "old", createRefineSettings().default);
-    const current = { ...createRefineSettings(), reclass: [rule] };
-    expect(applyRefinePreset(current, "old", "default", plain.presets).reclass).toEqual([rule]);
-    const files = parseRefinePresetFiles([{ name: "p.json", contents: serializeRefinePresets(withPreset.presets) }]);
-    expect(files.presets[0].reclass).toEqual([rule]);
   });
 
-  it("keeps the current reclass rules when a preset saved without any is applied", () => {
+  it("treats edge presets as edge only: rules an older version saved in them are ignored", () => {
     const rule = { ...createReclassRule(), toClass: "4" };
-    const empty = saveRefinePreset(createRefineSettings(), "tuned", createRefineSettings().default, undefined, []);
     const current = { ...createRefineSettings(), reclass: [rule] };
-    expect(applyRefinePreset(current, "tuned", ["2"], empty.presets).reclass).toEqual([rule]);
+    const legacy = JSON.stringify({ presets: [{ name: "old", params: { crit: "flank" }, reclass: [{ ...rule, toClass: "9" }] }] });
+    const { doc } = importRefinePresets(current, legacy);
+    expect(doc.presets[0]).not.toHaveProperty("reclass");
+    const applied = applyRefinePreset(doc, "old", "default");
+    expect(applied.default.crit).toBe("flank");
+    expect(applied.reclass).toEqual([rule]);
+    expect(JSON.parse(serializeRefinePresets(saveRefinePreset(current, "new", current.default).presets)).presets[0]).not.toHaveProperty("reclass");
+  });
+
+  it("splits modes: older files open in Edge mode and measure reclass on the edge image", () => {
+    const processing = { name: "SEM", config: { median: 3 } };
+    const old = parseRefineSettings(JSON.stringify({ imageSource: "processed", processing }));
+    expect(old).toMatchObject({ mode: "edge", reclassImageSource: "processed", reclassProcessing: processing, activeReclassPreset: null, reclassPresets: [] });
+    const own = parseRefineSettings(JSON.stringify({ mode: "reclass", imageSource: "processed", processing, reclassImageSource: "original" }));
+    expect(own).toMatchObject({ mode: "reclass", imageSource: "processed", reclassImageSource: "original", reclassProcessing: null });
+    expect(parseRefineSettings(serializeRefineSettings(own))).toEqual(own);
+  });
+
+  it("saves, applies, imports and deletes reclass presets apart from edge presets", () => {
+    const rule = { ...createReclassRule(), toClass: "4", fromClasses: ["1"] };
+    const processing = { name: "SEM", config: { median: 3 } };
+    let doc: RefineSettingsDocument = { ...createRefineSettings(), reclass: [rule], reclassImageSource: "processed", reclassProcessing: processing };
+    doc = saveReclassPreset(doc, " voids ");
+    expect(doc.presets).toEqual([]);
+    expect(doc.reclassPresets).toEqual([{ name: "voids", reclass: [rule], imageSource: "processed", processing }]);
+
+    const fresh = applyReclassPreset(createRefineSettings(), "voids", doc.reclassPresets);
+    expect(fresh).toMatchObject({ reclass: [rule], reclassImageSource: "processed", reclassProcessing: processing, imageSource: "original" });
+    expect(fresh.default).toEqual(createRefineSettings().default);
+
+    const file = serializeReclassPresets(doc.reclassPresets);
+    expect(() => importRefinePresets(createRefineSettings(), file)).toThrow(/reclass presets file/);
+    expect(importReclassPresets(createRefineSettings(), file).doc.reclassPresets).toEqual(doc.reclassPresets);
+    // A whole refine-settings.json carries its reclass presets too.
+    expect(importReclassPresets(createRefineSettings(), serializeRefineSettings(doc)).names).toEqual(["voids"]);
+    expect(() => importReclassPresets(createRefineSettings(), serializeRefinePresets([]))).toThrow(/No reclass presets/);
+    expect(parseReclassPresetFiles([{ name: "a.json", contents: file }, { name: "b.json", contents: "{" }])).toMatchObject({ presets: [{ name: "voids" }], errors: [expect.stringContaining("b.json")] });
+
+    const active = { ...doc, activeReclassPreset: "voids" };
+    expect(deleteReclassPreset(active, "voids")).toMatchObject({ reclassPresets: [], activeReclassPreset: null });
   });
 });

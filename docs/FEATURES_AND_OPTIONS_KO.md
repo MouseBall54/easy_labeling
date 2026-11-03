@@ -331,14 +331,23 @@ Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리�
 
 **Reclass**는 박스 위치는 그대로 두고, 결함으로 보이는 박스를 다른 클래스 후보로 표시한다. 예를 들어 가운데가 어두워야 할 구조물에 밝은 얼룩이 섞이면 `unfilled` 클래스로 바꿀 후보가 된다.
 
-- 규칙은 Refine Lab의 **Reclass** 섹션에서 만든다. 규칙마다 검사할 클래스(비우면 전체), 바꿀 클래스, 가운데 crop 비율, 판정 조합(OR: 하나라도 / AND: 모두)을 정한다.
+**Mode (Edge / Reclass):** Refine 탭과 Refine Lab 맨 위의 **Mode**로 경계 맞추기(Edge)와 Reclass를 나눠 쓴다. 두 곳은 같은 모드 값을 쓰고, 모드는 `refine-settings.json`에 저장된다.
+
+- Lab 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rules다.
+- 프리셋은 모드마다 따로 저장하고 불러온다. 데스크톱 앱은 Reclass 프리셋을 `Reclass Presets` 폴더에 둔다. 예전 Refine 프리셋에 같이 저장된 Reclass 규칙은 쓰지 않는다(Edge 프리셋으로만 읽는다).
+- Image(Original/Processed와 Processing)도 모드마다 따로다. 예를 들어 경계는 Processed로 찾고 Reclass 판정은 Original 밝기로 할 수 있다. 예전 설정 파일은 Reclass도 Edge와 같은 이미지로 시작한다.
+- Reclass 모드에서 Classes 칩은 선택한 규칙의 검사 대상 클래스(From)다. 규칙 블록을 누르면 그 규칙이 선택되고, **All**은 모든 클래스를 검사한다.
+- Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & find candidates**는 저장한 뒤 캔버스에서 후보를 찾는다.
+- Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Find candidates를 보여 준다. Review의 `N`/`Shift+N`/`F`는 현재 모드의 대상(Refine 검토 대상 또는 Reclass 후보)만 다룬다. `E`/`Shift+E`는 모드와 상관없이 경계를 맞춘다.
+
+- 규칙은 Refine Lab의 Reclass 모드 **Rules**에서 만든다. 규칙마다 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop 비율, 판정 조합(OR: 하나라도 / AND: 모두)을 정한다.
 - 판정은 세 가지다.
   - **Mean ≥:** 가운데 crop의 평균 밝기(0~255)가 기준 이상
   - **Bright pixels ≥ %:** 가운데 crop에서 Bright level 이상인 픽셀의 비율이 기준 이상
-  - **Area shrinks ≥ %:** 경계를 다시 계산한 면적이 라벨 파일에서 불러온 크기보다 기준 이상 줄어듦(Refine을 적용한 뒤에도 불러온 크기와 비교한다)
+  - **Area shrinks ≥ %:** 현재 Edge 설정(Run with 선택 또는 클래스 설정)으로 경계를 다시 계산한 면적이 라벨 파일에서 불러온 크기보다 기준 이상 줄어듦(Refine을 적용한 뒤에도 불러온 크기와 비교한다)
 - Lab의 케이스마다 측정값(`mean · bright · area`)과 가운데 crop(점선)이 보이고, 맞는 케이스에는 마젠타 핀이 붙는다. 아래 상태줄에 `reclass N of M match`가 나온다.
 - 이미지 한 장에서 Refine 탭의 **Find candidates**를 누르면 후보가 표시된다. `N`/`Shift+N`으로 후보를 오가고, **Reclass selected** 또는 **Reclass all**로 클래스를 바꾼다(한 번의 실행 취소로 되돌릴 수 있다). `F`는 바꾸지 않고 확인만 해서 표시를 지운다. 확인한 박스는 고치기 전까지 다시 찾아도 나오지 않는다.
-- 규칙은 `.easy-labeling/refine-settings.json`과 Refine 프리셋에 함께 저장된다.
+- 규칙은 `.easy-labeling/refine-settings.json`에 저장되고, 이름을 붙여 Reclass 프리셋으로도 저장할 수 있다.
 
 ## 6. Segmentation 작업 기능
 
@@ -480,6 +489,7 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 | 템플릿 매칭 프리셋 | `Template Presets` |
 | 레이아웃 | `Layouts` |
 | Refine 프리셋 | `Refine Presets` |
+| Reclass 프리셋 | `Reclass Presets` |
 | 전처리 프리셋 | `Preprocessing Presets` |
 | Superpixel(세그멘테이션 도구) 프리셋 | `Segmentation Presets` |
 | YOLOE 프리셋 | `YOLOE Presets` |

@@ -2,19 +2,26 @@
 // inspector pane edits the live settings, the Refine Lab edits a draft that is only saved on demand.
 import { REFINE_PARAM_LIMITS, REFINE_SIDE_RULE_KEYS, REFINE_SIDES, sideParams, type RefineLimitedKey, type RefineParams, type RefineSide } from "../domain/refine/edge-refine.js";
 import {
+  applyReclassPreset,
   applyRefinePreset,
   createRefineSettings,
+  deleteReclassPreset,
   deleteRefinePreset,
+  importReclassPresets,
   importRefinePresets,
   mergeRefinePresets,
   refineOverriddenKeys,
   resetRefineSettings,
   resolveRefineParams,
+  saveReclassPreset,
   saveRefinePreset,
   refinePresetLabel,
+  serializeReclassPresets,
   serializeRefinePresets,
   sideHasOwnRule,
   updateRefineSettings,
+  type ReclassPreset,
+  type RefineMode,
   type RefineParamsPatch,
   type RefinePreset,
   type RefineSettingsDocument
@@ -36,6 +43,9 @@ export interface RefineEditorStore {
   profilePresets?(): RefinePreset[];
   /** Desktop: deletes a preset's profile folder file (absent on the web, where those files are read-only). */
   deleteProfilePreset?(name: string): Promise<void>;
+  /** Reclass presets in the profile folder (Easy Labeling / Reclass Presets). */
+  profileReclassPresets?(): ReclassPreset[];
+  deleteProfileReclassPreset?(name: string): Promise<void>;
 }
 
 /** "all" edits the rule every side shares; a side edits that side's own rule only. */
@@ -51,9 +61,12 @@ export interface RefineEditor {
   /** "default" or the selected class ids, sorted. */
   targets(): "default" | string[];
   setTargets(classIds: readonly string[]): void;
+  /** Classes the Lab's "classes" case source shows: the edited classes, or in Reclass mode the selected rule's classes ([] = all). */
+  caseClasses(): string[];
+  /** Fires when the classes caseClasses() returns may have changed. */
   onTargetsChange(listener: () => void): void;
   /** Fires when a preset is applied or saved: the edited values now stand for that preset. */
-  onPresetChange(listener: (name: string, target: "default" | string[]) => void): void;
+  onPresetChange(listener: (name: string, target: "default" | string[], mode: RefineMode) => void): void;
   /** Locked: only the default is edited (class chips hidden), e.g. while editing the Run-with preset. */
   setClassesLocked(locked: boolean): void;
 }
@@ -163,30 +176,15 @@ function markup(prefix: string): string {
     </div>`;
   return `
     <section class="inspector-section">
-      <div class="section-heading-row">
-        <h3>Classes</h3>
-        <div class="compact-icon-group" role="group" aria-label="Class selection">
-          <button type="button" class="panel-icon-button" data-act="all" title="Edit all classes together" aria-label="Edit all classes together"><i class="bi bi-check2-all" aria-hidden="true"></i></button>
-          <button type="button" class="panel-icon-button" data-act="reset" title="Reset the edited classes (or the default) to initial values" aria-label="Reset edited settings">${RESET_ICON}</button>
-        </div>
-      </div>
-      <div class="refine-class-chips" data-ref="chips" role="group" aria-label="Classes to edit"></div>
-      <p class="refine-hint" data-ref="hint"></p>
-    </section>
-    <section class="inspector-section">
-      <div class="section-heading-row"><h3>Image</h3><span class="section-value">All classes</span></div>
-      <div class="refine-scope refine-image-source" role="group" aria-label="Image that refinement reads" data-ref="imageSource">
-        <button type="button" data-image-source="original" title="Refine on the original pixels">Original</button>
-        <button type="button" data-image-source="processed" title="Refine on a processed image">Processed</button>
-      </div>
-      <div class="refine-field mt-2" data-ref="processingRow">
-        <label for="${prefix}Processing" title="Preprocessing used for the Processed image">Processing</label>
-        <select id="${prefix}Processing" class="form-select form-select-sm" data-ref="processing"></select>
+      <div class="section-heading-row"><h3>Mode</h3></div>
+      <div class="refine-scope refine-mode" role="group" aria-label="Refine mode" data-ref="mode">
+        <button type="button" data-mode="edge" title="Snap box edges to the image">Edge</button>
+        <button type="button" data-mode="reclass" title="Flag boxes for another class by their pixels; boxes never move">Reclass</button>
       </div>
     </section>
     <section class="inspector-section">
       <div class="section-heading-row">
-        <h3>Presets</h3>
+        <h3 data-ref="presetsTitle">Presets</h3>
         <div class="compact-icon-group" role="group" aria-label="Preset files">
           <button type="button" class="panel-icon-button" data-act="export" title="Save presets to a file" aria-label="Save presets to a file"><i class="bi bi-download" aria-hidden="true"></i></button>
           <button type="button" class="panel-icon-button" data-act="import" title="Load presets from a file" aria-label="Load presets from a file"><i class="bi bi-upload" aria-hidden="true"></i></button>
@@ -203,19 +201,41 @@ function markup(prefix: string): string {
       </div>
       <input type="file" accept=".json,application/json" data-ref="presetFile" hidden>
     </section>
-    <details class="inspector-section advanced-disclosure refine-details" data-ref="reclassDetails">
-      <summary>Reclass</summary>
-      <p class="refine-hint">Flags boxes for another class by their centre brightness or by how much refining shrinks them against the loaded box. Boxes never move.</p>
-      <div data-ref="reclassRoot"></div>
-    </details>
     <section class="inspector-section">
+      <div class="section-heading-row">
+        <h3>Classes</h3>
+        <div class="compact-icon-group" role="group" aria-label="Class selection">
+          <button type="button" class="panel-icon-button" data-act="all" title="Select every class" aria-label="Select every class"><i class="bi bi-check2-all" aria-hidden="true"></i></button>
+          <button type="button" class="panel-icon-button" data-act="reset" title="Reset the edited classes (or the default) to initial values" aria-label="Reset edited settings">${RESET_ICON}</button>
+        </div>
+      </div>
+      <div class="refine-class-chips" data-ref="chips" role="group" aria-label="Classes"></div>
+      <p class="refine-hint" data-ref="hint"></p>
+    </section>
+    <section class="inspector-section">
+      <div class="section-heading-row"><h3>Image</h3><span class="section-value" data-ref="imageScope">All classes</span></div>
+      <div class="refine-scope refine-image-source" role="group" aria-label="Image that refinement reads" data-ref="imageSource">
+        <button type="button" data-image-source="original" title="Use the original pixels">Original</button>
+        <button type="button" data-image-source="processed" title="Use a processed image">Processed</button>
+      </div>
+      <div class="refine-field mt-2" data-ref="processingRow">
+        <label for="${prefix}Processing" title="Preprocessing used for the Processed image">Processing</label>
+        <select id="${prefix}Processing" class="form-select form-select-sm" data-ref="processing"></select>
+      </div>
+    </section>
+    <section class="inspector-section" data-mode-only="reclass">
+      <div class="section-heading-row"><h3>Rules</h3><span class="section-value">Checked from the first</span></div>
+      <p class="refine-hint">Flags boxes for another class by their centre brightness or by how much refining (Edge settings) shrinks them against the loaded box. Boxes never move. Click a rule to pick its classes above.</p>
+      <div data-ref="reclassRoot"></div>
+    </section>
+    <section class="inspector-section" data-mode-only="edge">
       <div class="section-heading-row"><h3>Edges</h3><span class="section-value">Click a side to edit it alone</span></div>
       <div class="refine-side-editor">
         <div class="refine-side-box" data-ref="sideBox" title="Click a side to edit its own rule; click the centre for all sides"></div>
         ${(["T", "B", "L", "R"] as RefineSide[]).map(slot).join("")}
       </div>
     </section>
-    <section class="inspector-section">
+    <section class="inspector-section" data-mode-only="edge">
       <div class="section-heading-row"><h3>Edge rule</h3></div>
       <div class="refine-scope" role="group" aria-label="Sides this rule applies to" data-ref="scope">
         <button type="button" data-scope="all" title="Rule shared by every side">All sides</button>
@@ -228,11 +248,11 @@ function markup(prefix: string): string {
       </div>
       <div class="refine-fields" data-group="rule"></div>
     </section>
-    <details class="inspector-section advanced-disclosure refine-details" data-ref="contextDetails" open>
+    <details class="inspector-section advanced-disclosure refine-details" data-ref="contextDetails" data-mode-only="edge" open>
       <summary>Surroundings</summary>
       <div class="refine-fields" data-group="context"></div>
     </details>
-    <details class="inspector-section advanced-disclosure refine-details">
+    <details class="inspector-section advanced-disclosure refine-details" data-mode-only="edge">
       <summary>Advanced</summary>
       <div class="refine-fields" data-group="advanced"></div>
     </details>`;
@@ -249,10 +269,13 @@ export function createRefineEditor(input: {
   root.innerHTML = markup(prefix);
   const ref = <T extends HTMLElement>(name: string): T => root.querySelector<T>(`[data-ref="${name}"]`)!;
   const reclassEditor = createReclassEditor({ root: ref("reclassRoot"), prefix, documentRef: doc, store });
+  const mode = (): RefineMode => store.getDoc().mode;
+  /** Reclass mode: the rule the class chips edit, or null when there is none. */
+  const selectedRule = (): number | null => { const index = reclassEditor.selected(); return index >= 0 ? index : null; };
   let selected = new Set<string>(); // empty = editing the default
   let scope: RefineEditScope = "all";
   const targetListeners: (() => void)[] = [];
-  const presetListeners: ((name: string, target: "default" | string[]) => void)[] = [];
+  const presetListeners: ((name: string, target: "default" | string[], mode: RefineMode) => void)[] = [];
   let classesLocked = false;
   const scopeListeners: ((scope: RefineEditScope) => void)[] = [];
   const setScope = (next: RefineEditScope): void => {
@@ -264,6 +287,13 @@ export function createRefineEditor(input: {
   /** Value as the edited scope sees it (a side resolves its own rule over the class rule). */
   const valueOf = (p: RefineParams, key: FieldKey): unknown => (scope === "all" ? p[key] : sideParams(p, scope)[key]);
 
+  /** The image the current mode reads, and a document with it changed. */
+  const imageOf = (d: RefineSettingsDocument): { imageSource: RefineSettingsDocument["imageSource"]; processing: RefineSettingsDocument["processing"] } =>
+    d.mode === "reclass" ? { imageSource: d.reclassImageSource, processing: d.reclassProcessing } : { imageSource: d.imageSource, processing: d.processing };
+  const withImage = (d: RefineSettingsDocument, patch: Partial<ReturnType<typeof imageOf>>): RefineSettingsDocument => {
+    const next = { ...imageOf(d), ...patch };
+    return d.mode === "reclass" ? { ...d, reclassImageSource: next.imageSource, reclassProcessing: next.processing } : { ...d, imageSource: next.imageSource, processing: next.processing };
+  };
   const targets = (): "default" | string[] => selected.size ? [...selected].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)) : "default";
   const editedParams = (): RefineParams[] => {
     const t = targets();
@@ -290,9 +320,49 @@ export function createRefineEditor(input: {
       : (patch.sideRules?.[side] as Record<string, unknown> | undefined)?.[key] !== undefined);
   };
   const targetsChanged = (): void => { render(); targetListeners.forEach((listener) => listener()); };
+  reclassEditor.onSelect(targetsChanged);
+  /** Reclass mode: sets the selected rule's classes ([] = every class). */
+  const setRuleClasses = (classIds: readonly string[]): void => {
+    const index = selectedRule();
+    if (index === null) { store.notify("Add a rule first."); return; }
+    const docNow = store.getDoc();
+    setDoc({ ...docNow, reclass: docNow.reclass.map((rule, i) => (i === index ? { ...rule, fromClasses: [...classIds] } : rule)) });
+    targetListeners.forEach((listener) => listener());
+  };
 
   // ---------------------------------------------------------------- classes
+  /** Reclass mode: the chips show the selected rule's classes; "All" = every class. */
+  const renderRuleChips = (): void => {
+    const docNow = store.getDoc();
+    const index = selectedRule();
+    const from = index === null ? [] : docNow.reclass[index].fromClasses;
+    // Rule classes without a box on this image stay listed, or saving would silently widen the rule.
+    const ids = [...new Set([...store.classIds(), ...from])];
+    const chip = (classId: string | null, label: string): HTMLButtonElement => {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.className = "refine-class-chip";
+      button.dataset.classId = classId ?? "";
+      button.disabled = index === null;
+      button.setAttribute("aria-pressed", String(classId === null ? from.length === 0 : from.includes(classId)));
+      if (classId === null) button.title = "The rule checks every class";
+      else {
+        const swatch = doc.createElement("span");
+        swatch.className = "refine-class-swatch";
+        swatch.style.background = getColorForClass(classId);
+        button.appendChild(swatch);
+      }
+      button.append(label);
+      return button;
+    };
+    ref("chips").replaceChildren(chip(null, "All"), ...ids.map((classId) => { const name = store.className(classId); return chip(classId, name ? `${classId} ${name}` : classId); }));
+    ref("chips").hidden = false;
+    root.querySelector<HTMLElement>('[data-act="all"]')!.hidden = false;
+    ref("hint").textContent = index === null ? "Add a rule below, then pick the classes it checks."
+      : `Rule ${index + 1} checks ${from.length ? `class ${from.join(", ")}` : "every class"}. Click a rule to pick its classes.`;
+  };
   const renderChips = (): void => {
+    if (mode() === "reclass") { renderRuleChips(); return; }
     const docNow = store.getDoc();
     const ids = store.classIds();
     for (const classId of selected) if (!ids.includes(classId)) selected.delete(classId);
@@ -335,41 +405,50 @@ export function createRefineEditor(input: {
 
   // ---------------------------------------------------------------- presets
   const allPresets = (doc = store.getDoc()): RefinePreset[] => mergeRefinePresets(doc.presets, store.profilePresets?.() ?? []);
+  const allReclassPresets = (doc = store.getDoc()): ReclassPreset[] => mergeRefinePresets(doc.reclassPresets, store.profileReclassPresets?.() ?? []);
+  /** The presets of the current mode: Edge and Reclass each list, save and load their own. */
+  const modePresets = (docNow = store.getDoc()): { list: (RefinePreset | ReclassPreset)[]; own: readonly { name: string }[]; deleteProfile?: (name: string) => Promise<void>; folder: string; file: string; kind: EasyLabelingLibraryFileKind } =>
+    docNow.mode === "reclass"
+      ? { list: allReclassPresets(docNow), own: docNow.reclassPresets, deleteProfile: store.deleteProfileReclassPreset, folder: "Reclass Presets", file: "reclass-presets.json", kind: "reclass" }
+      : { list: allPresets(docNow), own: docNow.presets, deleteProfile: store.deleteProfilePreset, folder: "Refine Presets", file: "refine-presets.json", kind: "refine" };
   const renderPresets = (): void => {
     const select = ref<HTMLSelectElement>("presetSelect");
     const previous = select.value;
-    const own = new Set(store.getDoc().presets.map((preset) => preset.name));
-    const presets = allPresets();
+    const { list: presets, own: ownList, deleteProfile } = modePresets();
+    const own = new Set(ownList.map((preset) => preset.name));
+    ref("presetsTitle").textContent = mode() === "reclass" ? "Reclass presets" : "Edge presets";
     select.replaceChildren(new Option(presets.length ? "Choose preset…" : "No presets yet", ""),
-      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${store.deleteProfilePreset ? (own.has(preset.name) ? " (dataset)" : "") : (own.has(preset.name) ? "" : " (profile)")}`, preset.name)));
+      ...presets.map((preset) => new Option(`${refinePresetLabel(preset)}${deleteProfile ? (own.has(preset.name) ? " (dataset)" : "") : (own.has(preset.name) ? "" : " (profile)")}`, preset.name)));
     select.value = presets.some((preset) => preset.name === previous) ? previous : "";
   };
   const exportPresets = async (): Promise<void> => {
-    const presets = allPresets();
+    const { list: presets, file, kind } = modePresets();
     if (!presets.length) { store.notify("Save a preset first."); return; }
-    const contents = serializeRefinePresets(presets);
+    const contents = kind === "reclass" ? serializeReclassPresets(presets as ReclassPreset[]) : serializeRefinePresets(presets as RefinePreset[]);
     if (windowRef.saveEasyLabelingLibraryFile) {
-      const result = await windowRef.saveEasyLabelingLibraryFile({ kind: "refine", suggestedName: "refine-presets.json", contents });
+      const result = await windowRef.saveEasyLabelingLibraryFile({ kind, suggestedName: file, contents });
       if (result) store.notify(`Saved to ${result.filePath}`);
       return;
     }
     const link = doc.createElement("a");
     link.href = URL.createObjectURL(new Blob([contents], { type: "application/json" }));
-    link.download = "refine-presets.json";
+    link.download = file;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   };
-  /** Applies a preset to the edited classes (or the default) and keeps it chosen in the list. */
+  /** Applies a preset (Edge: to the edited classes or the default; Reclass: the rules and image) and keeps it chosen. */
   const applyPreset = (name: string, docNow = store.getDoc()): void => {
     const t = targets();
-    setDoc(applyRefinePreset(docNow, name, t, allPresets(docNow)));
+    const reclass = docNow.mode === "reclass";
+    setDoc(reclass ? applyReclassPreset(docNow, name, allReclassPresets(docNow)) : applyRefinePreset(docNow, name, t, allPresets(docNow)));
     ref<HTMLSelectElement>("presetSelect").value = name;
-    presetListeners.forEach((listener) => listener(name, t));
-    store.notify(`Applied "${name}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
+    presetListeners.forEach((listener) => listener(name, t, docNow.mode));
+    store.notify(reclass ? `Loaded reclass preset "${name}".` : `Applied "${name}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
+    if (reclass) targetListeners.forEach((listener) => listener());
   };
   // Loading a file applies its first preset right away.
   const importPresetText = (text: string): void => {
-    const { doc: next, count, names } = importRefinePresets(store.getDoc(), text);
+    const { doc: next, count, names } = mode() === "reclass" ? importReclassPresets(store.getDoc(), text) : importRefinePresets(store.getDoc(), text);
     applyPreset(names[0]!, next);
     if (count > 1) store.notify(`Loaded ${count} presets; applied "${names[0]}".`);
   };
@@ -460,14 +539,17 @@ export function createRefineEditor(input: {
         control.value = mixed ? "" : String(spec.type === "pct" ? Math.round(Number(values[0]) * 100) : values[0]);
       }
     }
+    // Edge and Reclass each read their own image.
+    const image = imageOf(docNow);
+    ref("imageScope").textContent = docNow.mode === "reclass" ? "Reclass checks" : "All classes";
     ref("imageSource").querySelectorAll<HTMLButtonElement>("[data-image-source]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.imageSource === docNow.imageSource));
+      button.setAttribute("aria-pressed", String(button.dataset.imageSource === image.imageSource));
     });
     // Processing: live Preprocess panel settings, or a saved preprocessing preset (kept even if since deleted).
-    ref("processingRow").hidden = docNow.imageSource !== "processed";
+    ref("processingRow").hidden = image.imageSource !== "processed";
     const processingSelect = ref<HTMLSelectElement>("processing");
     const available = store.preprocessingPresets?.() ?? [];
-    const pinned = docNow.processing;
+    const pinned = image.processing;
     processingSelect.replaceChildren(
       new Option("Live (Preprocess panel)", ""),
       ...available.map((preset) => new Option(preset.name, preset.name)),
@@ -525,13 +607,20 @@ export function createRefineEditor(input: {
   ref("processing").addEventListener("change", (event) => {
     const name = (event.target as HTMLSelectElement).value;
     const docNow = store.getDoc();
-    if (!name) { setDoc({ ...docNow, processing: null }); return; }
+    if (!name) { setDoc(withImage(docNow, { processing: null })); return; }
     const preset = (store.preprocessingPresets?.() ?? []).find((item) => item.name === name);
-    if (preset) setDoc({ ...docNow, processing: { name: preset.name, config: { ...preset.config } } });
+    if (preset) setDoc(withImage(docNow, { processing: { name: preset.name, config: { ...preset.config } } }));
   });
   ref("imageSource").addEventListener("click", (event) => {
     const value = (event.target as HTMLElement).closest<HTMLElement>("[data-image-source]")?.dataset.imageSource;
-    if (value === "original" || value === "processed") setDoc({ ...store.getDoc(), imageSource: value });
+    if (value === "original" || value === "processed") setDoc(withImage(store.getDoc(), { imageSource: value }));
+  });
+  ref("mode").addEventListener("click", (event) => {
+    const value = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode;
+    if ((value !== "edge" && value !== "reclass") || value === mode()) return;
+    setDoc({ ...store.getDoc(), mode: value });
+    ref<HTMLSelectElement>("presetSelect").value = "";
+    targetsChanged();
   });
   ref("scope").addEventListener("click", (event) => {
     const value = (event.target as HTMLElement).closest<HTMLElement>("[data-scope]")?.dataset.scope as RefineEditScope | undefined;
@@ -542,6 +631,12 @@ export function createRefineEditor(input: {
     const chip = (event.target as HTMLElement).closest<HTMLElement>(".refine-class-chip");
     if (!chip) return;
     const classId = chip.dataset.classId ?? "";
+    if (mode() === "reclass") {
+      const index = selectedRule();
+      const from = index === null ? [] : store.getDoc().reclass[index].fromClasses;
+      setRuleClasses(!classId ? [] : from.includes(classId) ? from.filter((id) => id !== classId) : [...from, classId]);
+      return;
+    }
     if (!classId) selected = new Set();
     else if (selected.has(classId)) selected.delete(classId);
     else selected.add(classId);
@@ -552,7 +647,8 @@ export function createRefineEditor(input: {
     const t = targets();
     const presetName = ref<HTMLSelectElement>("presetSelect").value;
     try {
-      if (action === "all") { selected = new Set(store.classIds()); targetsChanged(); }
+      if (mode() === "reclass" && (action === "all" || action === "reset")) setRuleClasses(action === "all" ? store.classIds() : []);
+      else if (action === "all") { selected = new Set(store.classIds()); targetsChanged(); }
       else if (action === "sideToAll" && scope !== "all") {
         const side = scope;
         const source = sideParams(editedParams()[0], side);
@@ -594,26 +690,28 @@ export function createRefineEditor(input: {
         if (!presetName) { store.notify("Choose a preset to apply."); return; }
         applyPreset(presetName);
       } else if (action === "deletePreset") {
-        if (presetName && !store.getDoc().presets.some((preset) => preset.name === presetName)) {
-          if (store.deleteProfilePreset) {
-            void store.deleteProfilePreset(presetName).then(() => { renderPresets(); store.notify(`Deleted preset "${presetName}".`); })
+        const { own, deleteProfile, folder } = modePresets();
+        const docNow = store.getDoc();
+        if (presetName && !own.some((preset) => preset.name === presetName)) {
+          if (deleteProfile) {
+            void deleteProfile(presetName).then(() => { renderPresets(); store.notify(`Deleted preset "${presetName}".`); })
               .catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to delete the preset"));
-          } else store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / Refine Presets); delete it there.`);
-        } else if (presetName) setDoc(deleteRefinePreset(store.getDoc(), presetName));
+          } else store.notify(`"${presetName}" is a file in the profile folder (Easy Labeling / ${folder}); delete it there.`);
+        } else if (presetName) setDoc(docNow.mode === "reclass" ? deleteReclassPreset(docNow, presetName) : deleteRefinePreset(docNow, presetName));
       } else if (action === "savePreset") {
         const nameInput = ref<HTMLInputElement>("presetName");
         const name = nameInput.value.trim() || presetName;
         if (!name) { store.notify("Type a preset name."); nameInput.focus(); return; }
         const docNow = store.getDoc();
-        setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }, docNow.reclass));
+        setDoc(docNow.mode === "reclass" ? saveReclassPreset(docNow, name) : saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
         nameInput.value = "";
         ref<HTMLSelectElement>("presetSelect").value = name;
-        presetListeners.forEach((listener) => listener(name, t));
-        store.notify(`Saved preset "${name}"${Array.isArray(t) && t.length > 1 ? ` from class ${t[0]}` : ""}.`);
+        presetListeners.forEach((listener) => listener(name, t, docNow.mode));
+        store.notify(`Saved preset "${name}"${docNow.mode === "edge" && Array.isArray(t) && t.length > 1 ? ` from class ${t[0]}` : ""}.`);
       } else if (action === "export") void exportPresets().catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to save presets"));
       else if (action === "import") {
         if (!windowRef.openEasyLabelingLibraryFile) { ref<HTMLInputElement>("presetFile").click(); return; }
-        void windowRef.openEasyLabelingLibraryFile("refine", store.imageFolder?.())
+        void windowRef.openEasyLabelingLibraryFile(modePresets().kind, store.imageFolder?.())
           .then((file) => { if (file) importPresetText(file.contents); })
           .catch((error: unknown) => store.notify(error instanceof Error ? error.message : "Unable to load presets"));
       }
@@ -635,10 +733,13 @@ export function createRefineEditor(input: {
   });
 
   function render(): void {
+    const current = mode();
+    ref("mode").querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === current)));
+    root.querySelectorAll<HTMLElement>("[data-mode-only]").forEach((section) => { section.hidden = section.dataset.modeOnly !== current; });
+    reclassEditor.render();
     renderChips();
     renderPresets();
     syncFields();
-    reclassEditor.render();
   }
 
   render();
@@ -650,6 +751,11 @@ export function createRefineEditor(input: {
     onScopeChange(listener) { scopeListeners.push(listener); },
     targets,
     setTargets(classIds) { selected = new Set(classIds); targetsChanged(); },
+    caseClasses() {
+      if (mode() === "edge") { const t = targets(); return t === "default" ? [] : t; }
+      const index = selectedRule();
+      return index === null ? [] : [...store.getDoc().reclass[index].fromClasses];
+    },
     onTargetsChange(listener) { targetListeners.push(listener); },
     onPresetChange(listener) { presetListeners.push(listener); },
     setClassesLocked(locked) {

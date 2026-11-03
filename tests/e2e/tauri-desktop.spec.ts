@@ -1143,7 +1143,7 @@ test("Tauri presets save into their profile folders without a dialog and list fr
     // Every preset kind has its profile folder, where the folder handles write, list and remove files.
     const folders = await page.evaluate(async () => {
       const names: string[] = [];
-      for (const kind of ["preset", "layout", "yoloe", "refine", "preprocessing", "segmentation"] as const) {
+      for (const kind of ["preset", "layout", "yoloe", "refine", "reclass", "preprocessing", "segmentation"] as const) {
         const folder = await window.getEasyLabelingProfileDirectory!(kind) as FileSystemDirectoryHandle & { removeEntry(name: string): Promise<void> };
         const handle = await folder.getFileHandle("probe.json", { create: true });
         const writable = await handle.createWritable();
@@ -1156,7 +1156,7 @@ test("Tauri presets save into their profile folders without a dialog and list fr
       }
       return names;
     });
-    expect(folders).toEqual(["Template Presets:0", "Layouts:0", "YOLOE Presets:0", "Refine Presets:0", "Preprocessing Presets:0", "Segmentation Presets:0"]);
+    expect(folders).toEqual(["Template Presets:0", "Layouts:0", "YOLOE Presets:0", "Refine Presets:0", "Reclass Presets:0", "Preprocessing Presets:0", "Segmentation Presets:0"]);
     expect(errors).toEqual([]);
   } finally {
     await app.close();
