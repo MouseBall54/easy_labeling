@@ -14,8 +14,10 @@ import {
   type RefineSideDiagnostics
 } from "../domain/refine/edge-refine.js";
 import { applyRefinePreset, mergeRefinePresets, resolveRefineParams, saveRefinePreset, type RefineImageSource, type RefinePreset, type RefineProcessing, type RefineSettingsDocument } from "../domain/refine/settings.js";
+import { centreCrop, evaluateReclass, measureReclass, ruleApplies, type ReclassRule, type ReclassStats } from "../domain/refine/reclass.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
+import { layoutMarks, drawMarks, RECLASS_COLOR } from "./refine-marks.js";
 
 export type RefineLabCaseSource = "selection" | "classes" | "all";
 
@@ -44,6 +46,8 @@ interface LabResult {
   params: RefineParams;
   result: Omit<RefineResult, "id" | "classId"> | null;
   sides: Partial<Record<RefineSide, RefineSideDiagnostics>>;
+  /** Null when no reclass rule checks this case's class. rule: the matching rule, else the first that checks it. */
+  reclass: { stats: ReclassStats; rule: ReclassRule; match: boolean } | null;
 }
 
 const MAX_CASES = 24;
@@ -128,6 +132,8 @@ export function createRefineLab(input: {
   /** Desktop: deletes a preset's profile folder file. */
   deleteProfilePreset?(name: string): Promise<void>;
   allBoxes(): RefineBoxInput[];
+  /** Box bounds as loaded from the label file (the base for reclass shrink checks), or null. */
+  loadedBox(id: string): RefineRect | null;
   classIds(): string[];
   className(classId: string): string | undefined;
   notify(message: string): void;
@@ -206,7 +212,7 @@ export function createRefineLab(input: {
     if (presetEdit && (presetEdit.runWith || presetSync.checked)) {
       const { name, target } = presetEdit;
       const datasetOwned = next.presets.some((preset) => preset.name === name);
-      const updated = saveRefinePreset(next, name, target === "default" ? next.default : resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing });
+      const updated = saveRefinePreset(next, name, target === "default" ? next.default : resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing }, next.reclass);
       // Only an edited preset is written (an untouched profile preset stays out of the dataset).
       const before = mergeRefinePresets(next.presets, input.profilePresets()).find((preset) => preset.name === name);
       const after = updated.presets.find((preset) => preset.name === name);
@@ -312,7 +318,53 @@ export function createRefineLab(input: {
     const params = resolveRefineParams(draft, c.classId);
     const sides: LabResult["sides"] = {};
     for (const side of REFINE_SIDES) sides[side] = describeRefineSide(c.img, c.local, side, params, c.neighbours);
-    return { params, result: params.enabled ? refineBox(c.img, c.local, params, c.neighbours) : null, sides };
+    const result = params.enabled ? refineBox(c.img, c.local, params, c.neighbours) : null;
+    return { params, result, sides, reclass: judgeCase(c, result) };
+  };
+  /** Same judgment as the canvas: centre pixels of the crop, refined area against the box as loaded. */
+  const judgeCase = (c: LabCase, result: LabResult["result"]): LabResult["reclass"] => {
+    const rules = draft.reclass;
+    const checking = rules.filter((rule) => ruleApplies(rule, c.classId));
+    if (!checking.length) return null;
+    const area = (r: RefineRect): number => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
+    const base = area(input.loadedBox(c.id) ?? c.box);
+    const areaChange = result && base > 0 ? area(result.box) / base - 1 : null;
+    const [match] = evaluateReclass(c.img, [{ id: c.id, classId: c.classId, box: c.local }], rules, new Map([[c.id, areaChange]]));
+    if (match) return { stats: match, rule: rules[match.ruleIndex], match: true };
+    return { stats: { ...measureReclass(c.img, c.local, checking[0]), areaChange }, rule: checking[0], match: false };
+  };
+  const reclassText = (r: NonNullable<LabResult["reclass"]>): string => {
+    const { stats, rule } = r;
+    const parts = [`mean ${Math.round(stats.mean)}`, `bright ${Math.round(stats.brightRatio * 100)}%`];
+    if (rule.shrink.enabled) parts.push(stats.areaChange === null ? "area: refine off" : `area ${stats.areaChange >= 0 ? "+" : "−"}${Math.abs(stats.areaChange * 100).toFixed(0)}%`);
+    return parts.join(" · ");
+  };
+  /** Centre crop (dashed), its bright pixels when that check is on (detail view), and a pin on a match. */
+  const drawReclass = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, X: (x: number) => number, Y: (y: number) => number, detail: boolean): void => {
+    if (!r.reclass) return;
+    const { rule } = r.reclass;
+    const crop = centreCrop(c.local, rule.crop, c.img);
+    context.save();
+    if (detail && rule.bright.enabled) {
+      context.fillStyle = "rgba(230, 73, 128, 0.35)";
+      const cell = Math.max(1, X(1) - X(0));
+      for (let y = crop.y0; y < crop.y1; y += 1) {
+        for (let x = crop.x0; x < crop.x1; x += 1) if (c.img.gray[y * c.img.width + x] >= rule.bright.level) context.fillRect(X(x), Y(y), cell, cell);
+      }
+    }
+    context.setLineDash([4, 3]);
+    context.strokeStyle = RECLASS_COLOR;
+    context.lineWidth = 1.5;
+    context.strokeRect(X(crop.x0), Y(crop.y0), X(crop.x1) - X(crop.x0), Y(crop.y1) - Y(crop.y0));
+    context.restore();
+    if (r.reclass.match) {
+      drawMarks(context, layoutMarks({
+        id: c.id,
+        screen: { x0: X(c.local.x0), y0: Y(c.local.y0), x1: X(c.local.x1), y1: Y(c.local.y1) },
+        reclass: { toClass: rule.toClass, label: "" },
+        focused: false
+      }, () => Number.POSITIVE_INFINITY));
+    }
   };
 
   // ---------------------------------------------------------------- drawing
@@ -731,9 +783,13 @@ export function createRefineLab(input: {
       const context = thumb.getContext("2d")!;
       context.fillStyle = "#111";
       context.fillRect(0, 0, 88, 88);
-      drawCase(context, c, r, 88, 88, false);
+      const { X, Y } = drawCase(context, c, r, 88, 88, false);
+      drawReclass(context, c, r, X, Y, false);
+      if (r.reclass) button.dataset.reclass = r.reclass.match ? "match" : "miss";
       const label = doc.createElement("span");
-      label.textContent = `${c.classId}${input.className(c.classId) ? ` ${input.className(c.classId)}` : ""} · ${r.result ? r.result.conf.toFixed(2) : "off"}`;
+      label.textContent = `${c.classId}${input.className(c.classId) ? ` ${input.className(c.classId)}` : ""} · ${r.result ? r.result.conf.toFixed(2) : "off"}`
+        + (r.reclass ? ` · ${reclassText(r.reclass)}` : "");
+      button.title = label.textContent;
       button.append(thumb, label);
       fragment.appendChild(button);
     });
@@ -754,7 +810,9 @@ export function createRefineLab(input: {
     drawZoom();
     drawProfile(c, results[active]);
     const flagged = results.filter((r) => r.result?.flagged).length;
-    status.textContent = `${cases.length} cases · ${flagged} to review · ${elapsed.toFixed(1)} ms`;
+    const checked = results.filter((r) => r.reclass);
+    const reclass = checked.length ? ` · reclass ${checked.filter((r) => r.reclass!.match).length} of ${checked.length} match` : "";
+    status.textContent = `${cases.length} cases · ${flagged} to review${reclass} · ${elapsed.toFixed(1)} ms`;
   }
 
   /** Redraws only the zoom view from the last results (zoom and pan need no new refinement). */
@@ -762,7 +820,10 @@ export function createRefineLab(input: {
     viewFrame = 0;
     const context = fitCanvas(zoom);
     const c = cases[active];
-    if (c && results[active]) drawCase(context, c, results[active], zoom.clientWidth, zoom.clientHeight, true);
+    if (c && results[active]) {
+      const { X, Y } = drawCase(context, c, results[active], zoom.clientWidth, zoom.clientHeight, true);
+      drawReclass(context, c, results[active], X, Y, true);
+    }
     fitButton.disabled = !view;
     fitButton.textContent = view ? `${Math.round((view.s / fit.s) * 100)}% · Fit` : "Fit";
   }

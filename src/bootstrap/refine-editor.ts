@@ -20,6 +20,7 @@ import {
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { createReclassEditor } from "./reclass-editor.js";
 
 export interface RefineEditorStore {
   getDoc(): RefineSettingsDocument;
@@ -202,18 +203,23 @@ function markup(prefix: string): string {
       </div>
       <input type="file" accept=".json,application/json" data-ref="presetFile" hidden>
     </section>
+    <details class="inspector-section advanced-disclosure refine-details" data-ref="reclassDetails">
+      <summary>Reclass</summary>
+      <p class="refine-hint">Flags boxes for another class by their centre brightness or by how much refining shrinks them against the loaded box. Boxes never move.</p>
+      <div data-ref="reclassRoot"></div>
+    </details>
     <section class="inspector-section">
       <div class="section-heading-row"><h3>Edges</h3><span class="section-value">Click a side to edit it alone</span></div>
       <div class="refine-side-editor">
         <div class="refine-side-box" data-ref="sideBox" title="Click a side to edit its own rule; click the centre for all sides"></div>
-        ${(["T", "L", "R", "B"] as RefineSide[]).map(slot).join("")}
+        ${(["T", "B", "L", "R"] as RefineSide[]).map(slot).join("")}
       </div>
     </section>
     <section class="inspector-section">
       <div class="section-heading-row"><h3>Edge rule</h3></div>
       <div class="refine-scope" role="group" aria-label="Sides this rule applies to" data-ref="scope">
         <button type="button" data-scope="all" title="Rule shared by every side">All sides</button>
-        ${(["T", "L", "R", "B"] as RefineSide[]).map((side) => `<button type="button" data-scope="${side}" title="${SIDE_NAMES[side]} edge only">${SIDE_NAMES[side]}</button>`).join("")}
+        ${(["T", "B", "L", "R"] as RefineSide[]).map((side) => `<button type="button" data-scope="${side}" title="${SIDE_NAMES[side]} edge only">${SIDE_NAMES[side]}</button>`).join("")}
       </div>
       <div class="refine-scope-hint" data-ref="scopeHint">
         <span data-ref="scopeText"></span>
@@ -242,6 +248,7 @@ export function createRefineEditor(input: {
   const { root, prefix, documentRef: doc, windowRef, store } = input;
   root.innerHTML = markup(prefix);
   const ref = <T extends HTMLElement>(name: string): T => root.querySelector<T>(`[data-ref="${name}"]`)!;
+  const reclassEditor = createReclassEditor({ root: ref("reclassRoot"), prefix, documentRef: doc, store });
   let selected = new Set<string>(); // empty = editing the default
   let scope: RefineEditScope = "all";
   const targetListeners: (() => void)[] = [];
@@ -598,7 +605,7 @@ export function createRefineEditor(input: {
         const name = nameInput.value.trim() || presetName;
         if (!name) { store.notify("Type a preset name."); nameInput.focus(); return; }
         const docNow = store.getDoc();
-        setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
+        setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }, docNow.reclass));
         nameInput.value = "";
         ref<HTMLSelectElement>("presetSelect").value = name;
         presetListeners.forEach((listener) => listener(name, t));
@@ -631,6 +638,7 @@ export function createRefineEditor(input: {
     renderChips();
     renderPresets();
     syncFields();
+    reclassEditor.render();
   }
 
   render();

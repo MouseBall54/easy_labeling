@@ -19,10 +19,24 @@ const maxError = (actual: Geometry[]): number => Math.max(...actual.flatMap((g, 
   Math.abs(g.left - TRUTH[i].left), Math.abs(g.top - TRUTH[i].top), Math.abs(g.right - TRUTH[i].right), Math.abs(g.bottom - TRUTH[i].bottom)
 ]));
 
-async function openSemDataset(page: Page): Promise<void> {
-  await page.addInitScript((truth) => {
-    const W = 200;
-    const H = 120;
+/**
+ * Image size, bright structures (TRUTH by default), extra rectangles painted over them, the saved label boxes
+ * (two boxes a few pixels off TRUTH by default), and a refine-settings.json to start with.
+ */
+interface SemScene {
+  size?: { width: number; height: number };
+  structures?: Geometry[];
+  extra?: { rect: Geometry; gray: number }[];
+  labels?: Geometry[];
+  settings?: unknown;
+}
+const SEM_LABELS: Geometry[] = [{ left: 24, top: 27, right: 56, bottom: 94 }, { left: 96, top: 34, right: 145, bottom: 86 }];
+
+async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
+  const labelBoxes = scene.labels ?? SEM_LABELS;
+  await page.addInitScript(({ truth, extra, settings, size, boxes }) => {
+    const W = size.width;
+    const H = size.height;
     const renderPng = async (): Promise<Blob> => {
       const canvas = new OffscreenCanvas(W, H);
       const context = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
@@ -30,14 +44,15 @@ async function openSemDataset(page: Page): Promise<void> {
       context.fillRect(0, 0, W, H);
       context.fillStyle = "rgb(180,180,180)";
       for (const r of truth) context.fillRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+      for (const { rect: r, gray } of extra) {
+        context.fillStyle = `rgb(${gray},${gray},${gray})`;
+        context.fillRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+      }
       return canvas.convertToBlob({ type: "image/png" });
     };
     const yolo = (r: { left: number; top: number; right: number; bottom: number }) =>
       `0 ${(r.left + r.right) / 2 / W} ${(r.top + r.bottom) / 2 / H} ${(r.right - r.left) / W} ${(r.bottom - r.top) / H}`;
-    const labels = [
-      yolo({ left: 24, top: 27, right: 56, bottom: 94 }),
-      yolo({ left: 96, top: 34, right: 145, bottom: 86 })
-    ].join("\n");
+    const labels = boxes.map(yolo).join("\n");
 
     class MockFileHandle {
       kind = "file";
@@ -77,15 +92,20 @@ async function openSemDataset(page: Page): Promise<void> {
     const label = new MockDirectoryHandle("label");
     label.entries.set("sem.txt", new MockFileHandle("sem.txt", labels));
     images.entries.set("label", label);
+    if (settings !== null) {
+      const tools = new MockDirectoryHandle(".easy-labeling");
+      tools.entries.set("refine-settings.json", new MockFileHandle("refine-settings.json", JSON.stringify(settings)));
+      images.entries.set(".easy-labeling", tools);
+    }
     Reflect.set(window, "__refineTestFolder", images);
     Object.defineProperty(window, "showDirectoryPicker", { configurable: true, writable: true, value: async () => images });
-  }, TRUTH);
+  }, { truth: scene.structures ?? TRUTH, extra: scene.extra ?? [], settings: scene.settings ?? null, size: scene.size ?? { width: 200, height: 120 }, boxes: labelBoxes });
 
   await page.goto("/index.html", { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
   await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 45_000 });
   await page.locator("#emptyOpenDatasetBtn").click();
-  await expect.poll(async () => (await geometries(page)).length).toBe(2);
+  await expect.poll(async () => (await geometries(page)).length).toBe(labelBoxes.length);
 }
 
 async function settingsFile(page: Page): Promise<{ classes: Record<string, { sides?: Record<string, string> }>; presets: { name: string }[] } | null> {
@@ -101,6 +121,8 @@ async function settingsFile(page: Page): Promise<{ classes: Record<string, { sid
 }
 
 const lab = (page: Page) => page.locator("#refineLabModal");
+/** Expands the Lab Reclass section (it stays as it was left between openings). */
+const openReclass = (page: Page) => page.locator("#refineLabEditor [data-ref='reclassDetails']").evaluate((details) => { (details as HTMLDetailsElement).open = true; });
 
 async function openLab(page: Page): Promise<void> {
   await page.locator("#openRefineLabBtn").click();
@@ -692,7 +714,7 @@ test("presets: preprocessing presets feed Refine Lab, refine presets keep their 
   await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string | null }).activePreset).toBeNull();
 });
 
-test("refine: boxes whose area changes past the limit are outlined red and queued for review", async ({ page }) => {
+test("refine: boxes whose area changes past the limit get a red pin and are queued for review", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
@@ -720,8 +742,23 @@ test("refine: boxes whose area changes past the limit are outlined red and queue
   await expect.poll(redPixels).toBeGreaterThan(50);
   await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-area-flag-pane.png" });
   await page.locator("#canvas-container").screenshot({ path: "test-results/refine-area-flag-canvas.png" });
+  // The unmarked box fades; fading is display only and never reaches the saved labels.
+  const opacities = () => page.evaluate(() =>
+    (Reflect.get(window, "__easyLabelingTestApi") as { getRectStates(): { opacity: number }[] }).getRectStates().map((s) => s.opacity).sort());
+  const yolo = () => page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { getLabelsAsYolo(): string }).getLabelsAsYolo());
+  await expect.poll(opacities).toEqual([0.3, 1]);
+  const dimmedYolo = await yolo();
 
-  // N jumps to the flagged box; approving it clears the red outline.
+  // Hiding review marks clears the overlay and the fading without leaving the queue.
+  await page.locator("#refineShowReviewToggle").uncheck();
+  await expect.poll(redPixels).toBe(0);
+  await expect.poll(opacities).toEqual([1, 1]);
+  expect(await yolo()).toBe(dimmedYolo);
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
+  await page.locator("#refineShowReviewToggle").check();
+  await expect.poll(redPixels).toBeGreaterThan(50);
+
+  // N jumps to the flagged box; approving it clears the red pin.
   await page.keyboard.press("n");
   await page.keyboard.press("f");
   await expect(page.locator("#refineReviewCounter")).toContainText("0 to review");
@@ -807,4 +844,191 @@ test("presets: Save settings updates the loaded preset, and the Run-with preset 
   await expect(page.locator("#refineLabPresetBanner")).toBeHidden();
   await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeVisible();
   await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("25");
+});
+
+// ---------------------------------------------------------------- reclass
+const api = <T>(page: Page, fn: (api: {
+  getRectStates(): { annotationId: string; classId: string; opacity: number }[];
+  getRectGeometries(): Geometry[];
+  getSelectedRectIds(): string[];
+  getLabelsAsYolo(): string;
+}) => T) => page.evaluate(`(${fn.toString()})(window.__easyLabelingTestApi)`) as Promise<T>;
+/** Class of each box, left to right. */
+const classesLeftToRight = async (page: Page): Promise<string[]> => {
+  const states = await api(page, (a) => a.getRectStates());
+  const order = (await geometries(page)).map((g) => g.annotationId);
+  return order.map((id) => states.find((s) => s.annotationId === id)!.classId);
+};
+/** Box 0's centre is dark (a filled structure); box 1's stays bright. */
+const DARK_CENTRE = [{ rect: { left: 30, top: 45, right: 50, bottom: 75 }, gray: 40 }];
+const reclassRule = (patch: Record<string, unknown>) => ({ toClass: "1", crop: 0.5, ...patch });
+
+test("reclass: finds bright centres and skips dismissed boxes", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page, { extra: DARK_CENTRE, settings: { default: {}, reclass: [reclassRule({ mean: { enabled: true, min: 120 } })] } });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 120");
+
+  // Two quick clicks still leave one candidate: the later run replaces the earlier one.
+  await page.locator("#refineFindReclassBtn").click();
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await page.keyboard.press("n");
+  const right = (await geometries(page))[1].annotationId;
+  expect(await api(page, (a) => a.getSelectedRectIds())).toEqual([right]);
+
+  // F dismisses it; finding again remembers that while the box is unchanged.
+  await page.keyboard.press("f");
+  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("0 reclass candidates");
+  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+});
+
+test("reclass: compares refined area with the loaded box even after Refine all, and relabels in one undo step", async ({ page }) => {
+  test.setTimeout(120_000);
+  // Box 1 is saved as 49 x 52 px; refined to 40 x 60 it loses about 6% of its area.
+  await openSemDataset(page, { settings: { default: {}, reclass: [reclassRule({ mean: { enabled: false, min: 0 }, shrink: { enabled: true, minRatio: 0.03 } })] } });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+
+  await page.locator("#refineAllBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("refined", { timeout: 15_000 });
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("1 reclass candidate");
+  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+
+  await page.keyboard.press("n");
+  await page.locator("#refineReclassSelectedBtn").click();
+  expect(await classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  await page.keyboard.press("Control+z");
+  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await page.locator("#refineReclassAllBtn").click();
+  expect(await classesLeftToRight(page)).toEqual(["0", "1"]);
+  expect((await api(page, (a) => a.getLabelsAsYolo())).split("\n").filter((line) => line.startsWith("1 "))).toHaveLength(1);
+});
+
+test("reclass: says so when no rule is on", async ({ page }) => {
+  await openSemDataset(page);
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineReclassSummary")).toContainText("No rules");
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
+});
+
+test("refine lab: tunes a reclass rule and shows which cases match", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page, { extra: DARK_CENTRE });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await openLab(page);
+  await page.locator("#refineLabSource").selectOption("all");
+  await page.locator("#refineLabEditor .refine-details summary", { hasText: "Reclass" }).click();
+  await page.locator("#refineLabEditor [data-act='addReclassRule']").click();
+  await page.locator("#refineLabReclass0-to").fill("1");
+  await page.locator("#refineLabReclass0-meanMin").fill("120");
+
+  // Box 1 (bright centre) matches; box 0 (dark centre) does not.
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 1 of 2 match");
+  await expect(page.locator(".refine-lab-case[data-reclass='match']")).toHaveCount(1);
+  await expect(page.locator(".refine-lab-case[data-reclass='match'] span")).toContainText("mean 180");
+  await page.locator(".refine-lab-case[data-reclass='match']").click();
+  await lab(page).screenshot({ path: "test-results/refine-lab-reclass.png" });
+  await page.locator("#refineLabReclass0-meanMin").fill("200");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 0 of 2 match");
+
+  await saveLab(page);
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"min":200');
+  await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 200");
+
+  // Turning every rule off clears the candidates an earlier Find left.
+  await openLab(page);
+  await openReclass(page);
+  await page.locator("#refineLabReclass0-meanMin").fill("120");
+  await saveLab(page);
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await openLab(page);
+  await openReclass(page);
+  await page.locator("#refineLabReclass0-enabled").uncheck();
+  await saveLab(page);
+  await page.locator("#refineFindReclassBtn").click();
+  await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
+  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  await expect(page.locator("#refineOverlayCanvas")).toHaveAttribute("data-pins", "0");
+});
+
+test("refine lab: keeps rule classes that have no box on this image", async ({ page }) => {
+  await openSemDataset(page, { settings: { default: {}, reclass: [reclassRule({ fromClasses: ["7"] })] } });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineReclassSummary")).toContainText("class 7 → 1");
+  await openLab(page);
+  await openReclass(page);
+  await expect(page.locator("#refineLabReclass0-from option[value='7']")).toHaveJSProperty("selected", true);
+  await page.locator("#refineLabReclass0-meanMin").fill("140");
+  await saveLab(page);
+  await expect(page.locator("#refineReclassSummary")).toContainText("class 7 → 1 · mean ≥ 140");
+});
+
+test("reclass: pins stay readable on a 3072 x 2048 image with 700 boxes", async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  // 28 x 25 cells; every structure has a dark (filled) core except 30 spread through the grid.
+  const structures: Geometry[] = [];
+  const cores: { rect: Geometry; gray: number }[] = [];
+  for (let row = 0; row < 25; row += 1) {
+    for (let col = 0; col < 28; col += 1) {
+      const left = Math.round(col * 3072 / 28) + 20;
+      const top = Math.round(row * 2048 / 25) + 13;
+      structures.push({ left, top, right: left + 70, bottom: top + 56 });
+      const index = row * 28 + col;
+      if (index % 23 !== 7 || index >= 690) cores.push({ rect: { left: left + 15, top: top + 12, right: left + 55, bottom: top + 44 }, gray: 40 });
+    }
+  }
+  const defects = structures.length - cores.length;
+  expect(defects).toBe(30);
+  await openSemDataset(page, {
+    size: { width: 3072, height: 2048 },
+    structures,
+    extra: cores,
+    labels: structures,
+    settings: { default: {}, reclass: [reclassRule({ mean: { enabled: true, min: 120 } })] }
+  });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  const findMs = async (): Promise<number> => {
+    await page.evaluate(() => { document.getElementById("refineStatus")!.textContent = ""; });
+    await page.locator("#refineFindReclassBtn").click();
+    await expect(page.locator("#refineStatus")).toContainText("reclass candidates in", { timeout: 30_000 });
+    return Number((await page.locator("#refineStatus").textContent())?.match(/in (\d+) ms/)?.[1]);
+  };
+  // The first run also hands the image to the refine worker (as the first Refine does); later runs only judge.
+  const first = await findMs();
+  await expect(page.locator("#refineReclassCounter")).toHaveText(`${defects} candidates`);
+  const warm = await findMs();
+  testInfo.annotations.push({ type: "reclass-find-ms", description: `${structures.length} boxes: first ${first} ms, then ${warm} ms` });
+  console.log(`reclass Find, ${structures.length} boxes: first ${first} ms, then ${warm} ms`);
+  expect(warm).toBeLessThan(1000);
+
+  const overlay = page.locator("#refineOverlayCanvas");
+  await expect(overlay).toHaveAttribute("data-pins", String(defects));
+  // At the fitted zoom the boxes are narrower than a tag, so no tag is drawn until one has focus.
+  await expect(overlay).toHaveAttribute("data-tags", "0");
+  const opacities = await api(page, (a) => a.getRectStates().map((s) => s.opacity));
+  expect(opacities.filter((o) => o === 0.3)).toHaveLength(structures.length - defects);
+  await page.locator("#canvas-container").screenshot({ path: "test-results/reclass-dense-light.png" });
+
+  await page.keyboard.press("n");
+  await expect(overlay).toHaveAttribute("data-tags", "1");
+  await page.locator('label[for="darkModeToggle"]').click();
+  await page.locator("#canvas-container").screenshot({ path: "test-results/reclass-dense-dark.png" });
 });

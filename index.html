@@ -550,6 +550,15 @@
 
                     <section id="inspectorRefinePane" class="inspector-pane refine-pane" data-inspector-pane="refine" hidden>
                         <section class="inspector-section">
+                            <div class="section-heading-row"><h3>Reclass</h3><span id="refineReclassCounter" class="section-value">0 candidates</span></div>
+                            <p id="refineReclassSummary" class="refine-hint mt-0"></p>
+                            <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rules flag on this image; nothing changes until you reclass them"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
+                            <div class="refine-run-grid mt-2">
+                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change the selected candidates to their rule's class">Reclass selected</button>
+                                <button id="refineReclassAllBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change every candidate to its rule's class (one undo step)">Reclass all</button>
+                            </div>
+                        </section>
+                        <section class="inspector-section">
                             <div class="section-heading-row"><h3>Settings</h3></div>
                             <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit classes, presets and edge rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
                             <p id="refineSettingsSummary" class="refine-hint"></p>
@@ -578,6 +587,7 @@
                                 <button id="refineNextReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
                                 <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve</button>
                             </div>
+                            <label class="form-check form-switch small mt-2 mb-0" title="Dashed frames and weak-side lines on boxes to review"><input id="refineShowReviewToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Show review marks on the canvas</span></label>
                         </section>
                         <div id="refineStatus" class="refine-hint" role="status" aria-live="polite"></div>
                     </section>

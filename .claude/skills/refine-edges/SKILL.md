@@ -18,13 +18,16 @@ description: >
 | Layer | File | Role |
 |---|---|---|
 | domain | `src/domain/refine/edge-refine.ts` | Pure algorithm: `refineBoxes`, `refineBox`, `describeRefineSide`, `normalizeRefineParams`, `sideParams`, `toGray` (8-bit luma) |
-| domain | `src/domain/refine/settings.ts` | `RefineSettingsDocument`: default + per-class patches, presets, image source, processing snapshot, `activePreset`; `refinePresetLabel` |
+| domain | `src/domain/refine/settings.ts` | `RefineSettingsDocument`: default + per-class patches, presets, image source, processing snapshot, `activePreset`, `reclass` rules; `refinePresetLabel` |
+| domain | `src/domain/refine/reclass.ts` | Reclass rules and judgment: `ReclassRule`, `normalizeReclassRules`, `centreCrop`, `measureReclass`, `ruleApplies`, `judgeReclass`, `evaluateReclass`, `describeReclassRule` |
 | feature | `src/features/refine/refine-service.ts` | Worker client: uploads the image once (`createImageBitmap`), `refine()` and `crop()` |
 | worker | `workers/refine-worker.js` | Keeps the gray image (and a processed copy cached per preprocessing key); runs `refineBoxes`, serves crops |
 | bootstrap | `refine-controller.ts` | Pane, runs, preview/review overlay, history hooks, shortcuts (`resolveRefineShortcut`) |
 | bootstrap | `refine-lab.ts` | Refine Lab modal; loaded with `import()` on first open |
+| bootstrap | `refine-marks.ts` | Canvas marks: `layoutMarks` (pins, weak-side carets, tags) and `drawMarks`; size and colour constants |
+| bootstrap | `reclass-editor.ts` | Reclass rule blocks inside the Lab editor (writes `draft.reclass`) |
 | bootstrap | `refine-editor.ts` | Settings editor mounted inside the Lab (classes, image, presets, edges, edge rule, surroundings, advanced) |
-| tests | `tests/unit/domain/refine.test.ts`, `tests/unit/bootstrap/refine-shortcuts.test.ts`, `tests/e2e/refine-edges.spec.ts` | |
+| tests | `tests/unit/domain/refine.test.ts`, `tests/unit/domain/reclass.test.ts`, `tests/unit/bootstrap/refine-shortcuts.test.ts`, `tests/unit/bootstrap/refine-marks.test.ts`, `tests/e2e/refine-edges.spec.ts` | |
 
 ## Algorithm (edge-refine.ts)
 
@@ -56,10 +59,18 @@ Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` insid
 
 ## UI
 
-- Toolbar button `#taskRefineBtn` (shortcut `R`) toggles the right inspector to the Refine pane: Settings (Open Refine Lab + summary), Run with (dropdown: class settings or one preset, with the chosen rule summarised below), Apply (Selected, All boxes, Refine class, keep hand-edited toggle), Review (prev/next/Approve). Shortcuts are in tooltips only.
+- Toolbar button `#taskRefineBtn` (shortcut `R`) toggles the right inspector to the Refine pane: Settings (Open Refine Lab + summary), Run with (dropdown: class settings or one preset, with the chosen rule summarised below), Apply (Selected, All boxes, Refine class, keep hand-edited toggle), Review (prev/next/Approve, "Show review marks" switch). A Reclass section sits above them (rule summary, Find candidates, Reclass selected / all). Shortcuts are in tooltips only.
 - Global shortcuts (Detection, outside inputs/modals, via `event.code`): `R` pane, `E` selected, `Shift+E` all, `N`/`Shift+N` review, `F` approve. Adding keys means updating `resolveRefineShortcut` and its collision test.
 - Refine Lab works on a draft copy; nothing is saved until "Save settings" / "Save & refine these boxes". It opens on the Default (case clicks do not switch the edited class); a class chip edits that class on top of the Default, storing only the changed keys. Cases are crops served by the worker from the same pixels refinement reads; clicking a search band opens that side's edge rule; the profile shows mean brightness and its change over the side's `gradStep` (oriented inside -> outside).
-- Canvas overlay (`#refineOverlayCanvas`) is positioned onto `#canvas` each render; preview draws the would-be box and per-side deltas.
+- Canvas overlay (`#refineOverlayCanvas`) is positioned onto `#canvas` each render; preview draws the would-be box and per-side deltas. Boxes to look at (Refine flags and reclass candidates) get `refine-marks.ts` marks instead of thicker outlines: a 12 px pin on the top-right corner (yellow `!`, red `!` for an area flag, magenta target class), carets outside weak sides (skipped under 24 px), and tags only when they fit under the box or the box is selected. Every other box and its label fade to opacity 0.3 (display only; snapshots and YOLO ignore it). The overlay writes `data-pins` / `data-tags` for tests.
+
+## Reclass
+
+- Rules (`settings.reclass`, also saved in presets; older files read as `[]`) are checked from the first; a box takes the first rule that applies to its class (`fromClasses`, empty = all), would change it (`toClass`), and passes its checks combined with AND or OR: centre-crop mean, share of bright pixels, refined-area shrink.
+- Shrink compares the refined area (computed, never applied, with `runConfig()`) against the box as loaded from the label file. The controller records loaded bounds per annotation id from `rect.originalYolo` the first time it sees a box, and from history `before` snapshots (taken before any edit, Refine's own included). Classes with Refine off never pass the shrink check.
+- Find candidates crops the union of the checked boxes once through `RefineService.crop` (same path on web and desktop) and judges in TS. The first call on an image also uploads it to the refine worker (seconds on a 6 MP image); later ones take tens of ms for 700 boxes.
+- Candidates share the N / Shift+N queue with Refine flags; F dismisses (remembered by box signature until the box changes or the image switches); Reclass selected / all use `updateBoxClasses` (one undo step). Hand edits of geometry or class clear a candidate.
+- The Lab judges each case from its crop with the same rules (`loadedBox` gives the shrink base), draws the centre crop dashed, bright pixels when that check is on, a pin on matches, and `reclass N of M match` in the status line.
 
 ## Undo and edits
 
@@ -67,4 +78,4 @@ Per side: build a perpendicular profile window (`sideWindow`) of `rangeIn` insid
 
 ## Checks
 
-`npx vitest run tests/unit/domain/refine.test.ts tests/unit/bootstrap/refine-shortcuts.test.ts` and `npx playwright test tests/e2e/refine-edges.spec.ts --project=chromium` (6 tests, about 2.5 minutes). The e2e builds a synthetic SEM-like dataset in memory through a mocked directory handle (`openSemDataset`).
+`npx vitest run tests/unit/domain/refine.test.ts tests/unit/bootstrap/refine-shortcuts.test.ts` and `npx playwright test tests/e2e/refine-edges.spec.ts --project=chromium` (19 tests, about 4 minutes; the 700-box reclass test checks that a warm Find stays under 1 s). The e2e builds a synthetic SEM-like dataset in memory through a mocked directory handle (`openSemDataset`).

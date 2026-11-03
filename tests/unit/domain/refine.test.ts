@@ -23,6 +23,7 @@ import {
   saveRefinePreset,
   refinePresetLabel,
   serializeRefinePresets,
+  serializeRefineSettings,
   sideHasOwnRule,
   parseRefineSettings,
   refineOverriddenKeys,
@@ -31,6 +32,7 @@ import {
   updateRefineSettings,
   type RefineSettingsDocument
 } from "../../../src/domain/refine/settings.js";
+import { createReclassRule } from "../../../src/domain/refine/reclass.js";
 
 function paint(width: number, height: number, rects: readonly RefineRect[], noise = 6): GrayImage {
   const gray = new Float32Array(width * height).fill(40);
@@ -458,5 +460,29 @@ describe("domain/refine/settings", () => {
     const doc = parseRefineSettings(JSON.stringify({ version: 1, default: { R: 14, K: 8 }, classes: { 2: { R: 16, sides: { B: false } } } }));
     expect(doc.default).toMatchObject({ rangeIn: 14, rangeOut: 14, segments: 8 });
     expect(resolveRefineParams(doc, "2")).toMatchObject({ rangeIn: 16, rangeOut: 16, sides: { B: "off", T: "inherit" } });
+  });
+  it("keeps reclass rules in the settings file and in presets, reading older files without them", () => {
+    expect(parseRefineSettings(JSON.stringify({ default: {} })).reclass).toEqual([]);
+    const read = parseRefineSettings(JSON.stringify({ default: { crit: "flank" }, reclass: [{ toClass: "0", crop: 9 }, "bad"] }));
+    expect(read.reclass).toHaveLength(1);
+    expect(read.reclass[0]).toMatchObject({ toClass: "0", crop: 1 });
+    expect(read.default.crit).toBe("flank");
+    expect(parseRefineSettings(serializeRefineSettings(read)).reclass).toEqual(read.reclass);
+
+    const rule = { ...createReclassRule(), toClass: "4" };
+    const withPreset = saveRefinePreset(createRefineSettings(), "p", createRefineSettings().default, undefined, [rule]);
+    expect(applyRefinePreset(createRefineSettings(), "p", "default", withPreset.presets).reclass).toEqual([rule]);
+    const plain = saveRefinePreset(createRefineSettings(), "old", createRefineSettings().default);
+    const current = { ...createRefineSettings(), reclass: [rule] };
+    expect(applyRefinePreset(current, "old", "default", plain.presets).reclass).toEqual([rule]);
+    const files = parseRefinePresetFiles([{ name: "p.json", contents: serializeRefinePresets(withPreset.presets) }]);
+    expect(files.presets[0].reclass).toEqual([rule]);
+  });
+
+  it("keeps the current reclass rules when a preset saved without any is applied", () => {
+    const rule = { ...createReclassRule(), toClass: "4" };
+    const empty = saveRefinePreset(createRefineSettings(), "tuned", createRefineSettings().default, undefined, []);
+    const current = { ...createRefineSettings(), reclass: [rule] };
+    expect(applyRefinePreset(current, "tuned", ["2"], empty.presets).reclass).toEqual([rule]);
   });
 });

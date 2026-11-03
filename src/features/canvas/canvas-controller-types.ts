@@ -125,6 +125,8 @@ export interface CanvasController {
   updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
   /** Sets bounding-rect geometry (image px) for many boxes as one undo step; returns the count updated. */
   updateBoxGeometries?(updates: readonly BoxGeometryUpdate[]): number;
+  /** Sets the class of many boxes (by annotation id) as one undo step; returns the count changed. */
+  updateBoxClasses?(updates: readonly { annotationId: string; classId: string }[]): number;
   subscribeHistory?(listener: (entry: import("./history.js").CanvasHistoryEntry) => void): () => void;
   setSelectedBoxesVisibility?(visible: boolean): boolean;
   highlightSelection(): void;

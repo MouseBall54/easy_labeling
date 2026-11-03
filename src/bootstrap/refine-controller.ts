@@ -17,12 +17,14 @@ import {
 } from "../domain/refine/settings.js";
 import { extractVisibleRectSelection, getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
-import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
+import { ensureAnnotationId, isRectObject, type FabricRectLike, type YoloMetadata } from "../features/canvas/fabric-types.js";
+import { describeReclassRule, evaluateReclass, ruleApplies, type ReclassMatch } from "../domain/refine/reclass.js";
 import { createRefineService, type RefineImageInput, type RefineService } from "../features/refine/refine-service.js";
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RefineLab, RefineLabCaseSource } from "./refine-lab.js";
+import { AREA_COLOR, areaText, DIM_OPACITY, drawMarks, layoutMarks, REVIEW_COLOR as WARN_COLOR, type MarkTarget } from "./refine-marks.js";
 import { loadPreprocessingPresetLibrary } from "../features/segmentation/preprocessing-presets.js";
 import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
@@ -53,10 +55,6 @@ export interface RefineController {
 }
 
 const PREVIEW_LIMIT = 50;
-const WARN_COLOR = "#f0ad4e";
-/** Boxes whose area changed beyond the class's area limits. */
-const AREA_COLOR = "#dc3545";
-const areaText = (change: number): string => `${change >= 0 ? "+" : "−"}${Math.abs(change * 100).toFixed(0)}% area`;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
 
 interface RefineRecord { result: RefineResult; reviewed: boolean }
@@ -147,6 +145,12 @@ export function createRefineController(input: {
   let previewGeneration = 0;
   let busy = false;
   let applying = false;
+  /** Box bounds as loaded from the label file, by annotation id: the base for reclass shrink checks. */
+  const loadedBoxes = new Map<string, RefineRect>();
+  const candidates = new Map<string, ReclassMatch>();
+  /** Candidates dismissed with F (id -> box signature); a later edit of the box forgets it. */
+  const dismissed = new Map<string, string>();
+  let reclassGeneration = 0;
 
   const isDetection = (): boolean => input.state.session.workflow === "detection";
   const paneOpen = (): boolean => !pane.hidden;
@@ -188,9 +192,31 @@ export function createRefineController(input: {
       records.clear();
       manual.clear();
       preview = [];
+      loadedBoxes.clear();
+      candidates.clear();
+      dismissed.clear();
+      reclassGeneration += 1;
     }
+    rememberLoaded(rects().map((rect) => ({ annotationId: ensureAnnotationId(rect), originalYolo: rect.originalYolo })));
     return image;
   };
+  /**
+   * Records each box's loaded size the first time it is seen. originalYolo holds the label file's values until
+   * the box is edited, and history snapshots carry it from before an edit, so even edited boxes keep their base.
+   */
+  const rememberLoaded = (boxes: readonly { annotationId: string; originalYolo?: YoloMetadata | null }[]): void => {
+    const image = recordsImage;
+    if (!image) return;
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    for (const { annotationId, originalYolo } of boxes) {
+      if (!originalYolo || loadedBoxes.has(annotationId)) continue;
+      const [cx, cy, w, h] = [originalYolo.x_center, originalYolo.y_center, originalYolo.width, originalYolo.height].map((value) => Number.parseFloat(value ?? ""));
+      if (![cx, cy, w, h].every(Number.isFinite)) continue;
+      loadedBoxes.set(annotationId, { x0: (cx - w / 2) * width, y0: (cy - h / 2) * height, x1: (cx + w / 2) * width, y1: (cy + h / 2) * height });
+    }
+  };
+  const signature = (box: RefineBoxInput): string => [box.classId, box.x0, box.y0, box.x1, box.y1].map((v) => (typeof v === "number" ? v.toFixed(2) : v)).join("|");
 
   // ---------------------------------------------------------------- boxes
   const rects = (): FabricRectLike[] => raw.getObjects("rect").filter(isRectObject);
@@ -215,15 +241,21 @@ export function createRefineController(input: {
     return [...ids].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
   };
 
-  /** Flagged, not yet reviewed, and still at the refined geometry (a later hand edit counts as reviewed). */
+  /** Refine flagged, not yet reviewed, and still at the refined geometry (a later hand edit counts as reviewed). */
+  const refineFlagged = (box: RefineBoxInput): boolean => {
+    const record = records.get(box.id);
+    return Boolean(record?.result.flagged && !record.reviewed && sameRect(record.result.box, box));
+  };
+  /** Boxes to look at: Refine flags and reclass candidates, top to bottom, each once. */
   const reviewQueue = (): RefineBoxInput[] => {
-    if (!records.size) return [];
+    if (!records.size && !candidates.size) return [];
     return visibleRects()
-      .filter((rect) => { const record = records.get(ensureAnnotationId(rect)); return record?.result.flagged && !record.reviewed; })
+      .filter((rect) => { const id = ensureAnnotationId(rect); const record = records.get(id); return candidates.has(id) || (record?.result.flagged && !record.reviewed); })
       .map(toBox)
-      .filter((box) => sameRect(records.get(box.id)!.result.box, box))
+      .filter((box) => candidates.has(box.id) || refineFlagged(box))
       .sort((a, b) => (a.y0 - b.y0) || (a.x0 - b.x0));
   };
+  const className = (id: string): string | undefined => input.state.session.classNames.get(id);
 
   // ---------------------------------------------------------------- settings
   /** The pane only applies settings: summary line plus the class list for "Refine class". Editing lives in the Lab. */
@@ -232,6 +264,9 @@ export function createRefineController(input: {
     const processing = settings.imageSource === "processed" ? ` (${settings.processing?.name || "live Preprocess panel"})` : "";
     byId("refineSettingsSummary").textContent = `Class settings: image ${settings.imageSource === "processed" ? "Processed" : "Original"}${processing} · `
       + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
+    const rules = settings.reclass;
+    byId("refineReclassSummary").textContent = !rules.length ? "No rules · set them up in Refine Lab"
+      : rules.length === 1 ? describeReclassRule(rules[0], className) : `${rules.length} rules (checked in order)`;
     // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
     const presets = allPresets();
     const datasetNames = new Set(settings.presets.map((preset) => preset.name));
@@ -371,6 +406,7 @@ export function createRefineController(input: {
     const current = selectedRects()[0];
     const index = current && queue.length ? queue.findIndex((box) => box.id === ensureAnnotationId(current)) : -1;
     reviewCounter.textContent = queue.length ? `${index >= 0 ? `${index + 1} / ` : ""}${queue.length} to review` : "0 to review";
+    byId("refineReclassCounter").textContent = `${candidates.size} candidate${candidates.size === 1 ? "" : "s"}`;
   };
   const navigateReview = (direction: 1 | -1): void => {
     syncImage();
@@ -388,9 +424,90 @@ export function createRefineController(input: {
   const approve = (): void => {
     const selected = selectedRects();
     if (!selected.length) { setStatus("Select a flagged box to approve."); return; }
-    selected.forEach((rect) => { const record = records.get(ensureAnnotationId(rect)); if (record) record.reviewed = true; });
+    selected.forEach((rect) => {
+      const id = ensureAnnotationId(rect);
+      const record = records.get(id);
+      if (record) record.reviewed = true;
+      if (candidates.delete(id)) dismissed.set(id, signature(toBox(rect)));
+    });
     raw.canvas.requestRenderAll?.();
     navigateReview(1);
+  };
+
+  // ---------------------------------------------------------------- reclass
+  const area = (r: RefineRect): number => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
+  /** Marks boxes the reclass rules flag on this image. Boxes never move; shrink checks refine without applying. */
+  const findCandidates = async (): Promise<void> => {
+    const image = syncImage();
+    if (!image || !isDetection()) return setStatus("Open an image in the Detection workflow first.");
+    await loadSettings();
+    const rules = settings.reclass;
+    if (!rules.some((rule) => rule.enabled && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled))) {
+      // Candidates from an earlier run no longer stand.
+      reclassGeneration += 1;
+      candidates.clear();
+      renderReviewCounter();
+      raw.canvas.requestRenderAll?.();
+      return setStatus("No reclass rule is on.");
+    }
+    const token = ++reclassGeneration;
+    const started = performance.now();
+    const boxes = visibleRects().map(toBox);
+    const targets = boxes.filter((box) => rules.some((rule) => ruleApplies(rule, box.classId)));
+    setStatus(`Checking ${targets.length} box${targets.length === 1 ? "" : "es"} for reclass…`);
+    try {
+      // Shrink: refined area against the size the box was loaded with (its current size when drawn here).
+      const areaChange = new Map<string, number | null>();
+      const shrinking = targets.filter((box) => rules.some((rule) => rule.shrink.enabled && ruleApplies(rule, box.classId)));
+      if (shrinking.length) {
+        const params = paramsFor(shrinking);
+        const runnable = shrinking.filter((box) => params[box.classId].enabled);
+        const results = runnable.length ? await getService().refine(image, runnable, params, boxes, runConfig().image) : [];
+        const sent = new Map(shrinking.map((box) => [box.id, box]));
+        for (const result of results) {
+          const base = area(loadedBoxes.get(result.id) ?? sent.get(result.id)!);
+          areaChange.set(result.id, base > 0 ? area(result.box) / base - 1 : null);
+        }
+      }
+      // Pixels: one crop around every target, from the image Refine reads.
+      let matches: ReclassMatch[] = [];
+      if (targets.length) {
+        const union = targets.reduce<RefineRect>((u, b) => ({ x0: Math.min(u.x0, b.x0), y0: Math.min(u.y0, b.y0), x1: Math.max(u.x1, b.x1), y1: Math.max(u.y1, b.y1) }), targets[0]);
+        const crop = await getService().crop(image, union, imageInput(settings.imageSource, settings.processing));
+        const local = targets.map((box) => ({ id: box.id, classId: box.classId, box: { x0: box.x0 - crop.x0, y0: box.y0 - crop.y0, x1: box.x1 - crop.x0, y1: box.y1 - crop.y0 } }));
+        matches = evaluateReclass(crop, local, rules, areaChange);
+      }
+      if (token !== reclassGeneration || image !== input.state.session.currentImage) return;
+      const now = new Map(boxes.map((box) => [box.id, box]));
+      candidates.clear();
+      for (const match of matches) {
+        if (dismissed.get(match.id) === signature(now.get(match.id)!)) continue;
+        candidates.set(match.id, match);
+      }
+      setStatus(`${candidates.size} reclass candidate${candidates.size === 1 ? "" : "s"} in ${Math.round(performance.now() - started)} ms`);
+      renderReviewCounter();
+      raw.canvas.requestRenderAll?.();
+    } catch (error: unknown) {
+      if (token === reclassGeneration) setStatus(`Reclass check failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  /** Changes candidates to their rule's class as one undo step. */
+  const reclass = (scope: "selected" | "all"): void => {
+    const ids = scope === "all" ? [...candidates.keys()] : selectedRects().map((rect) => ensureAnnotationId(rect)).filter((id) => candidates.has(id));
+    if (!ids.length) { setStatus(scope === "all" ? "No reclass candidates." : "Select a candidate to reclass."); return; }
+    const updates = ids.map((id) => ({ annotationId: id, classId: candidates.get(id)!.toClass }));
+    let changed = 0;
+    applying = true;
+    try {
+      changed = raw.updateBoxClasses?.(updates) ?? 0;
+    } finally {
+      applying = false;
+    }
+    ids.forEach((id) => { candidates.delete(id); dismissed.delete(id); });
+    const classesSet = new Set(updates.map((update) => update.classId));
+    setStatus(classesSet.size === 1 ? `${changed} box${changed === 1 ? "" : "es"} → class ${updates[0].classId}` : `${changed} boxes reclassed`);
+    renderReviewCounter();
+    raw.canvas.requestRenderAll?.();
   };
 
   // ---------------------------------------------------------------- canvas preview (selected boxes, not applied)
@@ -420,15 +537,59 @@ export function createRefineController(input: {
   };
 
   // ---------------------------------------------------------------- overlay
+  /** Boxes to mark in screen pixels; none while "Show review marks" is off. */
+  const markTargets = (sx: (x: number) => number, sy: (y: number) => number): MarkTarget[] => {
+    if (!byId<HTMLInputElement>("refineShowReviewToggle").checked) return [];
+    const selected = new Set(selectedRects().map((rect) => ensureAnnotationId(rect)));
+    return reviewQueue().map((box) => {
+      const result = refineFlagged(box) ? records.get(box.id)!.result : undefined;
+      const match = candidates.get(box.id);
+      const name = match ? className(match.toClass) : undefined;
+      return {
+        id: box.id,
+        screen: { x0: sx(box.x0), y0: sy(box.y0), x1: sx(box.x1), y1: sy(box.y1) },
+        review: result ? { weakSides: result.weakSides, areaChange: result.areaFlagged ? result.areaChange : null } : undefined,
+        reclass: match ? { toClass: match.toClass, label: `→ ${match.toClass}${name ? ` ${name}` : ""}` } : undefined,
+        focused: selected.has(box.id)
+      };
+    });
+  };
+  /**
+   * While marks show, every other box (and its label) fades to DIM_OPACITY so the marked ones stand out.
+   * Opacity is display only: history snapshots and saved labels do not carry it.
+   */
+  const dimmed = new Set<FabricRectLike>();
+  const dimExcept = (keep: ReadonlySet<string> | null): void => {
+    let changed = false;
+    const setOpacity = (rect: FabricRectLike, opacity: number): void => {
+      if ((rect.opacity ?? 1) !== opacity) { rect.opacity = opacity; changed = true; }
+      if (rect._labelText && (rect._labelText.opacity ?? 1) !== opacity) { rect._labelText.opacity = opacity; changed = true; }
+    };
+    if (keep) {
+      for (const rect of rects()) {
+        const dim = !keep.has(ensureAnnotationId(rect));
+        if (dim) dimmed.add(rect); else dimmed.delete(rect);
+        setOpacity(rect, dim ? DIM_OPACITY : 1);
+      }
+    } else {
+      dimmed.forEach((rect) => setOpacity(rect, 1));
+      dimmed.clear();
+    }
+    // Drawn from after:render: only ask for another frame when something changed, or it never settles.
+    if (changed) raw.canvas.requestRenderAll?.();
+  };
   const drawOverlay = (): void => {
     const fabricCanvas = raw.canvas;
     const width = Math.max(1, Math.round(fabricCanvas.getWidth()));
     const height = Math.max(1, Math.round(fabricCanvas.getHeight()));
     const context = overlay.getContext("2d");
     if (!context) return;
-    const active = isDetection() && input.state.session.currentImage === recordsImage && (records.size > 0 || preview.length > 0);
+    const active = isDetection() && input.state.session.currentImage === recordsImage && (records.size > 0 || candidates.size > 0 || preview.length > 0);
     if (!active) {
       if (overlay.width > 1) context.clearRect(0, 0, overlay.width, overlay.height);
+      dimExcept(null);
+      overlay.dataset.pins = "0";
+      overlay.dataset.tags = "0";
       return;
     }
     if (overlay.width !== width || overlay.height !== height) {
@@ -451,42 +612,19 @@ export function createRefineController(input: {
     const sy = (y: number): number => v[3] * y + v[5];
     context.save();
     context.font = "600 11px system-ui, sans-serif";
-    for (const box of reviewQueue()) {
-      const result = records.get(box.id)?.result;
-      const weak = result?.weakSides ?? [];
-      const [x0, y0, x1, y1] = [sx(box.x0), sy(box.y0), sx(box.x1), sy(box.y1)];
-      if (result?.areaFlagged) {
-        // Large area change: a red frame on a white halo, set apart from the box (class colours can be red too),
-        // with the change in a tag under the box so it never covers the class label.
-        context.lineWidth = 5;
-        context.strokeStyle = "#ffffff";
-        context.strokeRect(x0 - 5, y0 - 5, x1 - x0 + 10, y1 - y0 + 10);
-        context.lineWidth = 2.5;
-        context.strokeStyle = AREA_COLOR;
-        context.strokeRect(x0 - 5, y0 - 5, x1 - x0 + 10, y1 - y0 + 10);
-        const text = areaText(result.areaChange);
-        context.fillStyle = AREA_COLOR;
-        context.fillRect(x0 - 6, y1 + 8, context.measureText(text).width + 8, 15);
-        context.fillStyle = "#ffffff";
-        context.fillText(text, x0 - 2, y1 + 19);
-      } else {
-        context.setLineDash([5, 4]);
-        context.lineWidth = 1.5;
-        context.strokeStyle = WARN_COLOR;
-        context.strokeRect(x0 - 3, y0 - 3, x1 - x0 + 6, y1 - y0 + 6);
-        context.setLineDash([]);
-      }
-      context.strokeStyle = WARN_COLOR;
-      context.lineWidth = 4;
-      context.beginPath();
-      for (const side of weak) {
-        if (side === "L") { context.moveTo(x0, y0); context.lineTo(x0, y1); }
-        if (side === "R") { context.moveTo(x1, y0); context.lineTo(x1, y1); }
-        if (side === "T") { context.moveTo(x0, y0); context.lineTo(x1, y0); }
-        if (side === "B") { context.moveTo(x0, y1); context.lineTo(x1, y1); }
-      }
-      context.stroke();
+    const targets = markTargets(sx, sy);
+    dimExcept(targets.length ? new Set(targets.map((target) => target.id)) : null);
+    const measure = (text: string): number => context.measureText(text).width;
+    let [pins, tags] = [0, 0];
+    for (const target of targets) {
+      const layout = layoutMarks(target, measure);
+      drawMarks(context, layout);
+      pins += layout.pins.length;
+      tags += layout.tags.length;
     }
+    // What was drawn, for checks that cannot read canvas pixels reliably.
+    overlay.dataset.pins = String(pins);
+    overlay.dataset.tags = String(tags);
     // Preview: the would-be result as a solid outline plus how far each side moves (outward positive).
     for (const { result, before } of preview) {
       const { x0, y0, x1, y1 } = result.box;
@@ -546,6 +684,7 @@ export function createRefineController(input: {
         profilePresets: () => profilePresets,
         deleteProfilePreset: hasProfileFolder ? deleteProfilePreset : undefined,
         allBoxes: () => rects().map(toBox),
+        loadedBox: (id) => { syncImage(); return loadedBoxes.get(id) ?? null; },
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),
         notify: (message) => input.uiManager.notify(message, 4000)
@@ -580,6 +719,10 @@ export function createRefineController(input: {
       byId("refinePrevReviewBtn").addEventListener("click", () => navigateReview(-1));
       byId("refineNextReviewBtn").addEventListener("click", () => navigateReview(1));
       byId("refineApproveBtn").addEventListener("click", approve);
+      byId("refineShowReviewToggle").addEventListener("change", drawOverlay);
+      byId("refineFindReclassBtn").addEventListener("click", () => { void findCandidates(); });
+      byId("refineReclassSelectedBtn").addEventListener("click", () => reclass("selected"));
+      byId("refineReclassAllBtn").addEventListener("click", () => reclass("all"));
       byId("openRefineLabBtn").addEventListener("click", openLab);
       byId("taskRefineBtn").addEventListener("click", () => runShortcut("toggle"));
       byId("inspectorRefineTabBtn").addEventListener("click", () => input.uiManager.setInspectorTab("refine"));
@@ -587,7 +730,7 @@ export function createRefineController(input: {
       const canvas = raw.canvas;
       canvas.on?.("after:render", drawOverlay);
       const onSelection = (): void => {
-        if (records.size) renderReviewCounter();
+        if (records.size || candidates.size) renderReviewCounter();
         if (paneOpen() || preview.length) schedulePreview();
       };
       ["selection:created", "selection:updated", "selection:cleared", "object:modified"].forEach((name) => canvas.on?.(name, onSelection));
@@ -600,20 +743,25 @@ export function createRefineController(input: {
       }).observe(pane, { attributes: true, attributeFilter: ["hidden"] });
 
       raw.subscribeHistory?.((entry) => {
-        if (applying) return;
         syncImage();
+        // Before any edit (ours included) the snapshot still carries the label file's values.
+        rememberLoaded(entry.before);
+        if (applying) return;
         const before = new Map(entry.before.map((s) => [s.annotationId, s]));
         const created: string[] = [];
         for (const after of entry.after) {
           const prior = before.get(after.annotationId);
           before.delete(after.annotationId);
           if (!prior) created.push(after.annotationId);
-          else if (prior.boundsLeft !== after.boundsLeft || prior.boundsTop !== after.boundsTop
-            || prior.width * prior.scaleX !== after.width * after.scaleX || prior.height * prior.scaleY !== after.height * after.scaleY) {
-            manual.add(after.annotationId);
+          else {
+            const moved = prior.boundsLeft !== after.boundsLeft || prior.boundsTop !== after.boundsTop
+              || prior.width * prior.scaleX !== after.width * after.scaleX || prior.height * prior.scaleY !== after.height * after.scaleY;
+            if (moved) manual.add(after.annotationId);
+            // A hand edit settles a reclass candidate (and forgets a dismissal).
+            if (moved || prior.labelClass !== after.labelClass) { candidates.delete(after.annotationId); dismissed.delete(after.annotationId); }
           }
         }
-        before.forEach((_, id) => { records.delete(id); manual.delete(id); });
+        before.forEach((_, id) => { records.delete(id); manual.delete(id); candidates.delete(id); dismissed.delete(id); });
         if (created.length === 1 && input.state.view.currentMode === "draw") {
           const rect = rects().find((candidate) => ensureAnnotationId(candidate) === created[0]);
           if (rect) {
