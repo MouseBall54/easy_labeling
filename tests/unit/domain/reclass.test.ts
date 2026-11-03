@@ -28,7 +28,6 @@ const FULL = { x0: 0, y0: 0, x1: 10, y1: 10 };
 describe("domain/refine/reclass", () => {
   it("creates a rule that checks the centre mean of every class", () => {
     expect(createReclassRule()).toEqual({
-      enabled: true,
       fromClasses: [],
       toClass: "0",
       combine: "or",
@@ -53,7 +52,9 @@ describe("domain/refine/reclass", () => {
     expect(normalizeReclassRules([{ toClass: "1" }, "bad", null])).toHaveLength(1);
     // One rule: files from versions with several keep the first.
     expect(normalizeReclassRules([{ toClass: "1" }, { toClass: "2" }]).map((r) => r.toClass)).toEqual(["1"]);
-    expect(reclassRuleOf([])).toMatchObject({ enabled: false, cropX: 0.5, cropY: 0.5 });
+    // The rule is always on: with nothing saved the default runs, and an older "enabled": false is dropped.
+    expect(reclassRuleOf([])).toEqual(createReclassRule());
+    expect(normalizeReclassRule({ enabled: false, toClass: "1" })).not.toHaveProperty("enabled");
   });
 
   it("crops the centre in whole pixels, at least one pixel, inside the image", () => {
@@ -99,7 +100,7 @@ describe("domain/refine/reclass", () => {
     expect(matches.map((m) => [m.id, m.ruleIndex, m.toClass])).toEqual([["a", 1, "3"], ["b", 0, "2"]]);
     expect(matches[0]).toMatchObject({ mean: 200, areaChange: null });
     expect(evaluateReclass(img, [{ id: "c", classId: "0", box: FULL }], [rule({ toClass: "0" })], new Map())).toEqual([]);
-    expect(evaluateReclass(img, boxes, [rule({ enabled: false })], new Map())).toEqual([]);
+    expect(evaluateReclass(img, boxes, [rule({ mean: { enabled: false, min: 0 } })], new Map())).toEqual([]);
   });
 
   it("summarises a rule in one line", () => {

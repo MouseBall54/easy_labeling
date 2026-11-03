@@ -3,10 +3,10 @@ import type { GrayImage, RefineRect } from "./edge-refine.js";
 /**
  * Reclass: flag boxes whose content looks defective (a bright, mottled centre where it should be dark, or a box
  * whose refined area shrank well below the size it was loaded with) as candidates for another class.
- * Boxes never move; the user confirms each change.
+ * Boxes never move; the user confirms each change. The rule is always on (Reclass mode is the switch); an
+ * `enabled` flag older files hold is ignored.
  */
 export interface ReclassRule {
-  enabled: boolean;
   /** Classes this rule checks; empty = every class. */
   fromClasses: string[];
   toClass: string;
@@ -27,7 +27,6 @@ export interface ReclassMatch extends ReclassStats { id: string; ruleIndex: numb
 
 export function createReclassRule(): ReclassRule {
   return {
-    enabled: true,
     fromClasses: [],
     toClass: "0",
     combine: "or",
@@ -55,7 +54,6 @@ export function normalizeReclassRule(value: unknown): ReclassRule {
   const bright = record(v.bright);
   const shrink = record(v.shrink);
   return {
-    enabled: flag(v.enabled, d.enabled),
     fromClasses: Array.isArray(v.fromClasses) ? [...new Set(v.fromClasses.map((id) => classId(id, "")).filter(Boolean))] : [],
     toClass: classId(v.toClass, d.toClass),
     combine: v.combine === "and" ? "and" : "or",
@@ -76,9 +74,9 @@ export function normalizeReclassRules(value: unknown): ReclassRule[] {
   return Array.isArray(value) ? value.filter((item) => typeof item === "object" && item !== null).slice(0, 1).map(normalizeReclassRule) : [];
 }
 
-/** The rule the editor shows: the saved one, else a default that stays off until it is turned on. */
+/** The rule Reclass runs and the editor shows: the saved one, else the default. */
 export function reclassRuleOf(rules: readonly ReclassRule[]): ReclassRule {
-  return rules[0] ?? { ...createReclassRule(), enabled: false };
+  return rules[0] ?? createReclassRule();
 }
 
 /** Centre crop in whole pixels, clipped to the image, never smaller than 1 x 1. */
@@ -109,10 +107,9 @@ export function measureReclass(img: GrayImage, box: RefineRect, rule: Pick<Recla
   return { mean: sum / count, brightRatio: bright / count };
 }
 
-/** Enabled, checks this class, would change it, and has at least one check on. */
+/** Checks this class, would change it, and has at least one check on. */
 export function ruleApplies(rule: ReclassRule, boxClass: string): boolean {
-  return rule.enabled
-    && rule.toClass !== boxClass
+  return rule.toClass !== boxClass
     && (rule.fromClasses.length === 0 || rule.fromClasses.includes(boxClass))
     && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled);
 }

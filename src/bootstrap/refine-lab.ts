@@ -27,7 +27,7 @@ import {
   type RefineProcessing,
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
-import { centreCrop, describeReclassRule, evaluateReclass, measureReclass, ruleApplies, type ReclassRule, type ReclassStats } from "../domain/refine/reclass.js";
+import { centreCrop, describeReclassRule, evaluateReclass, measureReclass, reclassRuleOf, ruleApplies, type ReclassRule, type ReclassStats } from "../domain/refine/reclass.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
 import { layoutMarks, drawMarks, RECLASS_COLOR } from "./refine-marks.js";
@@ -380,13 +380,14 @@ export function createRefineLab(input: {
       for (const side of REFINE_SIDES) sides[side] = describeRefineSide(c.img, c.local, side, params, c.neighbours);
       return { params, result: params.enabled ? refineBox(c.img, c.local, params, c.neighbours) : null, sides, reclass: null };
     }
-    const shrinks = draft.reclass.some((rule) => rule.enabled && rule.shrink.enabled && ruleApplies(rule, c.classId));
+    const rule = reclassRuleOf(draft.reclass);
+    const shrinks = rule.shrink.enabled && ruleApplies(rule, c.classId);
     const result = params.enabled && shrinks ? refineBox(c.img, c.local, params, c.neighbours) : null;
     return { params, result, sides, reclass: judgeCase(c, result) };
   };
   /** Same judgment as the canvas: centre pixels of the reclass crop, refined area against the box as loaded. */
   const judgeCase = (c: LabCase, result: LabResult["result"]): LabResult["reclass"] => {
-    const rules = draft.reclass;
+    const rules = [reclassRuleOf(draft.reclass)];
     const checking = rules.filter((rule) => ruleApplies(rule, c.classId));
     if (!checking.length) return null;
     const area = (r: RefineRect): number => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);

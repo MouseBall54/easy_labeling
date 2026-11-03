@@ -341,7 +341,7 @@ Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리�
 - Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & find candidates**는 저장한 뒤 캔버스에서 후보를 찾는다.
 - Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Find candidates를 보여 준다. Review의 `N`/`Shift+N`/`F`는 현재 모드의 대상(Refine 검토 대상 또는 Reclass 후보)만 다룬다. `E`/`Shift+E`는 모드와 상관없이 경계를 맞춘다.
 
-- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 **Use this rule**로 켜고, 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop의 가로 비율(Centre width %)과 세로 비율(Centre height %), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 저장된 규칙이 없으면 꺼진 기본 규칙이 보인다. 예전 버전의 Centre crop % 하나는 가로·세로 모두에 쓰이고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
+- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop의 가로 비율(Centre width %)과 세로 비율(Centre height %), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 규칙은 켜고 끄는 스위치 없이 항상 쓰인다(Edge와 Reclass는 Mode로 나뉘므로 Reclass 모드에서 Find candidates를 누를 때만 판정한다). 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)이 쓰이고, 예전 파일의 꺼짐 설정은 무시한다. 예전 버전의 Centre crop % 하나는 가로·세로 모두에 쓰이고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
 - 판정은 세 가지다.
   - **Mean ≥:** 가운데 crop의 평균 밝기(0~255)가 기준 이상
   - **Bright pixels ≥ %:** 가운데 crop에서 Bright level 이상인 픽셀의 비율이 기준 이상

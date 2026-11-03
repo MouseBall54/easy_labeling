@@ -4,7 +4,7 @@ import type { RefineEditorStore } from "./refine-editor.js";
 /**
  * The reclass rule in the Refine Lab. Reclass runs one rule (the editor's class chips pick its classes). Edits
  * go to the Lab draft (store.setDoc) like every other Lab setting, so cases re-judge live and nothing is saved
- * until Save. With no saved rule the block shows a default that stays off until it is turned on.
+ * until Save. The rule is always on; with no saved rule the block shows the default one.
  */
 export function createReclassEditor(input: { root: HTMLElement; prefix: string; documentRef: Document; store: RefineEditorStore }): { render(): void } {
   const { root, prefix, documentRef: doc, store } = input;
@@ -50,7 +50,6 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
   combine.add(new Option("Every check (AND)", "and"));
   combine.addEventListener("change", () => update((r) => ({ ...r, combine: combine.value === "and" ? "and" : "or" })));
   block.append(
-    row(check("enabled", "Use this rule", (on) => update((r) => ({ ...r, enabled: on }))), element("span")),
     row(label("to", "Change to"), to),
     suggestions,
     row(label("combine", "Combine"), combine),
@@ -79,7 +78,6 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
         suggestions.replaceChildren(...classIds.map(classOption));
       }
       const r = rule();
-      get<HTMLInputElement>("enabled").checked = r.enabled;
       setValue(to, r.toClass);
       setValue(combine, r.combine);
       setValue(get("cropX"), String(Math.round(r.cropX * 100)));

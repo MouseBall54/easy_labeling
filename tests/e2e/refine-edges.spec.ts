@@ -921,7 +921,7 @@ test("reclass: compares refined area with the loaded box even after Refine all, 
   expect((await api(page, (a) => a.getLabelsAsYolo())).split("\n").filter((line) => line.startsWith("1 "))).toHaveLength(1);
 });
 
-test("reclass: says so when no rule is on", async ({ page }) => {
+test("reclass: the mode toggle shows the reclass controls, and the default rule is on when none is saved", async ({ page }) => {
   await openSemDataset(page);
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
@@ -930,9 +930,9 @@ test("reclass: says so when no rule is on", async ({ page }) => {
   await expect(page.locator("#refineRunPresetSelect")).toBeVisible();
   await page.locator("#refineModeToggle [data-mode='reclass']").click();
   await expect(page.locator("#refineRunPresetSelect")).toBeHidden();
-  await expect(page.locator("#refineReclassSummary")).toContainText("No rule ·");
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
+  // With nothing saved the default rule is on: every class → 0 by centre mean.
+  await expect(page.locator("#refineReclassSummary")).toHaveText("all classes → 0 · mean ≥ 128");
+  await expect(page.locator("#refineSettingsSummary")).toContainText("Lab rule (default)");
   await expect.poll(async () => (await settingsFile(page) as { mode?: string } | null)?.mode).toBe("reclass");
 });
 
@@ -1013,9 +1013,8 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await openLab(page);
   await page.locator("#refineLabSource").selectOption("all");
   await openReclass(page);
-  // With no saved rule the default one stays off until it is turned on.
-  await expect(page.locator("#refineLabReclass0-enabled")).not.toBeChecked();
-  await page.locator("#refineLabReclass0-enabled").check();
+  // The rule is always on: there is no switch for it.
+  await expect(page.locator("#refineLabReclass0-enabled")).toHaveCount(0);
   await page.locator("#refineLabReclass0-to").fill("1");
   await page.locator("#refineLabReclass0-meanMin").fill("120");
 
@@ -1032,7 +1031,7 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"min":200');
   await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 200");
 
-  // Turning every rule off clears the candidates an earlier Find left.
+  // Turning every check off clears the candidates an earlier Find left.
   await openLab(page);
   await openReclass(page);
   await page.locator("#refineLabReclass0-meanMin").fill("120");
@@ -1041,10 +1040,10 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
   await openLab(page);
   await openReclass(page);
-  await page.locator("#refineLabReclass0-enabled").uncheck();
+  await page.locator("#refineLabReclass0-meanOn").uncheck();
   await saveLab(page);
   await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
+  await expect(page.locator("#refineStatus")).toHaveText("The reclass rule has no check on.");
   await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
   await expect(page.locator("#refineOverlayCanvas")).toHaveAttribute("data-pins", "0");
 });
