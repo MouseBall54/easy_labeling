@@ -914,3 +914,29 @@ test("reclass: says so when no rule is on", async ({ page }) => {
   await page.locator("#refineFindReclassBtn").click();
   await expect(page.locator("#refineStatus")).toHaveText("No reclass rule is on.");
 });
+
+test("refine lab: tunes a reclass rule and shows which cases match", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page, { extra: DARK_CENTRE });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await openLab(page);
+  await page.locator("#refineLabSource").selectOption("all");
+  await page.locator("#refineLabEditor .refine-details summary", { hasText: "Reclass" }).click();
+  await page.locator("#refineLabEditor [data-act='addReclassRule']").click();
+  await page.locator("#refineLabReclass0-to").fill("1");
+  await page.locator("#refineLabReclass0-meanMin").fill("120");
+
+  // Box 1 (bright centre) matches; box 0 (dark centre) does not.
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 1 of 2 match");
+  await expect(page.locator(".refine-lab-case[data-reclass='match']")).toHaveCount(1);
+  await expect(page.locator(".refine-lab-case[data-reclass='match'] span")).toContainText("mean 180");
+  await page.locator(".refine-lab-case[data-reclass='match']").click();
+  await lab(page).screenshot({ path: "test-results/refine-lab-reclass.png" });
+  await page.locator("#refineLabReclass0-meanMin").fill("200");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 0 of 2 match");
+
+  await saveLab(page);
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"min":200');
+  await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 200");
+});

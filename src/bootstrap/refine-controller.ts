@@ -666,6 +666,7 @@ export function createRefineController(input: {
         profilePresets: () => profilePresets,
         deleteProfilePreset: hasProfileFolder ? deleteProfilePreset : undefined,
         allBoxes: () => rects().map(toBox),
+        loadedBox: (id) => { syncImage(); return loadedBoxes.get(id) ?? null; },
         classIds,
         className: (classId) => input.state.session.classNames.get(classId),
         notify: (message) => input.uiManager.notify(message, 4000)

@@ -20,6 +20,7 @@ import {
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { createReclassEditor } from "./reclass-editor.js";
 
 export interface RefineEditorStore {
   getDoc(): RefineSettingsDocument;
@@ -202,6 +203,11 @@ function markup(prefix: string): string {
       </div>
       <input type="file" accept=".json,application/json" data-ref="presetFile" hidden>
     </section>
+    <details class="inspector-section advanced-disclosure refine-details" data-ref="reclassDetails">
+      <summary>Reclass</summary>
+      <p class="refine-hint">Flags boxes for another class by their centre brightness or by how much refining shrinks them against the loaded box. Boxes never move.</p>
+      <div data-ref="reclassRoot"></div>
+    </details>
     <section class="inspector-section">
       <div class="section-heading-row"><h3>Edges</h3><span class="section-value">Click a side to edit it alone</span></div>
       <div class="refine-side-editor">
@@ -242,6 +248,7 @@ export function createRefineEditor(input: {
   const { root, prefix, documentRef: doc, windowRef, store } = input;
   root.innerHTML = markup(prefix);
   const ref = <T extends HTMLElement>(name: string): T => root.querySelector<T>(`[data-ref="${name}"]`)!;
+  const reclassEditor = createReclassEditor({ root: ref("reclassRoot"), prefix, documentRef: doc, store });
   let selected = new Set<string>(); // empty = editing the default
   let scope: RefineEditScope = "all";
   const targetListeners: (() => void)[] = [];
@@ -631,6 +638,7 @@ export function createRefineEditor(input: {
     renderChips();
     renderPresets();
     syncFields();
+    reclassEditor.render();
   }
 
   render();
