@@ -606,7 +606,16 @@ export function createRefineController(input: {
     const targets = markTargets(sx, sy);
     dimExcept(targets.length ? new Set(targets.map((target) => target.id)) : null);
     const measure = (text: string): number => context.measureText(text).width;
-    for (const target of targets) drawMarks(context, layoutMarks(target, measure));
+    let [pins, tags] = [0, 0];
+    for (const target of targets) {
+      const layout = layoutMarks(target, measure);
+      drawMarks(context, layout);
+      pins += layout.pins.length;
+      tags += layout.tags.length;
+    }
+    // What was drawn, for checks that cannot read canvas pixels reliably.
+    overlay.dataset.pins = String(pins);
+    overlay.dataset.tags = String(tags);
     // Preview: the would-be result as a solid outline plus how far each side moves (outward positive).
     for (const { result, before } of preview) {
       const { x0, y0, x1, y1 } = result.box;

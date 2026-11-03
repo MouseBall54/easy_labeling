@@ -19,13 +19,24 @@ const maxError = (actual: Geometry[]): number => Math.max(...actual.flatMap((g, 
   Math.abs(g.left - TRUTH[i].left), Math.abs(g.top - TRUTH[i].top), Math.abs(g.right - TRUTH[i].right), Math.abs(g.bottom - TRUTH[i].bottom)
 ]));
 
-/** Extra rectangles painted over the structures, and a refine-settings.json to start with. */
-interface SemScene { extra?: { rect: Geometry; gray: number }[]; settings?: unknown }
+/**
+ * Image size, bright structures (TRUTH by default), extra rectangles painted over them, the saved label boxes
+ * (two boxes a few pixels off TRUTH by default), and a refine-settings.json to start with.
+ */
+interface SemScene {
+  size?: { width: number; height: number };
+  structures?: Geometry[];
+  extra?: { rect: Geometry; gray: number }[];
+  labels?: Geometry[];
+  settings?: unknown;
+}
+const SEM_LABELS: Geometry[] = [{ left: 24, top: 27, right: 56, bottom: 94 }, { left: 96, top: 34, right: 145, bottom: 86 }];
 
 async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
-  await page.addInitScript(({ truth, extra, settings }) => {
-    const W = 200;
-    const H = 120;
+  const labelBoxes = scene.labels ?? SEM_LABELS;
+  await page.addInitScript(({ truth, extra, settings, size, boxes }) => {
+    const W = size.width;
+    const H = size.height;
     const renderPng = async (): Promise<Blob> => {
       const canvas = new OffscreenCanvas(W, H);
       const context = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
@@ -41,10 +52,7 @@ async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
     };
     const yolo = (r: { left: number; top: number; right: number; bottom: number }) =>
       `0 ${(r.left + r.right) / 2 / W} ${(r.top + r.bottom) / 2 / H} ${(r.right - r.left) / W} ${(r.bottom - r.top) / H}`;
-    const labels = [
-      yolo({ left: 24, top: 27, right: 56, bottom: 94 }),
-      yolo({ left: 96, top: 34, right: 145, bottom: 86 })
-    ].join("\n");
+    const labels = boxes.map(yolo).join("\n");
 
     class MockFileHandle {
       kind = "file";
@@ -91,13 +99,13 @@ async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
     }
     Reflect.set(window, "__refineTestFolder", images);
     Object.defineProperty(window, "showDirectoryPicker", { configurable: true, writable: true, value: async () => images });
-  }, { truth: TRUTH, extra: scene.extra ?? [], settings: scene.settings ?? null });
+  }, { truth: scene.structures ?? TRUTH, extra: scene.extra ?? [], settings: scene.settings ?? null, size: scene.size ?? { width: 200, height: 120 }, boxes: labelBoxes });
 
   await page.goto("/index.html", { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
   await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 45_000 });
   await page.locator("#emptyOpenDatasetBtn").click();
-  await expect.poll(async () => (await geometries(page)).length).toBe(2);
+  await expect.poll(async () => (await geometries(page)).length).toBe(labelBoxes.length);
 }
 
 async function settingsFile(page: Page): Promise<{ classes: Record<string, { sides?: Record<string, string> }>; presets: { name: string }[] } | null> {
@@ -939,4 +947,57 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await saveLab(page);
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"min":200');
   await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 200");
+});
+
+test("reclass: pins stay readable on a 3072 x 2048 image with 700 boxes", async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  // 28 x 25 cells; every structure has a dark (filled) core except 30 spread through the grid.
+  const structures: Geometry[] = [];
+  const cores: { rect: Geometry; gray: number }[] = [];
+  for (let row = 0; row < 25; row += 1) {
+    for (let col = 0; col < 28; col += 1) {
+      const left = Math.round(col * 3072 / 28) + 20;
+      const top = Math.round(row * 2048 / 25) + 13;
+      structures.push({ left, top, right: left + 70, bottom: top + 56 });
+      const index = row * 28 + col;
+      if (index % 23 !== 7 || index >= 690) cores.push({ rect: { left: left + 15, top: top + 12, right: left + 55, bottom: top + 44 }, gray: 40 });
+    }
+  }
+  const defects = structures.length - cores.length;
+  expect(defects).toBe(30);
+  await openSemDataset(page, {
+    size: { width: 3072, height: 2048 },
+    structures,
+    extra: cores,
+    labels: structures,
+    settings: { default: {}, reclass: [reclassRule({ mean: { enabled: true, min: 120 } })] }
+  });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  const findMs = async (): Promise<number> => {
+    await page.evaluate(() => { document.getElementById("refineStatus")!.textContent = ""; });
+    await page.locator("#refineFindReclassBtn").click();
+    await expect(page.locator("#refineStatus")).toContainText("reclass candidates in", { timeout: 30_000 });
+    return Number((await page.locator("#refineStatus").textContent())?.match(/in (\d+) ms/)?.[1]);
+  };
+  // The first run also hands the image to the refine worker (as the first Refine does); later runs only judge.
+  const first = await findMs();
+  await expect(page.locator("#refineReclassCounter")).toHaveText(`${defects} candidates`);
+  const warm = await findMs();
+  testInfo.annotations.push({ type: "reclass-find-ms", description: `${structures.length} boxes: first ${first} ms, then ${warm} ms` });
+  console.log(`reclass Find, ${structures.length} boxes: first ${first} ms, then ${warm} ms`);
+  expect(warm).toBeLessThan(1000);
+
+  const overlay = page.locator("#refineOverlayCanvas");
+  await expect(overlay).toHaveAttribute("data-pins", String(defects));
+  // At the fitted zoom the boxes are narrower than a tag, so no tag is drawn until one has focus.
+  await expect(overlay).toHaveAttribute("data-tags", "0");
+  const opacities = await api(page, (a) => a.getRectStates().map((s) => s.opacity));
+  expect(opacities.filter((o) => o === 0.3)).toHaveLength(structures.length - defects);
+  await page.locator("#canvas-container").screenshot({ path: "test-results/reclass-dense-light.png" });
+
+  await page.keyboard.press("n");
+  await expect(overlay).toHaveAttribute("data-tags", "1");
+  await page.locator('label[for="darkModeToggle"]').click();
+  await page.locator("#canvas-container").screenshot({ path: "test-results/reclass-dense-dark.png" });
 });
