@@ -36,6 +36,9 @@ interface TestApi {
     height: number;
   }>;
   getSelectedRectIds(): string[];
+  /** Class and display opacity of every box (Refine dims unmarked boxes while marks show). */
+  getRectStates(): Array<{ annotationId: string; classId: string; opacity: number }>;
+  getLabelsAsYolo(): string;
   getReviewSummary(): { minimumBoxSizePx: number; findingCount: number };
   /** The Review task's check: images never checked or changed since their check. False when stopped. */
   refreshReviewFindings(options?: { all?: boolean }): Promise<boolean>;
@@ -265,6 +268,11 @@ function bootstrapBrowserRuntime(): void {
         };
       });
     },
+    getRectStates: () => runtimeCanvasController.raw.getObjects("rect").map((rect) => {
+      const box = rect as Parameters<typeof ensureAnnotationId>[0] & { labelClass?: string; opacity?: number };
+      return { annotationId: ensureAnnotationId(box), classId: String(box.labelClass ?? "0"), opacity: box.opacity ?? 1 };
+    }),
+    getLabelsAsYolo: () => runtimeCanvasController.raw.getLabelsAsYolo(),
     getSelectedRectIds: () => {
       const activeObject = runtimeCanvasController.raw.canvas.getActiveObject() as {
         getObjects?: () => Array<{ annotationId?: unknown }>;

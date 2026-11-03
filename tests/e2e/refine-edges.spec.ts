@@ -692,7 +692,7 @@ test("presets: preprocessing presets feed Refine Lab, refine presets keep their 
   await expect.poll(async () => ((await settingsFile(page)) as unknown as { activePreset: string | null }).activePreset).toBeNull();
 });
 
-test("refine: boxes whose area changes past the limit are outlined red and queued for review", async ({ page }) => {
+test("refine: boxes whose area changes past the limit get a red pin and are queued for review", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page);
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
@@ -720,15 +720,23 @@ test("refine: boxes whose area changes past the limit are outlined red and queue
   await expect.poll(redPixels).toBeGreaterThan(50);
   await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-area-flag-pane.png" });
   await page.locator("#canvas-container").screenshot({ path: "test-results/refine-area-flag-canvas.png" });
+  // The unmarked box fades; fading is display only and never reaches the saved labels.
+  const opacities = () => page.evaluate(() =>
+    (Reflect.get(window, "__easyLabelingTestApi") as { getRectStates(): { opacity: number }[] }).getRectStates().map((s) => s.opacity).sort());
+  const yolo = () => page.evaluate(() => (Reflect.get(window, "__easyLabelingTestApi") as { getLabelsAsYolo(): string }).getLabelsAsYolo());
+  await expect.poll(opacities).toEqual([0.3, 1]);
+  const dimmedYolo = await yolo();
 
-  // Hiding review marks clears the overlay without leaving the queue.
+  // Hiding review marks clears the overlay and the fading without leaving the queue.
   await page.locator("#refineShowReviewToggle").uncheck();
   await expect.poll(redPixels).toBe(0);
+  await expect.poll(opacities).toEqual([1, 1]);
+  expect(await yolo()).toBe(dimmedYolo);
   await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
   await page.locator("#refineShowReviewToggle").check();
   await expect.poll(redPixels).toBeGreaterThan(50);
 
-  // N jumps to the flagged box; approving it clears the red outline.
+  // N jumps to the flagged box; approving it clears the red pin.
   await page.keyboard.press("n");
   await page.keyboard.press("f");
   await expect(page.locator("#refineReviewCounter")).toContainText("0 to review");

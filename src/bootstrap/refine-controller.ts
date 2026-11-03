@@ -23,6 +23,7 @@ import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFi
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RefineLab, RefineLabCaseSource } from "./refine-lab.js";
+import { AREA_COLOR, areaText, DIM_OPACITY, drawMarks, layoutMarks, REVIEW_COLOR as WARN_COLOR, type MarkTarget } from "./refine-marks.js";
 import { loadPreprocessingPresetLibrary } from "../features/segmentation/preprocessing-presets.js";
 import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
@@ -53,10 +54,6 @@ export interface RefineController {
 }
 
 const PREVIEW_LIMIT = 50;
-const WARN_COLOR = "#f0ad4e";
-/** Boxes whose area changed beyond the class's area limits. */
-const AREA_COLOR = "#dc3545";
-const areaText = (change: number): string => `${change >= 0 ? "+" : "−"}${Math.abs(change * 100).toFixed(0)}% area`;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
 
 interface RefineRecord { result: RefineResult; reviewed: boolean }
@@ -420,6 +417,44 @@ export function createRefineController(input: {
   };
 
   // ---------------------------------------------------------------- overlay
+  /** Boxes to mark in screen pixels; none while "Show review marks" is off. */
+  const markTargets = (sx: (x: number) => number, sy: (y: number) => number): MarkTarget[] => {
+    if (!byId<HTMLInputElement>("refineShowReviewToggle").checked) return [];
+    const selected = new Set(selectedRects().map((rect) => ensureAnnotationId(rect)));
+    return reviewQueue().map((box) => {
+      const result = records.get(box.id)?.result;
+      return {
+        id: box.id,
+        screen: { x0: sx(box.x0), y0: sy(box.y0), x1: sx(box.x1), y1: sy(box.y1) },
+        review: result ? { weakSides: result.weakSides, areaChange: result.areaFlagged ? result.areaChange : null } : undefined,
+        focused: selected.has(box.id)
+      };
+    });
+  };
+  /**
+   * While marks show, every other box (and its label) fades to DIM_OPACITY so the marked ones stand out.
+   * Opacity is display only: history snapshots and saved labels do not carry it.
+   */
+  const dimmed = new Set<FabricRectLike>();
+  const dimExcept = (keep: ReadonlySet<string> | null): void => {
+    let changed = false;
+    const setOpacity = (rect: FabricRectLike, opacity: number): void => {
+      if ((rect.opacity ?? 1) !== opacity) { rect.opacity = opacity; changed = true; }
+      if (rect._labelText && (rect._labelText.opacity ?? 1) !== opacity) { rect._labelText.opacity = opacity; changed = true; }
+    };
+    if (keep) {
+      for (const rect of rects()) {
+        const dim = !keep.has(ensureAnnotationId(rect));
+        if (dim) dimmed.add(rect); else dimmed.delete(rect);
+        setOpacity(rect, dim ? DIM_OPACITY : 1);
+      }
+    } else {
+      dimmed.forEach((rect) => setOpacity(rect, 1));
+      dimmed.clear();
+    }
+    // Drawn from after:render: only ask for another frame when something changed, or it never settles.
+    if (changed) raw.canvas.requestRenderAll?.();
+  };
   const drawOverlay = (): void => {
     const fabricCanvas = raw.canvas;
     const width = Math.max(1, Math.round(fabricCanvas.getWidth()));
@@ -429,6 +464,7 @@ export function createRefineController(input: {
     const active = isDetection() && input.state.session.currentImage === recordsImage && (records.size > 0 || preview.length > 0);
     if (!active) {
       if (overlay.width > 1) context.clearRect(0, 0, overlay.width, overlay.height);
+      dimExcept(null);
       return;
     }
     if (overlay.width !== width || overlay.height !== height) {
@@ -451,42 +487,10 @@ export function createRefineController(input: {
     const sy = (y: number): number => v[3] * y + v[5];
     context.save();
     context.font = "600 11px system-ui, sans-serif";
-    for (const box of byId<HTMLInputElement>("refineShowReviewToggle").checked ? reviewQueue() : []) {
-      const result = records.get(box.id)?.result;
-      const weak = result?.weakSides ?? [];
-      const [x0, y0, x1, y1] = [sx(box.x0), sy(box.y0), sx(box.x1), sy(box.y1)];
-      if (result?.areaFlagged) {
-        // Large area change: a red frame on a white halo, set apart from the box (class colours can be red too),
-        // with the change in a tag under the box so it never covers the class label.
-        context.lineWidth = 5;
-        context.strokeStyle = "#ffffff";
-        context.strokeRect(x0 - 5, y0 - 5, x1 - x0 + 10, y1 - y0 + 10);
-        context.lineWidth = 2.5;
-        context.strokeStyle = AREA_COLOR;
-        context.strokeRect(x0 - 5, y0 - 5, x1 - x0 + 10, y1 - y0 + 10);
-        const text = areaText(result.areaChange);
-        context.fillStyle = AREA_COLOR;
-        context.fillRect(x0 - 6, y1 + 8, context.measureText(text).width + 8, 15);
-        context.fillStyle = "#ffffff";
-        context.fillText(text, x0 - 2, y1 + 19);
-      } else {
-        context.setLineDash([5, 4]);
-        context.lineWidth = 1.5;
-        context.strokeStyle = WARN_COLOR;
-        context.strokeRect(x0 - 3, y0 - 3, x1 - x0 + 6, y1 - y0 + 6);
-        context.setLineDash([]);
-      }
-      context.strokeStyle = WARN_COLOR;
-      context.lineWidth = 4;
-      context.beginPath();
-      for (const side of weak) {
-        if (side === "L") { context.moveTo(x0, y0); context.lineTo(x0, y1); }
-        if (side === "R") { context.moveTo(x1, y0); context.lineTo(x1, y1); }
-        if (side === "T") { context.moveTo(x0, y0); context.lineTo(x1, y0); }
-        if (side === "B") { context.moveTo(x0, y1); context.lineTo(x1, y1); }
-      }
-      context.stroke();
-    }
+    const targets = markTargets(sx, sy);
+    dimExcept(targets.length ? new Set(targets.map((target) => target.id)) : null);
+    const measure = (text: string): number => context.measureText(text).width;
+    for (const target of targets) drawMarks(context, layoutMarks(target, measure));
     // Preview: the would-be result as a solid outline plus how far each side moves (outward positive).
     for (const { result, before } of preview) {
       const { x0, y0, x1, y1 } = result.box;
