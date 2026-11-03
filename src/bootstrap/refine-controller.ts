@@ -21,7 +21,7 @@ import {
 import { extractVisibleRectSelection, getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike, type YoloMetadata } from "../features/canvas/fabric-types.js";
-import { describeReclassRule, evaluateReclass, ruleApplies, type ReclassMatch, type ReclassRule } from "../domain/refine/reclass.js";
+import { describeReclassRule, evaluateReclass, reclassRuleOf, ruleApplies, type ReclassMatch, type ReclassRule } from "../domain/refine/reclass.js";
 import { createRefineService, type RefineImageInput, type RefineService } from "../features/refine/refine-service.js";
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
@@ -208,12 +208,12 @@ export function createRefineController(input: {
     }
     return { params: (classId) => resolveRefineParams(settings, classId), image: imageInput(settings.imageSource, settings.processing), label: "class settings" };
   };
-  /** What Find candidates uses: the Reclass-with preset (its rules and image) or the Lab rules. */
-  const reclassConfig = (): { rules: ReclassRule[]; image: RefineImageInput; preset: ReclassPreset | undefined } => {
+  /** What Find candidates uses: the Reclass-with preset (its rule and image) or the Lab rule; the default rule when none is saved. */
+  const reclassConfig = (): { rule: ReclassRule; image: RefineImageInput; preset: ReclassPreset | undefined } => {
     const preset = settings.activeReclassPreset ? allReclassPresets().find((item) => item.name === settings.activeReclassPreset) : undefined;
     return preset
-      ? { rules: preset.reclass, image: imageInput(preset.imageSource, preset.processing), preset }
-      : { rules: settings.reclass, image: imageInput(settings.reclassImageSource, settings.reclassProcessing), preset };
+      ? { rule: reclassRuleOf(preset.reclass), image: imageInput(preset.imageSource, preset.processing), preset }
+      : { rule: reclassRuleOf(settings.reclass), image: imageInput(settings.reclassImageSource, settings.reclassProcessing), preset };
   };
   const imageText = (source: RefineImageSource, processing: RefineProcessing | null): string =>
     source === "processed" ? `Processed (${processing?.name || "live Preprocess panel"})` : "Original";
@@ -311,9 +311,8 @@ export function createRefineController(input: {
     pane.querySelectorAll<HTMLElement>("[data-refine-mode]").forEach((section) => { section.hidden = section.dataset.refineMode !== mode; });
     byId("refineShowReviewToggle").closest("label")!.title = mode === "reclass" ? "Pins on reclass candidates" : "Pins and weak-side marks on boxes to review";
     const own = Object.keys(settings.classes).length;
-    const lab = settings.reclass[0];
     byId("refineSettingsSummary").textContent = mode === "reclass"
-      ? `Lab rule: ${!lab ? "not set" : lab.enabled ? "on" : "off"} · image ${imageText(settings.reclassImageSource, settings.reclassProcessing)}`
+      ? `Lab rule${settings.reclass.length ? "" : " (default)"} · image ${imageText(settings.reclassImageSource, settings.reclassProcessing)}`
       : `Class settings: image ${imageText(settings.imageSource, settings.processing)} · `
         + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
     // Reclass with: the Lab rules or one reclass preset, the chosen rules summarised below.
@@ -324,8 +323,7 @@ export function createRefineController(input: {
       new Option(`${refinePresetLabel(preset)}${reclassDatasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name)));
     const config = reclassConfig();
     reclassSelect.value = config.preset?.name ?? "";
-    const [rule] = config.rules;
-    byId("refineReclassSummary").textContent = (!rule ? "No rule · set it up in Refine Lab" : `${describeReclassRule(rule, className)}${rule.enabled ? "" : " (off)"}`)
+    byId("refineReclassSummary").textContent = describeReclassRule(config.rule, className)
       + (config.preset ? ` · ${imageText(config.preset.imageSource, config.preset.processing)}` : "");
     // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
     const presets = allPresets();
@@ -500,14 +498,14 @@ export function createRefineController(input: {
     if (!image || !isDetection()) return setStatus("Open an image in the Detection workflow first.");
     await loadSettings();
     const config = reclassConfig();
-    const rules = config.rules;
-    if (!rules.some((rule) => rule.enabled && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled))) {
+    const rules = [config.rule];
+    if (!config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) {
       // Candidates from an earlier run no longer stand.
       reclassGeneration += 1;
       candidates.clear();
       renderReviewCounter();
       raw.canvas.requestRenderAll?.();
-      return setStatus("No reclass rule is on.");
+      return setStatus("The reclass rule has no check on.");
     }
     const token = ++reclassGeneration;
     const started = performance.now();
