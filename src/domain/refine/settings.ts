@@ -10,6 +10,7 @@ import {
   type RefineSideMode,
   type RefineSideRule
 } from "./edge-refine.js";
+import { normalizeReclassRules, type ReclassRule } from "./reclass.js";
 
 export const REFINE_SETTINGS_FILE = "refine-settings.json";
 
@@ -40,6 +41,8 @@ export interface RefineSettingsDocument {
   classes: Record<string, RefineParamsPatch>;
   /** Named full parameter sets that can be applied to the default, one class or a group of classes. */
   presets: RefinePreset[];
+  /** Reclass rules (see reclass.ts), checked from the first. */
+  reclass: ReclassRule[];
 }
 
 export interface RefinePreset {
@@ -48,13 +51,15 @@ export interface RefinePreset {
   /** Image the preset was tuned on; absent in presets saved before image sources existed. */
   imageSource?: RefineImageSource;
   processing?: RefineProcessing | null;
+  /** Reclass rules saved with the preset; absent in presets saved before reclass existed. */
+  reclass?: ReclassRule[];
 }
 
 type ScalarKey = Exclude<keyof RefineParams, "sides" | "sideRules">;
 const SCALAR_KEYS = Object.keys(normalizeRefineParams({})).filter((key) => key !== "sides" && key !== "sideRules") as ScalarKey[];
 
 export function createRefineSettings(): RefineSettingsDocument {
-  return { schemaVersion: 1, imageSource: "original", processing: null, activePreset: null, default: normalizeRefineParams({}), classes: {}, presets: [] };
+  return { schemaVersion: 1, imageSource: "original", processing: null, activePreset: null, default: normalizeRefineParams({}), classes: {}, presets: [], reclass: [] };
 }
 
 const mergeSideRules = (
@@ -196,7 +201,8 @@ export function parseRefineSettings(text: string): RefineSettingsDocument {
     activePreset: typeof source.activePreset === "string" ? source.activePreset : null,
     default: defaults,
     classes,
-    presets: parsePresetList(source.presets)
+    presets: parsePresetList(source.presets),
+    reclass: normalizeReclassRules(source.reclass)
   };
 }
 
@@ -225,6 +231,7 @@ function parsePresetList(value: unknown): RefinePreset[] {
       preset.imageSource = item.imageSource;
       preset.processing = parseProcessing(item.processing);
     }
+    if (Array.isArray(item.reclass)) preset.reclass = normalizeReclassRules(item.reclass);
     byName.set(name, preset);
   }
   return [...byName.values()];
@@ -235,7 +242,8 @@ export function saveRefinePreset(
   doc: RefineSettingsDocument,
   name: string,
   params: RefineParams,
-  image?: { imageSource: RefineImageSource; processing: RefineProcessing | null }
+  image?: { imageSource: RefineImageSource; processing: RefineProcessing | null },
+  reclass?: readonly ReclassRule[]
 ): RefineSettingsDocument {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Preset name is required");
@@ -244,6 +252,7 @@ export function saveRefinePreset(
     preset.imageSource = image.imageSource;
     preset.processing = image.processing ? { name: image.processing.name, config: { ...image.processing.config } } : null;
   }
+  if (reclass) preset.reclass = normalizeReclassRules(reclass);
   const index = doc.presets.findIndex((item) => item.name === trimmed);
   const presets = index < 0 ? [...doc.presets, preset] : doc.presets.map((item, i) => (i === index ? preset : item));
   return { ...doc, presets };
@@ -260,7 +269,10 @@ export function deleteRefinePreset(doc: RefineSettingsDocument, name: string): R
 export function applyRefinePreset(doc: RefineSettingsDocument, name: string, target: "default" | readonly string[], presets: readonly RefinePreset[] = doc.presets): RefineSettingsDocument {
   const preset = presets.find((item) => item.name === name);
   if (!preset) return doc;
-  const image = preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : {};
+  const image = {
+    ...(preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : {}),
+    ...(preset.reclass ? { reclass: normalizeReclassRules(preset.reclass) } : {})
+  };
   if (target === "default") return { ...doc, ...image, default: normalizeRefineParams(preset.params) };
   const classes = { ...doc.classes };
   for (const classId of target) classes[classId] = { ...preset.params, sides: { ...preset.params.sides }, sideRules: cloneRules(preset.params.sideRules) };
@@ -279,7 +291,7 @@ export function importRefinePresets(doc: RefineSettingsDocument, text: string): 
   if (!presets.length) throw new Error("No refine presets found in the file");
   let next = doc;
   for (const preset of presets) {
-    next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined);
+    next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined, preset.reclass);
   }
   return { doc: next, count: presets.length, names: presets.map((preset) => preset.name) };
 }

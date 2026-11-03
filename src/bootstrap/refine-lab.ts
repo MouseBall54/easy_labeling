@@ -206,7 +206,7 @@ export function createRefineLab(input: {
     if (presetEdit && (presetEdit.runWith || presetSync.checked)) {
       const { name, target } = presetEdit;
       const datasetOwned = next.presets.some((preset) => preset.name === name);
-      const updated = saveRefinePreset(next, name, target === "default" ? next.default : resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing });
+      const updated = saveRefinePreset(next, name, target === "default" ? next.default : resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing }, next.reclass);
       // Only an edited preset is written (an untouched profile preset stays out of the dataset).
       const before = mergeRefinePresets(next.presets, input.profilePresets()).find((preset) => preset.name === name);
       const after = updated.presets.find((preset) => preset.name === name);

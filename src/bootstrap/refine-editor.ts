@@ -598,7 +598,7 @@ export function createRefineEditor(input: {
         const name = nameInput.value.trim() || presetName;
         if (!name) { store.notify("Type a preset name."); nameInput.focus(); return; }
         const docNow = store.getDoc();
-        setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
+        setDoc(saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }, docNow.reclass));
         nameInput.value = "";
         ref<HTMLSelectElement>("presetSelect").value = name;
         presetListeners.forEach((listener) => listener(name, t));
