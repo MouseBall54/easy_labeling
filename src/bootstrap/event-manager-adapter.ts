@@ -1062,6 +1062,11 @@ export function createEventManagerAdapter(input: {
         }, elements.viewClassFileBtn as HTMLButtonElement);
       });
 
+      const deleteClassFileButton = input.documentRef?.getElementById("deleteClassFileBtn") as HTMLButtonElement | null;
+      deleteClassFileButton?.addEventListener("click", () => {
+        runExclusive("delete-class-file", async () => { await input.fileSystem.deleteSelectedClassFile(); }, deleteClassFileButton);
+      });
+
       elements.saveClassFileBtn.addEventListener("click", () => {
         runAsync(() => input.fileSystem.saveClassFileContent());
       });
@@ -1530,7 +1535,11 @@ export function createEventManagerAdapter(input: {
       preprocessPresetSelect?.addEventListener("change", () => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
         const preset = preprocessPresets.find((item) => item.name === preprocessPresetSelect.value);
-        if (preset) setPreprocessPanel(preset.config, preset.name);
+        if (!preset) return;
+        setPreprocessPanel(preset.config, preset.name);
+        // The name field follows the chosen preset, so Save overwrites it unless a new name is typed.
+        const nameInput = preprocessElement("PresetName");
+        if (nameInput instanceof HTMLInputElement) nameInput.value = preset.name;
       });
       preprocessElement("PresetSaveBtn")?.addEventListener("click", () => {
         const nameInput = preprocessElement("PresetName");
@@ -1555,7 +1564,7 @@ export function createEventManagerAdapter(input: {
             if (!storeDatasetPreprocessPresets(next, name.trim())) return;
             input.uiManager.notify(`Saved preprocessing preset "${name.trim()}".`, 2500);
           }
-          nameInput.value = "";
+          nameInput.value = name.trim();
         });
       });
       preprocessElement("PresetDeleteBtn")?.addEventListener("click", () => {
@@ -1575,6 +1584,8 @@ export function createEventManagerAdapter(input: {
             if (folder) await savePreprocessingPresets(folder, remaining.map(({ name, config }) => ({ name, config })));
           }
           await reloadPreprocessPresets("");
+          const nameInput = preprocessElement("PresetName");
+          if (nameInput instanceof HTMLInputElement && nameInput.value.trim() === preset.name) nameInput.value = "";
         });
       });
       edgeSamInputSelect?.addEventListener("change", () => {
@@ -1737,11 +1748,16 @@ export function createEventManagerAdapter(input: {
         runAsync(async () => { if (await storeSegmentationPreset(createPresetFromControls(id, name))) input.uiManager.setWorkflow?.("segmentation"); });
       });
       segmentationDocument?.getElementById("segmentationSavePresetBtn")?.addEventListener("click", () => {
-        if (!(presetSelect instanceof HTMLSelectElement) || !presetSelect.value) return;
-        const index = input.state.session.segmentationToolPresets.presets.findIndex((preset) => preset.id === presetSelect.value);
-        if (index < 0) return;
-        const existing = input.state.session.segmentationToolPresets.presets[index]!;
-        runAsync(async () => { if (await storeSegmentationPreset(createPresetFromControls(existing.id, existing.name))) input.uiManager.setWorkflow?.("segmentation"); });
+        const presets = input.state.session.segmentationToolPresets.presets;
+        const chosen = presetSelect instanceof HTMLSelectElement ? presets.find((preset) => preset.id === presetSelect.value) : undefined;
+        const name = input.windowRef.prompt?.("Superpixel preset name (an existing name is overwritten):", chosen?.name ?? "New preset")?.trim();
+        if (!name) return;
+        const id = presets.find((preset) => preset.name === name)?.id ?? globalThis.crypto?.randomUUID?.() ?? `segmentation-preset-${Date.now()}`;
+        runAsync(async () => {
+          if (!(await storeSegmentationPreset(createPresetFromControls(id, name)))) return;
+          input.uiManager.setWorkflow?.("segmentation");
+          if (presetSelect instanceof HTMLSelectElement) presetSelect.value = id;
+        });
       });
       presetSelect?.addEventListener("change", () => {
         if (!(presetSelect instanceof HTMLSelectElement)) return;

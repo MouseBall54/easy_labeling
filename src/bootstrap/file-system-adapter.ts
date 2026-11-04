@@ -243,6 +243,7 @@ export interface RuntimeFileSystem extends FileSystem {
   saveClassFileContent(): Promise<void>;
   addNewClassRow(): void;
   createNewClassFile(): Promise<boolean>;
+  deleteSelectedClassFile(): Promise<boolean>;
   readonly imageSessionService: ImageSessionService;
 }
 
@@ -263,6 +264,7 @@ interface FileSystemWindowRuntime {
   dispatchEvent?: (event: Event) => boolean;
   addEventListener?: Window["addEventListener"];
   removeEventListener?: Window["removeEventListener"];
+  confirm?: (message?: string) => boolean;
 }
 
 export function createFileSystemAdapter(input: {
@@ -512,14 +514,19 @@ export function createFileSystemAdapter(input: {
     input.windowRef.dispatchEvent?.(new Event("easy-labeling:image-change"));
   };
 
+  /** The folder the class file list comes from: the Class Info folder, else the workflow's label folder. */
+  const currentClassFolder = (): DirectoryHandleLike | null => {
+    const session = input.state.session;
+    const annotationFolder = session.workflow === "segmentation" && session.segmentationLabelFolderHandle !== session.imageFolderHandle
+      ? session.segmentationLabelFolderHandle ?? session.labelFolderHandle : session.labelFolderHandle;
+    return (session.classInfoFolderHandle ?? annotationFolder) as DirectoryHandleLike | null;
+  };
+
   const refreshClassFileStateFromAvailableFolder = async (
     operation: RuntimeOperationHandle | null = null,
     refreshCanvas = true
   ): Promise<void> => {
-    const session = input.state.session;
-    const annotationFolder = session.workflow === "segmentation" && session.segmentationLabelFolderHandle !== session.imageFolderHandle
-      ? session.segmentationLabelFolderHandle ?? session.labelFolderHandle : session.labelFolderHandle;
-    const classFolder = (session.classInfoFolderHandle ?? annotationFolder) as DirectoryHandleLike | null;
+    const classFolder = currentClassFolder();
     const previousSelectionName = input.state.session.selectedClassFile?.name ?? null;
 
     if (!classFolder) {
@@ -1829,6 +1836,21 @@ export function createFileSystemAdapter(input: {
         input.state.session.classFiles = [...input.state.session.classFiles, result.fileHandle as FileHandle];
         uiManager.renderClassFileSelect();
         await this.loadClassNamesFromFile(result.fileHandle);
+        return true;
+      },
+
+      /** Deletes the chosen class file from its folder after a confirm; label files are not touched. */
+      async deleteSelectedClassFile(): Promise<boolean> {
+        const uiManager = connectedDeps?.uiManager as RuntimeUiManager | undefined;
+        const file = input.state.session.selectedClassFile;
+        const folder = currentClassFolder() as (DirectoryHandleLike & { removeEntry?(name: string): Promise<void> }) | null;
+        if (!file || !folder) { uiManager?.notify("Choose a class file to delete."); return false; }
+        if (!folder.removeEntry) { uiManager?.notify("This folder does not allow deleting files."); return false; }
+        if (!input.windowRef.confirm?.(`Delete class file "${file.name}"?\n\nLabel files are not changed.`)) return false;
+        await folder.removeEntry(file.name);
+        input.state.session.selectedClassFile = null;
+        await refreshClassFileStateFromAvailableFolder();
+        uiManager?.notify(`Deleted class file "${file.name}".`);
         return true;
       }
     };

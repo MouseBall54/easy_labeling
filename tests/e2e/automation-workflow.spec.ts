@@ -304,6 +304,18 @@ test("layout and automation: modal management, both matching modes, and offscree
   await page.locator("#templateManualXInput").fill("200");
   await page.locator("#saveAutomationPresetBtn").click();
   await expect(page.locator("#automationPresetSelect option")).toHaveCount(2);
+  // The same name overwrites that preset; a new name adds one and leaves the first.
+  await page.locator("#saveAutomationPresetBtn").click();
+  await expect(page.locator(".toast-message").last()).toHaveText('Preset "Shifted station" overwritten.');
+  await expect(page.locator("#automationPresetSelect option")).toHaveCount(2);
+  await page.locator("#templateNameInput").fill("Shifted copy");
+  await page.locator("#saveAutomationPresetBtn").click();
+  await expect(page.locator("#automationPresetSelect option")).toHaveCount(3);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#deleteAutomationPresetBtn").click();
+  await expect(page.locator("#automationPresetSelect option")).toHaveCount(2);
+  await page.locator("#templatePresetSelect").selectOption({ label: "Shifted station" });
+  await expect(page.locator("#templateNameInput")).toHaveValue("Shifted station");
   await expect(page.locator("#exportAutomationPresetBtn")).toBeEnabled();
   const presetDownloadPromise = page.waitForEvent("download");
   await page.locator("#exportAutomationPresetBtn").click();

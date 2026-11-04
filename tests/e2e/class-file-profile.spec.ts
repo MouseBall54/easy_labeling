@@ -44,6 +44,10 @@ for (const task of ["Annotate", "Inference"]) {
           }
           throw new DOMException(`File ${name} not found`, "NotFoundError");
         }
+
+        async removeEntry(name: string): Promise<void> {
+          this.files.delete(name);
+        }
       }
 
       const profileFolder = new MockDirectoryHandle();
@@ -101,5 +105,13 @@ for (const task of ["Annotate", "Inference"]) {
     await expect(page.locator("#class-file-select")).toHaveValue("custom-labels.yaml");
     await page.locator("#addClassShortcutBtn").click();
     await expect(page.locator("#classFileEditorBody .class-name-input").first()).toHaveValue("cell");
+    await page.locator("#classFileViewerModal .modal-header .btn-close").click();
+    await expect(page.locator("#classFileViewerModal")).toBeHidden();
+
+    // The trash button left of + deletes the chosen class file after a confirm.
+    page.once("dialog", (dialog) => { expect(dialog.message()).toContain("custom-labels.yaml"); void dialog.accept(); });
+    await page.locator("#deleteClassFileBtn").click();
+    await expect(page.locator('#class-file-select option[value="custom-labels.yaml"]')).toHaveCount(0);
+    await expect(page.locator("#class-file-select")).toHaveValue("classes.yaml");
   });
 }

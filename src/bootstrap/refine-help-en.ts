@@ -139,7 +139,7 @@ ${tip(`In the Refine pane, <em>Run with</em> applies one preset to every class w
 <li><strong>Change to:</strong> the class a matching box becomes.</li>
 <li><strong>Place the centre crop</strong> with the four insets (${link("reclass-crop", "centre crop")}) so it covers where defects show.</li>
 <li><strong>Turn on checks</strong> (${link("reclass-checks", "Mean, Bright pixels, Area shrinks")}) and combine them with OR or AND. Matching cases get a magenta pin; the footer counts them.</li>
-<li><strong>Save &amp; find candidates</strong>, then in the pane walk them with ${keys("N")} and dismiss with ${keys("F")}. Under <em>Apply</em>, <em>Selected</em> / <em>All boxes</em> / <em>Reclass class</em> change the boxes the rule matches (one undo step).</li>
+<li><strong>Save &amp; find candidates</strong>, then decide each candidate in the pane: ${keys("N")} goes to it, <em>Apply selected</em> changes it, <em>Skip selected</em> (${keys("F")}) leaves it. <em>Apply all candidates</em> / <em>Apply class</em> change the rest at once (one undo step).</li>
 </ol>`
     },
     "reclass-crop": {
@@ -159,10 +159,10 @@ ${def("Combine", "OR: any check that is on is enough. AND: every check must pass
     },
     "reclass-run": {
       title: "Candidates, review and reclass",
-      html: `<p>In the Refine pane (Reclass mode), <em>Reclass with</em> picks the Lab rule or a reclass preset. <em>Find candidates</em> marks matches on the open image to review: ${keys("N")} / ${keys("Shift", "N")} walks them, ${keys("F")} dismisses one (until the box changes).</p>
+      html: `<p>In the Refine pane (Reclass mode), <em>Reclass with</em> picks the Lab rule or a reclass preset. <em>Find candidates</em> marks matches on the open image; nothing changes until you apply. ${keys("N")} / ${keys("Shift", "N")} walks them.</p>
 <dl class="rh-defs">
-${def("Apply: Selected / All boxes", "Judges the selected (or every visible) box with the rule now and changes the matches to the rule's class, as one undo step. Dismissed boxes stay.")}
-${def("Reclass class", "The same for the boxes of the class chosen beside it. Classes the rule does not check, or already turns boxes into, cannot be chosen.")}
+${def("Apply selected / Skip selected", `Change the selected candidate to the rule's class, or leave it as it is (${keys("F")}, until the box changes); both go to the next candidate.`)}
+${def("Apply all candidates / Apply class", "Change every remaining candidate, or those of the class chosen beside it, as one undo step. The buttons work only after Find candidates.")}
 ${def("Reclass all images in folder", `Every image of the folder (${link("folder-run", "whole folder")}).`)}
 </dl>`
     },
