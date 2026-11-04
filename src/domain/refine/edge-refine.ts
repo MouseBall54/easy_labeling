@@ -194,7 +194,8 @@ export function normalizeRefineParams(value: unknown): RefineParams {
   const rules = (typeof p.sideRules === "object" && p.sideRules !== null ? p.sideRules : {}) as Record<string, unknown>;
   const legacyRange = num(p.R, NaN);
   return {
-    enabled: p.enabled === undefined ? d.enabled : Boolean(p.enabled),
+    // Refine is always on for every class; an "enabled": false older files hold is ignored.
+    enabled: true,
     crit: REFINE_CRITERIA.includes(p.crit as RefineCriterion) ? p.crit as RefineCriterion : d.crit,
     polarity: p.polarity === "brightInside" || p.polarity === "darkInside" || p.polarity === "auto" ? p.polarity : d.polarity,
     comb: p.comb === "median" || p.comb === "outer" ? p.comb : d.comb,

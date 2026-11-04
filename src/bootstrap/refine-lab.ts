@@ -959,11 +959,12 @@ export function createRefineLab(input: {
   /** Reclass mode readout: the rule that judged the case, its numbers and the outcome. */
   const drawReclassReadout = (c: LabCase, r: LabResult): void => {
     const name = (classId: string): string | undefined => input.className(classId);
+    const pct = (share: number): string => `${Math.round(share * 100)}%`;
     const lines = !r.reclass
       ? [`No rule checks class ${c.classId}${name(c.classId) ? ` ${name(c.classId)}` : ""}.`]
       : [
         `${r.reclass.match ? "Match" : "No match"}: ${describeReclassRule(r.reclass.rule, name)}`,
-        `Centre ${Math.round(r.reclass.rule.cropX * 100)}% wide × ${Math.round(r.reclass.rule.cropY * 100)}% high: ${reclassText(r.reclass)}`,
+        `Centre inset top ${pct(r.reclass.rule.insetTop)} · bottom ${pct(r.reclass.rule.insetBottom)} · left ${pct(r.reclass.rule.insetLeft)} · right ${pct(r.reclass.rule.insetRight)}: ${reclassText(r.reclass)}`,
         ...(r.reclass.rule.shrink.enabled ? ["Area is the refined box (Edge settings) against the box as loaded from the label file."] : [])
       ];
     readout.replaceChildren(...lines.map((line, index) => {

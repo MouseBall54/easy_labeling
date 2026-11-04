@@ -194,6 +194,8 @@ test("refine: global shortcuts snap boxes to edges in one undo step and persist 
   await openLab(page);
   await editClass(page, "0");
   await page.locator("#refineLabEditor .refine-details summary", { hasText: "Advanced" }).click();
+  // Refine is always on for every class: there is no switch for it.
+  await expect(page.locator("#refineLabField-enabled")).toHaveCount(0);
   await page.locator("#refineLabField-autoOnDraw").check();
   await saveLab(page);
   const existingIds = new Set((await geometries(page)).map((g) => g.annotationId));
@@ -936,7 +938,7 @@ test("reclass: the mode toggle shows the reclass controls, and the default rule 
   await expect.poll(async () => (await settingsFile(page) as { mode?: string } | null)?.mode).toBe("reclass");
 });
 
-test("refine lab: Reclass mode has its own presets and image, one rule whose classes are the chips, and a width/height centre crop", async ({ page }) => {
+test("refine lab: Reclass mode has its own presets and image, one rule whose classes are the chips, and a centre crop set per side", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page, { extra: DARK_CENTRE, settings: { ...reclassSettings(reclassRule({ mean: { enabled: true, min: 120 } })), presets: [{ name: "Edge one", params: {} }] } });
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
@@ -958,10 +960,12 @@ test("refine lab: Reclass mode has its own presets and image, one rule whose cla
   await editor.locator(".refine-class-chip[data-class-id='0']").click();
   await expect(editor.locator(".refine-class-chip[data-class-id='0']")).toHaveAttribute("aria-pressed", "true");
   await expect(editor.locator("[data-ref='hint']")).toHaveText("The rule checks class 0.");
-  // Width and height of the centre crop are set apart.
-  await page.locator("#refineLabReclass0-cropX").fill("80");
-  await page.locator("#refineLabReclass0-cropY").fill("20");
-  await expect(page.locator("#refineLabReadout")).toContainText("Centre 80% wide × 20% high");
+  // Each side of the centre crop is set on its own.
+  await page.locator("#refineLabReclass0-insetTop").fill("10");
+  await page.locator("#refineLabReclass0-insetBottom").fill("40");
+  await page.locator("#refineLabReclass0-insetLeft").fill("5");
+  await page.locator("#refineLabReclass0-insetRight").fill("30");
+  await expect(page.locator("#refineLabReadout")).toContainText("Centre inset top 10% · bottom 40% · left 5% · right 30%");
 
   // The reclass image is its own; the edge image stays Original.
   await editor.locator("[data-ref='imageSource'] [data-image-source='processed']").click();
@@ -992,9 +996,9 @@ test("refine lab: Reclass mode has its own presets and image, one rule whose cla
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"reclassImageSource":"processed"');
   const saved = await settingsFile(page) as unknown as Record<string, unknown> & { reclass: { fromClasses: string[] }[]; reclassPresets: { name: string; reclass: unknown[]; imageSource: string }[] };
   expect(saved).toMatchObject({ mode: "reclass", imageSource: "original", presets: [{ name: "Edge one" }] });
-  expect(saved.reclass).toMatchObject([{ fromClasses: ["0"], cropX: 0.8, cropY: 0.2 }]);
+  expect(saved.reclass).toMatchObject([{ fromClasses: ["0"], insetTop: 0.1, insetBottom: 0.4, insetLeft: 0.05, insetRight: 0.3 }]);
   expect(saved.reclassPresets).toMatchObject([{ name: "Voids", imageSource: "processed" }]);
-  expect(saved.reclassPresets[0].reclass).toMatchObject([{ fromClasses: ["0"], cropX: 0.8, cropY: 0.2 }]);
+  expect(saved.reclassPresets[0].reclass).toMatchObject([{ fromClasses: ["0"], insetTop: 0.1, insetBottom: 0.4, insetLeft: 0.05, insetRight: 0.3 }]);
 
   // The pane finds candidates with a chosen reclass preset.
   await expect(page.locator("#refineReclassPresetSelect option", { hasText: "Voids" })).toHaveCount(1);

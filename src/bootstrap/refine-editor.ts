@@ -98,7 +98,6 @@ const bounds = (key: RefineLimitedKey, scale = 1): { min: number; max: number } 
   max: REFINE_PARAM_LIMITS[key][1] * scale
 });
 const FIELDS: FieldSpec[] = [
-  { key: "enabled", label: "Refine this class", type: "bool", group: "rule" },
   { key: "crit", label: "Edge criterion", type: "select", group: "rule", perSide: true, options: Object.entries(REFINE_CRITERION_LABELS) },
   {
     key: "polarity", label: "Edge polarity", type: "select", group: "rule", perSide: true,
