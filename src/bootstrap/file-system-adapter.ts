@@ -49,6 +49,7 @@ import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
 interface LabelFileEdit { name: string; original: string | null; text: string }
+export interface DetectionLabelRewrite { total: number; changed: number; backupPath: string | null; failures: { fileName: string; reason: string }[] }
 export interface ClassRemapPlan extends ClassRemapSummary {
   folder: FileSystemDirectoryHandle;
   imageFolder: FileSystemDirectoryHandle | null;
@@ -218,6 +219,16 @@ export interface RuntimeFileSystem extends FileSystem {
   updateReviewSettings(settings: ReviewSettings): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
   removeOutOfBoundsLabels(folder: FileSystemDirectoryHandle): Promise<void>;
+  /**
+   * Rewrites every image's Detection label file in the active label folder: current edits are saved first,
+   * transform gets each non-empty file (null = unchanged), the originals are backed up and the current image
+   * reloads. Stopping writes nothing. Images whose transform throws are skipped and listed. Null when stopped.
+   */
+  rewriteDetectionLabels(options: {
+    title: string;
+    backupPrefix: string;
+    transform(file: FileHandleLike, yolo: string): Promise<string | null>;
+  }): Promise<DetectionLabelRewrite | null>;
   previewClassRemap(folder: FileSystemDirectoryHandle, rule: ClassRemapRule, signal?: AbortSignal): Promise<ClassRemapPlan | null>;
   applyClassRemap(plan: ClassRemapPlan, signal?: AbortSignal): Promise<string | null>;
   navigateImage(direction: number): Promise<void>;
@@ -1490,6 +1501,44 @@ export function createFileSystemAdapter(input: {
             (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(`${removedCount} outside boxes removed from ${edits.length} images. Originals: ${folder.name}/${backupPath}`, 8000);
           });
         });
+      },
+
+      async rewriteDetectionLabels(options): Promise<DetectionLabelRewrite | null> {
+        let outcome: DetectionLabelRewrite | null = null;
+        await enqueueOperation(async () => {
+          const { session } = input.state;
+          const folder = session.labelFolderHandle;
+          if (session.workflow !== "detection" || !folder) throw new Error("Connect a Detection label folder first.");
+          const directory = folder as unknown as DirectoryHandleLike;
+          const files = [...session.imageFiles] as unknown as FileHandleLike[];
+          const names = files.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
+          if (new Set(names).size !== names.length) throw new Error("Images with the same label filename cannot be updated together.");
+          await runTrackedOperation({ title: options.title, detail: `All images · ${folder.name}`, stoppedMessage: `${options.title} stopped. No files changed.` }, async (operation) => {
+            await saveBeforeLabelSwitch();
+            const edits: LabelFileEdit[] = [];
+            const failures: DetectionLabelRewrite["failures"] = [];
+            for (const [index, file] of files.entries()) {
+              throwIfOperationCancelled(operation?.signal);
+              operation?.update({ detail: file.name, current: index, total: files.length });
+              let original: string;
+              try { original = await readTextFileByName(directory, names[index]); }
+              catch (error) { if (isNotFoundError(error)) continue; throw error; }
+              if (!original.trim()) continue;
+              let text: string | null;
+              try { text = await options.transform(file, original); }
+              catch (error) {
+                throwIfOperationCancelled(operation?.signal);
+                failures.push({ fileName: file.name, reason: error instanceof Error ? error.message : String(error) });
+                continue;
+              }
+              if (text !== null && text !== original) edits.push({ name: names[index], original, text });
+            }
+            throwIfOperationCancelled(operation?.signal);
+            const backupPath = edits.length ? await commitLabelFileEdits(folder, edits, options.backupPrefix, operation) : null;
+            outcome = { total: files.length, changed: edits.length, backupPath: backupPath && `${folder.name}/${backupPath}`, failures };
+          });
+        });
+        return outcome;
       },
 
       async previewClassRemap(folder, rule, signal): Promise<ClassRemapPlan | null> {

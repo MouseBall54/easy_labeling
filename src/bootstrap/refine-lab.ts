@@ -210,35 +210,51 @@ export function createRefineLab(input: {
     }
   });
   /**
-   * Preset the edited values stand for. `runWith`: the pane's Run-with preset, opened for editing; class
-   * settings stay as they were and Save writes only the preset. Otherwise a preset applied or saved here,
-   * which Save also updates while "Also update preset" is ticked.
+   * Preset the edited values stand for, per mode; the preset name field shows it. `runWith`: the pane's
+   * Run-with preset, opened for editing; class settings stay as they were and Save writes only the preset.
+   * Otherwise a preset applied or saved here. Save writes the values into the preset the name field names.
    */
   type PresetEdit = { name: string; target: "default" | string[]; runWith: boolean; sync: boolean };
   let presetEdits: Record<RefineMode, PresetEdit | null> = { edge: null, reclass: null };
   const presetBanner = byId<HTMLElement>("refineLabPresetBanner");
-  const presetSyncRow = byId<HTMLElement>("refineLabPresetSyncRow");
-  const presetSync = byId<HTMLInputElement>("refineLabPresetSync");
-  /** Banner and "Also update preset" for the preset the current mode edits. */
+  /** The mode whose preset the name field shows; switching modes shows the other mode's preset. */
+  let nameMode: RefineMode | null = null;
+  /** Banner and name field for the preset the current mode edits. */
   const renderPresetEdit = (): void => {
     const edit = presetEdits[draft.mode];
+    if (nameMode !== draft.mode) {
+      nameMode = draft.mode;
+      editor.setPresetName(edit?.name ?? "");
+    }
     presetBanner.hidden = !edit?.runWith;
     presetBanner.textContent = !edit?.runWith ? ""
       : draft.mode === "reclass"
         ? `Reclass with "${edit.name}": edits here update this preset. To edit the Lab rule, choose Lab rule under Reclass with in the Refine pane.`
         : `Run with "${edit.name}": edits here update this preset, which refines every class. To edit class settings, choose Class settings under Run with in the Refine pane.`;
-    presetSyncRow.hidden = !edit || edit.runWith;
-    presetSync.checked = Boolean(edit?.sync);
-    byId("refineLabPresetSyncText").textContent = edit ? `Also update preset "${edit.name}"` : "";
     const apply = byId("refineLabApplyBtn");
     apply.textContent = draft.mode === "reclass" ? "Save & find candidates" : "Save & refine these boxes";
   };
-  presetSync.addEventListener("change", () => { const edit = presetEdits[draft.mode]; if (edit) edit.sync = presetSync.checked; });
   editor.onPresetChange((name, target, mode) => {
     if (presetEdits[mode]?.runWith) return; // values loaded from another preset still save into the Run-with preset
     presetEdits = { ...presetEdits, [mode]: { name, target, runWith: false, sync: true } };
     renderPresetEdit();
   });
+  /**
+   * Links the current mode to the preset the name field names: the preset loaded or saved here, or a new one
+   * under a typed name. An emptied field keeps the values out of any preset (a Run-with preset still saves).
+   */
+  const linkPresetName = (): void => {
+    const name = editor.presetName();
+    const mode = draft.mode;
+    const edit = presetEdits[mode];
+    if (!name) {
+      if (edit && !edit.runWith) edit.sync = false;
+      return;
+    }
+    if (edit?.name === name) { edit.sync = true; return; }
+    const target = mode === "edge" ? edit?.target ?? editor.targets() : "default";
+    presetEdits = { ...presetEdits, [mode]: { name, target, runWith: edit?.runWith ?? false, sync: true } };
+  };
   /** Saves the draft, writing the edited values into the presets being edited (see presetEdits). */
   const commit = (): void => {
     let next = draft;
@@ -1083,16 +1099,29 @@ export function createRefineLab(input: {
   });
   modalElement.addEventListener("shown.bs.modal", schedule);
   new ResizeObserver(schedule).observe(zoom);
+  // Save settings saves into a named preset: without a name the Lab stays open and asks for one.
   byId("refineLabSaveBtn").addEventListener("click", () => {
+    if (!editor.presetName()) {
+      editor.requirePresetName("Type a preset name: Save settings also saves the values into this preset. Choosing a preset (Apply) fills it in.");
+      status.textContent = "Type a preset name to save settings.";
+      return;
+    }
+    linkPresetName();
     commit();
     modal.hide();
   });
   byId("refineLabApplyBtn").addEventListener("click", () => {
     const reclass = reclassMode();
+    linkPresetName();
     commit();
     modal.hide();
     if (reclass) input.findCandidatesOnCanvas();
     else input.refineOnCanvas(cases.map((c) => c.id));
+  });
+
+  // The guide opens on the tutorial of the mode shown; it is loaded on first use.
+  byId<HTMLButtonElement>("refineLabHelpBtn").addEventListener("click", () => {
+    void import("./refine-help.js").then(({ openRefineHelp }) => openRefineHelp(doc, { mode: draft.mode }));
   });
 
   return {
@@ -1111,6 +1140,7 @@ export function createRefineLab(input: {
         reclass: reclassRun ? { name: reclassRun.name, target: "default", runWith: true, sync: true } : null
       };
       editor.setClassesLocked(Boolean(run));
+      nameMode = null; // show the opened mode's preset name
       renderPresetEdit();
       void input.loadPreprocessingPresets().then((presets) => { preprocessingPresets = presets; editor.render(); }).catch(() => undefined);
       const selection = input.collectCases("selection", []);
