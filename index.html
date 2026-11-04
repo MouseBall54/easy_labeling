@@ -140,8 +140,8 @@
                                     <button id="segmentationPreprocessPresetDeleteBtn" type="button" class="btn btn-outline-danger" title="Delete the chosen preset" aria-label="Delete the chosen preprocessing preset"><i class="bi bi-trash" aria-hidden="true"></i></button>
                                 </div>
                                 <div class="input-group input-group-sm mt-1 mb-2">
-                                    <input id="segmentationPreprocessPresetName" type="text" class="form-control" placeholder="Preset name" aria-label="New preprocessing preset name" maxlength="60">
-                                    <button id="segmentationPreprocessPresetSaveBtn" type="button" class="btn btn-outline-secondary" title="Save the current settings as a preset">Save</button>
+                                    <input id="segmentationPreprocessPresetName" type="text" class="form-control" placeholder="Preset name" aria-label="Preprocessing preset name" maxlength="60">
+                                    <button id="segmentationPreprocessPresetSaveBtn" type="button" class="btn btn-outline-secondary" title="Save the current settings under this name: an existing preset is overwritten, a new name adds one">Save</button>
                                 </div>
                                 <label class="form-label small mb-1" for="segmentationPreprocessModeSelect">Processing mode</label>
                                 <select id="segmentationPreprocessModeSelect" class="form-select form-select-sm"><option value="original">Original</option><option value="edge">Edge</option><option value="edge-blend" selected>Edge Blend</option></select>
@@ -204,7 +204,7 @@
                                     <div class="d-flex align-items-center justify-content-between mt-2"><label class="form-check small mb-0" title="Toggle boundaries (B)"><input id="segmentationSuperpixelBoundaryToggle" type="checkbox" class="form-check-input" checked> Show boundaries (B)</label><button id="segmentationRecalculateSuperpixelsBtn" type="button" class="btn btn-outline-secondary btn-sm">Recalculate</button></div>
                                     <div class="row g-2 mt-1"><div class="col-6"><label class="form-label small mb-1" for="segmentationBlurSelect">Blur / denoise</label><select id="segmentationBlurSelect" class="form-select form-select-sm"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div><div class="col-6"><label class="form-label small mb-1" for="segmentationContrastSelect">Contrast</label><select id="segmentationContrastSelect" class="form-select form-select-sm"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div></div>
                                     <label class="form-label small mt-2 mb-1" for="segmentationEdgeSensitivitySelect">Edge sensitivity</label><select id="segmentationEdgeSensitivitySelect" class="form-select form-select-sm"><option value="low">Weak</option><option value="medium" selected>Balanced</option><option value="high">Strong</option></select>
-                                    <div class="input-group input-group-sm mt-2"><select id="segmentationToolPresetSelect" class="form-select" aria-label="Superpixel preset"><option value="">Superpixel preset</option></select><button id="segmentationNewPresetBtn" type="button" class="btn btn-outline-secondary">New</button><button id="segmentationSavePresetBtn" type="button" class="btn btn-outline-secondary">Save</button></div>
+                                    <div class="input-group input-group-sm mt-2"><select id="segmentationToolPresetSelect" class="form-select" aria-label="Superpixel preset"><option value="">Superpixel preset</option></select><button id="segmentationNewPresetBtn" type="button" class="btn btn-outline-secondary">New</button><button id="segmentationSavePresetBtn" type="button" class="btn btn-outline-secondary" title="Save the current settings under a name (the chosen preset's by default): an existing preset is overwritten, a new name adds one">Save</button></div>
                                 </div>
                             </section>
                         </section>
@@ -333,6 +333,7 @@
                         <div id="classManagement" class="mb-2" role="group" aria-label="Class files">
                         <div class="input-group input-group-sm mt-2 class-file-select-group" data-ui="class-file-select-group">
                             <select class="form-select" id="class-file-select" aria-label="Class file"><option selected>Choose class file...</option></select>
+                            <button class="btn btn-outline-danger" type="button" id="deleteClassFileBtn" data-ui="delete-class-file" title="Delete the chosen class file" aria-label="Delete the chosen class file"><i class="bi bi-trash" aria-hidden="true"></i></button>
                             <button class="btn btn-outline-secondary" type="button" id="viewClassFileBtn" data-ui="view-class-file" title="Create class file" aria-label="Create class file"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
                         </div>
                         </div>
@@ -568,14 +569,15 @@
                             <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rule flags on this image to review them (N, F); nothing changes"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
                         </section>
                         <section class="inspector-section" data-refine-mode="reclass" hidden>
-                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Matching boxes change class</span></div>
+                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">To found candidates</span></div>
                             <div class="refine-run-grid">
-                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Reclass the selected boxes the rule matches (one undo step)">Selected</button>
-                                <button id="refineReclassAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Reclass every visible box the rule matches (one undo step); boxes dismissed with F stay">All boxes</button>
+                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-primary btn-sm" disabled title="Change the selected candidates to the rule's class (one undo step) and go to the next">Apply selected</button>
+                                <button id="refineReclassSkipBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled title="Leave the selected candidates as they are and go to the next (F)">Skip selected</button>
                             </div>
+                            <button id="refineReclassAllBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled title="Change every remaining candidate to the rule's class (one undo step)">Apply all candidates</button>
                             <div class="input-group input-group-sm mt-2">
-                                <select id="refineReclassClassSelect" class="form-select" aria-label="Class to reclass"></select>
-                                <button id="refineReclassClassBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Reclass every visible box of this class the rule matches (one undo step)">Reclass class</button>
+                                <select id="refineReclassClassSelect" class="form-select" aria-label="Class of the candidates to apply"></select>
+                                <button id="refineReclassClassBtn" type="button" class="btn btn-outline-primary" disabled title="Change the remaining candidates of this class (one undo step)">Apply class</button>
                             </div>
                             <button id="refineReclassFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-refine-run title="Reclass every matching box in every image of this folder with the Reclass-with rule. Current edits are saved first; original label files are backed up"><i class="bi bi-folder-check" aria-hidden="true"></i> Reclass all images in folder</button>
                         </section>

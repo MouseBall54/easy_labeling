@@ -143,7 +143,7 @@ ${tip(`Refine pane의 <em>Run with</em>는 클래스 설정을 바꾸지 않고 
 <li><strong>Change to:</strong> 일치한 박스가 바뀔 클래스.</li>
 <li><strong>가운데 crop 위치 잡기:</strong> inset 네 개(${link("reclass-crop", "가운데 crop")})로 결함이 보이는 곳을 덮게 합니다.</li>
 <li><strong>검사 켜기:</strong> ${link("reclass-checks", "Mean, Bright pixels, Area shrinks")}를 켜고 OR나 AND로 조합합니다. 일치한 케이스에는 마젠타 핀이 붙고, 아래 상태줄에 개수가 나옵니다.</li>
-<li><strong>Save &amp; find candidates</strong>를 누르고, pane에서 ${keys("N")}으로 후보를 보며 ${keys("F")}로 무시합니다. <em>Apply</em>의 <em>Selected</em> / <em>All boxes</em> / <em>Reclass class</em>는 규칙에 맞는 박스의 클래스를 바꿉니다(실행 취소 한 번으로 되돌림).</li>
+<li><strong>Save &amp; find candidates</strong>를 누른 뒤 pane에서 후보마다 정합니다: ${keys("N")}으로 후보로 가서 <em>Apply selected</em>로 바꾸거나 <em>Skip selected</em>(${keys("F")})로 그대로 둡니다. <em>Apply all candidates</em> / <em>Apply class</em>는 남은 후보를 한 번에 바꿉니다(실행 취소 한 번으로 되돌림).</li>
 </ol>`
     },
     "reclass-crop": {
@@ -163,10 +163,10 @@ ${def("Combine", "OR: 켜진 검사 중 하나만 맞아도 됨. AND: 모두 맞
     },
     "reclass-run": {
       title: "후보 찾기, 검토, 재분류",
-      html: `<p>Refine pane(Reclass 모드)의 <em>Reclass with</em>에서 Lab 규칙이나 Reclass 프리셋을 고릅니다. <em>Find candidates</em>는 열린 이미지의 일치 박스를 검토용으로 표시합니다: ${keys("N")} / ${keys("Shift", "N")}으로 차례로 보고, ${keys("F")}는 하나를 무시합니다(박스가 바뀔 때까지).</p>
+      html: `<p>Refine pane(Reclass 모드)의 <em>Reclass with</em>에서 Lab 규칙이나 Reclass 프리셋을 고릅니다. <em>Find candidates</em>는 열린 이미지의 일치 박스를 후보로 표시만 하고, 적용하기 전에는 아무것도 바뀌지 않습니다. ${keys("N")} / ${keys("Shift", "N")}으로 차례로 봅니다.</p>
 <dl class="rh-defs">
-${def("Apply: Selected / All boxes", "선택한(또는 보이는 모든) 박스를 지금 규칙으로 판정해, 일치한 박스를 규칙의 클래스로 바꿉니다(실행 취소 한 번). F로 무시한 박스는 그대로 둡니다.")}
-${def("Reclass class", "옆에서 고른 클래스의 박스에 같은 일을 합니다. 규칙이 검사하지 않는 클래스나 규칙이 바꿀 대상 클래스는 고를 수 없습니다.")}
+${def("Apply selected / Skip selected", `선택한 후보를 규칙의 클래스로 바꾸거나, 그대로 둡니다(${keys("F")}, 박스가 바뀔 때까지). 둘 다 다음 후보로 넘어갑니다.`)}
+${def("Apply all candidates / Apply class", "남은 모든 후보, 또는 옆에서 고른 클래스의 후보를 실행 취소 한 번 단위로 바꿉니다. Find candidates 뒤에만 누를 수 있습니다.")}
 ${def("Reclass all images in folder", `폴더의 모든 이미지에 적용(${link("folder-run", "폴더 전체")}).`)}
 </dl>`
     },

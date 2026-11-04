@@ -1240,20 +1240,24 @@ export function createAutomationController(input: {
     const preprocessing = readPreprocessing();
     const matching = readMatching();
     const multipleDetection = readMultipleDetection();
-    const existingPreset = activePresetId ? library.presets.find((preset) => preset.id === activePresetId) : null;
+    // The name picks the preset: the chosen preset fills it in, so Save overwrites that one; a new name adds a preset.
+    const existingPreset = library.presets.find((preset) => preset.name === name) ?? null;
     const existingTemplate = existingPreset
       ? library.templates.find((template) => template.id === existingPreset.templateId)
       : null;
+    const activePreset = activePresetId ? library.presets.find((preset) => preset.id === activePresetId) : null;
+    // Where the template pixels came from: the loaded preset's template unless the ROI was redrawn.
+    const sourceTemplate = activePreset ? library.templates.find((template) => template.id === activePreset.templateId) ?? null : null;
     const now = new Date().toISOString();
     const templateId = existingTemplate?.id ?? createId("template");
     const template: TemplateAsset = {
       schemaVersion: TEMPLATE_SCHEMA_VERSION,
       id: templateId,
       name,
-      sourceImageName: templateRoiDirty || !existingTemplate ? currentFile.name : existingTemplate.sourceImageName,
-      sourceImageSize: templateRoiDirty || !existingTemplate
+      sourceImageName: templateRoiDirty || !sourceTemplate ? currentFile.name : sourceTemplate.sourceImageName,
+      sourceImageSize: templateRoiDirty || !sourceTemplate
         ? { width: targetImage.naturalWidth || targetImage.width, height: targetImage.naturalHeight || targetImage.height }
-        : existingTemplate.sourceImageSize,
+        : sourceTemplate.sourceImageSize,
       roi,
       pngDataUrl: activeTemplateDataUrl ?? cropImageElementToPngDataUrl(targetImage, roi, input.documentRef),
       preprocessing,
@@ -1292,7 +1296,7 @@ export function createAutomationController(input: {
     activeTemplateDataUrl = template.pngDataUrl;
     templateRoiDirty = false;
     refreshSelects({ layoutId: layout?.id ?? elements.boxLayoutSelect.value, presetId: preset.id });
-    input.uiManager.notify("Automation preset saved.");
+    input.uiManager.notify(existingPreset ? `Preset "${name}" overwritten.` : `Preset "${name}" added.`);
   };
 
   const runSelectedPresetOnCurrentImage = async (operation: RuntimeOperationHandle): Promise<void> => {
