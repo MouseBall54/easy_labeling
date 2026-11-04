@@ -467,11 +467,16 @@ describe("domain/refine/settings", () => {
     expect(doc.default).toMatchObject({ rangeIn: 14, rangeOut: 14, segments: 8 });
     expect(resolveRefineParams(doc, "2")).toMatchObject({ rangeIn: 16, rangeOut: 16, sides: { B: "off", T: "inherit" } });
   });
+  it("refines every class: an older \"enabled\": false is ignored", () => {
+    const doc = parseRefineSettings(JSON.stringify({ default: { enabled: false }, classes: { 2: { enabled: false } } }));
+    expect(resolveRefineParams(doc, "2").enabled).toBe(true);
+    expect(resolveRefineParams(doc, "0").enabled).toBe(true);
+  });
   it("keeps reclass rules in the settings file and in presets, reading older files without them", () => {
     expect(parseRefineSettings(JSON.stringify({ default: {} })).reclass).toEqual([]);
     const read = parseRefineSettings(JSON.stringify({ default: { crit: "flank" }, reclass: [{ toClass: "0", crop: 9 }, "bad"] }));
     expect(read.reclass).toHaveLength(1);
-    expect(read.reclass[0]).toMatchObject({ toClass: "0", cropX: 1, cropY: 1 });
+    expect(read.reclass[0]).toMatchObject({ toClass: "0", insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 });
     expect(read.default.crit).toBe("flank");
     expect(parseRefineSettings(serializeRefineSettings(read)).reclass).toEqual(read.reclass);
 

@@ -29,12 +29,14 @@ interface SemScene {
   extra?: { rect: Geometry; gray: number }[];
   labels?: Geometry[];
   settings?: unknown;
+  /** Images in the folder (same pixels and labels): sem.png, sem2.png, ... */
+  images?: number;
 }
 const SEM_LABELS: Geometry[] = [{ left: 24, top: 27, right: 56, bottom: 94 }, { left: 96, top: 34, right: 145, bottom: 86 }];
 
 async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
   const labelBoxes = scene.labels ?? SEM_LABELS;
-  await page.addInitScript(({ truth, extra, settings, size, boxes }) => {
+  await page.addInitScript(({ truth, extra, settings, size, boxes, imageCount }) => {
     const W = size.width;
     const H = size.height;
     const renderPng = async (): Promise<Blob> => {
@@ -88,9 +90,12 @@ async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
       }
     }
     const images = new MockDirectoryHandle("images");
-    images.entries.set("sem.png", new MockFileHandle("sem.png", null));
     const label = new MockDirectoryHandle("label");
-    label.entries.set("sem.txt", new MockFileHandle("sem.txt", labels));
+    for (let index = 1; index <= imageCount; index += 1) {
+      const base = index === 1 ? "sem" : `sem${index}`;
+      images.entries.set(`${base}.png`, new MockFileHandle(`${base}.png`, null));
+      label.entries.set(`${base}.txt`, new MockFileHandle(`${base}.txt`, labels));
+    }
     images.entries.set("label", label);
     if (settings !== null) {
       const tools = new MockDirectoryHandle(".easy-labeling");
@@ -99,7 +104,7 @@ async function openSemDataset(page: Page, scene: SemScene = {}): Promise<void> {
     }
     Reflect.set(window, "__refineTestFolder", images);
     Object.defineProperty(window, "showDirectoryPicker", { configurable: true, writable: true, value: async () => images });
-  }, { truth: scene.structures ?? TRUTH, extra: scene.extra ?? [], settings: scene.settings ?? null, size: scene.size ?? { width: 200, height: 120 }, boxes: labelBoxes });
+  }, { truth: scene.structures ?? TRUTH, extra: scene.extra ?? [], settings: scene.settings ?? null, size: scene.size ?? { width: 200, height: 120 }, boxes: labelBoxes, imageCount: scene.images ?? 1 });
 
   await page.goto("/index.html", { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
@@ -131,7 +136,10 @@ async function openLab(page: Page): Promise<void> {
   await expect(lab(page)).toBeVisible();
 }
 
-async function saveLab(page: Page): Promise<void> {
+/** Save settings needs a preset name: an empty field gets presetName. */
+async function saveLab(page: Page, presetName = "Lab"): Promise<void> {
+  const name = page.locator("#refineLabEditor [data-ref='presetName']");
+  if (!(await name.inputValue())) await name.fill(presetName);
   await page.locator("#refineLabSaveBtn").click();
   await expect(lab(page)).toBeHidden();
 }
@@ -194,6 +202,8 @@ test("refine: global shortcuts snap boxes to edges in one undo step and persist 
   await openLab(page);
   await editClass(page, "0");
   await page.locator("#refineLabEditor .refine-details summary", { hasText: "Advanced" }).click();
+  // Refine is always on for every class: there is no switch for it.
+  await expect(page.locator("#refineLabField-enabled")).toHaveCount(0);
   await page.locator("#refineLabField-autoOnDraw").check();
   await saveLab(page);
   const existingIds = new Set((await geometries(page)).map((g) => g.annotationId));
@@ -788,7 +798,7 @@ test("presets: profile-folder refine presets join the dataset's list without bei
   expect((await settingsFile(page))?.presets).toEqual([]);
 });
 
-test("presets: Save settings updates the loaded preset, and the Run-with preset opens in the Lab for editing", async ({ page }) => {
+test("presets: Save settings saves into the named preset, asks for a name, and the Run-with preset opens in the Lab for editing", async ({ page }) => {
   test.setTimeout(120_000);
   await openSemDataset(page);
   await selectBoxes(page, [0]);
@@ -796,36 +806,52 @@ test("presets: Save settings updates the loaded preset, and the Run-with preset 
   type Saved = { activePreset: string | null; default: { rangeOut: number }; classes: Record<string, unknown>; presets: { name: string; params: { rangeOut: number } }[] };
   const saved = async () => (await settingsFile(page)) as unknown as Saved;
   const presetRange = async (name: string) => (await saved())?.presets.find((preset) => preset.name === name)?.params.rangeOut;
-  const syncRow = page.locator("#refineLabPresetSyncRow");
+  const presetName = lab(page).locator('[data-ref="presetName"]');
+  const nameHint = lab(page).locator('[data-ref="presetNameHint"]');
 
-  // A preset saved (or applied) in the Lab is updated by Save settings while the box is ticked.
+  // Without a preset name Save settings asks for one and the Lab stays open.
   await openLab(page);
-  await expect(syncRow).toBeHidden();
-  await lab(page).locator('[data-ref="presetName"]').fill("Tuned");
-  await lab(page).locator('[data-act="savePreset"]').click();
-  await expect(syncRow).toBeVisible();
-  await expect(syncRow).toContainText('Also update preset "Tuned"');
+  await expect(presetName).toHaveValue("");
   await page.locator("#refineLabField-rangeOut").fill("21");
+  await page.locator("#refineLabSaveBtn").click();
+  await expect(nameHint).toBeVisible();
+  await expect(nameHint).toContainText("Type a preset name");
+  await expect(presetName).toHaveClass(/is-invalid/);
+  await expect(presetName).toBeFocused();
+  await expect(lab(page)).toBeVisible();
+  await page.locator(".refine-lab-settings-column").screenshot({ path: "test-results/refine-lab-preset-name-required.png" });
+  // Typing a name clears the hint; Save settings then saves the settings and that preset.
+  await presetName.fill("Tuned");
+  await expect(nameHint).toBeHidden();
   await saveLab(page);
   await expect.poll(() => presetRange("Tuned")).toBe(21);
   expect((await saved()).default.rangeOut).toBe(21);
 
-  // Unticked, only the settings change.
+  // Applying a preset fills in its name, so Save settings updates it; a typed name saves a new preset instead.
   await openLab(page);
   await lab(page).locator('[data-ref="presetSelect"]').selectOption("Tuned");
-  await page.locator("#refineLabField-rangeOut").fill("25");
-  await page.locator("#refineLabPresetSync").uncheck();
+  await expect(presetName).toHaveValue("Tuned");
+  await page.locator("#refineLabField-rangeOut").fill("23");
   await saveLab(page);
-  await expect.poll(async () => (await saved())?.default.rangeOut).toBe(25);
-  expect(await presetRange("Tuned")).toBe(21);
+  await expect.poll(() => presetRange("Tuned")).toBe(23);
+  await openLab(page);
+  await lab(page).locator('[data-ref="presetSelect"]').selectOption("Tuned");
+  await lab(page).locator('[data-act="applyPreset"]').click();
+  await expect(presetName).toHaveValue("Tuned");
+  await presetName.fill("Wide");
+  await page.locator("#refineLabField-rangeOut").fill("25");
+  await saveLab(page);
+  await expect.poll(() => presetRange("Wide")).toBe(25);
+  expect(await presetRange("Tuned")).toBe(23);
+  expect((await saved()).default.rangeOut).toBe(25);
 
   // Run with a preset: the Lab edits that preset for every class and leaves class settings alone.
   await page.locator("#refineRunPresetSelect").selectOption("Tuned");
   await openLab(page);
   await expect(page.locator("#refineLabPresetBanner")).toContainText('Run with "Tuned"');
   await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeHidden();
-  await expect(syncRow).toBeHidden();
-  await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("21");
+  await expect(presetName).toHaveValue("Tuned");
+  await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("23");
   for (const theme of ["light", "dark"]) {
     await page.evaluate((dark) => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = dark; toggle.dispatchEvent(new Event("change", { bubbles: true })); }, theme === "dark");
     await page.locator("#refineLabPresetBanner").evaluate((element) => element.scrollIntoView({ block: "start" }));
@@ -846,6 +872,7 @@ test("presets: Save settings updates the loaded preset, and the Run-with preset 
   await expect(page.locator("#refineLabPresetBanner")).toBeHidden();
   await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeVisible();
   await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("25");
+  await expect(presetName).toHaveValue("");
 });
 
 // ---------------------------------------------------------------- reclass
@@ -891,7 +918,7 @@ test("reclass: finds bright centres and skips dismissed boxes", async ({ page })
   expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
 });
 
-test("reclass: compares refined area with the loaded box even after Refine all, and relabels in one undo step", async ({ page }) => {
+test("reclass: compares refined area with the loaded box even after Refine all, and Apply relabels in one undo step", async ({ page }) => {
   test.setTimeout(120_000);
   // Box 1 is saved as 49 x 52 px; refined to 40 x 60 it loses about 6% of its area.
   await openSemDataset(page, { settings: reclassSettings(reclassRule({ mean: { enabled: false, min: 0 }, shrink: { enabled: true, minRatio: 0.03 } })) });
@@ -907,18 +934,41 @@ test("reclass: compares refined area with the loaded box even after Refine all, 
   await expect(page.locator("#refineStatus")).toContainText("1 reclass candidate");
   await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
 
+  // Apply judges the boxes now: Selected changes the selected match.
   await page.keyboard.press("n");
   await page.locator("#refineReclassSelectedBtn").click();
-  expect(await classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineStatus")).toContainText("1 of 1 box → class 1");
   await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  // The class list now holds class 1, the rule's target: it cannot be reclassed.
+  await expect(page.locator("#refineReclassClassSelect option[value='1']")).toBeDisabled();
   await page.keyboard.press("Control+z");
-  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
 
+  // All boxes: both are checked, only the match changes.
+  await page.locator("#refineReclassAllBtn").click();
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineStatus")).toContainText("1 of 2 boxes → class 1");
+  expect((await api(page, (a) => a.getLabelsAsYolo())).split("\n").filter((line) => line.startsWith("1 "))).toHaveLength(1);
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+
+  // Reclass class: the boxes of the chosen class; the rule's target class cannot be chosen.
+  const classSelect = page.locator("#refineReclassClassSelect");
+  await classSelect.selectOption("0");
+  await page.locator("#refineReclassClassBtn").click();
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await page.keyboard.press("Control+z");
+
+  // A box dismissed with F stays as it is.
   await page.locator("#refineFindReclassBtn").click();
   await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await page.keyboard.press("n");
+  await page.keyboard.press("f");
   await page.locator("#refineReclassAllBtn").click();
-  expect(await classesLeftToRight(page)).toEqual(["0", "1"]);
-  expect((await api(page, (a) => a.getLabelsAsYolo())).split("\n").filter((line) => line.startsWith("1 "))).toHaveLength(1);
+  await expect(page.locator("#refineStatus")).toContainText("No box matches the rule (1 checked) · 1 dismissed box kept");
+  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+  await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-reclass-apply.png" });
 });
 
 test("reclass: the mode toggle shows the reclass controls, and the default rule is on when none is saved", async ({ page }) => {
@@ -936,7 +986,7 @@ test("reclass: the mode toggle shows the reclass controls, and the default rule 
   await expect.poll(async () => (await settingsFile(page) as { mode?: string } | null)?.mode).toBe("reclass");
 });
 
-test("refine lab: Reclass mode has its own presets and image, one rule whose classes are the chips, and a width/height centre crop", async ({ page }) => {
+test("refine lab: Reclass mode has its own presets and image, one rule whose classes are the chips, and a centre crop set per side", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page, { extra: DARK_CENTRE, settings: { ...reclassSettings(reclassRule({ mean: { enabled: true, min: 120 } })), presets: [{ name: "Edge one", params: {} }] } });
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
@@ -958,10 +1008,12 @@ test("refine lab: Reclass mode has its own presets and image, one rule whose cla
   await editor.locator(".refine-class-chip[data-class-id='0']").click();
   await expect(editor.locator(".refine-class-chip[data-class-id='0']")).toHaveAttribute("aria-pressed", "true");
   await expect(editor.locator("[data-ref='hint']")).toHaveText("The rule checks class 0.");
-  // Width and height of the centre crop are set apart.
-  await page.locator("#refineLabReclass0-cropX").fill("80");
-  await page.locator("#refineLabReclass0-cropY").fill("20");
-  await expect(page.locator("#refineLabReadout")).toContainText("Centre 80% wide × 20% high");
+  // Each side of the centre crop is set on its own.
+  await page.locator("#refineLabReclass0-insetTop").fill("10");
+  await page.locator("#refineLabReclass0-insetBottom").fill("40");
+  await page.locator("#refineLabReclass0-insetLeft").fill("5");
+  await page.locator("#refineLabReclass0-insetRight").fill("30");
+  await expect(page.locator("#refineLabReadout")).toContainText("Centre inset top 10% · bottom 40% · left 5% · right 30%");
 
   // The reclass image is its own; the edge image stays Original.
   await editor.locator("[data-ref='imageSource'] [data-image-source='processed']").click();
@@ -992,9 +1044,9 @@ test("refine lab: Reclass mode has its own presets and image, one rule whose cla
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"reclassImageSource":"processed"');
   const saved = await settingsFile(page) as unknown as Record<string, unknown> & { reclass: { fromClasses: string[] }[]; reclassPresets: { name: string; reclass: unknown[]; imageSource: string }[] };
   expect(saved).toMatchObject({ mode: "reclass", imageSource: "original", presets: [{ name: "Edge one" }] });
-  expect(saved.reclass).toMatchObject([{ fromClasses: ["0"], cropX: 0.8, cropY: 0.2 }]);
+  expect(saved.reclass).toMatchObject([{ fromClasses: ["0"], insetTop: 0.1, insetBottom: 0.4, insetLeft: 0.05, insetRight: 0.3 }]);
   expect(saved.reclassPresets).toMatchObject([{ name: "Voids", imageSource: "processed" }]);
-  expect(saved.reclassPresets[0].reclass).toMatchObject([{ fromClasses: ["0"], cropX: 0.8, cropY: 0.2 }]);
+  expect(saved.reclassPresets[0].reclass).toMatchObject([{ fromClasses: ["0"], insetTop: 0.1, insetBottom: 0.4, insetLeft: 0.05, insetRight: 0.3 }]);
 
   // The pane finds candidates with a chosen reclass preset.
   await expect(page.locator("#refineReclassPresetSelect option", { hasText: "Voids" })).toHaveCount(1);
@@ -1059,6 +1111,147 @@ test("refine lab: keeps rule classes that have no box on this image", async ({ p
   await page.locator("#refineLabReclass0-meanMin").fill("140");
   await saveLab(page);
   await expect(page.locator("#refineReclassSummary")).toContainText("class 7 → 1 · mean ≥ 140");
+});
+
+/** Label files of the mock folder by name, and the backup folders written beside them. */
+const labelFiles = (page: Page) => page.evaluate(async () => {
+  type Entry = { kind: string; name: string; content?: string; entries?: Map<string, Entry> };
+  const folder = Reflect.get(window, "__refineTestFolder") as { entries: Map<string, Entry> };
+  const label = folder.entries.get("label")!;
+  const files: Record<string, string> = {};
+  for (const entry of label.entries!.values()) if (entry.kind === "file") files[entry.name] = entry.content ?? "";
+  const tools = label.entries!.get(".easy-labeling");
+  return { files, backups: tools ? [...tools.entries!.keys()].sort() : [] };
+});
+/** Boxes of a YOLO text in pixels (200 x 120 image), left to right, with their class. */
+const yoloBoxes = (text: string): (Geometry & { classId: string })[] => text.trim().split("\n").map((line) => {
+  const [classId, cx, cy, w, h] = line.trim().split(/\s+/);
+  const [x, y, bw, bh] = [Number(cx) * 200, Number(cy) * 120, Number(w) * 200, Number(h) * 120];
+  return { classId, left: x - bw / 2, top: y - bh / 2, right: x + bw / 2, bottom: y + bh / 2 };
+}).sort((a, b) => a.left - b.left);
+
+test("folder: refines and reclasses every image with the chosen presets, backing up the originals", async ({ page }) => {
+  test.setTimeout(120_000);
+  // Class settings refine no side and the Lab rule matches nothing: only the Run-with / Reclass-with presets change boxes.
+  const allOff = { T: "off", B: "off", L: "off", R: "off" };
+  await openSemDataset(page, {
+    images: 3,
+    extra: DARK_CENTRE,
+    settings: {
+      default: { sides: allOff },
+      presets: [{ name: "Snap", params: {} }],
+      activePreset: "Snap",
+      reclass: [reclassRule({ mean: { enabled: true, min: 255 } })],
+      reclassPresets: [{ name: "Bright", reclass: [reclassRule({ mean: { enabled: true, min: 120 } })], imageSource: "original", processing: null }],
+      activeReclassPreset: "Bright"
+    }
+  });
+  const original = (await labelFiles(page)).files["sem2.txt"];
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineRunPresetSelect")).toHaveValue("Snap");
+
+  // Cancelling the confirmation changes nothing.
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.locator("#refineFolderBtn").click();
+  expect((await labelFiles(page)).files["sem2.txt"]).toBe(original);
+
+  page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("all 3 images"); expect(dialog.message()).toContain("Snap"); await dialog.accept(); });
+  await page.locator("#refineFolderBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("6 boxes refined in 3 of 3 images", { timeout: 30_000 });
+  let saved = await labelFiles(page);
+  expect(saved.backups).toEqual([expect.stringMatching(/^refine-all-/)]);
+  for (const name of ["sem.txt", "sem2.txt", "sem3.txt"]) expect(maxError(yoloBoxes(saved.files[name]))).toBeLessThan(0.6);
+  // The open image shows its rewritten file.
+  await expect.poll(async () => maxError(await geometries(page))).toBeLessThan(0.6);
+  await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-folder-edge-light.png" });
+
+  // Reclass: the preset's rule moves the bright-centred box of every image to class 1.
+  await page.locator("#refineModeToggle [data-mode='reclass']").click();
+  await expect(page.locator("#refineReclassPresetSelect")).toHaveValue("Bright");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#refineReclassFolderBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("3 boxes reclassed in 3 of 3 images", { timeout: 30_000 });
+  saved = await labelFiles(page);
+  expect(saved.backups).toHaveLength(2);
+  for (const name of ["sem.txt", "sem2.txt", "sem3.txt"]) expect(yoloBoxes(saved.files[name]).map((box) => box.classId)).toEqual(["0", "1"]);
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-folder-reclass-dark.png" });
+});
+
+test("refine lab: the guide opens on the mode's tutorial, switches between English and Korean, finds topics, and closes alone", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page);
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await openLab(page);
+  const guide = page.locator("#refineHelpDialog");
+  const current = guide.locator(".rh-toc button.is-active");
+  await page.locator("#refineLabHelpBtn").click();
+  await expect(guide).toBeVisible();
+  await expect(current).toHaveText("Tutorial: snap boxes to particle edges");
+  await expect(guide.locator("#refineHelp-edge-quickstart svg.rh-fig")).toBeVisible();
+  await guide.screenshot({ path: "test-results/refine-help-light.png" });
+
+  // Search: every word must match; hits are marked in the text.
+  const search = guide.locator("#refineHelpSearch");
+  await search.fill("neighbour");
+  await expect(guide.locator(".rh-content mark").first()).toBeVisible();
+  await search.fill("극성");
+  await expect(guide.locator(".rh-toc button[data-topic]")).toHaveText(["Edge polarity: bright inside or dark inside"]);
+  await search.press("Enter");
+  await expect(current).toHaveText("Edge polarity: bright inside or dark inside");
+  await search.fill("zzzz");
+  await expect(guide.locator(".rh-empty")).toContainText("No topic matches");
+  // Esc in a filled search clears it; links jump between topics; the group tabs filter.
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await guide.locator("#refineHelp-edge-quickstart a[data-topic='edge-range']").click();
+  await expect(current).toHaveText("Search inward and outward");
+  await guide.locator("[data-group='reclass']").click();
+  await expect(guide.locator(".rh-toc button[data-topic]").first()).toHaveText("Centre crop: four insets");
+  await guide.locator("[data-group='all']").click();
+
+  // Esc closes the guide only; the Lab stays open.
+  await guide.locator(".rh-content").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("Escape");
+  await expect(guide).toBeHidden();
+  await expect(lab(page)).toBeVisible();
+
+  // In Reclass mode it opens on the reclass tutorial.
+  await openReclass(page);
+  await page.locator("#refineLabHelpBtn").click();
+  await expect(current).toHaveText("Tutorial: find boxes of the wrong class");
+
+  // Korean: the same topic in Korean, with UI names kept in English; the choice is remembered.
+  await guide.locator("[data-lang='ko']").click();
+  await expect(current).toHaveText("튜토리얼: 클래스가 잘못된 박스 찾기");
+  await expect(guide.locator("#refineHelpTitle")).toContainText("Refine Lab 가이드");
+  await expect(guide.locator("[data-group='hints']")).toHaveText("힌트");
+  await expect(guide.locator("#refineHelp-reclass-quickstart")).toContainText("Save & find candidates");
+  await expect(guide.locator("#refineHelp-reclass-quickstart svg.rh-fig")).toContainText("정상");
+  await guide.locator("[data-topic='reclass-crop']").first().click();
+  await guide.screenshot({ path: "test-results/refine-help-ko-light.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await guide.locator("#refineHelpSearch").fill("극성");
+  await guide.locator("#refineHelpSearch").press("Enter");
+  await expect(current).toHaveText("Edge polarity: 안쪽이 밝은지 어두운지");
+  await guide.screenshot({ path: "test-results/refine-help-ko-dark.png" });
+  await guide.locator("[data-lang='en']").click();
+  await expect(current).toHaveText("Edge polarity: bright inside or dark inside");
+  // The search stays across the switch; clear it to list every topic again.
+  await guide.locator("#refineHelpSearch").fill("");
+  await guide.locator("[data-topic='reclass-crop']").first().click();
+  await guide.screenshot({ path: "test-results/refine-help-dark.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await guide.locator("[data-lang='ko']").click();
+  await guide.locator("[data-act='close']").click();
+  await expect(guide).toBeHidden();
+  await expect(lab(page)).toBeVisible();
+  await page.locator("#refineLabHelpBtn").click();
+  await expect(guide.locator("[data-lang='ko']")).toHaveAttribute("aria-pressed", "true");
+  await guide.locator("[data-act='close']").click();
 });
 
 test("reclass: pins stay readable on a 3072 x 2048 image with 700 boxes", async ({ page }, testInfo) => {

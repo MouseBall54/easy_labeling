@@ -11,9 +11,15 @@ export interface ReclassRule {
   fromClasses: string[];
   toClass: string;
   combine: "and" | "or";
-  /** Centre crop as a fraction of the box width (cropX) and height (cropY), 0.1-1. Older files hold one `crop` for both. */
-  cropX: number;
-  cropY: number;
+  /**
+   * Centre crop: the share of the box height (top, bottom) or width (left, right) left out on each side, 0-0.9,
+   * so each edge of the crop moves on its own. Opposite sides add up to at most 0.9. Older files hold a centred
+   * `cropX` / `cropY` share (or one `crop` for both); each becomes equal insets.
+   */
+  insetTop: number;
+  insetBottom: number;
+  insetLeft: number;
+  insetRight: number;
   mean: { enabled: boolean; min: number };
   /** Bright pixels are >= level; the check passes when their share of the crop is >= minRatio. */
   bright: { enabled: boolean; level: number; minRatio: number };
@@ -30,8 +36,10 @@ export function createReclassRule(): ReclassRule {
     fromClasses: [],
     toClass: "0",
     combine: "or",
-    cropX: 0.5,
-    cropY: 0.5,
+    insetTop: 0.25,
+    insetBottom: 0.25,
+    insetLeft: 0.25,
+    insetRight: 0.25,
     mean: { enabled: true, min: 128 },
     bright: { enabled: false, level: 160, minRatio: 0.2 },
     shrink: { enabled: false, minRatio: 0.3 }
@@ -47,9 +55,22 @@ const record = (value: unknown): Record<string, unknown> => (typeof value === "o
 const flag = (value: unknown, fallback: boolean): boolean => (typeof value === "boolean" ? value : fallback);
 const classId = (value: unknown, fallback: string): string => (typeof value === "string" || typeof value === "number" ? String(value).trim() || fallback : fallback);
 
+const MAX_INSET = 0.9;
+const round4 = (n: number): number => Math.round(n * 10_000) / 10_000;
+/** Insets of one axis: explicit ones first, else a centred share from older files; together at most MAX_INSET. */
+function axisInsets(lo: unknown, hi: unknown, share: unknown, fallback: number): [number, number] {
+  const legacy = share === undefined ? fallback : round4((1 - bounded(share, 1 - 2 * fallback, 0.1, 1)) / 2);
+  const a = bounded(lo, legacy, 0, MAX_INSET);
+  const b = bounded(hi, legacy, 0, MAX_INSET);
+  const scale = a + b > MAX_INSET ? MAX_INSET / (a + b) : 1;
+  return [round4(a * scale), round4(b * scale)];
+}
+
 export function normalizeReclassRule(value: unknown): ReclassRule {
   const d = createReclassRule();
   const v = record(value);
+  const [insetTop, insetBottom] = axisInsets(v.insetTop, v.insetBottom, v.cropY ?? v.crop, d.insetTop);
+  const [insetLeft, insetRight] = axisInsets(v.insetLeft, v.insetRight, v.cropX ?? v.crop, d.insetLeft);
   const mean = record(v.mean);
   const bright = record(v.bright);
   const shrink = record(v.shrink);
@@ -57,8 +78,10 @@ export function normalizeReclassRule(value: unknown): ReclassRule {
     fromClasses: Array.isArray(v.fromClasses) ? [...new Set(v.fromClasses.map((id) => classId(id, "")).filter(Boolean))] : [],
     toClass: classId(v.toClass, d.toClass),
     combine: v.combine === "and" ? "and" : "or",
-    cropX: bounded(v.cropX ?? v.crop, d.cropX, 0.1, 1),
-    cropY: bounded(v.cropY ?? v.crop, d.cropY, 0.1, 1),
+    insetTop,
+    insetBottom,
+    insetLeft,
+    insetRight,
     mean: { enabled: flag(mean.enabled, d.mean.enabled), min: bounded(mean.min, d.mean.min, 0, 255) },
     bright: {
       enabled: flag(bright.enabled, d.bright.enabled),
@@ -79,20 +102,22 @@ export function reclassRuleOf(rules: readonly ReclassRule[]): ReclassRule {
   return rules[0] ?? createReclassRule();
 }
 
-/** Centre crop in whole pixels, clipped to the image, never smaller than 1 x 1. */
-export function centreCrop(box: RefineRect, crop: Pick<ReclassRule, "cropX" | "cropY">, bounds: { width: number; height: number }): RefineRect {
-  const axis = (lo: number, hi: number, size: number, share: number): [number, number] => {
-    const span = Math.max(1, Math.round((hi - lo) * share));
-    const start = Math.round((lo + hi) / 2 - span / 2);
+export type ReclassInsets = Pick<ReclassRule, "insetTop" | "insetBottom" | "insetLeft" | "insetRight">;
+
+/** Centre crop (the box less its insets) in whole pixels, clipped to the image, never smaller than 1 x 1. */
+export function centreCrop(box: RefineRect, crop: ReclassInsets, bounds: { width: number; height: number }): RefineRect {
+  const axis = (lo: number, hi: number, size: number, insetLo: number, insetHi: number): [number, number] => {
+    const start = Math.round(lo + (hi - lo) * insetLo);
+    const end = Math.max(start + 1, Math.round(hi - (hi - lo) * insetHi));
     const a = Math.min(Math.max(0, start), size - 1);
-    return [a, Math.max(a + 1, Math.min(size, start + span))];
+    return [a, Math.max(a + 1, Math.min(size, end))];
   };
-  const [x0, x1] = axis(box.x0, box.x1, bounds.width, crop.cropX);
-  const [y0, y1] = axis(box.y0, box.y1, bounds.height, crop.cropY);
+  const [x0, x1] = axis(box.x0, box.x1, bounds.width, crop.insetLeft, crop.insetRight);
+  const [y0, y1] = axis(box.y0, box.y1, bounds.height, crop.insetTop, crop.insetBottom);
   return { x0, y0, x1, y1 };
 }
 
-export function measureReclass(img: GrayImage, box: RefineRect, rule: Pick<ReclassRule, "cropX" | "cropY" | "bright">): { mean: number; brightRatio: number } {
+export function measureReclass(img: GrayImage, box: RefineRect, rule: ReclassInsets & Pick<ReclassRule, "bright">): { mean: number; brightRatio: number } {
   const { x0, y0, x1, y1 } = centreCrop(box, rule, img);
   let sum = 0;
   let bright = 0;

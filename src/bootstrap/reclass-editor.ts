@@ -6,6 +6,13 @@ import type { RefineEditorStore } from "./refine-editor.js";
  * go to the Lab draft (store.setDoc) like every other Lab setting, so cases re-judge live and nothing is saved
  * until Save. The rule is always on; with no saved rule the block shows the default one.
  */
+const INSETS = [
+  ["insetTop", "Centre inset top %", "height"],
+  ["insetBottom", "Centre inset bottom %", "height"],
+  ["insetLeft", "Centre inset left %", "width"],
+  ["insetRight", "Centre inset right %", "width"]
+] as const;
+
 export function createReclassEditor(input: { root: HTMLElement; prefix: string; documentRef: Document; store: RefineEditorStore }): { render(): void } {
   const { root, prefix, documentRef: doc, store } = input;
   const rule = (): ReclassRule => reclassRuleOf(store.getDoc().reclass);
@@ -53,8 +60,8 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     row(label("to", "Change to"), to),
     suggestions,
     row(label("combine", "Combine"), combine),
-    row(label("cropX", "Centre width %"), number("cropX", 10, 100, 5, "Share of the box width measured, around its centre", (v) => update((r) => ({ ...r, cropX: v / 100 })))),
-    row(label("cropY", "Centre height %"), number("cropY", 10, 100, 5, "Share of the box height measured, around its centre", (v) => update((r) => ({ ...r, cropY: v / 100 })))),
+    ...INSETS.map(([field, text, span]) => row(label(field, text),
+      number(field, 0, 90, 1, `Share of the box ${span} left out of the centre on this side (opposite sides together at most 90%)`, (v) => update((r) => ({ ...r, [field]: v / 100 }))))),
     row(check("meanOn", "Mean ≥", (on) => update((r) => ({ ...r, mean: { ...r.mean, enabled: on } }))),
       number("meanMin", 0, 255, 1, "Centre mean brightness (0-255) at or above which the box matches", (v) => update((r) => ({ ...r, mean: { ...r.mean, min: v } })))),
     row(check("brightOn", "Bright pixels ≥ %", (on) => update((r) => ({ ...r, bright: { ...r.bright, enabled: on } }))),
@@ -80,8 +87,7 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
       const r = rule();
       setValue(to, r.toClass);
       setValue(combine, r.combine);
-      setValue(get("cropX"), String(Math.round(r.cropX * 100)));
-      setValue(get("cropY"), String(Math.round(r.cropY * 100)));
+      for (const [field] of INSETS) setValue(get(field), String(Math.round(r[field] * 100)));
       get<HTMLInputElement>("meanOn").checked = r.mean.enabled;
       setValue(get("meanMin"), String(r.mean.min));
       get<HTMLInputElement>("brightOn").checked = r.bright.enabled;

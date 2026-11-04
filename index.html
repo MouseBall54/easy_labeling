@@ -565,11 +565,19 @@
                             <div class="section-heading-row"><h3>Reclass with</h3><span id="refineReclassCounter" class="section-value">0 candidates</span></div>
                             <select id="refineReclassPresetSelect" class="form-select form-select-sm" aria-label="Rule used when finding candidates"><option value="">Lab rule</option></select>
                             <p id="refineReclassSummary" class="refine-hint"></p>
-                            <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rule flags on this image; nothing changes until you reclass them"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
-                            <div class="refine-run-grid mt-2">
-                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change the selected candidates to their rule's class">Reclass selected</button>
-                                <button id="refineReclassAllBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Change every candidate to its rule's class (one undo step)">Reclass all</button>
+                            <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rule flags on this image to review them (N, F); nothing changes"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
+                        </section>
+                        <section class="inspector-section" data-refine-mode="reclass" hidden>
+                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Matching boxes change class</span></div>
+                            <div class="refine-run-grid">
+                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Reclass the selected boxes the rule matches (one undo step)">Selected</button>
+                                <button id="refineReclassAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Reclass every visible box the rule matches (one undo step); boxes dismissed with F stay">All boxes</button>
                             </div>
+                            <div class="input-group input-group-sm mt-2">
+                                <select id="refineReclassClassSelect" class="form-select" aria-label="Class to reclass"></select>
+                                <button id="refineReclassClassBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Reclass every visible box of this class the rule matches (one undo step)">Reclass class</button>
+                            </div>
+                            <button id="refineReclassFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-refine-run title="Reclass every matching box in every image of this folder with the Reclass-with rule. Current edits are saved first; original label files are backed up"><i class="bi bi-folder-check" aria-hidden="true"></i> Reclass all images in folder</button>
                         </section>
                         <section class="inspector-section" data-refine-mode="edge">
                             <div class="section-heading-row"><h3>Run with</h3></div>
@@ -582,6 +590,7 @@
                                 <button id="refineSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Refine selected boxes (E)">Selected</button>
                                 <button id="refineAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Refine all visible boxes (Shift+E)">All boxes</button>
                             </div>
+                            <button id="refineFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-refine-run title="Refine every box in every image of this folder with the Run-with settings. Current edits are saved first; original label files are backed up"><i class="bi bi-folder-check" aria-hidden="true"></i> Refine all images in folder</button>
                             <div class="input-group input-group-sm mt-2">
                                 <select id="refineClassSelect" class="form-select" aria-label="Class to refine"></select>
                                 <button id="refineClassesBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Refine every visible box of this class">Refine class</button>
@@ -839,8 +848,12 @@
                         <h5 class="modal-title" id="refineLabModalLabel"><i class="bi bi-sliders" aria-hidden="true"></i> Refine Lab</h5>
                         <div class="small text-muted" id="refineLabSummary"></div>
                     </div>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <div class="refine-lab-header-actions">
+                        <button id="refineLabHelpBtn" type="button" class="btn btn-sm btn-outline-secondary refine-lab-help-btn" title="Guide: tutorials, every setting with examples, hints and search" aria-label="Open the Refine Lab guide"><i class="bi bi-question-lg" aria-hidden="true"></i></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
                 </div>
+                <dialog id="refineHelpDialog" class="refine-help" aria-labelledby="refineHelpTitle"></dialog>
                 <div class="modal-body refine-lab-body">
                     <section class="refine-lab-cases-column" aria-label="Cases">
                         <div class="section-heading-row"><h3>Cases</h3></div>
@@ -874,7 +887,6 @@
                 </div>
                 <div class="modal-footer">
                     <span id="refineLabStatus" class="me-auto small text-muted" role="status"></span>
-                    <label id="refineLabPresetSyncRow" class="form-check small mb-0" title="Save settings also writes the edited values into the preset you loaded" hidden><input id="refineLabPresetSync" type="checkbox" class="form-check-input" checked> <span id="refineLabPresetSyncText"></span></label>
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button id="refineLabSaveBtn" type="button" class="btn btn-outline-primary">Save settings</button>
                     <button id="refineLabApplyBtn" type="button" class="btn btn-primary">Save &amp; refine these boxes</button>

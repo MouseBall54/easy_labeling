@@ -68,6 +68,11 @@ export interface RefineEditor {
   onTargetsChange(listener: () => void): void;
   /** Fires when a preset is applied or saved: the edited values now stand for that preset. */
   onPresetChange(listener: (name: string, target: "default" | string[], mode: RefineMode) => void): void;
+  /** The preset name field: Save settings saves into the preset it names; applying or saving a preset fills it. */
+  presetName(): string;
+  setPresetName(name: string): void;
+  /** Marks the name field as missing, with a message under it, and focuses it. */
+  requirePresetName(message: string): void;
   /** Locked: only the default is edited (class chips hidden), e.g. while editing the Run-with preset. */
   setClassesLocked(locked: boolean): void;
 }
@@ -98,7 +103,6 @@ const bounds = (key: RefineLimitedKey, scale = 1): { min: number; max: number } 
   max: REFINE_PARAM_LIMITS[key][1] * scale
 });
 const FIELDS: FieldSpec[] = [
-  { key: "enabled", label: "Refine this class", type: "bool", group: "rule" },
   { key: "crit", label: "Edge criterion", type: "select", group: "rule", perSide: true, options: Object.entries(REFINE_CRITERION_LABELS) },
   {
     key: "polarity", label: "Edge polarity", type: "select", group: "rule", perSide: true,
@@ -164,6 +168,8 @@ const FIELDS: FieldSpec[] = [
   { key: "areaShrinkLimit", label: "Flag area shrink over (%)", title: "Boxes that shrink more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", ...bounds("areaShrinkLimit", 100), step: 5 },
   { key: "autoOnDraw", label: "Refine new boxes on draw", type: "bool", group: "advanced" }
 ];
+/** Labels of every setting field (the Lab guide must explain each). */
+export const REFINE_EDITOR_FIELD_LABELS: readonly string[] = FIELDS.map((field) => field.label);
 const SIDE_OPTIONS: [string, string][] = [["inherit", "Inherit"], ["grad", "Gradient"], ["flank", "Band 50%"], ["peak", "Band peak"], ["thr", "50% level"], ["off", "Off"]];
 const SIDE_NAMES: Record<RefineSide, string> = { T: "Top", L: "Left", R: "Right", B: "Bottom" };
 const RESET_ICON = '<i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>';
@@ -197,9 +203,10 @@ function markup(prefix: string): string {
         <button type="button" class="btn btn-outline-danger" data-act="deletePreset" title="Delete the chosen preset" aria-label="Delete the chosen preset"><i class="bi bi-trash" aria-hidden="true"></i></button>
       </div>
       <div class="input-group input-group-sm mt-1">
-        <input type="text" class="form-control" data-ref="presetName" placeholder="Preset name" aria-label="New preset name" maxlength="60">
+        <input type="text" class="form-control" data-ref="presetName" placeholder="Preset name" aria-label="Preset name" title="Save settings saves the values into this preset too. Choosing a preset fills it in." maxlength="60">
         <button type="button" class="btn btn-outline-secondary" data-act="savePreset" title="Save the edited values as a preset">Save</button>
       </div>
+      <div class="refine-preset-name-hint" data-ref="presetNameHint" role="alert" hidden></div>
       <input type="file" accept=".json,application/json" data-ref="presetFile" hidden>
     </section>
     <section class="inspector-section">
@@ -433,6 +440,7 @@ export function createRefineEditor(input: {
     const reclass = docNow.mode === "reclass";
     setDoc(reclass ? applyReclassPreset(docNow, name, allReclassPresets(docNow)) : applyRefinePreset(docNow, name, t, allPresets(docNow)));
     ref<HTMLSelectElement>("presetSelect").value = name;
+    setPresetName(name);
     presetListeners.forEach((listener) => listener(name, t, docNow.mode));
     store.notify(reclass ? `Loaded reclass preset "${name}".` : `Applied "${name}" to ${t === "default" ? "the default" : `class ${t.join(", ")}`}.`);
     if (reclass) targetListeners.forEach((listener) => listener());
@@ -694,7 +702,7 @@ export function createRefineEditor(input: {
         if (!name) { store.notify("Type a preset name."); nameInput.focus(); return; }
         const docNow = store.getDoc();
         setDoc(docNow.mode === "reclass" ? saveReclassPreset(docNow, name) : saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
-        nameInput.value = "";
+        setPresetName(name);
         ref<HTMLSelectElement>("presetSelect").value = name;
         presetListeners.forEach((listener) => listener(name, t, docNow.mode));
         store.notify(`Saved preset "${name}"${docNow.mode === "edge" && Array.isArray(t) && t.length > 1 ? ` from class ${t[0]}` : ""}.`);
@@ -709,6 +717,16 @@ export function createRefineEditor(input: {
       store.notify(error instanceof Error ? error.message : String(error));
     }
   });
+  function setPresetName(name: string): void {
+    const nameInput = ref<HTMLInputElement>("presetName");
+    nameInput.value = name;
+    clearPresetNameHint();
+  }
+  function clearPresetNameHint(): void {
+    ref<HTMLInputElement>("presetName").classList.remove("is-invalid");
+    ref("presetNameHint").hidden = true;
+  }
+  ref<HTMLInputElement>("presetName").addEventListener("input", clearPresetNameHint);
   // Choosing a preset applies it at once; Apply re-applies it after further edits.
   ref<HTMLSelectElement>("presetSelect").addEventListener("change", (event) => {
     const name = (event.target as HTMLSelectElement).value;
@@ -747,6 +765,17 @@ export function createRefineEditor(input: {
     },
     onTargetsChange(listener) { targetListeners.push(listener); },
     onPresetChange(listener) { presetListeners.push(listener); },
+    presetName: () => ref<HTMLInputElement>("presetName").value.trim(),
+    setPresetName,
+    requirePresetName(message) {
+      const nameInput = ref<HTMLInputElement>("presetName");
+      const hint = ref("presetNameHint");
+      nameInput.classList.add("is-invalid");
+      hint.textContent = message;
+      hint.hidden = false;
+      nameInput.scrollIntoView({ block: "center" });
+      nameInput.focus();
+    },
     setClassesLocked(locked) {
       classesLocked = locked;
       if (locked) selected = new Set();

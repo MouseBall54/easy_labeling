@@ -250,7 +250,8 @@ export function createEventManagerAdapter(input: {
           state: input.state,
           uiManager: input.uiManager,
           canvasController: input.canvasController,
-          documentRef: input.documentRef
+          documentRef: input.documentRef,
+          fileSystem: input.fileSystem
         })
         : null;
       refineController?.bind();

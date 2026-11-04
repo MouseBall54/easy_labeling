@@ -31,8 +31,10 @@ describe("domain/refine/reclass", () => {
       fromClasses: [],
       toClass: "0",
       combine: "or",
-      cropX: 0.5,
-      cropY: 0.5,
+      insetTop: 0.25,
+      insetBottom: 0.25,
+      insetLeft: 0.25,
+      insetRight: 0.25,
       mean: { enabled: true, min: 128 },
       bright: { enabled: false, level: 160, minRatio: 0.2 },
       shrink: { enabled: false, minRatio: 0.3 }
@@ -41,9 +43,13 @@ describe("domain/refine/reclass", () => {
 
   it("clamps and repairs rule values read from a file", () => {
     const parsed = normalizeReclassRule({ crop: 5, mean: { enabled: true, min: "300" }, bright: { minRatio: -1 }, combine: "x", toClass: 3 });
-    expect([parsed.cropX, parsed.cropY]).toEqual([1, 1]);
-    // Width and height read on their own; an older single crop sets both.
-    expect(normalizeReclassRule({ crop: 0.3, cropY: 0.8 })).toMatchObject({ cropX: 0.3, cropY: 0.8 });
+    // An older centred share becomes equal insets: crop 5 clamps to the whole box, cropY 0.8 leaves 10% top and bottom.
+    expect(parsed).toMatchObject({ insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 });
+    expect(normalizeReclassRule({ crop: 0.3, cropY: 0.8 })).toMatchObject({ insetTop: 0.1, insetBottom: 0.1, insetLeft: 0.35, insetRight: 0.35 });
+    expect(normalizeReclassRule({ cropX: 0.3 })).not.toHaveProperty("cropX");
+    // Each side reads on its own, clamped to 0-90%, and opposite sides together keep at least 10% of the box.
+    expect(normalizeReclassRule({ insetTop: 0.1, insetBottom: "0.4", insetLeft: -1, insetRight: 2 })).toMatchObject({ insetTop: 0.1, insetBottom: 0.4, insetLeft: 0, insetRight: 0.9 });
+    expect(normalizeReclassRule({ insetTop: 0.9, insetBottom: 0.9 })).toMatchObject({ insetTop: 0.45, insetBottom: 0.45 });
     expect(parsed.mean).toEqual({ enabled: true, min: 255 });
     expect(parsed.bright.minRatio).toBe(0);
     expect(parsed.combine).toBe("or");
@@ -58,24 +64,25 @@ describe("domain/refine/reclass", () => {
   });
 
   it("crops the centre in whole pixels, at least one pixel, inside the image", () => {
-    expect(centreCrop(FULL, { cropX: 0.5, cropY: 0.5 }, { width: 10, height: 10 })).toEqual({ x0: 3, y0: 3, x1: 8, y1: 8 });
-    // Width and height shares are separate: a wide, flat strip through the centre.
-    expect(centreCrop(FULL, { cropX: 0.8, cropY: 0.2 }, { width: 10, height: 10 })).toEqual({ x0: 1, y0: 4, x1: 9, y1: 6 });
-    const edge = centreCrop({ x0: -4, y0: -4, x1: 2, y1: 2 }, { cropX: 1, cropY: 1 }, { width: 10, height: 10 });
+    expect(centreCrop(FULL, { insetTop: 0.25, insetBottom: 0.25, insetLeft: 0.25, insetRight: 0.25 }, { width: 10, height: 10 })).toEqual({ x0: 3, y0: 3, x1: 8, y1: 8 });
+    // Each side moves on its own: a wide, flat strip, then a crop pushed to the top-left corner.
+    expect(centreCrop(FULL, { insetTop: 0.4, insetBottom: 0.4, insetLeft: 0.1, insetRight: 0.1 }, { width: 10, height: 10 })).toEqual({ x0: 1, y0: 4, x1: 9, y1: 6 });
+    expect(centreCrop(FULL, { insetTop: 0, insetBottom: 0.6, insetLeft: 0.1, insetRight: 0.5 }, { width: 10, height: 10 })).toEqual({ x0: 1, y0: 0, x1: 5, y1: 4 });
+    const edge = centreCrop({ x0: -4, y0: -4, x1: 2, y1: 2 }, { insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 }, { width: 10, height: 10 });
     expect(edge.x0).toBeGreaterThanOrEqual(0);
     expect(edge.x1 - edge.x0).toBeGreaterThanOrEqual(1);
     expect(edge.y1 - edge.y0).toBeGreaterThanOrEqual(1);
-    const tiny = centreCrop({ x0: 4, y0: 4, x1: 6, y1: 6 }, { cropX: 0.1, cropY: 0.1 }, { width: 10, height: 10 });
+    const tiny = centreCrop({ x0: 4, y0: 4, x1: 6, y1: 6 }, { insetTop: 0.45, insetBottom: 0.45, insetLeft: 0.45, insetRight: 0.45 }, { width: 10, height: 10 });
     expect([tiny.x1 - tiny.x0, tiny.y1 - tiny.y0]).toEqual([1, 1]);
   });
 
   it("measures the mean and the share of bright pixels in the crop", () => {
     const img = square(4, 200, 50);
-    expect(measureReclass(img, FULL, { cropX: 0.4, cropY: 0.4, bright: { enabled: true, level: 160, minRatio: 0 } })).toEqual({ mean: 200, brightRatio: 1 });
-    const whole = measureReclass(img, FULL, { cropX: 1, cropY: 1, bright: { enabled: true, level: 160, minRatio: 0 } });
+    expect(measureReclass(img, FULL, { ...{ insetTop: 0.3, insetBottom: 0.3, insetLeft: 0.3, insetRight: 0.3 }, bright: { enabled: true, level: 160, minRatio: 0 } })).toEqual({ mean: 200, brightRatio: 1 });
+    const whole = measureReclass(img, FULL, { ...{ insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 }, bright: { enabled: true, level: 160, minRatio: 0 } });
     expect(whole.mean).toBeCloseTo(74);
     expect(whole.brightRatio).toBeCloseTo(0.16);
-    const outside = measureReclass(img, { x0: -20, y0: -20, x1: -10, y1: -10 }, { cropX: 0.5, cropY: 0.5, bright: { enabled: true, level: 160, minRatio: 0 } });
+    const outside = measureReclass(img, { x0: -20, y0: -20, x1: -10, y1: -10 }, { ...{ insetTop: 0.25, insetBottom: 0.25, insetLeft: 0.25, insetRight: 0.25 }, bright: { enabled: true, level: 160, minRatio: 0 } });
     expect(Number.isFinite(outside.mean)).toBe(true);
   });
 

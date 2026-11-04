@@ -331,6 +331,10 @@ Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리�
 
 **Reclass**는 박스 위치는 그대로 두고, 결함으로 보이는 박스를 다른 클래스 후보로 표시한다. 예를 들어 가운데가 어두워야 할 구조물에 밝은 얼룩이 섞이면 `unfilled` 클래스로 바꿀 후보가 된다.
 
+**Preset name과 Save settings:** Refine Lab의 Presets에 있는 preset name 칸이 Lab과 프리셋을 잇는다. 프리셋을 고르거나 Apply하면 그 이름이 채워지고, **Save settings**는 설정을 저장하면서 그 이름의 프리셋에도 값을 저장한다(새 이름이면 새 프리셋을 만든다). 이름이 비어 있으면 이름을 입력하라는 안내가 나오고 Lab은 닫히지 않는다. 예전의 "Also update preset" 체크는 없어졌다.
+
+**가이드(?):** Refine Lab 오른쪽 위 닫기(×) 왼쪽의 **?** 버튼은 별도 가이드 창을 연다. 현재 모드의 튜토리얼에서 시작하고, 위쪽의 **EN / 한국어**로 영어판과 한국어판을 바꿔 볼 수 있다(같은 주제를 그대로 보여 주고, 고른 언어는 브라우저에 기억된다. 한국어판에서도 설정·버튼·모드 같은 UI 이름은 화면과 같은 영어로 쓴다). 전체 / 시작 / Edge / Reclass / 힌트 탭, 목차, 키워드 검색(영어와 한국어 키워드 모두, 예: polarity, 극성, 이웃)으로 설정마다 예시 그림과 함께 설명과 힌트(증상 → 해결)를 찾아볼 수 있다. Esc는 가이드만 닫고 Lab은 그대로 둔다.
+
 **Mode (Edge / Reclass):** Refine 탭과 Refine Lab 맨 위의 **Mode**로 경계 맞추기(Edge)와 Reclass를 나눠 쓴다. 두 곳은 같은 모드 값을 쓰고, 모드는 `refine-settings.json`에 저장된다.
 
 - Lab 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule이다.
@@ -340,14 +344,16 @@ Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리�
 - Reclass 모드에서 Classes 칩은 규칙의 검사 대상 클래스(From)다. **All**은 모든 클래스를 검사한다.
 - Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & find candidates**는 저장한 뒤 캔버스에서 후보를 찾는다.
 - Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Find candidates를 보여 준다. Review의 `N`/`Shift+N`/`F`는 현재 모드의 대상(Refine 검토 대상 또는 Reclass 후보)만 다룬다. `E`/`Shift+E`는 모드와 상관없이 경계를 맞춘다.
+- 폴더 전체 적용: Edge 모드의 **Refine all images in folder**는 Run with에서 고른 설정(프리셋 또는 클래스 설정)으로 현재 폴더 모든 이미지의 모든 박스 경계를 맞추고, Reclass 모드의 **Reclass all images in folder**는 Reclass with에서 고른 규칙에 맞는 모든 박스의 클래스를 바꾼다(F로 확인만 한 후보도 바뀐다; 면적 줄어듦 검사는 라벨 파일에 저장된 크기와 비교한다). 확인 창 뒤에 현재 편집을 먼저 저장하고, 바꾼 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/refine-all-…` 또는 `reclass-all-…`에 백업한 뒤 열린 이미지를 다시 불러온다. 중간에 멈추면 어떤 파일도 바뀌지 않는다. 실행 취소(Ctrl+Z)로는 되돌릴 수 없고, 백업 파일로 되돌린다.
 
-- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop의 가로 비율(Centre width %)과 세로 비율(Centre height %), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 규칙은 켜고 끄는 스위치 없이 항상 쓰인다(Edge와 Reclass는 Mode로 나뉘므로 Reclass 모드에서 Find candidates를 누를 때만 판정한다). 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)이 쓰이고, 예전 파일의 꺼짐 설정은 무시한다. 예전 버전의 Centre crop % 하나는 가로·세로 모두에 쓰이고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
+- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop을 박스의 위·아래·왼쪽·오른쪽에서 각각 얼마나 빼낼지(Centre inset top / bottom / left / right %, 박스 높이·너비 대비 0-90%, 마주 보는 두 변의 합은 최대 90%), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 규칙은 켜고 끄는 스위치 없이 항상 쓰인다(Edge와 Reclass는 Mode로 나뉘므로 Reclass 모드에서 Find candidates를 누를 때만 판정한다). 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)이 쓰이고, 예전 파일의 꺼짐 설정은 무시한다. 예전 버전의 Centre width % / height %(또는 Centre crop % 하나)는 양쪽에 같은 inset으로 바뀌어 읽히고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
 - 판정은 세 가지다.
   - **Mean ≥:** 가운데 crop의 평균 밝기(0~255)가 기준 이상
   - **Bright pixels ≥ %:** 가운데 crop에서 Bright level 이상인 픽셀의 비율이 기준 이상
   - **Area shrinks ≥ %:** 현재 Edge 설정(Run with 선택 또는 클래스 설정)으로 경계를 다시 계산한 면적이 라벨 파일에서 불러온 크기보다 기준 이상 줄어듦(Refine을 적용한 뒤에도 불러온 크기와 비교한다)
 - Lab의 케이스마다 측정값(`mean · bright · area`)과 가운데 crop(점선)이 보이고, 맞는 케이스에는 마젠타 핀이 붙는다. 아래 상태줄에 `reclass N of M match`가 나온다.
-- 이미지 한 장에서 Refine 탭의 **Find candidates**를 누르면 후보가 표시된다. `N`/`Shift+N`으로 후보를 오가고, **Reclass selected** 또는 **Reclass all**로 클래스를 바꾼다(한 번의 실행 취소로 되돌릴 수 있다). `F`는 바꾸지 않고 확인만 해서 표시를 지운다. 확인한 박스는 고치기 전까지 다시 찾아도 나오지 않는다.
+- 이미지 한 장에서 Refine 탭의 **Find candidates**를 누르면 후보가 표시된다. `N`/`Shift+N`으로 후보를 오가고, `F`는 바꾸지 않고 확인만 해서 표시를 지운다. 확인한 박스는 고치기 전까지 다시 찾아도 나오지 않는다.
+- Reclass 모드의 **Apply**는 Edge 모드처럼 **Selected** / **All boxes** / 클래스 드롭다운 + **Reclass class**로 구성된다. 누르는 순간 대상 박스(선택한 박스, 보이는 모든 박스, 고른 클래스의 박스)를 Reclass with 규칙으로 판정해 일치한 박스의 클래스를 바꾼다(한 번의 실행 취소로 되돌릴 수 있다). `F`로 확인한 박스는 바꾸지 않는다. 규칙이 검사하지 않는 클래스와 규칙이 바꿀 대상 클래스는 드롭다운에서 고를 수 없다.
 - 규칙은 `.easy-labeling/refine-settings.json`에 저장되고, 이름을 붙여 Reclass 프리셋으로도 저장할 수 있다.
 
 ## 6. Segmentation 작업 기능
