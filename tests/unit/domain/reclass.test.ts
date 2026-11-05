@@ -11,6 +11,8 @@ import {
   normalizeReclassRule,
   normalizeReclassRules,
   reclassRuleOf,
+  ruleApplies,
+  ruleChecks,
   type ReclassRule
 } from "../../../src/domain/refine/reclass.js";
 
@@ -108,6 +110,15 @@ describe("domain/refine/reclass", () => {
     expect(matches[0]).toMatchObject({ mean: 200, areaChange: null });
     expect(evaluateReclass(img, [{ id: "c", classId: "0", box: FULL }], [rule({ toClass: "0" })], new Map())).toEqual([]);
     expect(evaluateReclass(img, boxes, [rule({ mean: { enabled: false, min: 0 } })], new Map())).toEqual([]);
+  });
+
+  it("checks boxes already of the target class but only changes the others", () => {
+    const r = rule({ fromClasses: ["0", "1"], toClass: "1" });
+    expect(ruleChecks(r, "1")).toBe(true);
+    expect(ruleApplies(r, "1")).toBe(false);
+    expect(ruleApplies(r, "0")).toBe(true);
+    expect(ruleChecks(r, "2")).toBe(false);
+    expect(ruleChecks(rule({ mean: { enabled: false, min: 128 } }), "0")).toBe(false);
   });
 
   it("summarises a rule in one line", () => {

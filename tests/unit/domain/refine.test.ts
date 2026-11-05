@@ -527,3 +527,38 @@ describe("domain/refine/settings", () => {
     expect(deleteReclassPreset(active, "voids")).toMatchObject({ reclassPresets: [], activeReclassPreset: null });
   });
 });
+
+describe("domain/refine scan span: inward parts at the box ends", () => {
+  const img: GrayImage = { gray: new Uint8Array(100 * 100).fill(40), width: 100, height: 100 };
+  const box: RefineRect = { x0: 20, y0: 30, x1: 60, y1: 70 };
+  const runsOf = (raw: Record<string, unknown>) => {
+    const d = describeRefineSide(img, box, "T", normalizeRefineParams(raw));
+    return { runs: d.runs, kinds: d.runKinds };
+  };
+
+  it("adds the inward part to each end's extension, and keeps the old runs with none", () => {
+    expect(runsOf({ scanSpan: "outside", extendStart: 5, extendEnd: 4 })).toEqual({ runs: [[15, 19], [60, 63]], kinds: ["start", "end"] });
+    expect(runsOf({ scanSpan: "outside", extendStart: 5, extendEnd: 4, inwardStart: 6, inwardEnd: 8 })).toEqual({ runs: [[15, 25], [52, 63]], kinds: ["start", "end"] });
+    // Inward only (no extension) is scanned too.
+    expect(runsOf({ scanSpan: "outside", inwardEnd: 8 })).toEqual({ runs: [[52, 59]], kinds: ["end"] });
+  });
+
+  it("reads overlapping parts once", () => {
+    // The two ends meet inside the box: one run. Inward parts stop at the box length.
+    expect(runsOf({ scanSpan: "outside", extendStart: 5, extendEnd: 4, inwardStart: 30, inwardEnd: 4000 })).toEqual({ runs: [[15, 63]], kinds: ["start"] });
+    // Box + outside, together: the inward part joins the inset box run where they overlap.
+    expect(runsOf({ scanSpan: "boxOutside", inset: 0.25, extendStart: 5, extendEnd: 4, inwardStart: 15, inwardEnd: 8 })).toEqual({ runs: [[15, 50], [52, 63]], kinds: ["start", "end"] });
+    // Strongest part keeps each part with its own pixels, overlap included.
+    expect(runsOf({ scanSpan: "boxOutside", partMode: "strongest", inset: 0.25, extendStart: 5, extendEnd: 4, inwardStart: 15, inwardEnd: 8 })).toEqual({ runs: [[15, 34], [30, 50], [52, 63]], kinds: ["start", "box", "end"] });
+  });
+
+  it("finds an edge hint that lies just inside the box end", () => {
+    // A bright structure only under the left end of the box, its top 3 px above the box top.
+    const gray = new Uint8Array(100 * 100).fill(40);
+    for (let y = 27; y < 75; y += 1) for (let x = 12; x < 27; x += 1) gray[y * 100 + x] = 200;
+    const image: GrayImage = { gray, width: 100, height: 100 };
+    const params = normalizeRefineParams({ scanSpan: "outside", extendStart: 4, inwardStart: 6, sides: { L: "off", R: "off", B: "off" }, rangeIn: 6, rangeOut: 6, iterations: 1 });
+    const [result] = refineBoxes(image, [{ id: "a", classId: "0", ...box }], { 0: params });
+    expect(Math.abs(result!.box.y0 - 27)).toBeLessThan(1);
+  });
+});

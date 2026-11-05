@@ -544,15 +544,33 @@ test("refine lab: scanned parts searched together or the strongest part alone, w
 
   await editor.locator("#refineLabField-partMode").selectOption("strongest");
   // Left edge: parts above the box, the box, below it; one of them sets the edge.
-  await expect(readout).toContainText(/Parts \(strength\): Above (?:[\d.]+|no edge)(?: — used)? · Box (?:[\d.]+|no edge)(?: — used)? · Below (?:[\d.]+|no edge)(?: — used)?/);
+  await expect(readout).toContainText(/Parts \(strength\): Top end (?:[\d.]+|no edge)(?: — used)? · Box (?:[\d.]+|no edge)(?: — used)? · Bottom end (?:[\d.]+|no edge)(?: — used)?/);
   await expect(readout).toContainText("— used");
   await expect.poll(async () => Buffer.compare(await profile.screenshot(), together) !== 0).toBe(true);
   await profile.screenshot({ path: "test-results/refine-lab-parts-profile.png" });
   await page.locator("#refineLabZoom").screenshot({ path: "test-results/refine-lab-parts-zoom.png" });
   await expect(page.locator("#refineLabStatus")).toContainText(/1 cases? · \d+ to review/);
 
+  // Outside only with inward parts: each end reaches into the box; the middle is left out.
+  await expect(editor.locator("#refineLabField-inwardStart")).toBeEnabled();
+  await expect(editor.locator("label[for='refineLabField-inwardStart']")).toHaveText("Into box from top (px)");
+  await editor.locator("#refineLabField-scanSpan").selectOption("outside");
+  await expect(readout).toContainText(/Parts \(strength\): Top end (?:[\d.]+|no edge)(?: — used)? · Bottom end/);
+  const strongestOutside = await profile.screenshot();
+  await editor.locator("#refineLabField-inwardStart").fill("8");
+  await editor.locator("#refineLabField-inwardEnd").fill("8");
+  await expect(readout).toContainText(/Parts \(strength\): Top end (?:[\d.]+|no edge)(?: — used)? · Bottom end (?:[\d.]+|no edge)(?: — used)?/);
+  await expect.poll(async () => Buffer.compare(await profile.screenshot(), strongestOutside) !== 0).toBe(true);
+  await profile.screenshot({ path: "test-results/refine-lab-inward-profile.png" });
+  await page.locator("#refineLabZoom").screenshot({ path: "test-results/refine-lab-inward-zoom.png" });
+  // Ends that meet inside the box are read once, as one part (so one profile, no parts).
+  await editor.locator("#refineLabField-inwardStart").fill("4000");
+  await expect(readout).not.toContainText("Parts (strength)");
+  await editor.locator("#refineLabField-inwardStart").fill("8");
+  await expect(readout).toContainText("Parts (strength)");
+
   await saveLab(page);
-  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ sideRules: { L: { scanSpan: "boxOutside", partMode: "strongest" } } });
+  await expect.poll(async () => (await settingsFile(page))?.classes["0"]).toMatchObject({ sideRules: { L: { scanSpan: "outside", partMode: "strongest", inwardStart: 8, inwardEnd: 8 } } });
   expect(errors).toEqual([]);
 });
 
@@ -778,6 +796,17 @@ test("refine: boxes whose area changes past the limit get a red pin and are queu
   await page.keyboard.press("f");
   await expect(page.locator("#refineReviewCounter")).toContainText("0 to review");
   await expect.poll(redPixels).toBe(0);
+
+  // Undo takes the box back (the counter follows); refining again flags it again, and Approve all settles every flag.
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Shift+E");
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review", { timeout: 15_000 });
+  await page.locator("#refineApproveAllBtn").click();
+  await expect(page.locator("#refineStatus")).toHaveText("1 box approved");
+  await expect(page.locator("#refineReviewCounter")).toContainText("0 to review");
+  await expect.poll(redPixels).toBe(0);
+  await page.locator("#refineApproveAllBtn").click();
+  await expect(page.locator("#refineStatus")).toHaveText("Nothing to review.");
 });
 
 test("presets: profile-folder refine presets join the dataset's list without being saved into it", async ({ page }) => {
@@ -897,95 +926,119 @@ const reclassRule = (patch: Record<string, unknown>) => ({ toClass: "1", crop: 0
 /** Settings that open the Refine pane in Reclass mode with these rules. */
 const reclassSettings = (...rules: Record<string, unknown>[]) => ({ default: {}, mode: "reclass", reclass: rules });
 
-test("reclass: finds bright centres and skips dismissed boxes", async ({ page }) => {
+test("reclass: All boxes changes the matching box at once, queues it for review, and approving keeps the class", async ({ page }) => {
   test.setTimeout(90_000);
   await openSemDataset(page, { extra: DARK_CENTRE, settings: reclassSettings(reclassRule({ mean: { enabled: true, min: 120 } })) });
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
   await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 120");
+  // Apply works like Edge's: there is no separate find step.
+  await expect(page.locator("#refineFindReclassBtn")).toHaveCount(0);
+  await expect(page.locator("#refineReclassAllBtn")).toBeEnabled();
 
-  // Two quick clicks still leave one candidate: the later run replaces the earlier one.
-  await page.locator("#refineFindReclassBtn").click();
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  // The bright-centred box changes, in one undo step, and is queued for review.
+  await page.locator("#refineReclassAllBtn").click();
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineStatus")).toContainText("1 of 2 boxes → class 1");
+  await expect(page.locator("#refineStatus")).toContainText("1 to review");
+  await expect(page.locator("#refineReviewCounter")).toHaveText("1 to review");
+  // Again: the box already has the rule's class, so nothing changes and no second undo step is added.
+  await page.locator("#refineReclassAllBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("No box matches the rule (2 checked)");
+  await expect(page.locator("#refineStatus")).toContainText("1 already class 1");
+  await expect(page.locator("#refineReviewCounter")).toHaveText("1 to review");
+  const overlay = page.locator("#refineOverlayCanvas");
+  await expect(overlay).toHaveAttribute("data-pins", "1");
+  expect((await api(page, (a) => a.getLabelsAsYolo())).split("\n").filter((line) => line.startsWith("1 "))).toHaveLength(1);
+
+  // N goes to it; F approves it: the new class stays and the pin goes.
   await page.keyboard.press("n");
   const right = (await geometries(page))[1].annotationId;
   expect(await api(page, (a) => a.getSelectedRectIds())).toEqual([right]);
-
-  // F dismisses it; finding again remembers that while the box is unchanged.
   await page.keyboard.press("f");
-  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineStatus")).toContainText("0 reclass candidates");
-  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
-  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
-});
+  await expect(page.locator("#refineReviewCounter")).toHaveText("0 to review");
+  await expect(overlay).toHaveAttribute("data-pins", "0");
+  expect(await classesLeftToRight(page)).toEqual(["0", "1"]);
 
-test("reclass: compares refined area with the loaded box even after Refine all, and Apply changes found candidates in one undo step", async ({ page }) => {
+  // One undo step restores the class.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+});
+test("reclass: compares refined area with the loaded box even after Refine all, and Apply works like Edge's", async ({ page }) => {
   test.setTimeout(120_000);
   // Box 1 is saved as 49 x 52 px; refined to 40 x 60 it loses about 6% of its area.
   await openSemDataset(page, { settings: reclassSettings(reclassRule({ mean: { enabled: false, min: 0 }, shrink: { enabled: true, minRatio: 0.03 } })) });
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
-  // Apply acts on found candidates: nothing to apply before Find.
-  await expect(page.locator("#refineReclassAllBtn")).toBeDisabled();
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
-  await expect(page.locator("#refineReclassAllBtn")).toBeEnabled();
 
-  // Refine keys keep working in Reclass mode.
+  // Refine every box in Edge mode first; back in Reclass mode the shrink check still compares with the loaded size.
+  await page.locator("#refineModeToggle [data-mode='edge']").click();
   await page.keyboard.press("Shift+E");
   await expect(page.locator("#refineStatus")).toContainText("refined", { timeout: 15_000 });
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineStatus")).toContainText("1 reclass candidate");
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await page.locator("#refineModeToggle [data-mode='reclass']").click();
 
-  // Apply selected changes the selected candidate.
-  await page.keyboard.press("n");
+  // Selected (E in Reclass mode): only the selected boxes are judged, and nothing moves.
+  const before = await geometries(page);
+  await selectBoxes(page, [0]);
+  await page.keyboard.press("e");
+  await expect(page.locator("#refineStatus")).toContainText("No box matches the rule (1 checked)");
+  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+  expect(await geometries(page)).toEqual(before);
+  await selectBoxes(page, [1]);
   await page.locator("#refineReclassSelectedBtn").click();
   await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
-  await expect(page.locator("#refineStatus")).toContainText("1 candidate → class 1 · 0 left");
-  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
-  await expect(page.locator("#refineReclassAllBtn")).toBeDisabled();
+  await expect(page.locator("#refineStatus")).toContainText("1 of 1 box → class 1");
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
   // The class list now holds class 1, the rule's target: it cannot be chosen.
   await expect(page.locator("#refineReclassClassSelect option[value='1']")).toBeDisabled();
+  // Undo takes the box out of the review queue.
   await page.keyboard.press("Control+z");
   await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+  await expect(page.locator("#refineReviewCounter")).toHaveText("0 to review");
 
-  // Apply all candidates: only the candidate changes, not the other box.
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
-  await page.locator("#refineReclassAllBtn").click();
-  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
-  expect((await api(page, (a) => a.getLabelsAsYolo())).split("\n").filter((line) => line.startsWith("1 "))).toHaveLength(1);
-  await page.keyboard.press("Control+z");
-  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
-
-  // Apply class: the candidates of the chosen class.
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  // Reclass class: the boxes of the chosen class.
   await page.locator("#refineReclassClassSelect").selectOption("0");
   await page.locator("#refineReclassClassBtn").click();
   await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
-  await page.keyboard.press("Control+z");
+  await expect(page.locator("#refineStatus")).toContainText("1 of 2 boxes → class 1");
 
-  // Skip selected leaves the candidate as it is.
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
-  await page.keyboard.press("n");
-  await page.locator("#refineReclassSkipBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
-  await expect(page.locator("#refineReclassAllBtn")).toBeDisabled();
+  // Shift+E in Reclass mode is All boxes.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+  await page.keyboard.press("Shift+E");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineStatus")).toContainText("1 of 2 boxes → class 1");
+  expect((await geometries(page)).map((g) => [g.left, g.top, g.right, g.bottom])).toEqual(before.map((g) => [g.left, g.top, g.right, g.bottom]));
+
+  // A class changed by hand is kept by All boxes (toggle on) and changed by Selected.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+  await selectBoxes(page, [1]);
+  await page.keyboard.press("2");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "2"]);
+  await page.keyboard.press("0");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+  await page.locator("#refineReclassAllBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("No box matches the rule (1 checked)");
+  await expect(page.locator("#refineStatus")).toContainText("1 hand-edited box kept");
   expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+  await page.locator("#refineReclassSkipManualToggle").uncheck();
+  await page.locator("#refineReclassAllBtn").click();
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+
+  // Approve all settles the reclass review.
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
+  await page.locator("#refineApproveAllBtn").click();
+  await expect(page.locator("#refineReviewCounter")).toHaveText("0 to review");
+  await expect(page.locator("#refineStatus")).toHaveText("1 box approved");
   await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-reclass-apply.png" });
 });
-
 test("reclass: the mode toggle shows the reclass controls, and the default rule is on when none is saved", async ({ page }) => {
   await openSemDataset(page);
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
   // Edge mode first: the reclass controls wait behind the mode toggle.
-  await expect(page.locator("#refineFindReclassBtn")).toBeHidden();
+  await expect(page.locator("#refineReclassAllBtn")).toBeHidden();
   await expect(page.locator("#refineRunPresetSelect")).toBeVisible();
   await page.locator("#refineModeToggle [data-mode='reclass']").click();
   await expect(page.locator("#refineRunPresetSelect")).toBeHidden();
@@ -1006,7 +1059,7 @@ test("refine lab: Reclass mode has its own presets and image, one rule whose cla
   await expect(editor.locator("[data-ref='presetSelect'] option", { hasText: "Edge one" })).toHaveCount(0);
   await expect(editor.locator("[data-ref='sideBox']")).toBeHidden();
   await expect(page.locator("#refineLabProfile")).toBeHidden();
-  await expect(page.locator("#refineLabApplyBtn")).toHaveText("Save & find candidates");
+  await expect(page.locator("#refineLabApplyBtn")).toHaveText("Save & reclass these boxes");
 
   // One rule, no add/move/delete; its classes are the chips.
   await expect(editor.locator(".reclass-rule")).toHaveCount(1);
@@ -1057,12 +1110,16 @@ test("refine lab: Reclass mode has its own presets and image, one rule whose cla
   expect(saved.reclassPresets).toMatchObject([{ name: "Voids", imageSource: "processed" }]);
   expect(saved.reclassPresets[0].reclass).toMatchObject([{ fromClasses: ["0"], insetTop: 0.1, insetBottom: 0.4, insetLeft: 0.05, insetRight: 0.3 }]);
 
-  // The pane finds candidates with a chosen reclass preset.
+  // The pane reclasses with a chosen reclass preset: its Apply buttons are ready right away.
   await expect(page.locator("#refineReclassPresetSelect option", { hasText: "Voids" })).toHaveCount(1);
   await page.locator("#refineReclassPresetSelect").selectOption("Voids");
   await expect(page.locator("#refineReclassSummary")).toContainText("class 0 → 1");
   await expect(page.locator("#refineReclassSummary")).toContainText("Processed");
   await expect.poll(async () => (await settingsFile(page) as { activeReclassPreset?: string } | null)?.activeReclassPreset).toBe("Voids");
+  for (const id of ["refineReclassSelectedBtn", "refineReclassAllBtn", "refineReclassClassBtn", "refineReclassFolderBtn"]) await expect(page.locator(`#${id}`)).toBeEnabled();
+  await expect(page.locator("#refineReclassClassSelect")).toHaveValue("0");
+  await page.locator("#refineReclassAllBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText(/→ class 1|No box matches/);
   await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-reclass-mode.png" });
 });
 
@@ -1088,24 +1145,38 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await page.locator("#refineLabReclass0-meanMin").fill("200");
   await expect(page.locator("#refineLabStatus")).toContainText("reclass 0 of 2 match");
 
+  // Change to the class the boxes already have: they are still judged with the settings, marked as already that class.
+  await page.locator("#refineLabReclass0-to").fill("0");
+  await page.locator("#refineLabReclass0-meanMin").fill("120");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 1 of 2 match");
+  await page.locator(".refine-lab-case[data-reclass='match']").click();
+  await expect(page.locator("#refineLabReadout")).toContainText("Match (already class 0: Apply leaves it as it is)");
+  await page.locator("#refineLabReclass0-to").fill("1");
+  await page.locator("#refineLabReclass0-meanMin").fill("200");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 0 of 2 match");
+
   await saveLab(page);
   await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"min":200');
   await expect(page.locator("#refineReclassSummary")).toContainText("all classes → 1 · mean ≥ 200");
 
-  // Turning every check off clears the candidates an earlier Find left.
+  // Save & reclass these boxes applies the rule to the Lab's cases.
   await openLab(page);
   await openReclass(page);
   await page.locator("#refineLabReclass0-meanMin").fill("120");
-  await saveLab(page);
-  await page.locator("#refineFindReclassBtn").click();
-  await expect(page.locator("#refineReclassCounter")).toHaveText("1 candidate");
+  await page.locator("#refineLabApplyBtn").click();
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineReviewCounter")).toContainText("1 to review");
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+
+  // With every check off nothing changes.
   await openLab(page);
   await openReclass(page);
   await page.locator("#refineLabReclass0-meanOn").uncheck();
   await saveLab(page);
-  await page.locator("#refineFindReclassBtn").click();
+  await page.locator("#refineReclassAllBtn").click();
   await expect(page.locator("#refineStatus")).toHaveText("The reclass rule has no check on.");
-  await expect(page.locator("#refineReclassCounter")).toHaveText("0 candidates");
+  expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
   await expect(page.locator("#refineOverlayCanvas")).toHaveAttribute("data-pins", "0");
 });
 
@@ -1238,7 +1309,7 @@ test("refine lab: the guide opens on the mode's tutorial, switches between Engli
   await expect(current).toHaveText("튜토리얼: 클래스가 잘못된 박스 찾기");
   await expect(guide.locator("#refineHelpTitle")).toContainText("Refine Lab 가이드");
   await expect(guide.locator("[data-group='hints']")).toHaveText("힌트");
-  await expect(guide.locator("#refineHelp-reclass-quickstart")).toContainText("Save & find candidates");
+  await expect(guide.locator("#refineHelp-reclass-quickstart")).toContainText("Save & reclass these boxes");
   await expect(guide.locator("#refineHelp-reclass-quickstart svg.rh-fig")).toContainText("정상");
   await guide.locator("[data-topic='reclass-crop']").first().click();
   await guide.screenshot({ path: "test-results/refine-help-ko-light.png" });
@@ -1288,18 +1359,20 @@ test("reclass: pins stay readable on a 3072 x 2048 image with 700 boxes", async 
   });
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
-  const findMs = async (): Promise<number> => {
+  const applyMs = async (): Promise<number> => {
     await page.evaluate(() => { document.getElementById("refineStatus")!.textContent = ""; });
-    await page.locator("#refineFindReclassBtn").click();
-    await expect(page.locator("#refineStatus")).toContainText("reclass candidates in", { timeout: 30_000 });
+    await page.locator("#refineReclassAllBtn").click();
+    await expect(page.locator("#refineStatus")).toContainText(`${defects} of ${structures.length} boxes → class 1 in`, { timeout: 30_000 });
     return Number((await page.locator("#refineStatus").textContent())?.match(/in (\d+) ms/)?.[1]);
   };
   // The first run also hands the image to the refine worker (as the first Refine does); later runs only judge.
-  const first = await findMs();
-  await expect(page.locator("#refineReclassCounter")).toHaveText(`${defects} candidates`);
-  const warm = await findMs();
-  testInfo.annotations.push({ type: "reclass-find-ms", description: `${structures.length} boxes: first ${first} ms, then ${warm} ms` });
-  console.log(`reclass Find, ${structures.length} boxes: first ${first} ms, then ${warm} ms`);
+  const first = await applyMs();
+  await expect(page.locator("#refineReviewCounter")).toHaveText(`${defects} to review`);
+  await page.keyboard.press("Control+z");
+  await expect(page.locator("#refineReviewCounter")).toHaveText("0 to review");
+  const warm = await applyMs();
+  testInfo.annotations.push({ type: "reclass-apply-ms", description: `${structures.length} boxes: first ${first} ms, then ${warm} ms` });
+  console.log(`reclass Apply, ${structures.length} boxes: first ${first} ms, then ${warm} ms`);
   expect(warm).toBeLessThan(1000);
 
   const overlay = page.locator("#refineOverlayCanvas");

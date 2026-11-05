@@ -343,21 +343,23 @@ Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리�
 
 - Lab 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule이다.
 - Edge 모드의 Lab 확대 화면은 **Surroundings** 설정이 읽는 곳을 함께 그린다. 주황 띠는 Background ring(검색 범위 바깥의 배경 밝기 측정 영역), 점선 사각형은 박스 core(안쪽 50%)이고, 각 라벨에 측정한 중앙값이 붙는다. 회색 점선 박스는 이웃 박스로, Stop halfway to neighbours를 켜면 바깥 검색이 그 중간에서 멈춘다(끄면 `neighbour (ignored)`). 아래 설명 줄에 core → ring 밝기와 극성, 이웃 수, Row/column tolerance(캔버스에서 여러 박스를 정렬할 때만 검사)가 나온다.
+- Edge rule의 **Scan span**이 Box + outside 또는 Outside only일 때, 각 끝은 박스 너머(Extend before/after)뿐 아니라 **Into box from start / end (px)**만큼 박스 안쪽도 스캔한다. 경계의 힌트가 변의 가운데가 아니라 박스 끝 부근 안팎에 있을 때 쓴다(Outside only면 가운데는 스캔하지 않는다). 끝 구간이 박스 구간이나 반대쪽 끝과 겹치면 겹친 영역은 한 번만 읽는다(Box + outside의 Strongest part는 각 부분을 그대로 둔다). Lab의 Strongest part 그래프는 시작 끝(주황), 박스(초록), 끝 쪽 끝(보라)으로 색이 고정된다. 기본값 0이면 예전과 결과가 같다.
 - 프리셋은 모드마다 따로 저장하고 불러온다. 데스크톱 앱은 Reclass 프리셋을 `Reclass Presets` 폴더에 둔다. 예전 Refine 프리셋에 같이 저장된 Reclass 규칙은 쓰지 않는다(Edge 프리셋으로만 읽는다).
 - Image(Original/Processed와 Processing)도 모드마다 따로다. 예를 들어 경계는 Processed로 찾고 Reclass 판정은 Original 밝기로 할 수 있다. 예전 설정 파일은 Reclass도 Edge와 같은 이미지로 시작한다.
 - Reclass 모드에서 Classes 칩은 규칙의 검사 대상 클래스(From)다. **All**은 모든 클래스를 검사한다.
-- Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & find candidates**는 저장한 뒤 캔버스에서 후보를 찾는다.
-- Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Find candidates를 보여 준다. Review의 `N`/`Shift+N`/`F`는 현재 모드의 대상(Refine 검토 대상 또는 Reclass 후보)만 다룬다. `E`/`Shift+E`는 모드와 상관없이 경계를 맞춘다.
-- 폴더 전체 적용: Edge 모드의 **Refine all images in folder**는 Run with에서 고른 설정(프리셋 또는 클래스 설정)으로 현재 폴더 모든 이미지의 모든 박스 경계를 맞추고, Reclass 모드의 **Reclass all images in folder**는 Reclass with에서 고른 규칙에 맞는 모든 박스의 클래스를 바꾼다(F로 확인만 한 후보도 바뀐다; 면적 줄어듦 검사는 라벨 파일에 저장된 크기와 비교한다). 확인 창 뒤에 현재 편집을 먼저 저장하고, 바꾼 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/refine-all-…` 또는 `reclass-all-…`에 백업한 뒤 열린 이미지를 다시 불러온다. 중간에 멈추면 어떤 파일도 바뀌지 않는다. 실행 취소(Ctrl+Z)로는 되돌릴 수 없고, 백업 파일로 되돌린다.
+- Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & reclass these boxes**는 저장한 뒤 Lab의 케이스 박스에 규칙을 적용한다(Edge의 Save & refine these boxes와 같다).
+- Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Edge와 같은 구성의 Apply를 보여 준다. Review의 `N`/`Shift+N`/`F`와 **Approve all**은 현재 모드의 대상(Refine 검토 대상 또는 Reclass로 클래스가 바뀐 박스)만 다룬다. **Approve all**은 남은 검토 대상을 한 번에 승인한다. `E`/`Shift+E`는 지금 모드의 Apply를 누른다: Edge 모드는 Selected/All boxes 경계 맞추기, Reclass 모드는 Selected/All boxes 재분류.
+- 폴더 전체 적용: Edge 모드의 **Refine all images in folder**는 Run with에서 고른 설정(프리셋 또는 클래스 설정)으로 현재 폴더 모든 이미지의 모든 박스 경계를 맞추고, Reclass 모드의 **Reclass all images in folder**는 Reclass with에서 고른 규칙에 맞는 모든 박스의 클래스를 바꾼다(손으로 클래스를 바꾼 박스도 판정한다; 면적 줄어듦 검사는 라벨 파일에 저장된 크기와 비교한다). 확인 창 뒤에 현재 편집을 먼저 저장하고, 바꾼 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/refine-all-…` 또는 `reclass-all-…`에 백업한 뒤 열린 이미지를 다시 불러온다. 중간에 멈추면 어떤 파일도 바뀌지 않는다. 실행 취소(Ctrl+Z)로는 되돌릴 수 없고, 백업 파일로 되돌린다.
 
-- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop을 박스의 위·아래·왼쪽·오른쪽에서 각각 얼마나 빼낼지(Centre inset top / bottom / left / right %, 박스 높이·너비 대비 0-90%, 마주 보는 두 변의 합은 최대 90%), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 규칙은 켜고 끄는 스위치 없이 항상 쓰인다(Edge와 Reclass는 Mode로 나뉘므로 Reclass 모드에서 Find candidates를 누를 때만 판정한다). 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)이 쓰이고, 예전 파일의 꺼짐 설정은 무시한다. 예전 버전의 Centre width % / height %(또는 Centre crop % 하나)는 양쪽에 같은 inset으로 바뀌어 읽히고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
+- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop을 박스의 위·아래·왼쪽·오른쪽에서 각각 얼마나 빼낼지(Centre inset top / bottom / left / right %, 박스 높이·너비 대비 0-90%, 마주 보는 두 변의 합은 최대 90%), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 규칙은 켜고 끄는 스위치 없이 항상 쓰인다(Edge와 Reclass는 Mode로 나뉘므로 Reclass 모드에서 Apply를 누를 때만 판정한다). 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)이 쓰이고, 예전 파일의 꺼짐 설정은 무시한다. 예전 버전의 Centre width % / height %(또는 Centre crop % 하나)는 양쪽에 같은 inset으로 바뀌어 읽히고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
 - 판정은 세 가지다.
   - **Mean ≥:** 가운데 crop의 평균 밝기(0~255)가 기준 이상
   - **Bright pixels ≥ %:** 가운데 crop에서 Bright level 이상인 픽셀의 비율이 기준 이상
   - **Area shrinks ≥ %:** 현재 Edge 설정(Run with 선택 또는 클래스 설정)으로 경계를 다시 계산한 면적이 라벨 파일에서 불러온 크기보다 기준 이상 줄어듦(Refine을 적용한 뒤에도 불러온 크기와 비교한다)
-- Lab의 케이스마다 측정값(`mean · bright · area`)과 가운데 crop(점선)이 보이고, 맞는 케이스에는 마젠타 핀이 붙는다. 아래 상태줄에 `reclass N of M match`가 나온다.
-- 이미지 한 장에서 Refine 탭의 **Find candidates**를 누르면 후보가 표시된다. `N`/`Shift+N`으로 후보를 오가고, `F`는 바꾸지 않고 확인만 해서 표시를 지운다. 확인한 박스는 고치기 전까지 다시 찾아도 나오지 않는다.
-- Reclass 모드의 **Apply**는 Find candidates로 찾은 후보에만 작동한다(찾기 전에는 버튼이 꺼져 있다). 후보마다 `N`으로 가서 **Apply selected**(클래스 변경) 또는 **Skip selected**(`F`, 그대로 둠)를 고르면 다음 후보로 넘어간다. **Apply all candidates**는 남은 후보 모두를, 클래스 드롭다운 + **Apply class**는 고른 클래스의 남은 후보를 바꾼다. 바꾸기는 한 번의 실행 취소로 되돌릴 수 있고, 되돌린 뒤에는 Find candidates를 다시 누른다. 규칙이 검사하지 않는 클래스와 규칙이 바꿀 대상 클래스는 드롭다운에서 고를 수 없다.
+- Lab의 케이스마다 측정값(`mean · bright · area`)과 가운데 crop(점선)이 보이고, 맞는 케이스에는 마젠타 핀이 붙는다. 아래 상태줄에 `reclass N of M match`가 나온다. 바꿀 클래스(Change to)와 이미 같은 클래스의 박스도 검사 대상 클래스라면 같은 설정으로 판정해 보여 주고 `already class N`으로 표시한다(Apply는 바꿀 것이 없으므로 그대로 둔다).
+- Reclass 모드의 **Apply**는 Edge 모드와 같이 동작한다. **Selected**(선택한 박스), **All boxes**(보이는 모든 박스), 클래스 드롭다운 + **Reclass class**(고른 클래스의 박스)를 누르면 그 박스들을 Reclass with 규칙으로 바로 판정해 일치한 박스의 클래스를 바꾼다(한 번의 실행 취소로 되돌릴 수 있다). 따로 찾는 단계는 없다. 규칙이 검사하지 않는 클래스와 규칙이 바꿀 대상 클래스는 드롭다운에서 고를 수 없다.
+- **Keep boxes whose class was changed by hand…**(기본 켜짐)는 Edge의 손 편집 유지 스위치처럼, 손으로 클래스를 바꾼 박스를 All boxes와 Reclass class에서 건드리지 않는다. Selected는 항상 판정한다.
+- 클래스가 바뀐 박스는 검토 대상이 되어 마젠타 핀(`원래 → 바뀐 클래스`)이 붙는다. `N`/`Shift+N`으로 오가며 `F`(Approve)로 하나씩, **Approve all**로 한 번에 승인한다. 규칙이 틀린 박스는 실행 취소하거나 손으로 클래스를 고치면 검토 목록에서 빠진다.
 - 규칙은 `.easy-labeling/refine-settings.json`에 저장되고, 이름을 붙여 Reclass 프리셋으로도 저장할 수 있다.
 
 ## 6. Segmentation 작업 기능

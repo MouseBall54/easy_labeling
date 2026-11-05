@@ -23,6 +23,8 @@ pub struct SideRule {
     near_weight: Option<bool>,
     extend_start: Option<f64>,
     extend_end: Option<f64>,
+    inward_start: Option<f64>,
+    inward_end: Option<f64>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -68,6 +70,10 @@ pub struct RefineParams {
     near_weight: bool,
     extend_start: f64,
     extend_end: f64,
+    #[serde(default)]
+    inward_start: f64,
+    #[serde(default)]
+    inward_end: f64,
     sides: Sides<String>,
     side_rules: Sides<SideRule>,
     #[serde(rename = "pairTB", default = "pair_off")]
@@ -198,6 +204,8 @@ struct SideParams {
     near_weight: bool,
     extend_start: f64,
     extend_end: f64,
+    inward_start: f64,
+    inward_end: f64,
     avoid_neighbors: bool,
 }
 
@@ -219,6 +227,8 @@ fn side_params(p: &RefineParams, side: Side) -> SideParams {
         near_weight: rule.near_weight.unwrap_or(p.near_weight),
         extend_start: rule.extend_start.unwrap_or(p.extend_start),
         extend_end: rule.extend_end.unwrap_or(p.extend_end),
+        inward_start: rule.inward_start.unwrap_or(p.inward_start),
+        inward_end: rule.inward_end.unwrap_or(p.inward_end),
         avoid_neighbors: p.avoid_neighbors,
     }
 }
@@ -644,6 +654,19 @@ struct SideWindow {
     c: f64,
 }
 
+/// Runs sorted by their first pixel with overlapping ones joined; adjacent runs stay apart (mergeOverlappingRuns).
+fn merge_overlapping_runs(mut runs: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    runs.sort_by_key(|run| run.0);
+    let mut merged: Vec<(i64, i64)> = Vec::with_capacity(runs.len());
+    for (from, to) in runs {
+        match merged.last_mut() {
+            Some(last) if from <= last.1 => last.1 = last.1.max(to),
+            _ => merged.push((from, to)),
+        }
+    }
+    merged
+}
+
 fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbours: &[Rect]) -> SideWindow {
     let vertical = is_vertical(side);
     let p0 = rect.get(side);
@@ -658,21 +681,25 @@ fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbo
         s1 = s0;
     }
     let inside = (s0.clamp(0, lim), s1.clamp(0, lim));
-    let before = ((js_round(a0) as i64 - p.extend_start as i64).max(0), (js_round(a0) as i64 - 1).min(lim));
-    let after = ((js_round(a1) as i64).max(0), (js_round(a1) as i64 + p.extend_end as i64 - 1).min(lim));
-    let has_before = p.extend_start > 0.0 && before.1 >= before.0;
-    let has_after = p.extend_end > 0.0 && after.1 >= after.0;
-    let mut outside = Vec::new();
+    // Each end scans its extension past the box plus its inward part into the box (at most the box length).
+    let (r0, r1) = (js_round(a0) as i64, js_round(a1) as i64);
+    let in_start = (p.inward_start as i64).min((r1 - r0).max(0));
+    let in_end = (p.inward_end as i64).min((r1 - r0).max(0));
+    let before = ((r0 - p.extend_start as i64).max(0), (r0 + in_start - 1).min(lim));
+    let after = ((r1 - in_end).max(0), (r1 + p.extend_end as i64 - 1).min(lim));
+    let has_before = (p.extend_start > 0.0 || in_start > 0) && before.1 >= before.0;
+    let has_after = (p.extend_end > 0.0 || in_end > 0) && after.1 >= after.0;
+    let mut ends = Vec::new();
     if has_before {
-        outside.push(before);
+        ends.push(before);
     }
     if has_after {
-        outside.push(after);
+        ends.push(after);
     }
-    let runs = if p.scan_span == "box" || outside.is_empty() {
+    let mut runs = if p.scan_span == "box" || ends.is_empty() {
         vec![inside]
     } else if p.scan_span == "outside" {
-        outside
+        ends
     } else {
         let mut runs = Vec::new();
         if has_before {
@@ -684,6 +711,11 @@ fn side_window(img: &GrayImage, rect: &Rect, side: Side, p: &SideParams, neighbo
         }
         runs
     };
+    // With inward parts, overlapping runs are read once, except Strongest part over box + outside (each part keeps
+    // its pixels). Without them the runs stay as before, so older settings give the same results.
+    if (in_start > 0 || in_end > 0) && !(p.part_mode == "strongest" && p.scan_span == "boxOutside") {
+        runs = merge_overlapping_runs(runs);
+    }
     let positions: Vec<i64> = runs.iter().flat_map(|&(from, to)| from..=to).collect();
     let run_lengths: Vec<usize> = runs.iter().map(|&(from, to)| (to - from + 1) as usize).collect();
     // Inward search may run through the centre up to MIN_SIZE short of the opposite side.

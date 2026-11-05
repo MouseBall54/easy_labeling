@@ -181,12 +181,15 @@ function figures(lang: HelpLang) {
         + tag(196, 26, L("Prefer growing (halo)", "Prefer growing (후광)"), COLORS.result) + tag(196, 126, "Prefer growing", COLORS.result)
         + tag(196, 44, L("Prefer shrinking (core)", "Prefer shrinking (코어)"), COLORS.green) + tag(196, 108, "Prefer shrinking", COLORS.green)
         + tag(110, 76, L("dashed: label", "점선: 라벨"), "#ffffff", "middle"))),
-    span: svg(L("Scan span: extensions scan past the box ends along a long structure", "Scan span: 긴 구조를 따라 박스 끝 너머까지 스캔"), 320, 140,
-      micro(4, 4, 312, 112, blob(-10, 46, 340, 34, 180, 4),
+    span: svg(L("Scan span: each end scans past the box end and into the box; the middle can be left out", "Scan span: 각 끝에서 박스 너머와 박스 안쪽을 스캔하고, 가운데는 뺄 수 있음"), 320, 150,
+      micro(4, 4, 312, 122, blob(-10, 46, 340, 34, 180, 4),
         rect(110, 38, 100, 50, ORIGINAL)
-        + rect(30, 38, 80, 16, `fill="${COLORS.band}" opacity="0.55"`) + rect(110, 38, 100, 16, `fill="${COLORS.band}"`) + rect(210, 38, 80, 16, `fill="${COLORS.band}" opacity="0.55"`)
-        + tag(70, 32, "Extend before", "#cfe2ff", "middle") + tag(160, 32, L("box", "박스"), "#ffffff", "middle") + tag(250, 32, "Extend after", "#cfe2ff", "middle"))
-      + note(160, 132, L("Top edge, Scan span: Box + outside", "위쪽 변, Scan span: Box + outside"), "middle")),
+        + rect(30, 38, 80, 16, `fill="${COLORS.band}" opacity="0.55"`) + rect(110, 38, 26, 16, `fill="${COLORS.band}"`)
+        + rect(184, 38, 26, 16, `fill="${COLORS.band}"`) + rect(210, 38, 80, 16, `fill="${COLORS.band}" opacity="0.55"`)
+        + tag(70, 32, "Extend before", "#cfe2ff", "middle") + tag(250, 32, "Extend after", "#cfe2ff", "middle")
+        + tag(123, 70, L("Into box", "박스 안쪽"), "#ffffff", "middle") + tag(197, 70, L("Into box", "박스 안쪽"), "#ffffff", "middle")
+        + tag(160, 104, L("not scanned", "스캔 안 함"), "#d0d0d0", "middle"))
+      + note(160, 142, L("Top edge, Scan span: Outside only, with Into box from start / end", "위쪽 변, Scan span: Outside only + Into box from start / end"), "middle")),
     surroundings: svg(L("Surroundings: box core, background ring and a neighbour box", "Surroundings: 박스 코어, background ring, 이웃 박스"), 320, 150,
       micro(4, 4, 312, 142, blob(40, 34, 110, 76, 185) + blob(212, 30, 80, 84, 175),
         rect(26, 20, 138, 104, `fill="none" stroke="${COLORS.amber}" stroke-width="7" opacity="0.45"`)
@@ -244,7 +247,7 @@ const META: { id: string; group: HelpGroup; figure?: FigureKey; keywords: string
   { id: "edge-near", group: "edge", figure: "near", keywords: ["near", "nearWeight", "prefer near", "strongest", "weight", "가까운", "가중치", "근처"] },
   { id: "edge-sides", group: "edge", figure: "sides", keywords: ["side", "sides", "top", "bottom", "left", "right", "off", "inherit", "per side", "use for all sides", "clear side rules", "변", "한쪽", "상하좌우", "끄기"] },
   { id: "edge-pair", group: "edge", figure: "pair", keywords: ["pair", "pairTB", "pairLR", "grow", "shrink", "clearest", "nearest", "halo", "쌍", "확장", "축소", "후광"] },
-  { id: "edge-span", group: "edge", figure: "span", keywords: ["scan span", "extend", "extension", "before", "after", "outside", "part", "strongest part", "together", "스캔", "연장", "선", "트렌치"] },
+  { id: "edge-span", group: "edge", figure: "span", keywords: ["scan span", "extend", "extension", "before", "after", "outside", "into box", "inward", "end", "part", "strongest part", "together", "스캔", "연장", "안쪽", "끝", "선", "트렌치"] },
   { id: "edge-surroundings", group: "edge", figure: "surroundings", keywords: ["surroundings", "background ring", "contextRing", "core", "neighbour", "neighbor", "avoid", "stop halfway", "row", "column", "tolerance", "주변", "배경", "이웃", "겹침", "행", "열"] },
   { id: "edge-review", group: "edge", figure: "review", keywords: ["review", "flag", "confidence", "weak", "area", "growth", "shrink", "pin", "caret", "approve", "검토", "신뢰도", "면적", "플래그", "승인"] },
   { id: "edge-advanced", group: "edge", keywords: ["iterations", "auto", "on draw", "autoOnDraw", "advanced", "반복", "자동", "그리기"] },
@@ -253,7 +256,7 @@ const META: { id: string; group: HelpGroup; figure?: FigureKey; keywords: string
   { id: "reclass-quickstart", group: "start", figure: "checks", keywords: ["tutorial", "reclass", "class", "defect", "튜토리얼", "재분류", "클래스 변경", "결함"] },
   { id: "reclass-crop", group: "reclass", figure: "insets", keywords: ["centre", "center", "crop", "inset", "top", "bottom", "left", "right", "가운데", "중앙", "영역", "상하좌우", "인셋"] },
   { id: "reclass-checks", group: "reclass", figure: "checks", keywords: ["mean", "bright", "bright pixels", "bright level", "shrink", "area", "and", "or", "combine", "평균", "밝은 픽셀", "면적", "축소", "조합"] },
-  { id: "reclass-run", group: "reclass", keywords: ["find candidates", "candidate", "reclass selected", "reclass all", "dismiss", "reclass with", "후보", "찾기", "재분류", "무시"] },
+  { id: "reclass-run", group: "reclass", keywords: ["apply", "selected", "all boxes", "reclass class", "approve all", "review", "hand-edited", "reclass with", "적용", "검토", "승인", "재분류"] },
   { id: "folder-run", group: "start", figure: "flow", keywords: ["folder", "all images", "batch", "preset", "backup", "run with", "reclass with", "폴더", "전체", "일괄", "백업"] },
   { id: "hints", group: "hints", keywords: ["hint", "hints", "troubleshoot", "problem", "wrong edge", "jumps", "noisy", "soft", "rim", "too many", "힌트", "문제", "해결", "잘못", "튐", "노이즈", "흐림"] },
   { id: "shortcuts", group: "hints", keywords: ["shortcut", "keys", "keyboard", "단축키", "키"] }

@@ -377,7 +377,12 @@ function writeRefine() {
     "pair-mixed": { pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest", iterations: 3 },
     "pair-side-off": { pairTB: "grow", sides: { T: "off" } },
     "pair-strongest-parts": { pairLR: "grow", scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest", crit: "thr" },
-    "pair-band": { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false }
+    "pair-band": { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false },
+    "inward-outside": { scanSpan: "outside", extendStart: 6, extendEnd: 4, inwardStart: 5, inwardEnd: 8 },
+    "inward-overlap": { scanSpan: "outside", extendStart: 3, extendEnd: 3, inwardStart: 4000, inwardEnd: 30, partMode: "strongest" },
+    "inward-box-inset": { scanSpan: "boxOutside", inset: 0.3, extendStart: 4, extendEnd: 4, inwardStart: 12, inwardEnd: 7 },
+    "inward-strongest": { crit: "thr", scanSpan: "boxOutside", partMode: "strongest", inset: 0.2, extendStart: 6, extendEnd: 6, inwardStart: 10, inwardEnd: 10 },
+    "inward-side-rules": { sideRules: { T: { scanSpan: "outside", extendStart: 5, inwardStart: 6 }, R: { scanSpan: "outside", inwardEnd: 9, partMode: "strongest" } } }
   };
   const paramsFor = (raw) => ({ 0: normalizeRefineParams(raw), 1: normalizeRefineParams({ ...raw, crit: "thr", rangeIn: 5 }) });
   const cases = [];

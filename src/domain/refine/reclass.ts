@@ -132,11 +132,15 @@ export function measureReclass(img: GrayImage, box: RefineRect, rule: ReclassIns
   return { mean: sum / count, brightRatio: bright / count };
 }
 
+/** Checks this class (from classes, empty = all) and has at least one check on; the box may already be of toClass. */
+export function ruleChecks(rule: ReclassRule, boxClass: string): boolean {
+  return (rule.fromClasses.length === 0 || rule.fromClasses.includes(boxClass))
+    && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled);
+}
+
 /** Checks this class, would change it, and has at least one check on. */
 export function ruleApplies(rule: ReclassRule, boxClass: string): boolean {
-  return rule.toClass !== boxClass
-    && (rule.fromClasses.length === 0 || rule.fromClasses.includes(boxClass))
-    && (rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled);
+  return rule.toClass !== boxClass && ruleChecks(rule, boxClass);
 }
 
 export function judgeReclass(rule: ReclassRule, stats: ReclassStats): boolean {

@@ -27,7 +27,7 @@ import {
   type RefineProcessing,
   type RefineSettingsDocument
 } from "../domain/refine/settings.js";
-import { centreCrop, describeReclassRule, evaluateReclass, measureReclass, reclassRuleOf, ruleApplies, type ReclassRule, type ReclassStats } from "../domain/refine/reclass.js";
+import { centreCrop, describeReclassRule, judgeReclass, measureReclass, reclassRuleOf, ruleChecks, type ReclassRule, type ReclassStats } from "../domain/refine/reclass.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
 import { layoutMarks, drawMarks, RECLASS_COLOR } from "./refine-marks.js";
@@ -63,8 +63,8 @@ interface LabResult {
   params: RefineParams;
   result: Omit<RefineResult, "id" | "classId"> | null;
   sides: Partial<Record<RefineSide, RefineSideDiagnostics>>;
-  /** Null when no reclass rule checks this case's class. rule: the matching rule, else the first that checks it. */
-  reclass: { stats: ReclassStats; rule: ReclassRule; match: boolean } | null;
+  /** Null when the rule does not check this case's class. same: the box is already of the rule's class (Apply leaves it). */
+  reclass: { stats: ReclassStats; rule: ReclassRule; match: boolean; same: boolean } | null;
 }
 
 const MAX_CASES = 24;
@@ -72,14 +72,14 @@ const MAX_CASES = 24;
 // background rings and scan-span extensions, so a case always holds every pixel refinement reads.
 const CROP_MARGIN = 128;
 const WARN = "#f0ad4e";
-/** One colour per scanned part (before the box, the box, after it) in "Strongest part" mode. */
-const PART_COLORS = ["#e8890c", "#2e9e6b", "#b44bc4"];
+/** One colour per scanned part in "Strongest part" mode, by where it lies: the start end, the box, the end end. */
+const PART_COLORS = { start: "#e8890c", box: "#2e9e6b", end: "#b44bc4" } as const;
+const partColor = (d: RefineSideDiagnostics, index: number): string => PART_COLORS[d.runKinds[index] ?? "box"];
 
-/** Names the scanned runs of a side by where they lie along it: before the box, the box, after it. */
-const partNames = (d: RefineSideDiagnostics, box: RefineRect): string[] => {
+/** Names the scanned runs of a side by where they lie along it: the start end, the box, the end end. */
+const partNames = (d: RefineSideDiagnostics): string[] => {
   const vertical = d.side === "L" || d.side === "R";
-  const [a0, a1] = vertical ? [box.y0, box.y1] : [box.x0, box.x1];
-  return d.runs.map(([from, to]) => (to < Math.round(a0) ? (vertical ? "Above" : "Left") : from >= Math.round(a1) ? (vertical ? "Below" : "Right") : "Box"));
+  return d.runKinds.map((kind) => (kind === "start" ? (vertical ? "Top end" : "Left end") : kind === "end" ? (vertical ? "Bottom end" : "Right end") : "Box"));
 };
 const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
 const SIDE_NAMES: Record<RefineSide, string> = { L: "Left", R: "Right", T: "Top", B: "Bottom" };
@@ -140,8 +140,8 @@ export function createRefineLab(input: {
   getSettings(): RefineSettingsDocument;
   saveSettings(doc: RefineSettingsDocument): void;
   refineOnCanvas(ids: string[]): void;
-  /** Runs Find candidates on the canvas with the saved reclass settings. */
-  findCandidatesOnCanvas(): void;
+  /** Reclasses these canvas boxes with the saved reclass settings (as the pane's Apply does). */
+  reclassOnCanvas(ids: string[]): void;
   collectCases(source: RefineLabCaseSource, classIds: readonly string[]): RefineBoxInput[];
   /** Gray pixels refinement reads for rect (clamped), from the original or the processed image. */
   cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource, processing: RefineProcessing | null): Promise<GrayImage & { x0: number; y0: number }>;
@@ -232,7 +232,7 @@ export function createRefineLab(input: {
         ? `Reclass with "${edit.name}": edits here update this preset. To edit the Lab rule, choose Lab rule under Reclass with in the Refine pane.`
         : `Run with "${edit.name}": edits here update this preset, which refines every class. To edit class settings, choose Class settings under Run with in the Refine pane.`;
     const apply = byId("refineLabApplyBtn");
-    apply.textContent = draft.mode === "reclass" ? "Save & find candidates" : "Save & refine these boxes";
+    apply.textContent = draft.mode === "reclass" ? "Save & reclass these boxes" : "Save & refine these boxes";
   };
   editor.onPresetChange((name, target, mode) => {
     if (presetEdits[mode]?.runWith) return; // values loaded from another preset still save into the Run-with preset
@@ -397,21 +397,22 @@ export function createRefineLab(input: {
       return { params, result: params.enabled ? refineBox(c.img, c.local, params, c.neighbours) : null, sides, reclass: null };
     }
     const rule = reclassRuleOf(draft.reclass);
-    const shrinks = rule.shrink.enabled && ruleApplies(rule, c.classId);
+    const shrinks = rule.shrink.enabled && ruleChecks(rule, c.classId);
     const result = params.enabled && shrinks ? refineBox(c.img, c.local, params, c.neighbours) : null;
     return { params, result, sides, reclass: judgeCase(c, result) };
   };
-  /** Same judgment as the canvas: centre pixels of the reclass crop, refined area against the box as loaded. */
+  /**
+   * Same judgment as the canvas: centre pixels of the reclass crop, refined area against the box as loaded. Boxes
+   * already of the rule's class are judged too, so the settings show on them; Apply leaves them as they are.
+   */
   const judgeCase = (c: LabCase, result: LabResult["result"]): LabResult["reclass"] => {
-    const rules = [reclassRuleOf(draft.reclass)];
-    const checking = rules.filter((rule) => ruleApplies(rule, c.classId));
-    if (!checking.length) return null;
+    const rule = reclassRuleOf(draft.reclass);
+    if (!ruleChecks(rule, c.classId)) return null;
     const area = (r: RefineRect): number => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
     const base = area(input.loadedBox(c.id) ?? c.box);
     const areaChange = result && base > 0 ? area(result.box) / base - 1 : null;
-    const [match] = evaluateReclass(c.reclassImg, [{ id: c.id, classId: c.classId, box: c.local }], rules, new Map([[c.id, areaChange]]));
-    if (match) return { stats: match, rule: rules[match.ruleIndex], match: true };
-    return { stats: { ...measureReclass(c.reclassImg, c.local, checking[0]), areaChange }, rule: checking[0], match: false };
+    const stats = { ...measureReclass(c.reclassImg, c.local, rule), areaChange };
+    return { stats, rule, match: judgeReclass(rule, stats), same: c.classId === rule.toClass };
   };
   const reclassText = (r: NonNullable<LabResult["reclass"]>): string => {
     const { stats, rule } = r;
@@ -631,7 +632,7 @@ export function createRefineLab(input: {
         }
         context.fillStyle = `rgba(23, 105, 224, ${Math.min(1, alpha * emphasis) * (unused ? 0.35 : 1)})`;
         context.fillRect(...band);
-        context.strokeStyle = parts ? PART_COLORS[part % PART_COLORS.length]! : side === activeSide ? "rgba(120, 180, 255, 0.95)" : "rgba(120, 180, 255, 0.6)";
+        context.strokeStyle = parts ? partColor(r.sides[side]!, part) : side === activeSide ? "rgba(120, 180, 255, 0.95)" : "rgba(120, 180, 255, 0.6)";
         context.lineWidth = parts && !unused ? 2 : side === activeSide ? 1.5 : 1;
         context.strokeRect(...band);
       }
@@ -791,14 +792,14 @@ export function createRefineLab(input: {
     const levels = d.inside !== null && d.outside !== null ? [d.inside, d.outside] : [];
     // "Strongest part": each scanned part is its own curve (chosen one bold) instead of one average.
     const parts = d.parts;
-    const names = parts ? partNames(d, c.local) : [];
+    const names = parts ? partNames(d) : [];
     const partSeries = (transform: (values: Float32Array) => Float32Array, offset: number) => (parts ?? []).map((part, index) => ({
       values: transform(oriented(part.smoothed)),
       offset,
-      color: PART_COLORS[index % PART_COLORS.length]!,
+      color: partColor(d, index),
       lineWidth: index === d.chosenPart ? 2.5 : 1.2
     }));
-    const partEdges = (parts ?? []).flatMap((part, index) => (part.value === null || index === d.chosenPart ? [] : [{ axis: imageToAxis(part.value), color: PART_COLORS[index % PART_COLORS.length]! }]));
+    const partEdges = (parts ?? []).flatMap((part, index) => (part.value === null || index === d.chosenPart ? [] : [{ axis: imageToAxis(part.value), color: partColor(d, index) }]));
     // Each segment's own edge as a tick along the top (filled: used in the combine step, hollow: dropped),
     // and the combined first-pass edge as a triangle; the solid line is the final edge after iterations.
     const segmentTicks: Overlay = (_X, _Y, _lo, _hi, top) => {
@@ -880,7 +881,7 @@ export function createRefineLab(input: {
         const labelWidth = context.measureText(label).width;
         context.fillStyle = text;
         context.fillText(label, right - labelWidth, gap - 5);
-        context.fillStyle = PART_COLORS[index % PART_COLORS.length]!;
+        context.fillStyle = partColor(d, index);
         context.fillRect(right - labelWidth - 12, gap - 13, 8, 8);
         right -= labelWidth + 22;
       }
@@ -904,7 +905,7 @@ export function createRefineLab(input: {
         d.firstPass === null ? null : imageToOutward(d, c.local[SIDE_KEY[activeSide]], d.firstPass),
         r.result ? imageToOutward(d, c.local[SIDE_KEY[activeSide]], r.result.box[SIDE_KEY[activeSide]]) : null),
       off || !d.pair ? "" : pairText(d.pair),
-      off || !d.parts ? "" : `Parts (strength): ${partNames(d, c.local).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
+      off || !d.parts ? "" : `Parts (strength): ${partNames(d).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
       ...surroundingsText(c, r, d),
       `Polarity used: ${usedPolarity}`,
       r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
@@ -976,10 +977,12 @@ export function createRefineLab(input: {
   const drawReclassReadout = (c: LabCase, r: LabResult): void => {
     const name = (classId: string): string | undefined => input.className(classId);
     const pct = (share: number): string => `${Math.round(share * 100)}%`;
+    const rule = reclassRuleOf(draft.reclass);
+    const className = `class ${c.classId}${name(c.classId) ? ` ${name(c.classId)}` : ""}`;
     const lines = !r.reclass
-      ? [`No rule checks class ${c.classId}${name(c.classId) ? ` ${name(c.classId)}` : ""}.`]
+      ? [rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled ? `The rule does not check ${className} (choose it in Classes).` : "The rule has no check on."]
       : [
-        `${r.reclass.match ? "Match" : "No match"}: ${describeReclassRule(r.reclass.rule, name)}`,
+        `${r.reclass.match ? "Match" : "No match"}${r.reclass.same ? ` (already ${className}: Apply leaves it as it is)` : ""}: ${describeReclassRule(r.reclass.rule, name)}`,
         `Centre inset top ${pct(r.reclass.rule.insetTop)} · bottom ${pct(r.reclass.rule.insetBottom)} · left ${pct(r.reclass.rule.insetLeft)} · right ${pct(r.reclass.rule.insetRight)}: ${reclassText(r.reclass)}`,
         ...(r.reclass.rule.shrink.enabled ? ["Area is the refined box (Edge settings) against the box as loaded from the label file."] : [])
       ];
@@ -1115,8 +1118,9 @@ export function createRefineLab(input: {
     linkPresetName();
     commit();
     modal.hide();
-    if (reclass) input.findCandidatesOnCanvas();
-    else input.refineOnCanvas(cases.map((c) => c.id));
+    const ids = cases.map((c) => c.id);
+    if (reclass) input.reclassOnCanvas(ids);
+    else input.refineOnCanvas(ids);
   });
 
   // The guide opens on the tutorial of the mode shown; it is loaded on first use.

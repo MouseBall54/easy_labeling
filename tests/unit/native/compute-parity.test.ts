@@ -126,7 +126,13 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
     { pairTB: "grow", pairLR: "shrink", pairLRPick: "nearest", iterations: 3 },
     { pairTB: "grow", sides: { T: "off" } },
     { pairLR: "grow", scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest", crit: "thr" },
-    { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false }
+    { crit: "flank", pairTB: "shrink", pairLR: "grow", pairLRPick: "nearest", nearWeight: false },
+    // Inward parts at the ends: alone, overlapping each other (read once), with an inset box, as strongest parts.
+    { scanSpan: "outside", extendStart: 6, extendEnd: 4, inwardStart: 5, inwardEnd: 8 },
+    { scanSpan: "outside", extendStart: 3, extendEnd: 3, inwardStart: 4000, inwardEnd: 30, partMode: "strongest" },
+    { scanSpan: "boxOutside", inset: 0.3, extendStart: 4, extendEnd: 4, inwardStart: 12, inwardEnd: 7 },
+    { crit: "thr", scanSpan: "boxOutside", partMode: "strongest", inset: 0.2, extendStart: 6, extendEnd: 6, inwardStart: 10, inwardEnd: 10 },
+    { sideRules: { T: { scanSpan: "outside", extendStart: 5, inwardStart: 6 }, R: { scanSpan: "outside", inwardEnd: 9, partMode: "strongest" } } }
   ];
 
   it.each(paramVariants.map((params) => [JSON.stringify(params), params] as const))("refineBoxes %s", (_label, raw) => {

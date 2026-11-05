@@ -563,23 +563,22 @@
                             <p id="refineSettingsSummary" class="refine-hint"></p>
                         </section>
                         <section class="inspector-section" data-refine-mode="reclass" hidden>
-                            <div class="section-heading-row"><h3>Reclass with</h3><span id="refineReclassCounter" class="section-value">0 candidates</span></div>
-                            <select id="refineReclassPresetSelect" class="form-select form-select-sm" aria-label="Rule used when finding candidates"><option value="">Lab rule</option></select>
+                            <div class="section-heading-row"><h3>Reclass with</h3></div>
+                            <select id="refineReclassPresetSelect" class="form-select form-select-sm" aria-label="Rule used when reclassing"><option value="">Lab rule</option></select>
                             <p id="refineReclassSummary" class="refine-hint"></p>
-                            <button id="refineFindReclassBtn" type="button" class="btn btn-outline-primary btn-sm w-100" data-refine-run title="Mark boxes the reclass rule flags on this image to review them (N, F); nothing changes"><i class="bi bi-search" aria-hidden="true"></i> Find candidates</button>
                         </section>
                         <section class="inspector-section" data-refine-mode="reclass" hidden>
-                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">To found candidates</span></div>
+                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Matches change class</span></div>
                             <div class="refine-run-grid">
-                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-primary btn-sm" disabled title="Change the selected candidates to the rule's class (one undo step) and go to the next">Apply selected</button>
-                                <button id="refineReclassSkipBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled title="Leave the selected candidates as they are and go to the next (F)">Skip selected</button>
-                            </div>
-                            <button id="refineReclassAllBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled title="Change every remaining candidate to the rule's class (one undo step)">Apply all candidates</button>
-                            <div class="input-group input-group-sm mt-2">
-                                <select id="refineReclassClassSelect" class="form-select" aria-label="Class of the candidates to apply"></select>
-                                <button id="refineReclassClassBtn" type="button" class="btn btn-outline-primary" disabled title="Change the remaining candidates of this class (one undo step)">Apply class</button>
+                                <button id="refineReclassSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Reclass the selected boxes the rule matches (E); one undo step, changed boxes are queued for review">Selected</button>
+                                <button id="refineReclassAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Reclass every visible box the rule matches (Shift+E); one undo step, changed boxes are queued for review">All boxes</button>
                             </div>
                             <button id="refineReclassFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-refine-run title="Reclass every matching box in every image of this folder with the Reclass-with rule. Current edits are saved first; original label files are backed up"><i class="bi bi-folder-check" aria-hidden="true"></i> Reclass all images in folder</button>
+                            <div class="input-group input-group-sm mt-2">
+                                <select id="refineReclassClassSelect" class="form-select" aria-label="Class to reclass"></select>
+                                <button id="refineReclassClassBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Reclass every visible box of this class the rule matches (one undo step)">Reclass class</button>
+                            </div>
+                            <label class="form-check form-switch small mt-2 mb-0"><input id="refineReclassSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep boxes whose class was changed by hand when reclassing a class or all boxes</span></label>
                         </section>
                         <section class="inspector-section" data-refine-mode="edge">
                             <div class="section-heading-row"><h3>Run with</h3></div>
@@ -605,6 +604,7 @@
                                 <button id="refinePrevReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Previous box to review (Shift+N)" aria-label="Previous box to review"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
                                 <button id="refineNextReviewBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Next box to review (N)" aria-label="Next box to review"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
                                 <button id="refineApproveBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve selected and go to next (F)"><i class="bi bi-check2" aria-hidden="true"></i> Approve</button>
+                                <button id="refineApproveAllBtn" type="button" class="btn btn-outline-success btn-sm" title="Approve every box left to review">Approve all</button>
                             </div>
                             <label class="form-check form-switch small mt-2 mb-0" title="Dashed frames and weak-side lines on boxes to review"><input id="refineShowReviewToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Show review marks on the canvas</span></label>
                         </section>
