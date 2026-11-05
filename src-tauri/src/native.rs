@@ -75,6 +75,16 @@ pub struct RefineSource {
     config_key: Option<String>,
 }
 
+impl RefineSource {
+    /// The preprocessing to apply, None for the original pixels.
+    pub(crate) fn processing(&self) -> CommandResult<Option<&preprocess::PreprocessConfig>> {
+        if self.kind != "processed" {
+            return Ok(None);
+        }
+        self.config.as_ref().map(Some).ok_or_else(|| "Processed refine source needs a config".into())
+    }
+}
+
 /// The gray pixels for a source, computing (and caching) the processed view on the full frame.
 fn source_pixels(key: &str, source: &RefineSource) -> CommandResult<(Arc<Vec<u8>>, usize, usize)> {
     let (gray, width, height, cached) = {

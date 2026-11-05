@@ -20,8 +20,8 @@ export function grayPng(width: number, height: number, seed = 3): Buffer {
   return encodePng(grayPixels(width, height, seed), width, height, 1);
 }
 
-/** A PNG of row-major pixels: 1 channel (gray) or 4 (RGBA). */
-export function encodePng(pixels: Uint8Array, width: number, height: number, channels: 1 | 4): Buffer {
+/** A PNG of row-major pixels: 1 channel (gray), 3 (RGB) or 4 (RGBA). */
+export function encodePng(pixels: Uint8Array, width: number, height: number, channels: 1 | 3 | 4): Buffer {
   const rowBytes = width * channels;
   const raw = Buffer.alloc((rowBytes + 1) * height);
   for (let y = 0; y < height; y += 1) raw.set(pixels.subarray(y * rowBytes, (y + 1) * rowBytes), y * (rowBytes + 1) + 1);
@@ -37,7 +37,7 @@ export function encodePng(pixels: Uint8Array, width: number, height: number, cha
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8; // bit depth
-  header[9] = channels === 4 ? 6 : 0; // colour type: RGBA or gray
+  header[9] = { 1: 0, 3: 2, 4: 6 }[channels]; // colour type: gray, RGB or RGBA
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
 }
 
@@ -116,14 +116,18 @@ export function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
   return Buffer.concat([jpeg.subarray(0, 2), segment, body, jpeg.subarray(2)]);
 }
 
-/** A PNG with an eXIf chunk (orientation 1) before its image data: Rust leaves such sizes to the browser decoder. */
-export function withPngExif(png: Buffer): Buffer {
-  const exif = Buffer.from([0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
+/** `png` with a `type` chunk inserted before its image data. */
+export function withPngChunk(png: Buffer, type: string, data: Buffer): Buffer {
   const length = Buffer.alloc(4);
-  length.writeUInt32BE(exif.length);
-  const body = Buffer.concat([Buffer.from("eXIf", "latin1"), exif]);
+  length.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
   const crc = Buffer.alloc(4);
   crc.writeUInt32BE(zlib.crc32(body));
   const idat = png.indexOf(Buffer.from("IDAT", "latin1")) - 4;
   return Buffer.concat([png.subarray(0, idat), length, body, crc, png.subarray(idat)]);
+}
+
+/** A PNG with an eXIf chunk (orientation 1) before its image data: Rust leaves such sizes to the browser decoder. */
+export function withPngExif(png: Buffer): Buffer {
+  return withPngChunk(png, "eXIf", Buffer.from([0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0]));
 }

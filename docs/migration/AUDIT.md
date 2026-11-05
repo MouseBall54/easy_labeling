@@ -194,6 +194,7 @@ PR 전 검수 (2026-10-30):
 - CI: `rust.yml` 감시 경로에 `package-lock.json`(tiff.js 버전이 TIFF 골든을 정한다)과 `superpixels.ts`를 추가했다. fixture 재생성은 바이트 단위로 같다. 실제 CI 실행은 PR에서 확인한다.
 
 | 7) Electron 제거, 데스크톱 앱을 Tauri로 일원화 | **완료 (2026-10-30, `b30fa4b9`, v2.27.1)** | Electron 셸·빌드 설정·의존성을 지웠다(package-lock 약 4,200줄 감소). Electron으로 돌던 e2e 8개와 YOLOE 설치본 검증 스크립트 5개를 Tauri로 옮기면서 Tauri 앱의 `confirm` 버그를 찾아 고쳤다(D-014) |
+| 8) Refine 폴더 실행 네이티브 (All images in folder) | **완료 (2026-11-05, 작업트리, v2.40.0)** | 200장 × 100박스: TIFF 19.6초 → 1.7초, PNG 27.7초 → 2.4초(이미지 처리 16.6초 → 1.1초, 24.2초 → 2.0초, 백업+쓰기 3.4초 → 0.3초, `label_files_commit`). 라벨 파일이 TS 경로와 바이트 단위로 같다. 8bit gray TIFF와 색 관리 없는 PNG만 네이티브, JPEG 등은 이미지별로 TS. 기존 네이티브 refine의 serde_json 1 ulp 파싱 오차도 고쳤다(D-015) |
 
 7단계에서 한 일:
 - 지운 것: `electron/`(main, preload, 닫기 컨트롤러), `electron-builder.yoloe.cjs`, `scripts/after-pack.mjs`, `package.json`의 `main`·`build`·`electron:*` 스크립트, 의존성 `electron`·`electron-builder`·`rcedit`와 `global-agent` 스텁, `@electron/*`·`rimraf` override, Electron 테스트 fixture와 닫기 컨트롤러 단위 테스트. 다른 패키지 버전은 바뀌지 않았다.

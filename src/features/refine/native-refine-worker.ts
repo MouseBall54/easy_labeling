@@ -11,6 +11,13 @@ export interface RefineWorkerLike {
 
 type RefineSourceMessage = { kind: "original" } | { kind: "processed"; config?: Partial<SegmentationPreprocessingConfig> };
 
+/** The pixels a native refine reads, as RefineSource in src-tauri/src/native.rs takes them. */
+export const toNativeSource = (source: RefineSourceMessage | undefined) => {
+  if (source?.kind !== "processed") return { kind: "original" };
+  const config = normalizeSegmentationPreprocessingConfig(source.config);
+  return { kind: "processed", config, configKey: getSegmentationPreprocessingKey(config) };
+};
+
 /**
  * Desktop builds: speaks the refine-worker protocol but refines in Rust. The real worker still decodes
  * the image off the main thread and hands over its gray pixels once; refine and crop then run natively.
@@ -48,12 +55,6 @@ export function createNativeRefineWorker(createDecoder: () => Worker): RefineWor
       decodePending.set(id, { resolve, reject });
       decoder?.postMessage({ ...message, id }, transfer);
     });
-  };
-
-  const toNativeSource = (source: RefineSourceMessage | undefined) => {
-    if (source?.kind !== "processed") return { kind: "original" };
-    const config = normalizeSegmentationPreprocessingConfig(source.config);
-    return { kind: "processed", config, configKey: getSegmentationPreprocessingKey(config) };
   };
 
   const shim: RefineWorkerLike = {

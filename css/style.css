@@ -2856,6 +2856,12 @@ body.workspace-standby-active .workbench-status-bar {
     margin-top: 7px;
 }
 
+/* Updates arrive many times a second; Bootstrap's 0.6 s width slide lagged behind them and slid back down
+   (and flickered) whenever a new step restarted the count. */
+.active-operation-panel .progress-bar {
+    transition: none;
+}
+
 .active-operation-panel[data-state="stopping"] .spinner-border {
     animation: none;
     border-color: #dc3545;

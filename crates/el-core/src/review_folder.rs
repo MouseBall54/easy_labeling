@@ -44,7 +44,7 @@ pub fn image_base_name(name: &str) -> &str {
 }
 
 /// `File.text()`: UTF-8 with invalid bytes replaced and one leading BOM dropped.
-fn read_text(path: &Path) -> Result<Option<String>, ReviewError> {
+pub(crate) fn read_text(path: &Path) -> Result<Option<String>, ReviewError> {
     match std::fs::read(path) {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes);

@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { normalizeRefineParams, refineBoxes, type RefineBoxInput } from "../../../src/domain/refine/edge-refine.js";
 import { keepsColour, normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../../../src/features/segmentation/preprocessing.js";
 import { inspectDetectionLabels } from "../../../src/features/review/quality.js";
+import { labelFileBoxes } from "../../../src/domain/refine/label-file.js";
 import { grayBytesToRgba } from "../../../src/features/segmentation/native-preprocessing.js";
 
 // The desktop app runs Rust ports of these algorithms (crates/el-core). Build the CLI with
@@ -176,5 +177,30 @@ describe.skipIf(!cli)("Rust compute parity with the JS algorithms", () => {
       const actual = JSON.parse(runCli("review", { settings }, new TextEncoder().encode(JSON.stringify(cases))).toString("utf8"));
       expect(actual).toEqual(expected);
     }
+  });
+
+  // Refine's folder run reads label files with Number() and /\s+/ (labelFileBoxes), unlike the review.
+  it("folder-run label boxes for 400 random label files", () => {
+    const pick = seeded(31);
+    const tokens = ["0", "1", "0.5", ".5", "5.", "1e-1", "2E-2", "+0.4", "-0.1", "-0", "0x10", "0X1f", "0b101", "0o17", "007", "0x", "0xG", "+0x10",
+      "Infinity", "-Infinity", "+Infinity", "infinity", "NaN", "1e400", "1e", "1e+", ".", "1..2", "1_0", "0.5abc", "", "﻿0.3", " 0.3", "　",
+      "\u00850.3", " 0.2", "0.3\r", "\t0.2", "0.9999999999999999", "0.000001", "4e-324", "1.7976931348623157e308"];
+    const separators = [" ", "  ", "\t", " ", "　", "   "];
+    const cases = Array.from({ length: 400 }, () => {
+      const lines = Array.from({ length: Math.floor(pick() * 30) }, () => {
+        if (pick() < 0.6) return [0, 1, 2, 3, 4].map((field) => field === 0 ? String(Math.floor(pick() * 3)) : (pick() * 1.2 - 0.1).toFixed(Math.floor(pick() * 17))).join(" ");
+        return Array.from({ length: 3 + Math.floor(pick() * 4) }, () => tokens[Math.floor(pick() * tokens.length)]).join(separators[Math.floor(pick() * separators.length)]);
+      });
+      const breaks = ["\n", "\r\n", "\r", "\n\r"];
+      return { text: lines.map((line) => line + breaks[Math.floor(pick() * breaks.length)]).join("") + (pick() < 0.5 ? "\r" : ""), width: [1, 100, 2048][Math.floor(pick() * 3)]!, height: [1, 75, 1536][Math.floor(pick() * 3)]! };
+    });
+    // Rust leaves files whose corners overflow to infinity to the TS path (null).
+    const expected = cases.map((input) => {
+      const { boxes } = labelFileBoxes(input.text, input.width, input.height);
+      return boxes.every((box) => [box.x0, box.y0, box.x1, box.y1].every(Number.isFinite)) ? boxes : null;
+    });
+    expect(expected.filter((boxes) => boxes === null).length).toBeLessThan(cases.length / 4);
+    const actual = JSON.parse(runCli("label-boxes", {}, new TextEncoder().encode(JSON.stringify(cases))).toString("utf8"));
+    expect(actual).toEqual(expected);
   });
 });

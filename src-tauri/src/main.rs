@@ -2,7 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod jobs;
+mod label_commit;
 mod native;
+mod refine_folder;
 mod review;
 mod shared_buffer;
 mod superpixels;
@@ -577,6 +579,8 @@ fn main() {
             shared_buffer::shared_buffer_open,
             jobs::job_progress,
             jobs::job_cancel,
+            refine_folder::refine_folder,
+            label_commit::label_files_commit,
             review::review_folder,
             review::label_row_counts,
             review::review_stamps,

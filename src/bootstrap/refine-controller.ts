@@ -23,6 +23,8 @@ import { getColorForClass } from "../features/canvas/colors.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike, type YoloMetadata } from "../features/canvas/fabric-types.js";
 import { describeReclassRule, evaluateReclass, reclassRuleOf, ruleApplies, ruleChecks, type ReclassMatch, type ReclassRule } from "../domain/refine/reclass.js";
 import { createRefineService, type RefineImageInput, type RefineService } from "../features/refine/refine-service.js";
+import { refineFolderNatively } from "../features/refine/native-refine-folder.js";
+import { applyLabelFileChanges, LABEL_FILE_MOVE_EPSILON, labelFileBoxes, movedBy } from "../domain/refine/label-file.js";
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
@@ -616,21 +618,8 @@ export function createRefineController(input: {
   };
 
   // ---------------------------------------------------------------- folder runs (every image's label file)
-  /** Label rows as boxes in pixels (id = line index); lines that are not 5 numbers stay as they are. */
-  const fileBoxes = (yolo: string, width: number, height: number): { lines: string[]; boxes: RefineBoxInput[] } => {
-    const lines = yolo.split(/\r?\n/);
-    const boxes: RefineBoxInput[] = [];
-    lines.forEach((line, index) => {
-      const fields = line.trim().split(/\s+/);
-      const [cx, cy, w, h] = fields.slice(1).map(Number);
-      if (fields.length !== 5 || ![cx, cy, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return;
-      boxes.push({ id: String(index), classId: fields[0], x0: (cx - w / 2) * width, y0: (cy - h / 2) * height, x1: (cx + w / 2) * width, y1: (cy + h / 2) * height });
-    });
-    return { lines, boxes };
-  };
-  /** Same row format as serializeRectsToYolo. */
-  const yoloRow = (classId: string, b: RefineRect, width: number, height: number): string =>
-    `${classId} ${[(b.x0 + b.x1) / 2 / width, (b.y0 + b.y1) / 2 / height, (b.x1 - b.x0) / width, (b.y1 - b.y0) / height].map((v) => v.toFixed(15)).join(" ")}`;
+  /** A class id no label uses: its params are the default every class without its own settings gets. */
+  const UNPATCHED_CLASS = "\u0000";
   /**
    * Edge: refines every box of every image with the Run-with settings. Reclass: changes every box the
    * Reclass-with rule matches (shrink against the box as saved). Goes through the label files, one backup.
@@ -651,22 +640,28 @@ export function createRefineController(input: {
       : `Reclass boxes in all ${total} images of "${folderName}" with ${config.preset ? refinePresetLabel(config.preset) : "the Lab rule"} (${describeReclassRule(config.rule, className)})?`;
     if (!windowRef.confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`)) return;
     let boxesChanged = 0;
-    const transform = async (file: Parameters<typeof files.decodeImageForAutomation>[0], yolo: string): Promise<string | null> => {
-      const image = await files.decodeImageForAutomation(file);
+    // Inside transform: the image upload into refine, then the refine / reclass work itself (ms).
+    const work = { loadMs: 0, runMs: 0 };
+    const transform = async (_file: unknown, yolo: string, image: HTMLImageElement): Promise<string | null> => {
       const width = image.naturalWidth || image.width;
       const height = image.naturalHeight || image.height;
-      const { lines, boxes } = fileBoxes(yolo, width, height);
+      const { lines, boxes } = labelFileBoxes(yolo, width, height);
       if (!boxes.length) return null;
+      let mark = performance.now();
+      await getService().load(image);
+      work.loadMs += performance.now() - mark;
+      mark = performance.now();
       let changed = 0;
       if (mode === "edge") {
         const params: Record<string, RefineParams> = {};
         for (const box of boxes) params[box.classId] ??= edge.params(box.classId);
         const sent = new Map(boxes.map((box) => [box.id, box]));
-        for (const result of await getService().refine(image, boxes, params, boxes, edge.image)) {
-          if (sameRect(result.box, sent.get(result.id)!, 1e-6)) continue;
-          lines[Number(result.id)] = yoloRow(result.classId, result.box, width, height);
-          changed += 1;
-        }
+        const changes = (await getService().refine(image, boxes, params, boxes, edge.image))
+          .filter((result) => movedBy(result.box, sent.get(result.id)!, LABEL_FILE_MOVE_EPSILON))
+          .map((result) => ({ line: Number(result.id), classId: result.classId, box: result.box }));
+        work.runMs += performance.now() - mark;
+        boxesChanged += changes.length;
+        return applyLabelFileChanges(lines, changes, width, height);
       } else {
         for (const match of await matchReclass(image, boxes, boxes, config, edge)) {
           // Only the class changes; the coordinates keep their text.
@@ -674,8 +669,21 @@ export function createRefineController(input: {
           changed += 1;
         }
       }
+      work.runMs += performance.now() - mark;
       boxesChanged += changed;
       return changed ? lines.join("\n") : null;
+    };
+    // Desktop app: Rust refines every image it can decode like the page; the rest go through transform.
+    const batch = async (images: readonly unknown[], labelNames: readonly string[], onProgress: (done: number) => void, signal: AbortSignal | undefined) => {
+      // Classes without their own settings use the default (resolveRefineParams), as does any class with a preset.
+      // fromEntries makes own keys even for an id like "__proto__", which plain assignment would not.
+      const paramsByClass: Record<string, RefineParams> = Object.fromEntries(Object.keys(settings.classes).map((classId) => [classId, edge.params(classId)]));
+      const rewrites = await refineFolderNatively({
+        images, labelNames, labelFolder: input.state.session.labelFolderHandle, paramsByClass,
+        defaultParams: edge.params(UNPATCHED_CLASS), source: edge.image, signal, onProgress
+      });
+      rewrites?.forEach((rewrite) => { boxesChanged += rewrite?.changed ?? 0; });
+      return rewrites;
     };
     setBusy(true);
     setStatus(mode === "edge" ? `Refining all ${total} images…` : `Reclassing all ${total} images…`);
@@ -684,7 +692,9 @@ export function createRefineController(input: {
       outcome = await files.rewriteDetectionLabels({
         title: mode === "edge" ? "Refining every image" : "Reclassing every image",
         backupPrefix: mode === "edge" ? "refine-all" : "reclass-all",
-        transform
+        prepare: (file) => files.decodeImageForAutomation(file),
+        transform,
+        batch: mode === "edge" ? batch : undefined
       });
     } catch (error: unknown) {
       return setStatus(`Folder run failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -700,8 +710,14 @@ export function createRefineController(input: {
     const skipped = outcome.failures.length
       ? ` · ${outcome.failures.length} image${outcome.failures.length === 1 ? "" : "s"} skipped (${outcome.failures.map((f) => `${f.fileName}: ${f.reason}`).join("; ")})`
       : "";
+    const timings = { ...outcome.timings, loadMs: Math.round(work.loadMs), runMs: Math.round(work.runMs) };
+    status.dataset.timings = JSON.stringify(timings);
+    const s = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
+    // Read + decode overlap the previous image's work; "waited" is what the run still waited for.
     setStatus(`${boxesChanged} box${boxesChanged === 1 ? "" : "es"} ${mode === "edge" ? "refined" : "reclassed"} in ${outcome.changed} of ${outcome.total} images`
-      + (outcome.backupPath ? ` · originals in ${outcome.backupPath}` : "") + skipped);
+      + (outcome.backupPath ? ` · originals in ${outcome.backupPath}` : "") + skipped
+      + ` · Time ${s(timings.totalMs)}: ${timings.batchImages ? `native ${timings.batchImages} images ${s(timings.batchMs)}, ` : ""}read+decode ${s(timings.prepareMs)} (waited ${s(timings.waitMs)}), load ${s(timings.loadMs)}, `
+      + `${mode === "edge" ? "refine" : "reclass"} ${s(timings.runMs)}, backup ${s(timings.backupMs)}, write ${s(timings.writeMs)}, reload ${s(timings.reloadMs)}`);
   };
 
   // ---------------------------------------------------------------- canvas preview (selected boxes, not applied)

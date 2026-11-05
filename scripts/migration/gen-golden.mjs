@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage } from "../../dist/features/segmentation/preprocessing.js";
 import { normalizeRefineParams, refineBoxes } from "../../dist/domain/refine/edge-refine.js";
+import { LABEL_FILE_MOVE_EPSILON, labelFileBoxes, movedBy } from "../../dist/domain/refine/label-file.js";
 import { inspectDetectionLabels } from "../../dist/features/review/quality.js";
 import { parseYoloRows } from "../../dist/domain/yolo/yolo.js";
 import { createSlicoSuperpixels, normalizeSuperpixelSettings } from "../../dist/features/segmentation/superpixels.js";
@@ -422,6 +423,57 @@ function writeRefine() {
   return cases.length;
 }
 
+/**
+ * Refine's folder run on one label file (refine_folder.rs): label text -> labelFileBoxes -> refineBoxes on the
+ * Original or Processed pixels -> the boxes that moved. Reuses the refine fixture images.
+ */
+function writeRefineFolder() {
+  const dir = path.join(fixtures, "refine-folder");
+  mkdirSync(dir, { recursive: true });
+  const images = [
+    { file: "gray-203x151.u8", width: 203, height: 151, seed: 7, cellW: 40, cellH: 50 },
+    { file: "gray-384x288.u8", width: 384, height: 288, seed: 21, cellW: 16, cellH: 12 }
+  ];
+  const gray = (image) => toGray(syntheticImage(image.width, image.height, image.seed, image.cellW, image.cellH));
+  /** YOLO rows for the grid boxes, written with varying digits and separators, plus lines refinement skips. */
+  const labelText = (image, seed, classes, awkward) => {
+    const random = seeded(seed);
+    const rows = gridBoxes(image.width, image.height, image.cellW, image.cellH, seed, classes).map((box) => {
+      const digits = Math.floor(random() * 16) + 1;
+      const values = [(box.x0 + box.x1) / 2 / image.width, (box.y0 + box.y1) / 2 / image.height, (box.x1 - box.x0) / image.width, (box.y1 - box.y0) / image.height];
+      return [box.classId, ...values.map((value) => value.toFixed(digits))].join(random() < 0.2 ? "\t" : " ");
+    });
+    if (awkward) rows.splice(2, 0, "", "  ", "0 0.5 0.5 0 0.1", "1 0.5 0.5 0.1", "0 0x0.5 0.5 0.1 0.1", "x 0.1 0.1 0.05 0.05 extra", "7 .5 .5 1e-1 2E-1", "﻿1 0.3 0.3 0.1 0.1");
+    return rows.join(awkward ? "\r\n" : "\n") + (awkward ? "\r\n" : "\n");
+  };
+  const processing = normalizeSegmentationPreprocessingConfig({ mode: "original", median: true, claheClip: 2 });
+  const variants = [
+    { name: "default", image: 0, classes: ["0", "1"], awkward: true, byClass: {}, defaults: {}, processing: null },
+    { name: "class-settings", image: 0, classes: ["0", "1", "2"], awkward: false, byClass: { 1: { crit: "thr", rangeIn: 5 }, 2: { crit: "flank", polarity: "brightInside" } }, defaults: { iterations: 3 }, processing: null },
+    { name: "processed", image: 0, classes: ["0", "1"], awkward: true, byClass: {}, defaults: { crit: "thr" }, processing },
+    { name: "dense-576", image: 1, classes: ["0", "1", "2"], awkward: false, byClass: { 2: { scanSpan: "boxOutside", extendStart: 4, extendEnd: 4 } }, defaults: {}, processing: null },
+    { name: "dense-576-processed", image: 1, classes: ["0", "1"], awkward: true, byClass: {}, defaults: { pairTB: "grow" }, processing }
+  ];
+  const cases = variants.map((variant, index) => {
+    const image = images[variant.image];
+    const text = labelText(image, 40 + index, variant.classes, variant.awkward);
+    const defaultParams = normalizeRefineParams(variant.defaults);
+    const paramsByClass = Object.fromEntries(Object.entries(variant.byClass).map(([id, raw]) => [id, normalizeRefineParams({ ...variant.defaults, ...raw })]));
+    let pixels = gray(image);
+    if (variant.processing) pixels = toGray(preprocessGray(Float32Array.from(pixels), image.width, image.height, variant.processing));
+    const { boxes } = labelFileBoxes(text, image.width, image.height);
+    const params = {};
+    for (const box of boxes) params[box.classId] ??= paramsByClass[box.classId] ?? defaultParams;
+    const sent = new Map(boxes.map((box) => [box.id, box]));
+    const changes = refineBoxes({ gray: pixels, width: image.width, height: image.height }, boxes, params, boxes)
+      .filter((result) => movedBy(result.box, sent.get(result.id), LABEL_FILE_MOVE_EPSILON))
+      .map((result) => ({ line: Number(result.id), classId: result.classId, box: result.box }));
+    return { name: variant.name, image: `../refine/${image.file}`, width: image.width, height: image.height, text, paramsByClass, defaultParams, processing: variant.processing, expected: { boxCount: boxes.length, changes } };
+  });
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
+  return cases.length;
+}
+
 /** SEM-sized inputs for the benches; not committed (tens of MB). */
 function writeBenchInputs() {
   const dir = path.join(fixtures, "generated");
@@ -461,6 +513,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`view cases: ${writeView()}`);
   console.log(`review cases: ${writeReview()}`);
   console.log(`refine cases: ${writeRefine()}`);
+  console.log(`refine-folder cases: ${writeRefineFolder()}`);
   console.log(`tiff cases: ${writeTiff()}`);
   console.log(`superpixel cases: ${writeSuperpixels()}`);
   if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);

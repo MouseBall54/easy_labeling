@@ -160,6 +160,26 @@
 - Electron으로 돌던 e2e와 YOLOE 설치본 검증 스크립트는 지우지 않고 Tauri로 옮긴다.
 - 대화상자는 tauri-plugin-dialog 대신 `rfd`를 직접 쓴다. 플러그인의 페이지 스크립트가 동기 `window.confirm`을 비동기 함수로 바꿔 모든 확인 창을 건너뛰게 만들었기 때문이다. 앱 코드는 동기 `confirm`을 전제로 한다.
 
+### D-015 Refine 폴더 실행 네이티브 (8단계)
+- 상태: 승인 (2026-11-05, 사용자 요청: "2단계 Rust 배치 진행", TIFF·PNG·JPG 모두 지원)
+- 범위: Refine 폴더 실행(All images in folder)의 Edge 모드. Rust(`el-core/refine_folder.rs`)가 라벨 파일 읽기, 박스 파싱, 이미지 디코드, Processed 전처리, refine을 이미지 4장씩 동시에 처리하고 **움직인 박스만** 돌려준다. Reclass 폴더 실행은 TS 그대로다.
+- 디코드 범위(화면과 픽셀이 같다고 보장되는 것만):
+  - 8bit gray TIFF: `tiff_gray`(D-010, 앱의 네이티브 TIFF 경로와 같다).
+  - PNG: 8bit 회색·8bit RGB 중 tRNS·gAMA·cHRM·sRGB·iCCP·cICP·mDCv·cLLi·eXIf·acTL이 없는 것. 팔레트 PNG는 Chromium과 비교하지 않아 TS 경로로 둔다(범위 밖 인덱스, 낮은 비트 깊이). Chromium은 색 관리 청크가 있으면 픽셀을 바꿀 수 있고, 알파는 캔버스의 premultiply로 값이 바뀐다(D-011의 우려). RGB는 `toGray`와 같은 정수 가중치로 회색을 만든다.
+  - 그 밖(JPEG, 16bit, 알파, 색 관리 PNG, 다른 형식, 디코드 실패)은 그 이미지만 null로 돌려주고 TS 경로(기존 디코드 + 네이티브 refine)가 처리한다. JPEG는 디코더마다 픽셀이 달라(libjpeg-turbo IDCT와 Rust 디코더) 바이트 동일을 보장할 수 없다. 결과가 ±1 단계 달라도 된다면 다음 단계로 네이티브 JPEG를 검토한다.
+- 바이트 동일성을 위해 지킨 것:
+  - 라벨 텍스트는 TS가 계속 쓴다(`yoloRow`, `toFixed(15)`, D-004). Rust는 줄 번호·클래스·새 좌표만 보낸다. TS는 Rust가 읽은 박스 수와 바뀐 줄의 클래스를 자기 파싱과 대조하고, 다르면 그 이미지를 TS 경로로 보낸다.
+  - 파싱: JS `Number()`(`js::number`: 16·8·2진 리터럴, 부호 붙은 Infinity, 빈 문자열 0), `/\s+/` 분할과 trim 공백 집합, `/\r?\n/` 분할(마지막 줄의 `\r`은 남음), `File.text()`의 BOM 제거. 좌표가 무한대로 넘치거나 128비트를 넘는 16진 리터럴이 있는 파일은 TS 경로로 보낸다.
+  - **기존 버그 수정**: `serde_json`의 기본 f64 파서는 약 9개 중 1개 값을 1 ulp 틀리게 읽는다(20만 개 중 22,818개 확인). 그래서 기존 네이티브 refine(`refine_run`, 현재 이미지 Apply 포함)은 페이지가 보낸 좌표와 1 ulp 다른 좌표로 계산했고, 결과 텍스트의 15번째 소수 자리가 달라질 수 있었다. el-core에서 `float_roundtrip` 기능을 켜서(기능 통합으로 src-tauri도 적용) 정확히 읽는다.
+- 병렬 구조: 이미지는 일반 스레드 4개가 번호를 하나씩 가져가 처리하고, 전처리·refine 안의 병렬 계산은 전역 rayon 풀(모든 코어)을 쓴다. rayon 풀 안에서 이미지를 돌리면 안쪽 병렬 계산을 기다리는 스레드가 다른 이미지를 훔쳐 시작해서, 메모리에 올라가는 이미지 수가 4장을 넘을 수 있었다(`rust-perf-reviewer` 지적). 바꾼 뒤에도 시간은 같았다.
+- 검증: golden `golden_refine_folder`(Original·Processed·클래스별 설정·540박스, 일부러 깨면 실패 확인), compute-cli `label-boxes` 무작위 라벨 400개 차등 테스트, 데스크톱 e2e에서 같은 앱의 TS 경로(`easyLabelingNativeOff = ["refine-folder"]`)와 라벨 파일 바이트 비교(Original·Processed, 대체 경로 이미지 포함).
+- 기준값과 결과: BENCH.md "Refine 폴더 실행" 표. 200장 TIFF 19.6초 → 5.0초, PNG 27.7초 → 6.3초.
+- 라벨 파일 커밋(`label_files_commit`, `el-core/label_commit.rs`): 폴더 실행 뒤의 백업과 쓰기를 IPC 한 번으로 묶었다. 이미지 밖 박스 제거, 클래스 ID 변경도 같은 `commitLabelFileEdits`를 거친다.
+  - 순서와 결과는 TS와 같다: 원본 백업(새로 만드는 파일은 `created-labels.json`) → 쓰기, 파일 8개씩, 임시 파일 + rename(`fs_write`와 같음).
+  - 실패하거나 중단되면 Rust가 쓰기에 성공한 파일을 원본으로 되돌리고(새 파일은 지움) 백업 폴더를 지운 뒤 오류를 낸다. 그러면 페이지는 TS 경로로 다시 한다(중단이면 멈춘다). 되돌리지 못한 파일이 있으면 백업을 남기고 "Originals are in …" 오류를 낸다.
+  - 쓰기 뒤의 다시 불러오기가 실패하면 지금처럼 TS가 모든 파일을 되돌린다.
+  - 결과: 백업+쓰기 3.4초 → 0.14~0.56초. 200장 폴더 실행 TIFF 1.7초, PNG 2.4초(BENCH.md).
+
 ### D-005 이식 순서와 데이터 포맷
 - 상태: 승인 (2026-10-29, 사용자 선택)
 - 실제 데이터: TIFF 8bit gray, JPG/PNG. 16bit TIFF는 대상이 아니다.
