@@ -200,7 +200,7 @@ ${def("Reclass가 결함을 놓침", "기준을 하나씩 낮추고, 얼룩덜�
       title: "단축키",
       html: `<dl class="rh-defs">
 ${def(keys("R"), "Refine pane 열기/닫기.")}
-${def(`${keys("E")} / ${keys("Shift", "E")}`, "선택한 박스 / 모든 박스 맞추기(어느 모드에서나).")}
+${def(`${keys("E")} / ${keys("Shift", "E")}`, "선택한 박스 / 모든 박스에 지금 모드로 적용: Edge 모드는 경계 맞추기, Reclass 모드는 재분류.")}
 ${def(`${keys("N")} / ${keys("Shift", "N")}`, "다음 / 이전 검토 박스(Edge 모드는 검토 대상, Reclass 모드는 클래스가 바뀐 박스).")}
 ${def(keys("F"), "선택한 검토 박스 승인(Approve). pane의 <em>Approve all</em>은 모두 승인.")}
 ${def("확대 보기", "휠: 확대 · 드래그: 이동 · 더블클릭: 전체 보기.")}

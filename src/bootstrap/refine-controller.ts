@@ -901,8 +901,9 @@ export function createRefineController(input: {
     if (!isDetection()) return;
     switch (action) {
       case "toggle": input.uiManager.setInspectorTab(paneOpen() ? "annotation" : "refine"); break;
-      case "refineSelected": refineSelected(); break;
-      case "refineAll": refineAll(); break;
+      // E / Shift+E press the Apply buttons of the mode shown: Refine in Edge mode, Reclass in Reclass mode.
+      case "refineSelected": if (reclassMode()) reclassSelected(); else refineSelected(); break;
+      case "refineAll": if (reclassMode()) reclassAll(); else refineAll(); break;
       case "nextReview": navigateReview(1); break;
       case "previousReview": navigateReview(-1); break;
       case "approve": approve(); break;

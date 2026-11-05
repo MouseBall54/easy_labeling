@@ -971,15 +971,19 @@ test("reclass: compares refined area with the loaded box even after Refine all, 
   await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("r");
 
-  // Refine keys keep working in Reclass mode; the shrink check still compares with the loaded size.
+  // Refine every box in Edge mode first; back in Reclass mode the shrink check still compares with the loaded size.
+  await page.locator("#refineModeToggle [data-mode='edge']").click();
   await page.keyboard.press("Shift+E");
   await expect(page.locator("#refineStatus")).toContainText("refined", { timeout: 15_000 });
+  await page.locator("#refineModeToggle [data-mode='reclass']").click();
 
-  // Selected: only the selected boxes are judged.
+  // Selected (E in Reclass mode): only the selected boxes are judged, and nothing moves.
+  const before = await geometries(page);
   await selectBoxes(page, [0]);
-  await page.locator("#refineReclassSelectedBtn").click();
+  await page.keyboard.press("e");
   await expect(page.locator("#refineStatus")).toContainText("No box matches the rule (1 checked)");
   expect(await classesLeftToRight(page)).toEqual(["0", "0"]);
+  expect(await geometries(page)).toEqual(before);
   await selectBoxes(page, [1]);
   await page.locator("#refineReclassSelectedBtn").click();
   await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
@@ -997,6 +1001,14 @@ test("reclass: compares refined area with the loaded box even after Refine all, 
   await page.locator("#refineReclassClassBtn").click();
   await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
   await expect(page.locator("#refineStatus")).toContainText("1 of 2 boxes → class 1");
+
+  // Shift+E in Reclass mode is All boxes.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "0"]);
+  await page.keyboard.press("Shift+E");
+  await expect.poll(() => classesLeftToRight(page)).toEqual(["0", "1"]);
+  await expect(page.locator("#refineStatus")).toContainText("1 of 2 boxes → class 1");
+  expect((await geometries(page)).map((g) => [g.left, g.top, g.right, g.bottom])).toEqual(before.map((g) => [g.left, g.top, g.right, g.bottom]));
 
   // A class changed by hand is kept by All boxes (toggle on) and changed by Selected.
   await page.keyboard.press("Control+z");

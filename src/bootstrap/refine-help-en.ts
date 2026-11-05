@@ -196,7 +196,7 @@ ${def("Reclass misses defects", "Lower one threshold at a time, turn on Bright p
       title: "Shortcuts",
       html: `<dl class="rh-defs">
 ${def(keys("R"), "Open or close the Refine pane.")}
-${def(`${keys("E")} / ${keys("Shift", "E")}`, "Refine the selected boxes / every box (either mode).")}
+${def(`${keys("E")} / ${keys("Shift", "E")}`, "Apply to the selected boxes / every box with the mode shown: refine in Edge mode, reclass in Reclass mode.")}
 ${def(`${keys("N")} / ${keys("Shift", "N")}`, "Next / previous box to review (flags in Edge mode, reclassed boxes in Reclass mode).")}
 ${def(keys("F"), "Approve the selected box to review (<em>Approve all</em> in the pane approves every one).")}
 ${def("Zoom view", "Wheel: zoom · drag: pan · double-click: fit.")}
