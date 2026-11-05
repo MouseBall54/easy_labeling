@@ -234,7 +234,8 @@ export function createUiManagerAdapter(input: {
       && operation.total !== null
       && operation.total > 0;
     const percent = hasProgress
-      ? Math.max(0, Math.min(100, Math.round(((operation.current ?? 0) / (operation.total ?? 1)) * 100)))
+      // Floor: 199 / 200 must not read as 100% while the last item still runs.
+      ? Math.max(0, Math.min(100, Math.floor(((operation.current ?? 0) / (operation.total ?? 1)) * 100)))
       : 0;
 
     elements.activeOperationPanel.hidden = false;

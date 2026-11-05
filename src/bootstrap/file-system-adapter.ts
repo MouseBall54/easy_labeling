@@ -32,7 +32,7 @@ import { inspectDetectionLabels } from "../features/review/quality.js";
 import { createReviewStateDocument, parseReviewStateDocument } from "../features/review/review-state.js";
 import type { ReviewImageStatus } from "../features/review/types.js";
 import type { ReviewFinding, ReviewSettings } from "../features/review/types.js";
-import { getNativeBridge, NativeJobCancelledError } from "../platform/native-bridge.js";
+import { errorText, getNativeBridge, NativeJobCancelledError } from "../platform/native-bridge.js";
 import { createBundledSampleDirectory } from "../features/sample/sample-test-directory.js";
 import {
   markDocumentSaveError,
@@ -49,7 +49,54 @@ import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
 interface LabelFileEdit { name: string; original: string | null; text: string }
-export interface DetectionLabelRewrite { total: number; changed: number; backupPath: string | null; failures: { fileName: string; reason: string }[] }
+
+/**
+ * Label files written at once in batch edits: on a NAS each file costs round trips, not bandwidth.
+ * `window.easyLabelingWriteLanes` overrides it (1 = one at a time) for measurements.
+ */
+const labelWriteLanes = (windowRef: unknown): number => {
+  const override = Number(Reflect.get(windowRef as object, "easyLabelingWriteLanes"));
+  return Number.isInteger(override) && override > 0 ? override : 8;
+};
+
+/** Error prefix of label_files_commit when it could not put every file back (src-tauri/src/label_commit.rs). */
+const LABEL_FILES_NOT_RESTORED = "Label files not restored: ";
+
+/** The operation with "Step n/total · " before every detail it is given (multi-step batch edits). */
+export const stepOperation = (operation: RuntimeOperationHandle, n: number, total: number): RuntimeOperationHandle => ({
+  get signal() { return operation.signal; },
+  update: (update) => operation.update(update.detail === undefined ? update : { ...update, detail: `Step ${n}/${total} · ${update.detail}` }),
+  cancel: () => operation.cancel(),
+  finish: () => operation.finish()
+});
+
+/**
+ * Where a folder rewrite spent its time (ms). Reads and prepares run one image ahead, so `prepareMs` (their sum)
+ * overlaps `transformMs`; `waitMs` is the part the loop still waited for. `batchImages` were done by the batch in `batchMs`.
+ */
+export interface LabelRewriteTimings { batchMs: number; batchImages: number; waitMs: number; prepareMs: number; transformMs: number; backupMs: number; writeMs: number; reloadMs: number; totalMs: number }
+
+/**
+ * Runs work over items, `limit` at a time. After the first failure no new item starts; the running ones
+ * finish (so callers can roll back what they wrote), then that failure is thrown.
+ */
+export async function forEachLimited<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failure: { error: unknown } | null = null;
+  const lane = async (): Promise<void> => {
+    while (!failure && next < items.length) {
+      const item = items[next++]!;
+      try { await work(item); }
+      catch (error) { failure ??= { error }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  if (failure) throw (failure as { error: unknown }).error;
+}
+
+/** A label file a batch rewrote: its text before (null = no file) and after (null = unchanged). */
+export interface LabelFileRewrite { original: string | null; text: string | null }
+export interface DetectionLabelRewrite { total: number; changed: number; backupPath: string | null; failures: { fileName: string; reason: string }[]; timings: LabelRewriteTimings }
 export interface ClassRemapPlan extends ClassRemapSummary {
   folder: FileSystemDirectoryHandle;
   imageFolder: FileSystemDirectoryHandle | null;
@@ -222,12 +269,19 @@ export interface RuntimeFileSystem extends FileSystem {
   /**
    * Rewrites every image's Detection label file in the active label folder: current edits are saved first,
    * transform gets each non-empty file (null = unchanged), the originals are backed up and the current image
-   * reloads. Stopping writes nothing. Images whose transform throws are skipped and listed. Null when stopped.
+   * reloads. Stopping writes nothing. Images whose prepare or transform throws are skipped and listed. Null when stopped.
+   * `prepare` (an image decode, say) runs one image ahead, so slow reads (a NAS) overlap the previous transform.
    */
-  rewriteDetectionLabels(options: {
+  rewriteDetectionLabels<P>(options: {
     title: string;
     backupPrefix: string;
-    transform(file: FileHandleLike, yolo: string): Promise<string | null>;
+    prepare(file: FileHandleLike): Promise<P>;
+    transform(file: FileHandleLike, yolo: string, prepared: P): Promise<string | null>;
+    /**
+     * Rewrites many files at once before the loop (the desktop app's Rust run): an entry per image, null where
+     * that image still needs prepare + transform. Null for all of them; a cancellation rejects.
+     */
+    batch?(files: readonly FileHandleLike[], labelNames: readonly string[], onProgress: (done: number) => void, signal: AbortSignal | undefined): Promise<ReadonlyArray<LabelFileRewrite | null> | null>;
   }): Promise<DetectionLabelRewrite | null>;
   previewClassRemap(folder: FileSystemDirectoryHandle, rule: ClassRemapRule, signal?: AbortSignal): Promise<ClassRemapPlan | null>;
   applyClassRemap(plan: ClassRemapPlan, signal?: AbortSignal): Promise<string | null>;
@@ -618,29 +672,97 @@ export function createFileSystemAdapter(input: {
       ? session.imageFolderHandle : session.labelFolderHandle ?? session.imageFolderHandle) as unknown as DirectoryHandleLike | null;
   };
 
+  /**
+   * Desktop app: backs up and writes the edits in one Rust call (crates/el-core/src/label_commit.rs), the files
+   * the same as the TS loop below writes them. Null when there is no native side or the call failed with nothing
+   * changed (Rust put the files back and removed its backup), so the TS loop runs; a stop rejects, and so does
+   * a failure Rust could not undo (its originals stay in the backup folder).
+   */
+  const commitLabelEditsNatively = async (
+    folder: FileSystemDirectoryHandle, backupPath: string, createdFiles: string[], edits: LabelFileEdit[],
+    signal: AbortSignal | undefined, onProgress: (done: number) => void
+  ): Promise<{ backupMs: number; writeMs: number } | null> => {
+    const native = getNativeBridge("label-commit");
+    const folderPath = native?.pathOf(folder);
+    if (!native || !folderPath || !edits.length) return null;
+    try {
+      return await native.runJob<{ backupMs: number; writeMs: number }>("label_files_commit", (jobId) => ({
+        request: { jobId, folder: folderPath, backupDir: backupPath, createdJson: createdFiles.length ? JSON.stringify(createdFiles) : null, edits }
+      }), { signal, onProgress: (done) => onProgress(done), pollMs: 100 });
+    } catch (error) {
+      if (signal?.aborted || error instanceof NativeJobCancelledError) throw error;
+      const message = errorText(error);
+      if (message.startsWith(LABEL_FILES_NOT_RESTORED)) throw new Error(`Label update could not restore all files. Originals are in ${folder.name}/${backupPath}. ${message}`);
+      console.warn("Native label update failed with nothing changed; writing on the TS path.", error);
+      return null;
+    }
+  };
+
+  /** Phase times of commitLabelFileEdits, filled when the caller passes an object. */
+  type CommitTimings = Pick<LabelRewriteTimings, "backupMs" | "writeMs" | "reloadMs">;
+  /**
+   * Backs up, writes, then reloads: three steps shown as "Step n/total · ..." in the operation detail, the bar
+   * showing progress inside the step. `steps.first` is the backup's number when the caller ran steps before.
+   */
   const commitLabelFileEdits = async (
-    folder: FileSystemDirectoryHandle, edits: LabelFileEdit[], prefix: string, operation: RuntimeOperationHandle | null
+    folder: FileSystemDirectoryHandle, edits: LabelFileEdit[], prefix: string, operation: RuntimeOperationHandle | null,
+    { timings, steps = { first: 1, total: 3 } }: { timings?: CommitTimings; steps?: { first: number; total: number } } = {}
   ): Promise<string> => {
+    const lanes = labelWriteLanes(input.windowRef);
+    const step = (offset: number) => operation && stepOperation(operation, steps.first + offset, steps.total);
+    const backupStep = step(0);
+    const writeStep = step(1);
+    const reloadStep = step(2);
+    let mark = performance.now();
+    const lap = (key: keyof CommitTimings): void => {
+      const now = performance.now();
+      if (timings) timings[key] = Math.round(now - mark);
+      mark = now;
+    };
     const directory = folder as unknown as DirectoryHandleLike;
     const backupPath = `.easy-labeling/${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    const metadata = await getSubdirectoryHandle(directory, ".easy-labeling", { create: true });
-    const backup = await getSubdirectoryHandle(metadata, backupPath.split("/")[1]!, { create: true });
     const createdFiles = edits.filter((edit) => edit.original === null).map((edit) => edit.name);
-    if (createdFiles.length) await writeTextFileByName(backup, "created-labels.json", JSON.stringify(createdFiles));
-    for (const edit of edits) {
-      throwIfOperationCancelled(operation?.signal);
-      if (edit.original !== null) await writeTextFileByName(backup, edit.name, edit.original);
+    const originals = edits.filter((edit) => edit.original !== null);
+    backupStep?.update({ detail: "Backing up originals", current: 0, total: originals.length });
+    // Desktop app: one Rust call backs up and writes, and puts the files back itself on a failure or a stop.
+    const native = await commitLabelEditsNatively(folder, backupPath, createdFiles, edits, operation?.signal, (done) => {
+      if (done <= originals.length) backupStep?.update({ current: done });
+      else writeStep?.update({ detail: "Writing label files", current: done - originals.length, total: edits.length });
+    });
+    if (native) {
+      if (timings) Object.assign(timings, native);
+      mark = performance.now();
+    } else {
+      const metadata = await getSubdirectoryHandle(directory, ".easy-labeling", { create: true });
+      const backup = await getSubdirectoryHandle(metadata, backupPath.split("/")[1]!, { create: true });
+      if (createdFiles.length) await writeTextFileByName(backup, "created-labels.json", JSON.stringify(createdFiles));
+      let backedUp = 0;
+      await forEachLimited(originals, lanes, async (edit) => {
+        throwIfOperationCancelled(operation?.signal);
+        await writeTextFileByName(backup, edit.name, edit.original!);
+        backupStep?.update({ detail: `Backing up originals · ${edit.name}`, current: ++backedUp, total: originals.length });
+      });
+      lap("backupMs");
     }
     const written: LabelFileEdit[] = [];
     try {
-      for (const [index, edit] of edits.entries()) {
-        throwIfOperationCancelled(operation?.signal);
-        operation?.update({ detail: `Updating ${edit.name}`, current: index, total: edits.length });
-        written.push(edit);
-        await writeTextFileByName(directory, edit.name, edit.text);
+      if (native) written.push(...edits); // a failed reload below puts them back
+      else {
+        let updated = 0;
+        writeStep?.update({ detail: "Writing label files", current: 0, total: edits.length });
+        await forEachLimited(edits, lanes, async (edit) => {
+          throwIfOperationCancelled(operation?.signal);
+          written.push(edit);
+          await writeTextFileByName(directory, edit.name, edit.text);
+          writeStep?.update({ detail: `Writing label files · ${edit.name}`, current: ++updated, total: edits.length });
+        });
+        lap("writeMs");
       }
       throwIfOperationCancelled(operation?.signal);
-      await activateLabelFolder(folder, operation);
+      // No count here: the bar restarts at 0 so a full bar never sits on the reload.
+      reloadStep?.update({ detail: "Reloading labels", current: 0, total: 1 });
+      await activateLabelFolder(folder, reloadStep);
+      lap("reloadMs");
       throwIfOperationCancelled(operation?.signal);
       const edited = new Set(edits.map((edit) => edit.name));
       queueReview(input.state.session.imageFiles.filter((file) => edited.has(`${imageFileNameToBaseName(file.name)}.txt`)).map((file) => file.name), true);
@@ -1522,27 +1644,76 @@ export function createFileSystemAdapter(input: {
           if (new Set(names).size !== names.length) throw new Error("Images with the same label filename cannot be updated together.");
           await runTrackedOperation({ title: options.title, detail: `All images · ${folder.name}`, stoppedMessage: `${options.title} stopped. No files changed.` }, async (operation) => {
             await saveBeforeLabelSwitch();
-            const edits: LabelFileEdit[] = [];
+            const edits: Array<LabelFileEdit | undefined> = [];
             const failures: DetectionLabelRewrite["failures"] = [];
-            for (const [index, file] of files.entries()) {
+            const startedAt = performance.now();
+            const timings: LabelRewriteTimings = { batchMs: 0, batchImages: 0, waitMs: 0, prepareMs: 0, transformMs: 0, backupMs: 0, writeMs: 0, reloadMs: 0, totalMs: 0 };
+            const step = operation && stepOperation(operation, 1, 4);
+            // The batch (the desktop app's Rust run) takes what it can; the loop below does the rest.
+            let batched: ReadonlyArray<LabelFileRewrite | null> | null = null;
+            if (options.batch && files.length) {
+              step?.update({ detail: "Processing images", current: 0, total: files.length });
+              const batchStart = performance.now();
+              batched = await options.batch(files, names, (done) => step?.update({ current: done }), operation?.signal);
               throwIfOperationCancelled(operation?.signal);
-              operation?.update({ detail: file.name, current: index, total: files.length });
-              let original: string;
-              try { original = await readTextFileByName(directory, names[index]); }
-              catch (error) { if (isNotFoundError(error)) continue; throw error; }
-              if (!original.trim()) continue;
+              timings.batchMs = Math.round(performance.now() - batchStart);
+            }
+            batched?.forEach((entry, index) => {
+              if (!entry) return;
+              timings.batchImages += 1;
+              if (entry.original !== null && entry.text !== null && entry.text !== entry.original) edits[index] = { name: names[index], original: entry.original, text: entry.text };
+            });
+            const pending = files.map((_, index) => index).filter((index) => !batched?.[index]);
+            // The label file, then (when it has rows) prepare. Started one image ahead; rejections are read when awaited.
+            const readAhead = (index: number) => {
+              const entry = (async () => {
+                const readStart = performance.now();
+                let original: string;
+                try { original = await readTextFileByName(directory, names[index]); }
+                catch (error) { if (isNotFoundError(error)) return null; throw error; }
+                finally { timings.prepareMs += performance.now() - readStart; }
+                if (!original.trim()) return null;
+                const prepareStart = performance.now();
+                const prepared = options.prepare(files[index]);
+                prepared.then(() => { timings.prepareMs += performance.now() - prepareStart; }, () => undefined);
+                return { original, prepared };
+              })();
+              entry.catch(() => undefined);
+              return entry;
+            };
+            // ponytail: one image ahead; more would keep more decoded images in memory for little gain.
+            let ahead = pending.length ? readAhead(pending[0]!) : null;
+            for (const [position, index] of pending.entries()) {
+              const file = files[index]!;
+              throwIfOperationCancelled(operation?.signal);
+              step?.update({ detail: `Processing images · ${file.name}`, current: files.length - pending.length + position, total: files.length });
+              let mark = performance.now();
+              const entry = await ahead!;
+              ahead = position + 1 < pending.length ? readAhead(pending[position + 1]!) : null;
+              if (!entry) { timings.waitMs += performance.now() - mark; continue; }
+              const { original } = entry;
               let text: string | null;
-              try { text = await options.transform(file, original); }
+              try {
+                const prepared = await entry.prepared;
+                const now = performance.now();
+                timings.waitMs += now - mark;
+                mark = now;
+                text = await options.transform(file, original, prepared);
+                timings.transformMs += performance.now() - mark;
+              }
               catch (error) {
                 throwIfOperationCancelled(operation?.signal);
                 failures.push({ fileName: file.name, reason: error instanceof Error ? error.message : String(error) });
                 continue;
               }
-              if (text !== null && text !== original) edits.push({ name: names[index], original, text });
+              if (text !== null && text !== original) edits[index] = { name: names[index], original, text };
             }
             throwIfOperationCancelled(operation?.signal);
-            const backupPath = edits.length ? await commitLabelFileEdits(folder, edits, options.backupPrefix, operation) : null;
-            outcome = { total: files.length, changed: edits.length, backupPath: backupPath && `${folder.name}/${backupPath}`, failures };
+            const changed = edits.filter((edit): edit is LabelFileEdit => edit !== undefined);
+            const backupPath = changed.length ? await commitLabelFileEdits(folder, changed, options.backupPrefix, operation, { timings, steps: { first: 2, total: 4 } }) : null;
+            for (const key of ["waitMs", "prepareMs", "transformMs"] as const) timings[key] = Math.round(timings[key]);
+            timings.totalMs = Math.round(performance.now() - startedAt);
+            outcome = { total: files.length, changed: changed.length, backupPath: backupPath && `${folder.name}/${backupPath}`, failures, timings };
           });
         });
         return outcome;

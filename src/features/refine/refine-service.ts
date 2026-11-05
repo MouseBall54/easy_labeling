@@ -7,6 +7,8 @@ import { createNativeRefineWorker, type RefineWorkerLike } from "./native-refine
 export type RefineImageInput = { kind: "original" } | { kind: "processed"; config: SegmentationPreprocessingConfig | undefined };
 
 export interface RefineService {
+  /** Uploads the image now (refine and crop do it on first use); lets callers time the upload apart. */
+  load(image: HTMLImageElement): Promise<void>;
   /** Uploads the image once (gray conversion runs in the worker), then refines boxes against it. */
   refine(
     image: HTMLImageElement,
@@ -80,6 +82,7 @@ export function createRefineService(): RefineService {
   };
 
   return {
+    async load(image) { await ensureImage(image); },
     async refine(image, boxes, paramsByClass, neighbours, source) {
       const key = await ensureImage(image);
       return call({ type: "refine", key, boxes, paramsByClass, neighbours, source }) as Promise<RefineResult[]>;

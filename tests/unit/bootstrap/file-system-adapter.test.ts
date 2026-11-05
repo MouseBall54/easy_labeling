@@ -3,7 +3,7 @@ import { FakeDocument } from "../ui/test-dom.js";
 
 import { createInitialAppState } from "../../../src/app/state.js";
 import { markCurrentDocumentDirty } from "../../../src/app/document-status.js";
-import { createFileSystemAdapter } from "../../../src/bootstrap/file-system-adapter.js";
+import { createFileSystemAdapter, forEachLimited } from "../../../src/bootstrap/file-system-adapter.js";
 import type { DirectoryEntryLike, DirectoryHandleLike, FileHandleLike, FileTextLike, WritableFileLike } from "../../../src/types/files.js";
 
 function toArrayBuffer(value: ArrayBuffer | Uint8Array): ArrayBuffer {
@@ -607,6 +607,87 @@ describe("bootstrap/file-system-adapter", () => {
     expect(await (await second.getFile()).text()).toBe(original);
     expect(state.session.labelFolderHandle).toBe(folder);
     expect(deps.operations[0]!.finish).toHaveBeenCalledOnce();
+  });
+
+  it("prepares the next image while transforming one and writes every rewritten label", async () => {
+    const row = "0 0.5 0.5 0.2 0.2";
+    const a = new MockFileHandle("a.txt", row);
+    const b = new MockFileHandle("b.txt", row);
+    const folder = new MockDirectoryHandle("labels").withFile(a).withFile(b);
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.labelFolders = [folder] as never;
+    state.session.imageFiles = ["a.jpg", "b.jpg", "c.jpg"].map((name) => new MockFileHandle(name, "")) as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    const deps = createConnectedDeps();
+    fileSystem.connect(deps as never);
+    const prepared: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const outcome = fileSystem.rewriteDetectionLabels({
+      title: "Test", backupPrefix: "test",
+      prepare: async (file) => { prepared.push(file.name); return file.name; },
+      transform: async (_file, yolo, image) => { if (image === "a.jpg") await gate; return `${yolo}\n# ${image}`; }
+    });
+    await vi.waitFor(() => expect(prepared).toEqual(["a.jpg", "b.jpg"]));
+    release();
+    expect(await outcome).toMatchObject({ total: 3, changed: 2, failures: [] });
+    expect(prepared).toEqual(["a.jpg", "b.jpg"]); // c has no label file: nothing to decode
+    expect(await (await a.getFile()).text()).toBe(`${row}\n# a.jpg`);
+    expect(await (await b.getFile()).text()).toBe(`${row}\n# b.jpg`);
+    // Each step names itself; the bar counts inside the step.
+    const details = deps.operations[0]!.update.mock.calls.map(([update]) => (update as { detail?: string }).detail);
+    expect(details).toContain("Step 1/4 · Processing images · c.jpg");
+    expect(details).toContain("Step 2/4 · Backing up originals · b.txt");
+    expect(details).toContain("Step 3/4 · Writing label files · b.txt");
+    expect(details).toContain("Step 4/4 · Reloading labels");
+  });
+
+  it("takes the batch's rewrites and sends only the images it left to prepare + transform", async () => {
+    const row = "0 0.5 0.5 0.2 0.2";
+    const files = ["a", "b", "c"].map((name) => new MockFileHandle(`${name}.txt`, row));
+    const folder = new MockDirectoryHandle("labels");
+    files.forEach((file) => folder.withFile(file));
+    const state = createInitialAppState();
+    state.session.labelFolderHandle = folder as never;
+    state.session.labelFolders = [folder] as never;
+    state.session.imageFiles = ["a.png", "b.png", "c.png"].map((name) => new MockFileHandle(name, "")) as never;
+    const fileSystem = createFileSystemAdapter({ state, windowRef: createWindowRef(folder) as never, tiffRef: null });
+    fileSystem.connect(createConnectedDeps() as never);
+    const prepared: string[] = [];
+    const outcome = await fileSystem.rewriteDetectionLabels({
+      title: "Test", backupPrefix: "test",
+      prepare: async (file) => { prepared.push(file.name); return file.name; },
+      transform: async (_file, yolo, image) => `${yolo}\n# ts ${image}`,
+      // a: rewritten by the batch; b: unchanged there; c: left to the TS path.
+      batch: async (images, names, onProgress) => {
+        expect(names).toEqual(["a.txt", "b.txt", "c.txt"]);
+        onProgress(images.length);
+        return [{ original: row, text: `${row}\n# batch` }, { original: row, text: null }, null];
+      }
+    });
+    expect(prepared).toEqual(["c.png"]);
+    expect(outcome).toMatchObject({ changed: 2, timings: { batchImages: 2 } });
+    expect(await (await files[0]!.getFile()).text()).toBe(`${row}\n# batch`);
+    expect(await (await files[1]!.getFile()).text()).toBe(row);
+    expect(await (await files[2]!.getFile()).text()).toBe(`${row}\n# ts c.png`);
+  });
+
+  it("runs batch work a few at a time and stops starting work after a failure", async () => {
+    let running = 0;
+    let peak = 0;
+    const started: number[] = [];
+    await expect(forEachLimited([0, 1, 2, 3, 4, 5], 2, async (item) => {
+      started.push(item);
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, item === 1 ? 1 : 5));
+      running -= 1;
+      if (item === 1) throw new Error("boom");
+    })).rejects.toThrow("boom");
+    expect(peak).toBe(2);
+    expect(running).toBe(0); // the running item finished before the failure was thrown
+    expect(started).toEqual([0, 1]);
   });
 
   it("keeps the active folder when saving edited labels before switching fails", async () => {

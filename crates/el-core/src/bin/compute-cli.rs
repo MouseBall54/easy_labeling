@@ -3,7 +3,8 @@
 //   refine:     request { width, height, boxes, paramsByClass, neighbours }, input u8 gray, output JSON
 //   view:       request { width, height, config }, input u8 RGBA, output u8 gray (the Processed view)
 //   review:     request { settings }, input JSON [{ text, width, height }], output JSON findings
-use el_core::{preprocess, refine, review};
+//   label-boxes: request {}, input JSON [{ text, width, height }], output JSON [[{ id, classId, x0, y0, x1, y1 }] | null]
+use el_core::{preprocess, refine, refine_folder, review};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -44,6 +45,21 @@ fn main() {
             let settings = request.settings.as_ref().unwrap();
             let findings: Vec<_> = cases.iter().map(|case| review::inspect_detection_labels(&case.text, case.width, case.height, settings)).collect();
             serde_json::to_vec(&findings).unwrap()
+        }
+        "label-boxes" => {
+            let cases: Vec<ReviewInput> = serde_json::from_slice(&input).unwrap();
+            let boxes: Vec<_> = cases
+                .iter()
+                .map(|case| {
+                    refine_folder::label_file_boxes(&case.text, case.width, case.height).map(|boxes| {
+                        boxes
+                            .iter()
+                            .map(|b| serde_json::json!({ "id": b.id, "classId": b.class_id, "x0": b.x0, "y0": b.y0, "x1": b.x1, "y1": b.y1 }))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            serde_json::to_vec(&boxes).unwrap()
         }
         "view" => {
             let luma = preprocess::rgba_luma(&input);

@@ -49,6 +49,52 @@ pub fn parse_float(text: &str) -> f64 {
     text[..end].parse().unwrap_or(f64::NAN)
 }
 
+/// `Number(text)` (StringToNumber): the whole trimmed string must be a numeric literal, else NaN; an empty
+/// string is 0. Accepts `Infinity` with a sign and `0x`/`0o`/`0b` integers without one. None only for a
+/// `0x`/`0o`/`0b` literal over 128 bits, whose rounding this does not reproduce.
+pub fn number(text: &str) -> Option<f64> {
+    let text = trim(text);
+    if text.is_empty() {
+        return Some(0.0);
+    }
+    let bytes = text.as_bytes();
+    let radix = match (bytes[0], bytes.get(1)) {
+        (b'0', Some(b'x' | b'X')) => 16,
+        (b'0', Some(b'o' | b'O')) => 8,
+        (b'0', Some(b'b' | b'B')) => 2,
+        _ => 10,
+    };
+    if radix != 10 {
+        let digits = &text[2..];
+        if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+            return Some(f64::NAN);
+        }
+        // u128 -> f64 rounds to nearest, ties to even, as the Number value of a literal does.
+        return u128::from_str_radix(digits, radix).ok().map(|value| value as f64);
+    }
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    if unsigned == "Infinity" {
+        return Some(if bytes[0] == b'-' { f64::NEG_INFINITY } else { f64::INFINITY });
+    }
+    // StrUnsignedDecimalLiteral: digits [. digits] [exponent], or . digits [exponent]; nothing else.
+    let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
+        Some(at) => (&unsigned[..at], Some(&unsigned[at + 1..])),
+        None => (unsigned, None),
+    };
+    let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let all_digits = |part: &str| part.bytes().all(|b| b.is_ascii_digit());
+    let mantissa_ok = all_digits(integer) && all_digits(fraction) && !(integer.is_empty() && fraction.is_empty());
+    let exponent_ok = exponent.is_none_or(|exponent| {
+        let digits = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        !digits.is_empty() && all_digits(digits)
+    });
+    if !mantissa_ok || !exponent_ok {
+        return Some(f64::NAN);
+    }
+    // Now a valid Rust float literal too; both parsers round correctly.
+    Some(text.parse().unwrap_or(f64::NAN))
+}
+
 /// `Math.max(a, b)`: NaN when either is NaN.
 pub fn max(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
@@ -179,5 +225,36 @@ mod tests {
         assert!(max(0.0, f64::NAN).is_nan());
         assert!(min(f64::NAN, 1.0).is_nan());
         assert_eq!(max(1.0, 2.0), 2.0);
+    }
+
+    #[test]
+    fn number_reads_only_whole_numeric_literals() {
+        let cases: [(&str, f64); 18] = [
+            ("0.5", 0.5),
+            (" \u{FEFF}1.25\u{A0}", 1.25),
+            ("", 0.0),
+            ("  ", 0.0),
+            ("5.", 5.0),
+            (".5", 0.5),
+            ("-.5e1", -5.0),
+            ("+2E-1", 0.2),
+            ("1e400", f64::INFINITY),
+            ("-Infinity", f64::NEG_INFINITY),
+            ("+Infinity", f64::INFINITY),
+            ("0x1F", 31.0),
+            ("0B101", 5.0),
+            ("0o17", 15.0),
+            ("007", 7.0),
+            ("0xFFFFFFFFFFFFFFFFF", 295147905179352830000.0),
+            ("-0", -0.0),
+            ("1E5", 100000.0),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(number(text), Some(expected), "{text:?}");
+        }
+        for text in ["1.25abc", "1e", "1e+", ".", "+.e1", "-0x10", "0x", "0xG", "inf", "infinity", "NaN", "1_000", "1 2", "1..2", "--1", "0b2"] {
+            assert!(number(text).is_some_and(f64::is_nan), "{text:?}");
+        }
+        assert_eq!(number(&format!("0x{}", "F".repeat(33))), None);
     }
 }

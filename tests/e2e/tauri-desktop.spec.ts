@@ -4,7 +4,7 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } fr
 import os from "node:os";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
-import { encodePng, grayPixels, grayPng, grayTiff, withExifOrientation, withPngExif, writeReviewDataset, yoloLabels } from "./fixtures/review-dataset.js";
+import { encodePng, grayPixels, grayPng, grayTiff, withExifOrientation, withPngChunk, withPngExif, writeReviewDataset, yoloLabels } from "./fixtures/review-dataset.js";
 import { launchDesktop as launch } from "./fixtures/tauri-app.js";
 
 // Drives the real Tauri executable (npm run tauri:dev, or EASY_LABELING_TAURI_EXE) through WebView2's CDP port.
@@ -1198,3 +1198,118 @@ test("Tauri shows class names from dataset files as text, never as markup", asyn
     await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   }
 });
+
+/**
+ * Refine's folder run (All images in folder) once with the Rust batch and once on the TS path in the same app;
+ * the label files must come out byte for byte the same. Covers images Rust decodes (8-bit gray TIFF, gray and
+ * RGB PNG) and the ones it leaves to the page (RGBA, colour-managed and eXIf PNGs, JPEG), awkward label
+ * files, a class with its own settings, and the Original and Processed images.
+ */
+for (const source of ["original", "processed"] as const) {
+  test(`Tauri folder refine in Rust writes the TS label files (${source} image)`, async () => {
+    test.setTimeout(600_000);
+    const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-tauri-"));
+    const dataset = path.join(sandbox, "folder-refine");
+    await mkdir(path.join(dataset, "label"), { recursive: true });
+    await mkdir(path.join(dataset, ".easy-labeling"), { recursive: true });
+    const labels: Record<string, string> = {};
+    const add = async (image: string, data: Buffer, label?: string) => {
+      await writeFile(path.join(dataset, image), data);
+      if (label !== undefined) labels[`${image.replace(/\.[^.]+$/, "")}.txt`] = label;
+    };
+    for (let index = 0; index < 3; index += 1) await add(`a_tif_${index}.tif`, grayTiff(1024, 768, index + 1), yoloLabels(120, index + 1));
+    await add("b_png_gray.png", grayPng(800, 600, 5), yoloLabels(80, 5));
+    const rgb = (width: number, height: number) => {
+      const gray = grayPixels(width, height, 6);
+      return encodePng(Uint8Array.from({ length: width * height * 3 }, (_, i) => Math.min(255, gray[Math.floor(i / 3)]! + (i % 3) * 20)), width, height, 3);
+    };
+    await add("c_png_rgb.png", rgb(640, 480), yoloLabels(60, 6));
+    const rgba = (width: number, height: number) => {
+      const gray = grayPixels(width, height, 7);
+      return encodePng(Uint8Array.from({ length: width * height * 4 }, (_, i) => (i % 4 === 3 ? 255 : gray[Math.floor(i / 4)]!)), width, height, 4);
+    };
+    await add("d_png_rgba.png", rgba(640, 480), yoloLabels(60, 7));
+    // gAMA 1/2.2: Chromium may convert these pixels, so Rust leaves the image to the page.
+    const gamma = Buffer.alloc(4);
+    gamma.writeUInt32BE(45455);
+    await add("e_png_gamma.png", withPngChunk(grayPng(640, 480, 8), "gAMA", gamma), yoloLabels(60, 8));
+    await add("f_png_exif.png", withPngExif(grayPng(640, 480, 9)), yoloLabels(60, 9));
+    await add("g_photo.jpg", await readFile(path.join(root, "assets/sample/sample_1.jpg")), "0 0.5 0.5 0.2 0.2\n1 0.3 0.3 0.1 0.15\n");
+    await add("h_messy.png", grayPng(640, 480, 10),
+      "﻿0 0.5 0.5 0.1 0.1\r\n0\t0.25  0.25 0.1 0.1\r\n\r\n1 0x0 .5 1e-1 0.1\r\nx NaN 0.5\r\n2 0.75 0.75 0.1 0.1 extra\r\n1 .3 .6 .12 .08\r\n0 0.5 0.5 0 0.1\r");
+    await add("i_empty.png", grayPng(64, 64), "");
+    await add("j_blank.png", grayPng(64, 64), "  \n\n");
+    await add("k_no_label.png", grayPng(64, 64));
+    // Text without a valid box: the TS path opens the image for it, so Rust leaves it there.
+    await add("l_no_box.png", grayPng(64, 64), "0 0.5 0.5 0 0\n");
+    for (const [name, text] of Object.entries(labels)) await writeFile(path.join(dataset, "label", name), text);
+    // Class 1 has its own settings; the others use the default (or the Processed image for the whole run).
+    await writeFile(path.join(dataset, ".easy-labeling", "refine-settings.json"), JSON.stringify({
+      schemaVersion: 1, classes: { 1: { crit: "thr", rangeIn: 5 } }, imageSource: source,
+      processing: source === "processed" ? { name: "e2e", config: { mode: "original", median: true, claheClip: 2 } } : null
+    }));
+    // The run's backup folder (label/.easy-labeling/refine-all-*): file name -> text.
+    const readBackup = async () => {
+      const root = path.join(dataset, "label", ".easy-labeling");
+      const [folder] = await readdir(root);
+      const names = (await readdir(path.join(root, folder!))).sort();
+      return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(path.join(root, folder!, name), "utf8")] as const)));
+    };
+    const readLabels = async () => Object.fromEntries(await Promise.all(Object.keys(labels).map(async (name) => [name, await readFile(path.join(dataset, "label", name), "utf8")] as const)));
+    const restore = async () => {
+      for (const [name, text] of Object.entries(labels)) await writeFile(path.join(dataset, "label", name), text);
+      await rm(path.join(dataset, "label", ".easy-labeling"), { recursive: true, force: true });
+    };
+    const app = await launchDesktop(sandbox, [dataset]);
+    try {
+      const { page } = app;
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("dialog", (dialog) => void dialog.accept());
+      await page.locator("#selectImageFolderBtn").click();
+      await expect.poll(() => rectCount(page), { timeout: 60_000 }).toBeGreaterThan(0);
+      await expect(page.locator("#activeOperationPanel")).toBeHidden({ timeout: 60_000 });
+      await page.locator("#taskRefineBtn").click();
+      const run = async (nativeOff: string[]) => {
+        await page.evaluate((off) => {
+          window.easyLabelingNativeOff = off;
+          Reflect.set(window, "easyLabelingNativeTrace", []);
+          delete document.querySelector<HTMLElement>("#refineStatus")!.dataset.timings;
+        }, nativeOff);
+        await page.locator("#refineFolderBtn").click();
+        await expect(page.locator("#refineStatus")).toHaveAttribute("data-timings", /totalMs/, { timeout: 300_000 });
+        const timings = JSON.parse((await page.locator("#refineStatus").getAttribute("data-timings"))!) as Record<string, number>;
+        const trace = await page.evaluate(() => [...Reflect.get(window, "easyLabelingNativeTrace") as string[]]);
+        return { timings, trace, files: await readLabels(), backup: await readBackup(), status: await page.locator("#refineStatus").textContent() };
+      };
+      const native = await run([]);
+      await restore();
+      const ts = await run(["refine-folder", "label-commit"]);
+      await page.evaluate(() => { window.easyLabelingNativeOff = []; });
+
+      expect(native.trace).toEqual(expect.arrayContaining(["refine_folder", "label_files_commit"]));
+      expect(ts.trace).not.toContain("refine_folder");
+      expect(ts.trace).not.toContain("label_files_commit");
+      // The backups hold the same originals, written by Rust in one call or by the page file by file.
+      expect(Object.keys(native.backup).length).toBeGreaterThanOrEqual(9);
+      expect(native.backup).toEqual(ts.backup);
+      // Rust did the 3 TIFFs, the gray and RGB PNGs, the messy one and the files without boxes; the page the rest.
+      expect(native.timings.batchImages).toBe(9);
+      expect(ts.timings.batchImages).toBe(0);
+      for (const name of Object.keys(labels)) {
+        const a = native.files[name]!.split("\n");
+        const b = ts.files[name]!.split("\n");
+        const differing = a.map((line, index) => [index, line, b[index]] as const).filter(([, x, y]) => x !== y);
+        expect(differing, name).toEqual([]);
+      }
+      expect(native.status!.replace(/ · Time.*$/, "").replace(/refine-all-[^ ]+/, "")).toBe(ts.status!.replace(/ · Time.*$/, "").replace(/refine-all-[^ ]+/, ""));
+      const moved = Object.keys(labels).filter((name) => native.files[name] !== labels[name]);
+      expect(moved.length).toBeGreaterThanOrEqual(9);
+      console.log(`folder refine (${source}): native ${native.timings.totalMs} ms (batch ${native.timings.batchMs} ms), TS ${ts.timings.totalMs} ms`);
+      expect(errors).toEqual([]);
+    } finally {
+      await app.close();
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+    }
+  });
+}

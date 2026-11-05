@@ -274,3 +274,44 @@ fn golden_tone_curves() {
     }
     assert!(failures.is_empty(), "{} of {} curves differ:\n{}", failures.len(), configs.len(), failures.join("\n"));
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefineFolderCase {
+    name: String,
+    image: String,
+    width: usize,
+    height: usize,
+    text: String,
+    params_by_class: std::collections::HashMap<String, refine::RefineParams>,
+    default_params: refine::RefineParams,
+    processing: Option<preprocess::PreprocessConfig>,
+    expected: Value,
+}
+
+/// Refine's folder run on one label file: labelFileBoxes, the Original or Processed pixels, refineBoxes and
+/// the moved-box filter must give the TS boxes (same tolerance as golden_refine; the count exactly).
+#[test]
+fn golden_refine_folder() {
+    let cases: Vec<RefineFolderCase> = read_json("refine-folder/cases.json");
+    assert!(cases.iter().any(|case| case.expected["boxCount"].as_u64().unwrap_or(0) >= 500), "fixtures need a 500+ box case");
+    let mut failures = Vec::new();
+    for case in &cases {
+        let gray = read_bytes(&format!("refine-folder/{}", case.image));
+        assert_eq!(gray.len(), case.width * case.height, "{}: image size", case.name);
+        let pixels = match &case.processing {
+            Some(config) => preprocess::to_bytes(&preprocess::preprocess_gray(gray.iter().map(|&v| f32::from(v)).collect(), case.width, case.height, config)),
+            None => gray,
+        };
+        let boxes = el_core::refine_folder::label_file_boxes(&case.text, case.width as f64, case.height as f64).expect("readable labels");
+        let image = refine::GrayImage { gray: &pixels, width: case.width, height: case.height };
+        let changes = el_core::refine_folder::changed_boxes(&image, &boxes, &case.params_by_class, &case.default_params);
+        let actual = serde_json::json!({ "boxCount": boxes.len(), "changes": changes });
+        let mut differences = Vec::new();
+        compare("", &case.expected, &actual, &mut differences);
+        if !differences.is_empty() {
+            failures.push(format!("{} ({} differences, first 5):\n  {}", case.name, differences.len(), differences[..differences.len().min(5)].join("\n  ")));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} refine-folder cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
