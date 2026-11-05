@@ -49,6 +49,10 @@ export interface RefineParams {
   extendStart: number;
   /** Pixels scanned beyond the end (bottom for L/R, right for T/B) of the side. */
   extendEnd: number;
+  /** With extensions scanned: pixels scanned into the box from its start, joined to the start extension. */
+  inwardStart: number;
+  /** With extensions scanned: pixels scanned into the box from its end, joined to the end extension. */
+  inwardEnd: number;
   sides: Record<RefineSide, RefineSideMode>;
   /** Per-side overrides of the edge rule; the side's criterion lives in `sides`. */
   sideRules: Record<RefineSide, RefineSideRule>;
@@ -71,7 +75,7 @@ export interface RefineParams {
 }
 
 /** Edge-rule keys a single side may override. */
-export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "partMode", "nearWeight", "extendStart", "extendEnd"] as const;
+export const REFINE_SIDE_RULE_KEYS = ["polarity", "comb", "rangeIn", "rangeOut", "sigma", "gradStep", "segments", "inset", "scanSpan", "partMode", "nearWeight", "extendStart", "extendEnd", "inwardStart", "inwardEnd"] as const;
 export type RefineSideRuleKey = typeof REFINE_SIDE_RULE_KEYS[number];
 export type RefineSideRule = Partial<Pick<RefineParams, RefineSideRuleKey>>;
 
@@ -120,6 +124,8 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   nearWeight: true,
   extendStart: 0,
   extendEnd: 0,
+  inwardStart: 0,
+  inwardEnd: 0,
   sides: Object.freeze({ T: "inherit", B: "inherit", R: "inherit", L: "inherit" }) as Record<RefineSide, RefineSideMode>,
   sideRules: Object.freeze({ T: {}, B: {}, R: {}, L: {} }) as Record<RefineSide, RefineSideRule>,
   pairTB: "off",
@@ -149,6 +155,8 @@ export const REFINE_PARAM_LIMITS = Object.freeze({
   inset: [0, 0.49],
   extendStart: [0, 4000],
   extendEnd: [0, 4000],
+  inwardStart: [0, 4000],
+  inwardEnd: [0, 4000],
   iterations: [1, 6],
   reviewBelow: [0, 1],
   areaGrowLimit: [0, 100],
@@ -210,6 +218,8 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     nearWeight: p.nearWeight === undefined ? d.nearWeight : Boolean(p.nearWeight),
     extendStart: limit("extendStart", Math.round(num(p.extendStart, d.extendStart))),
     extendEnd: limit("extendEnd", Math.round(num(p.extendEnd, d.extendEnd))),
+    inwardStart: limit("inwardStart", Math.round(num(p.inwardStart, d.inwardStart))),
+    inwardEnd: limit("inwardEnd", Math.round(num(p.inwardEnd, d.inwardEnd))),
     sides: {
       T: normalizeSideMode(sides.T, d.sides.T),
       B: normalizeSideMode(sides.B, d.sides.B),
@@ -604,12 +614,34 @@ function neighbourLimit(box: RefineRect, side: RefineSide, neighbours: readonly 
   return limit;
 }
 
+/** Where a scanned run lies along a side. */
+export type RefineRunKind = "start" | "box" | "end";
+
+/**
+ * Runs sorted by their first pixel, overlapping ones joined (adjacent runs stay apart, so positions and
+ * drawing are unchanged when nothing overlaps). A joined run keeps the kind of its first run.
+ */
+function mergeOverlappingRuns(runs: [number, number][], kinds: RefineRunKind[]): [[number, number][], RefineRunKind[]] {
+  const order = runs.map((_, index) => index).sort((a, b) => runs[a]![0] - runs[b]![0] || a - b);
+  const merged: [number, number][] = [];
+  const mergedKinds: RefineRunKind[] = [];
+  for (const index of order) {
+    const [from, to] = runs[index]!;
+    const last = merged[merged.length - 1];
+    if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+    else { merged.push([from, to]); mergedKinds.push(kinds[index]!); }
+  }
+  return [merged, mergedKinds];
+}
+
 interface SideWindow {
   geometry: SideGeometry;
   /** Along-side pixel rows/columns that are scanned, in order. */
   positions: Int32Array;
   /** The same positions as inclusive [from, to] runs, for drawing. */
   runs: [number, number][];
+  /** Where each run lies: the start end (its extension and inward part), the box, or the end end. */
+  runKinds: RefineRunKind[];
   base: number;
   n: number;
   /** Profile index of the current edge. */
@@ -630,16 +662,31 @@ function sideWindow(img: GrayImage, box: RefineRect, side: RefineSide, p: Refine
   let s1 = Math.round(a1 - length * p.inset);
   if (s1 < s0) s0 = s1 = Math.round((a0 + a1) / 2);
   const inside: [number, number] = [clamp(s0, 0, lim), clamp(s1, 0, lim)];
-  // Extensions continue straight past the box ends; the corner inset does not apply to them.
-  const before: [number, number] = [Math.max(0, Math.round(a0) - p.extendStart), Math.min(lim, Math.round(a0) - 1)];
-  const after: [number, number] = [Math.max(0, Math.round(a1)), Math.min(lim, Math.round(a1) + p.extendEnd - 1)];
-  const hasBefore = p.extendStart > 0 && before[1] >= before[0];
-  const hasAfter = p.extendEnd > 0 && after[1] >= after[0];
-  const outside = [...(hasBefore ? [before] : []), ...(hasAfter ? [after] : [])];
+  // Each end scans its extension past the box plus its inward part into the box (at most the box length);
+  // the corner inset does not apply to them.
+  const r0 = Math.round(a0);
+  const r1 = Math.round(a1);
+  const inStart = Math.min(p.inwardStart, Math.max(0, r1 - r0));
+  const inEnd = Math.min(p.inwardEnd, Math.max(0, r1 - r0));
+  const before: [number, number] = [Math.max(0, r0 - p.extendStart), Math.min(lim, r0 + inStart - 1)];
+  const after: [number, number] = [Math.max(0, r1 - inEnd), Math.min(lim, r1 + p.extendEnd - 1)];
+  const hasBefore = (p.extendStart > 0 || inStart > 0) && before[1] >= before[0];
+  const hasAfter = (p.extendEnd > 0 || inEnd > 0) && after[1] >= after[0];
+  const ends: [number, number][] = [...(hasBefore ? [before] : []), ...(hasAfter ? [after] : [])];
+  const endKinds: RefineRunKind[] = [...(hasBefore ? ["start" as const] : []), ...(hasAfter ? ["end" as const] : [])];
   // "Outside only" with nothing to scan (no extension, or clipped by the image) falls back to the box.
-  const runs = p.scanSpan === "box" || !outside.length
-    ? [inside]
-    : p.scanSpan === "outside" ? outside : [...(hasBefore ? [before] : []), inside, ...(hasAfter ? [after] : [])];
+  let runs: [number, number][];
+  let runKinds: RefineRunKind[];
+  if (p.scanSpan === "box" || !ends.length) [runs, runKinds] = [[inside], ["box"]];
+  else if (p.scanSpan === "outside") [runs, runKinds] = [ends, endKinds];
+  else {
+    runs = [...(hasBefore ? [before] : []), inside, ...(hasAfter ? [after] : [])];
+    runKinds = [...(hasBefore ? ["start" as const] : []), "box", ...(hasAfter ? ["end" as const] : [])];
+  }
+  // With inward parts, overlapping runs are read once (their union), except Strongest part over box + outside,
+  // where each part keeps its own pixels. Without them the runs stay as before (the box run and the end
+  // extension can share one pixel after rounding), so older settings give the same results.
+  if ((inStart > 0 || inEnd > 0) && !(p.partMode === "strongest" && p.scanSpan === "boxOutside")) [runs, runKinds] = mergeOverlappingRuns(runs, runKinds);
   const positions = new Int32Array(runs.reduce((total, [from, to]) => total + to - from + 1, 0));
   let k = 0;
   for (const [from, to] of runs) for (let t = from; t <= to; t += 1) positions[k++] = t;
@@ -651,7 +698,7 @@ function sideWindow(img: GrayImage, box: RefineRect, side: RefineSide, p: Refine
     : p.rangeOut;
   const base = Math.round(p0) - (geometry.out > 0 ? rangeIn : rangeOut);
   // Profile index i samples pixel base+i, whose centre sits at base+i+0.5 in box coordinates.
-  return { geometry, positions, runs, base, n: rangeIn + rangeOut + 1, c: p0 - 0.5 - base, rangeIn, rangeOut };
+  return { geometry, positions, runs, runKinds, base, n: rangeIn + rangeOut + 1, c: p0 - 0.5 - base, rangeIn, rangeOut };
 }
 
 /** Mean perpendicular profile over the along-side positions [from, to) of the window. */
@@ -926,6 +973,8 @@ export interface RefineSideDiagnostics {
   rangeOut: number;
   /** Along-side runs that were scanned (inclusive pixel indices), including any extension past the box. */
   runs: [number, number][];
+  /** Where each run lies: the start end, the box, or the end end. */
+  runKinds: RefineRunKind[];
   /** Median brightness inside the box and in the background ring (null when the ring is off). */
   inside: number | null;
   outside: number | null;
@@ -1032,6 +1081,7 @@ export function describeRefineSide(img: GrayImage, box: RefineRect, side: Refine
     rangeIn: w.rangeIn,
     rangeOut: w.rangeOut,
     runs: w.runs,
+    runKinds: w.runKinds,
     inside: context?.inside ?? null,
     outside: context?.outside ?? null,
     polarity: resolvePolarity(params, context),

@@ -94,8 +94,9 @@ ${def("Pick: Clearest edges / Nearest to the box", "Among pairs of the preferred
       html: `<dl class="rh-defs">
 ${def("Scan span", "Which rows/columns along the side are averaged: <em>Box only</em>, <em>Box + outside</em> (the box and its extensions) or <em>Outside only</em>.", "Box only")}
 ${def("Extend before / after (px)", "How far past the box ends the scan goes (above/below for left/right sides, left/right for top/bottom).", 0)}
-${def("Scanned parts", "<em>Together</em> averages every part into one profile; <em>Strongest part</em> searches before, box and after on their own and keeps the clearest. The Lab draws one curve per part.", "Together")}
-</dl>${tip("Long lines or trenches cut by the box: extend along the structure so the side sees a long, clean edge.")}`
+${def("Into box from start / end (px)", "How far into the box each end's scan also reaches, next to its extension, for edge hints that sit near the box ends rather than in the middle. With <em>Outside only</em> the middle of the side is left out. Where an end meets the box run or the other end, the overlap is read once (<em>Strongest part</em> over <em>Box + outside</em> keeps each part whole).", 0)}
+${def("Scanned parts", "<em>Together</em> averages every part into one profile; <em>Strongest part</em> searches the start end, the box and the end end on their own and keeps the clearest. The Lab draws one curve per part (orange: start end, green: box, purple: end end).", "Together")}
+</dl>${tip("Long lines or trenches cut by the box: extend along the structure so the side sees a long, clean edge. The edge shows only near the corners: <em>Outside only</em> with a few px <em>Into box</em> at each end.")}`
     },
     "edge-surroundings": {
       title: "Surroundings: background ring, core, neighbours",
@@ -111,7 +112,7 @@ ${def("Row/column tolerance (px)", "Boxes in one row (column) whose top/bottom (
 <dl class="rh-defs">
 ${def("Flag below confidence", "Sides weaker than this are flagged.", D.reviewBelow)}
 ${def("Flag area growth / shrink over (%)", "Boxes whose area changes more than this get a red frame. 0 turns it off.", `${pct(D.areaGrowLimit)} / ${pct(D.areaShrinkLimit)}`)}
-</dl><p>On the canvas: ${keys("N")} / ${keys("Shift", "N")} next / previous flagged box, ${keys("F")} approves it. <em>Show review marks</em> hides the marks.</p>`
+</dl><p>On the canvas: ${keys("N")} / ${keys("Shift", "N")} next / previous flagged box, ${keys("F")} approves it, <em>Approve all</em> approves every flag left. <em>Show review marks</em> hides the marks.</p>`
     },
     "edge-advanced": {
       title: "Iterations and refine on draw",
@@ -139,7 +140,7 @@ ${tip(`In the Refine pane, <em>Run with</em> applies one preset to every class w
 <li><strong>Change to:</strong> the class a matching box becomes.</li>
 <li><strong>Place the centre crop</strong> with the four insets (${link("reclass-crop", "centre crop")}) so it covers where defects show.</li>
 <li><strong>Turn on checks</strong> (${link("reclass-checks", "Mean, Bright pixels, Area shrinks")}) and combine them with OR or AND. Matching cases get a magenta pin; the footer counts them.</li>
-<li><strong>Save &amp; find candidates</strong>, then decide each candidate in the pane: ${keys("N")} goes to it, <em>Apply selected</em> changes it, <em>Skip selected</em> (${keys("F")}) leaves it. <em>Apply all candidates</em> / <em>Apply class</em> change the rest at once (one undo step).</li>
+<li><strong>Save &amp; reclass these boxes</strong> (or <em>Apply</em> in the pane): matching boxes change class at once (one undo step) and are queued for review. Walk them with ${keys("N")}, approve with ${keys("F")} or <em>Approve all</em>; undo or change a class by hand where the rule was wrong.</li>
 </ol>`
     },
     "reclass-crop": {
@@ -158,11 +159,13 @@ ${def("Combine", "OR: any check that is on is enough. AND: every check must pass
 </dl>${tip("Too many matches: raise the threshold, shrink the crop away from rims, or switch to AND. Too few: lower thresholds one at a time and watch the pins in the cases.")}`
     },
     "reclass-run": {
-      title: "Candidates, review and reclass",
-      html: `<p>In the Refine pane (Reclass mode), <em>Reclass with</em> picks the Lab rule or a reclass preset. <em>Find candidates</em> marks matches on the open image; nothing changes until you apply. ${keys("N")} / ${keys("Shift", "N")} walks them.</p>
+      title: "Apply, review and reclass",
+      html: `<p>In the Refine pane (Reclass mode), <em>Reclass with</em> picks the Lab rule or a reclass preset. <em>Apply</em> works like Edge mode's: each button judges its boxes with the rule now and changes the matches to the rule's class, as one undo step.</p>
 <dl class="rh-defs">
-${def("Apply selected / Skip selected", `Change the selected candidate to the rule's class, or leave it as it is (${keys("F")}, until the box changes); both go to the next candidate.`)}
-${def("Apply all candidates / Apply class", "Change every remaining candidate, or those of the class chosen beside it, as one undo step. The buttons work only after Find candidates.")}
+${def("Selected / All boxes", "The selected boxes, or every visible box.")}
+${def("Reclass class", "Every visible box of the class chosen beside it. Classes the rule does not check, or already turns boxes into, cannot be chosen.")}
+${def("Keep boxes whose class was changed by hand", "On (default), All boxes and Reclass class leave boxes you relabelled by hand alone; Selected always judges.")}
+${def("Review", `Changed boxes get a magenta pin (from → to). ${keys("N")} / ${keys("Shift", "N")} walks them, ${keys("F")} approves one, <em>Approve all</em> approves the rest. Undo takes a box out of the queue.`)}
 ${def("Reclass all images in folder", `Every image of the folder (${link("folder-run", "whole folder")}).`)}
 </dl>`
     },
@@ -194,8 +197,8 @@ ${def("Reclass misses defects", "Lower one threshold at a time, turn on Bright p
       html: `<dl class="rh-defs">
 ${def(keys("R"), "Open or close the Refine pane.")}
 ${def(`${keys("E")} / ${keys("Shift", "E")}`, "Refine the selected boxes / every box (either mode).")}
-${def(`${keys("N")} / ${keys("Shift", "N")}`, "Next / previous box to review (flags in Edge mode, candidates in Reclass mode).")}
-${def(keys("F"), "Approve the flagged box, or dismiss the candidate.")}
+${def(`${keys("N")} / ${keys("Shift", "N")}`, "Next / previous box to review (flags in Edge mode, reclassed boxes in Reclass mode).")}
+${def(keys("F"), "Approve the selected box to review (<em>Approve all</em> in the pane approves every one).")}
 ${def("Zoom view", "Wheel: zoom · drag: pan · double-click: fit.")}
 </dl>`
     }

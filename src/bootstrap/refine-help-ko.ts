@@ -98,8 +98,9 @@ ${def("Pick: Clearest edges / Nearest to the box", "선호하는 종류의 쌍 �
       html: `<dl class="rh-defs">
 ${def("Scan span", "변을 따라 어느 행/열을 평균할지: <em>Box only</em>, <em>Box + outside</em>(박스와 연장 부분), <em>Outside only</em>.", "Box only")}
 ${def("Extend before / after (px)", "박스 끝 너머로 얼마나 더 스캔할지(left/right 변은 위/아래로, top/bottom 변은 왼쪽/오른쪽으로).", 0)}
-${def("Scanned parts", "<em>Together</em>는 모든 부분을 한 프로파일로 평균하고, <em>Strongest part</em>는 앞, 박스, 뒤를 따로 찾아 가장 뚜렷한 것을 씁니다. Lab은 부분마다 곡선을 하나씩 그립니다.", "Together")}
-</dl>${tip("박스에 잘린 긴 선이나 트렌치: 구조를 따라 연장해서 변이 길고 깨끗한 경계를 보게 하세요.")}`
+${def("Into box from start / end (px)", "각 끝의 스캔이 연장 부분에 더해 박스 안쪽으로 얼마나 들어갈지. 경계의 힌트가 가운데가 아니라 박스 끝 부근에 있을 때 씁니다. <em>Outside only</em>면 변의 가운데는 스캔하지 않습니다. 끝 구간이 박스 구간이나 반대쪽 끝과 겹치면 겹친 영역은 한 번만 읽습니다(<em>Box + outside</em>의 <em>Strongest part</em>는 각 부분을 그대로 둠).", 0)}
+${def("Scanned parts", "<em>Together</em>는 모든 부분을 한 프로파일로 평균하고, <em>Strongest part</em>는 시작 끝, 박스, 끝 쪽 끝을 따로 찾아 가장 뚜렷한 것을 씁니다. Lab은 부분마다 곡선을 하나씩 그립니다(주황: 시작 끝, 초록: 박스, 보라: 끝 쪽 끝).", "Together")}
+</dl>${tip("박스에 잘린 긴 선이나 트렌치: 구조를 따라 연장해서 변이 길고 깨끗한 경계를 보게 하세요. 경계가 모서리 근처에만 보이면: <em>Outside only</em>에 양 끝 <em>Into box</em>를 몇 px 주세요.")}`
     },
     "edge-surroundings": {
       title: "Surroundings: background ring, 코어, 이웃",
@@ -115,7 +116,7 @@ ${def("Row/column tolerance (px)", "같은 행(열)의 박스 중 위/아래(왼
 <dl class="rh-defs">
 ${def("Flag below confidence", "신뢰도가 이 값보다 낮은 변을 표시합니다.", D.reviewBelow)}
 ${def("Flag area growth / shrink over (%)", "면적이 이보다 더 바뀐 박스는 빨간 테두리. 0이면 끕니다.", `${pct(D.areaGrowLimit)} / ${pct(D.areaShrinkLimit)}`)}
-</dl><p>캔버스에서: ${keys("N")} / ${keys("Shift", "N")} 다음 / 이전 검토 박스, ${keys("F")}로 승인(Approve). <em>Show review marks</em>를 끄면 표시를 숨깁니다.</p>`
+</dl><p>캔버스에서: ${keys("N")} / ${keys("Shift", "N")} 다음 / 이전 검토 박스, ${keys("F")}로 승인(Approve), <em>Approve all</em>로 남은 검토 대상을 모두 승인. <em>Show review marks</em>를 끄면 표시를 숨깁니다.</p>`
     },
     "edge-advanced": {
       title: "Iterations와 그릴 때 바로 맞추기",
@@ -143,7 +144,7 @@ ${tip(`Refine pane의 <em>Run with</em>는 클래스 설정을 바꾸지 않고 
 <li><strong>Change to:</strong> 일치한 박스가 바뀔 클래스.</li>
 <li><strong>가운데 crop 위치 잡기:</strong> inset 네 개(${link("reclass-crop", "가운데 crop")})로 결함이 보이는 곳을 덮게 합니다.</li>
 <li><strong>검사 켜기:</strong> ${link("reclass-checks", "Mean, Bright pixels, Area shrinks")}를 켜고 OR나 AND로 조합합니다. 일치한 케이스에는 마젠타 핀이 붙고, 아래 상태줄에 개수가 나옵니다.</li>
-<li><strong>Save &amp; find candidates</strong>를 누른 뒤 pane에서 후보마다 정합니다: ${keys("N")}으로 후보로 가서 <em>Apply selected</em>로 바꾸거나 <em>Skip selected</em>(${keys("F")})로 그대로 둡니다. <em>Apply all candidates</em> / <em>Apply class</em>는 남은 후보를 한 번에 바꿉니다(실행 취소 한 번으로 되돌림).</li>
+<li><strong>Save &amp; reclass these boxes</strong>(또는 pane의 <em>Apply</em>)를 누르면 일치한 박스의 클래스가 바로 바뀌고(실행 취소 한 번으로 되돌림) 검토 대상이 됩니다. ${keys("N")}으로 차례로 보며 ${keys("F")}나 <em>Approve all</em>로 승인하고, 규칙이 틀린 박스는 실행 취소하거나 직접 클래스를 고칩니다.</li>
 </ol>`
     },
     "reclass-crop": {
@@ -162,11 +163,13 @@ ${def("Combine", "OR: 켜진 검사 중 하나만 맞아도 됨. AND: 모두 맞
 </dl>${tip("일치가 너무 많으면: 기준을 올리거나, crop을 테두리에서 떼거나, AND로 바꾸세요. 너무 적으면: 기준을 하나씩 낮추며 케이스의 핀을 보세요.")}`
     },
     "reclass-run": {
-      title: "후보 찾기, 검토, 재분류",
-      html: `<p>Refine pane(Reclass 모드)의 <em>Reclass with</em>에서 Lab 규칙이나 Reclass 프리셋을 고릅니다. <em>Find candidates</em>는 열린 이미지의 일치 박스를 후보로 표시만 하고, 적용하기 전에는 아무것도 바뀌지 않습니다. ${keys("N")} / ${keys("Shift", "N")}으로 차례로 봅니다.</p>
+      title: "적용, 검토, 재분류",
+      html: `<p>Refine pane(Reclass 모드)의 <em>Reclass with</em>에서 Lab 규칙이나 Reclass 프리셋을 고릅니다. <em>Apply</em>는 Edge 모드와 같이 동작합니다: 버튼마다 대상 박스를 지금 규칙으로 판정해, 일치한 박스를 규칙의 클래스로 바꿉니다(실행 취소 한 번).</p>
 <dl class="rh-defs">
-${def("Apply selected / Skip selected", `선택한 후보를 규칙의 클래스로 바꾸거나, 그대로 둡니다(${keys("F")}, 박스가 바뀔 때까지). 둘 다 다음 후보로 넘어갑니다.`)}
-${def("Apply all candidates / Apply class", "남은 모든 후보, 또는 옆에서 고른 클래스의 후보를 실행 취소 한 번 단위로 바꿉니다. Find candidates 뒤에만 누를 수 있습니다.")}
+${def("Selected / All boxes", "선택한 박스, 또는 보이는 모든 박스.")}
+${def("Reclass class", "옆에서 고른 클래스의 보이는 모든 박스. 규칙이 검사하지 않는 클래스나 규칙이 바꿀 대상 클래스는 고를 수 없습니다.")}
+${def("Keep boxes whose class was changed by hand", "켜져 있으면(기본) All boxes와 Reclass class가 직접 클래스를 바꾼 박스를 건드리지 않습니다. Selected는 항상 판정합니다.")}
+${def("Review", `바뀐 박스에는 마젠타 핀(원래 → 바뀐 클래스)이 붙습니다. ${keys("N")} / ${keys("Shift", "N")}으로 차례로 보고, ${keys("F")}로 하나씩, <em>Approve all</em>로 나머지를 한 번에 승인합니다. 실행 취소하면 검토 목록에서 빠집니다.`)}
 ${def("Reclass all images in folder", `폴더의 모든 이미지에 적용(${link("folder-run", "폴더 전체")}).`)}
 </dl>`
     },
@@ -198,8 +201,8 @@ ${def("Reclass가 결함을 놓침", "기준을 하나씩 낮추고, 얼룩덜�
       html: `<dl class="rh-defs">
 ${def(keys("R"), "Refine pane 열기/닫기.")}
 ${def(`${keys("E")} / ${keys("Shift", "E")}`, "선택한 박스 / 모든 박스 맞추기(어느 모드에서나).")}
-${def(`${keys("N")} / ${keys("Shift", "N")}`, "다음 / 이전 검토 박스(Edge 모드는 검토 대상, Reclass 모드는 후보).")}
-${def(keys("F"), "검토 대상 승인(Approve), 또는 후보 무시.")}
+${def(`${keys("N")} / ${keys("Shift", "N")}`, "다음 / 이전 검토 박스(Edge 모드는 검토 대상, Reclass 모드는 클래스가 바뀐 박스).")}
+${def(keys("F"), "선택한 검토 박스 승인(Approve). pane의 <em>Approve all</em>은 모두 승인.")}
 ${def("확대 보기", "휠: 확대 · 드래그: 이동 · 더블클릭: 전체 보기.")}
 </dl>`
     }

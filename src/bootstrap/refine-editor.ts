@@ -157,6 +157,16 @@ const FIELDS: FieldSpec[] = [
     title: "Scan this far past the box end: below it for left/right edges, right of it for top/bottom edges",
     sideLabels: { vertical: "Extend below (px)", horizontal: "Extend right (px)" }
   },
+  {
+    key: "inwardStart", label: "Into box from start (px)", type: "int", group: "rule", perSide: true, ...bounds("inwardStart"), step: 1,
+    title: "Also scan this far into the box from its start, next to the start extension (edge hints near the box end). Where it meets the box or the other end, the overlap is read once",
+    sideLabels: { vertical: "Into box from top (px)", horizontal: "Into box from left (px)" }
+  },
+  {
+    key: "inwardEnd", label: "Into box from end (px)", type: "int", group: "rule", perSide: true, ...bounds("inwardEnd"), step: 1,
+    title: "Also scan this far into the box from its end, next to the end extension (edge hints near the box end). Where it meets the box or the other end, the overlap is read once",
+    sideLabels: { vertical: "Into box from bottom (px)", horizontal: "Into box from right (px)" }
+  },
   { key: "contextRing", label: "Background ring (px)", title: "0 turns surrounding brightness off", type: "int", group: "context", ...bounds("contextRing"), step: 1 },
   { key: "avoidNeighbors", label: "Stop halfway to neighbours", type: "bool", group: "context" },
   { key: "peerTolerance", label: "Row/column tolerance (px)", title: "0 turns row/column alignment flags off", type: "num", group: "context", ...bounds("peerTolerance"), step: 0.5 },
@@ -519,7 +529,7 @@ export function createRefineEditor(input: {
           : scope === "L" || scope === "R" ? spec.sideLabels.vertical : spec.sideLabels.horizontal;
       }
       // Extensions, and how their parts combine, do nothing while only the box is scanned.
-      if (spec.key === "extendStart" || spec.key === "extendEnd" || spec.key === "partMode") {
+      if (spec.key === "extendStart" || spec.key === "extendEnd" || spec.key === "inwardStart" || spec.key === "inwardEnd" || spec.key === "partMode") {
         control.disabled = params.every((p) => valueOf(p, "scanSpan") === "box");
       }
       // The 50% level always takes the crossing nearest the current edge.

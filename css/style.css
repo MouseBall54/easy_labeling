@@ -4449,8 +4449,12 @@ body.dark-mode .loading-overlay {
 
 .refine-review-row {
     display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr);
     gap: 6px;
+}
+
+.refine-review-row .btn {
+    white-space: nowrap;
 }
 
 .refine-side-box[data-polarity="brightInside"] {

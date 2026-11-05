@@ -1,7 +1,7 @@
 import type { RefineRect, RefineSide } from "../domain/refine/edge-refine.js";
 
 /**
- * Canvas marks for boxes to review (Refine) and reclass candidates. They sit beside the box instead of
+ * Canvas marks for boxes to review (Refine flags and reclassed boxes). They sit beside the box instead of
  * thickening its outline, so they stay readable on images with hundreds of small boxes: a fixed-size pin on the
  * top-right corner, carets outside weak sides, and a tag only when it fits under the box or the box has focus.
  */
