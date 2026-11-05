@@ -69,7 +69,7 @@ Then run the specs for the touched area with `npx playwright test <spec> --proje
 | detection canvas, boxes, clipboard, arrange | `detection-bulk-operation`, `alignment-history`, `detection-clipboard`, `outside-boxes` |
 | file system, autosave, label loading | `folder-switch-autosave`, `label-sources`, `label-folder-resolution`, `label-fast-load` |
 | automation | `automation-workflow`, `automation-view`, `sample-test-data` |
-| YOLO/YOLOE inference | `inference`, `yoloe`, `yoloe-usability` |
+| YOLO inference | `inference`, `inference-desktop` |
 | modals, layout, theme, toolbar | `modal-drag`, `ui-consistency`, `ux-stage1`, `ux-stage2` |
 | `main.ts`, `createApp.ts`, `index.html`, `runtime.ts` | `bootstrap-smoke`, `unsupported-env`, `mobile-unsupported` |
 
@@ -83,7 +83,7 @@ Take screenshots of the changed UI in light and dark themes (theme toggle or `da
 
 ## 6. Version and leftovers
 
-- Shipped files changed (`src/`, `workers/`, `css/`, `index.html`, `crates/el-core/`, `src-tauri/`): `package.json` must be bumped and `src-tauri/tauri.yoloe.conf.json` paired (`tests/unit/release/version-pairing.test.ts` checks the pairing; the Stop hook reminds about the bump).
+- Shipped files changed (`src/`, `workers/`, `css/`, `index.html`, `crates/el-core/`, `src-tauri/`): `package.json` must be bumped (`tests/unit/release/version-pairing.test.ts` checks package-lock.json follows; the Stop hook reminds about the bump).
 - `git status` again: e2e runs must not leave tracked changes (docs PNGs, fixtures). Revert anything the run produced.
 
 ## Report

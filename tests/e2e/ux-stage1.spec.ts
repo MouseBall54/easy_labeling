@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function loadSample(page: Page): Promise<void> {
-  await page.goto("/index.html?yoloe=python", { waitUntil: "domcontentloaded" });
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 30_000 });
@@ -54,42 +54,3 @@ for (const workflow of ["detection", "segmentation"] as const) {
     expect(errors).toEqual([]);
   });
 }
-
-test("YOLOE popup keeps actions visible and shows preset/operation state", async ({ page }) => {
-  test.setTimeout(90_000);
-  await page.route("http://127.0.0.1:8766/**", async (route) => {
-    if (route.request().url().endsWith("/status")) return route.fulfill({ json: { version: 5, cuda: false, models: ["yoloe-26n-seg"] } });
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    if (route.request().url().endsWith("/prepare")) return route.fulfill({ json: { id: "preview", model: "yoloe-26n-seg", workflow: "detection", backend: "cpu", classes: { "1": "car" } } });
-    return route.fulfill({ json: { backend: "cpu", detections: [] } });
-  });
-  await loadSample(page);
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.locator("#taskYoloeBtn").click(); await page.locator("#openYoloeSetupBtn").click();
-  await expect(page.locator("#yoloeModelSelect")).toBeEnabled();
-  await expect(page.locator("#yoloeSetupStatus")).toHaveText("Ready");
-  const inViewport = async (selector: string) => page.locator(selector).evaluate((el) => {
-    const box = el.getBoundingClientRect();
-    return box.top >= 0 && box.bottom <= window.innerHeight && box.left >= 0 && box.right <= window.innerWidth;
-  });
-  for (const selector of ["#drawYoloeExampleBtn", "#previewYoloeSampleBtn", "#closeYoloeSetupBtn", "#yoloePromptShape"]) expect(await inViewport(selector)).toBe(true);
-  expect(await page.locator(".yoloe-settings-column").evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
-  await page.locator("#yoloeExistingBoxSelect").selectOption("0"); await page.locator("#addYoloeExistingBtn").click();
-  await expect(page.locator("#yoloePresetState")).toHaveText("Unsaved changes");
-  await page.locator("#saveYoloePresetBtn").click();
-  await expect(page.locator("#yoloePresetState")).toHaveText("Saved");
-  await page.locator("#yoloeConfidenceInput").fill("0.3");
-  await expect(page.locator("#yoloePresetState")).toHaveText("Unsaved changes");
-  await page.locator("#previewYoloeSampleBtn").click();
-  await expect(page.locator("#yoloeSetupStatus")).toContainText("Encoding samples");
-  await expect(page.locator("#stopYoloePreviewBtn")).toBeVisible();
-  expect(await inViewport("#stopYoloePreviewBtn")).toBe(true);
-  await page.locator("#stopYoloePreviewBtn").click();
-  await expect(page.locator("#yoloeSetupStatus")).toContainText("stopped");
-  await expect(page.locator("#stopYoloePreviewBtn")).toBeHidden();
-  await expect(page.locator("#previewYoloeSampleBtn")).toBeEnabled();
-  await page.locator("#previewYoloeSampleBtn").click();
-  await expect(page.locator("#yoloeSetupStatus")).toContainText("Preview · 0 detection", { timeout: 20_000 });
-  await page.locator("#closeYoloeSetupBtn").click();
-  await expect(page.locator("#openYoloeSetupBtn")).toBeFocused();
-});

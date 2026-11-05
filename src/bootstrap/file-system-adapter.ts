@@ -42,9 +42,6 @@ import {
 } from "../app/document-status.js";
 import { loadSegmentationToolPresetLibrary } from "../features/segmentation/preset-service.js";
 import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
-import { encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
-import { writeBinaryFileByName } from "../platform/file-system-access.js";
-import type { YoloeResult } from "../features/inference/yoloe.js";
 import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
@@ -245,11 +242,6 @@ export interface RuntimeFileSystem extends FileSystem {
   loadSampleTestData(reportProgress?: WorkspaceLoadProgressReporter): Promise<void>;
   selectLabelFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   switchLabelFolder(index: number): Promise<void>;
-  runSegmentationInference(options: {
-    allImages: boolean; modelName: string; classNames: ReadonlyMap<string, string>; metadata: Record<string, unknown>;
-    infer(image: HTMLImageElement, signal?: AbortSignal): Promise<YoloeResult>;
-    onProgress?(current: number, total: number, imageName: string): void;
-  }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
   runDetectionInference(options: {
     allImages: boolean;
     modelName: string;
@@ -1453,48 +1445,6 @@ export function createFileSystemAdapter(input: {
             }
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(name)}`).join("\n")}\n`);
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
-            throwIfOperationCancelled(operation?.signal);
-            await activateLabelFolder(folder, operation);
-            result = { folderName, imageCount: completed.length, detectionCount };
-          });
-        });
-        return result;
-      },
-
-      async runSegmentationInference(options) {
-        let result: { folderName: string; imageCount: number; detectionCount: number } | null = null;
-        await enqueueOperation(async () => {
-          const session = input.state.session;
-          if (session.workflow !== "segmentation" || !session.imageFolderHandle || !session.currentImageFile) throw new Error("Open a Segmentation dataset first.");
-          const files = options.allImages ? [...session.imageFiles] : [session.currentImageFile];
-          const bases = files.map((file) => imageFileNameToBaseName(file.name).toLowerCase());
-          if (new Set(bases).size !== bases.length) throw new Error("Images with the same base name would share a mask file. Rename them before inference.");
-          const folderName = `inference-${options.modelName}-masks`;
-          await runTrackedOperation({ title: "YOLOE mask inference", detail: `Results: ${folderName}`, stoppedMessage: `Inference stopped. Partial masks remain in ${folderName}.` }, async (operation) => {
-            await saveBeforeLabelSwitch();
-            throwIfOperationCancelled(operation?.signal);
-            const folder = await session.imageFolderHandle!.getDirectoryHandle(folderName, { create: true });
-            const maskFolder = await folder.getDirectoryHandle("mask", { create: true });
-            let detectionCount = 0;
-            const completed: string[] = [];
-            for (const file of files) {
-              throwIfOperationCancelled(operation?.signal);
-              operation?.update({ detail: `${file.name} → ${folderName}`, current: completed.length, total: files.length });
-              options.onProgress?.(completed.length, files.length, file.name);
-              const image = await decodeImage(file);
-              const prediction = await options.infer(image, operation?.signal);
-              throwIfOperationCancelled(operation?.signal);
-              if (!prediction.mask || prediction.mask.width !== (image.naturalWidth || image.width) || prediction.mask.height !== (image.naturalHeight || image.height)) throw new Error("YOLOE did not return a mask matching the image.");
-              const bytes = await encodeSegmentationMaskPng({ ...prediction.mask, activeClassId: [...options.classNames.keys()][0] ?? "1", activeTool: "brush", overlayVisible: true, overlayOpacity: 0.6, hiddenClassIds: new Set(), brushRadius: 6 });
-              throwIfOperationCancelled(operation?.signal);
-              await writeBinaryFileByName(maskFolder as unknown as DirectoryHandleLike, `${imageFileNameToBaseName(file.name)}.png`, bytes.buffer as ArrayBuffer);
-              detectionCount += prediction.detections.length;
-              completed.push(file.name);
-              operation?.update({ current: completed.length, total: files.length });
-              options.onProgress?.(completed.length, files.length, file.name);
-            }
-            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "classes.yaml", `names:\n${[...options.classNames].map(([id, name]) => `  ${id}: ${JSON.stringify(normalizeClassName(name))}`).join("\n")}\n`);
-            await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, workflow: "segmentation", maskFormat: "png-semantic-mask", overlapPolicy: "highest-confidence", images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
             throwIfOperationCancelled(operation?.signal);
             await activateLabelFolder(folder, operation);
             result = { folderName, imageCount: completed.length, detectionCount };

@@ -1,7 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-assets/models/yoloe26/**/*.onnx binary -filter
-assets/models/yoloe26/**/*.data binary -filter
 # Raw pixel fixtures for the Rust golden tests (no line-ending conversion).
 *.f32 binary
 *.u8 binary

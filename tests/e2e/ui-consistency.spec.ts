@@ -41,7 +41,7 @@ test("merged editing workspaces retain dataset controls and compact status filte
     await filter.click();
     await expect(filter).toHaveText("All");
     await expect(page.locator("#image-list [data-file-name]")).toHaveCount(before);
-    for (const tab of [editTab, ...(workflow === "detection" ? ["#taskInferenceBtn"] : []), "#taskYoloeBtn"]) {
+    for (const tab of [editTab, ...(workflow === "detection" ? ["#taskInferenceBtn"] : [])]) {
       await page.locator(tab).click();
       const sizes = await page.locator("#image-filter-container .image-status-filter").evaluateAll((buttons) => buttons.map((button) => {
         const rect = button.getBoundingClientRect();

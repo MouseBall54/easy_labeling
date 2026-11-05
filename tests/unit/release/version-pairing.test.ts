@@ -14,11 +14,6 @@ describe("release versions", () => {
     expect(lock.packages[""].version).toBe(pkg.version);
   });
 
-  it("keeps the YOLOE-26 build one minor above package.json with the same patch", () => {
-    const [major, minor, patch] = parse(pkg.version);
-    expect(json("src-tauri/tauri.yoloe.conf.json").version).toBe(`${major}.${minor + 1}.${patch}`);
-  });
-
   it("builds the standard Tauri installer from package.json's version", () => {
     expect(json("src-tauri/tauri.conf.json").version).toBe("../package.json");
   });

@@ -17,7 +17,6 @@ import { createAutomationController, type AutomationWindow } from "./automation-
 import { saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { bindInferenceControls } from "./inference-controller.js";
-import { bindYoloeControls } from "./yoloe-controller.js";
 import { getDefaultColorForClass } from "../features/canvas/colors.js";
 import { bindClassRemapControls } from "./class-remap-controller.js";
 
@@ -141,7 +140,6 @@ export function createEventManagerAdapter(input: {
     bindEventListeners(): void {
       const { elements } = input.uiManager;
       const disposeInference = input.documentRef ? bindInferenceControls({ ...input, documentRef: input.documentRef }) : () => {};
-      const disposeYoloe = input.documentRef ? bindYoloeControls({ ...input, documentRef: input.documentRef }) : () => {};
       const disposeClassRemap = input.documentRef ? bindClassRemapControls({ ...input, documentRef: input.documentRef }) : () => {};
       const segmentationFormatStorageKey = "easy-labeling:segmentation-format-settings";
       const settingsStorage = input.documentRef?.defaultView?.localStorage;
@@ -890,13 +888,6 @@ export function createEventManagerAdapter(input: {
         input.state.view.reviewFilter = "all";
         elements.reviewFilterSelect.value = "all";
         input.uiManager.setActiveTask("inference");
-        input.uiManager.renderImageList();
-      });
-      input.documentRef?.getElementById("taskYoloeBtn")?.addEventListener("click", () => {
-        hideAutomationLayoutGhost();
-        input.state.view.reviewFilter = "all";
-        elements.reviewFilterSelect.value = "all";
-        input.uiManager.setActiveTask("yoloe");
         input.uiManager.renderImageList();
       });
       elements.previousReviewIssueBtn?.addEventListener("click", () => navigateReviewQueue(-1));
@@ -2439,8 +2430,7 @@ export function createEventManagerAdapter(input: {
           return;
         }
 
-        if (input.documentRef?.getElementById("yoloeSetupModal")?.classList.contains("show")
-          || input.documentRef?.getElementById("classRemapModal")?.classList.contains("show")) return;
+        if (input.documentRef?.getElementById("classRemapModal")?.classList.contains("show")) return;
 
         const templateModalElement = input.documentRef?.getElementById("templateMatchingModal");
         const templateModalVisible = elements.templateMatchingModal?._isShown
@@ -2789,7 +2779,6 @@ export function createEventManagerAdapter(input: {
       });
       input.windowRef.addEventListener("unload", () => {
         disposeInference();
-        disposeYoloe();
         disposeClassRemap();
         automationController?.dispose();
       });

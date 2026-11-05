@@ -21,8 +21,6 @@ declare global {
     getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
     saveEasyLabelingLibraryFile?: (options: EasyLabelingLibraryFileSaveOptions) => Promise<{ filePath: string } | null>;
     easyLabelingDesktop?: {
-      readYoloeModel?: (file: string) => Promise<Uint8Array>;
-      getGpuName?: (vendor: string, device: string) => Promise<string | null>;
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
     };
     /** Features to keep on their TS path even in the desktop app (see src/platform/native-bridge.ts). */
@@ -39,7 +37,7 @@ declare global {
     };
   }
 
-  type EasyLabelingLibraryFileKind = "preset" | "layout" | "yoloe" | "refine" | "reclass" | "preprocessing" | "segmentation";
+  type EasyLabelingLibraryFileKind = "preset" | "layout" | "refine" | "reclass" | "preprocessing" | "segmentation";
   type EasyLabelingProfileDirectoryKind = EasyLabelingLibraryFileKind | "class-info";
 
   interface EasyLabelingLibraryFile {
@@ -52,8 +50,6 @@ declare global {
     kind: EasyLabelingLibraryFileKind;
     suggestedName: string;
     contents: string;
-    saveAs?: boolean;
-    filePath?: string;
   }
 
   interface DirectoryPickerOptions {

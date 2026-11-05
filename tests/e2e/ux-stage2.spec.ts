@@ -4,59 +4,13 @@ import { expect, test, type Page } from "@playwright/test";
 const evidence = (name: string): string =>
   `${process.env.UPDATE_DOC_SCREENSHOTS === "1" ? "docs/ux-improvements" : "test-results/ux-improvements"}/20261006-stage2/${name}`;
 
-async function loadSample(page: Page, query = ""): Promise<void> {
-  await page.goto(`/index.html${query}`, { waitUntil: "domcontentloaded" });
+async function loadSample(page: Page): Promise<void> {
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")))).toBe(true);
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 30_000 });
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount())).toBe(207);
-}
-
-for (const workflow of ["detection", "segmentation"] as const) {
-  test(`${workflow}: existing label thumbnails, class filter and focus preserve original labels`, async ({ page }) => {
-    test.setTimeout(90_000);
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.route("http://127.0.0.1:8766/status", (route) => route.fulfill({ json: { version: 5, cuda: false, gpu: null, models: ["yoloe-26n-seg"] } }));
-    await loadSample(page, "?yoloe=python");
-    if (workflow === "segmentation") await page.locator('label[for="segmentationWorkflowTab"]').click();
-    const original = await page.evaluate((workflow) => {
-      const api = Reflect.get(window, "__easyLabelingTestApi");
-      return workflow === "detection" ? api.getRectCount() : api.getSegmentationMaskBounds();
-    }, workflow);
-    await page.locator("#taskYoloeBtn").click();
-    await expect(page.locator("#yoloeSummary")).toContainText("N · 640 · CPU · GPU unavailable");
-    await page.locator("#openYoloeSetupBtn").click();
-    await expect(page.locator("#connectYoloeBtn")).toBeHidden();
-    const choices = page.locator('[data-ui="yoloe-label-choice"]');
-    await expect(choices.first()).toBeEnabled();
-    await choices.nth(0).check(); await choices.nth(1).check();
-    await expect(page.locator("#yoloeLabelSelectionSummary")).toContainText("2 selected");
-    const originalZoom = await page.locator("#yoloeSampleZoom").textContent();
-    await page.locator("#focusYoloeLabelsBtn").click();
-    await expect(page.locator("#yoloeSampleZoom")).not.toHaveText(originalZoom!);
-    const classId = await page.locator("#yoloeLabelClassFilter option").nth(1).getAttribute("value");
-    await page.locator("#yoloeLabelClassFilter").selectOption(classId!);
-    await expect(page.locator("#yoloeLabelSelectionSummary")).toContainText("2 selected");
-    await page.locator("#addYoloeExistingBtn").click();
-    await expect(page.locator("#yoloeExampleList .yoloe-example-row")).toHaveCount(2);
-    await expect(page.locator("#focusYoloeLabelsBtn")).toBeEnabled();
-    await expect(page.locator(".toast-message")).toHaveCount(0, { timeout: 10_000 });
-    await page.screenshot({ path: `output/yoloe-usability-existing-${workflow}.png` });
-    await page.locator("#closeYoloeSetupBtn").click();
-    await page.locator("#yoloeSaveScope").selectOption("all");
-    await expect(page.locator("#yoloeSaveScope option:checked")).toHaveText("All images (17)");
-    const scope = (await page.locator("#yoloeSaveScope").boundingBox())!;
-    const button = (await page.locator("#saveYoloeCurrentBtn").boundingBox())!;
-    expect(button.y).toBeGreaterThanOrEqual(scope.y + scope.height);
-    await expect(page.locator("#previewYoloeBtn")).toHaveText("Preview current image");
-    await expect(page.locator("#yoloeInputSource")).toHaveText("Input: Original image");
-    await expect(page.locator("#yoloeResultFolder")).toContainText("inference-yoloe-26n-seg-targets");
-    expect(await page.evaluate((workflow) => {
-      const api = Reflect.get(window, "__easyLabelingTestApi");
-      return workflow === "detection" ? api.getRectCount() : api.getSegmentationMaskBounds();
-    }, workflow)).toEqual(original);
-  });
 }
 
 test("empty startup, compact dataset management and panel/tool navigation remain clear", async ({ page }) => {

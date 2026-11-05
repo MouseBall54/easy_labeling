@@ -99,9 +99,6 @@
                 <button id="taskInferenceBtn" type="button" class="task-rail-button" data-task="inference" title="YOLO model inference" aria-label="Inference workspace" aria-pressed="false">
                     <i class="bi bi-cpu" aria-hidden="true"></i><span>Inference</span>
                 </button>
-                <button id="taskYoloeBtn" type="button" class="task-rail-button" data-task="yoloe" title="YOLOE-26 visual prompt inference" aria-label="YOLOE-26 workspace" aria-pressed="false">
-                    <i class="bi bi-bounding-box" aria-hidden="true"></i><span>YOLOE-26</span>
-                </button>
                 <button id="taskReviewBtn" type="button" class="task-rail-button" data-task="review" title="Review workspace" aria-label="Review workspace" aria-pressed="false">
                     <i class="bi bi-clipboard2-check" aria-hidden="true"></i><span>Review</span>
                 </button>
@@ -255,21 +252,6 @@
                         <p id="inferenceRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
                         </div>
                     </section>
-                    <section id="yoloeInferenceControls" class="panel-section" hidden>
-                        <div class="section-heading-row"><h3>YOLOE-26</h3><span id="yoloeOutputBadge" class="status-badge">Detection · Boxes</span></div>
-                        <div class="mt-2"><span id="yoloeBackendBadge" class="status-badge" role="status">Disconnected</span></div>
-                        <p id="yoloeSummary" class="small text-muted mt-2 mb-0">No samples</p>
-                        <button id="openYoloeSetupBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2"><i class="bi bi-sliders" aria-hidden="true"></i> Samples &amp; settings</button>
-                        <button id="previewYoloeBtn" type="button" class="btn btn-primary btn-sm w-100 mt-2" disabled><i class="bi bi-search" aria-hidden="true"></i> Preview current image</button>
-                        <label class="form-label small mt-2" for="yoloeSaveScope">Save results</label>
-                        <div class="d-grid gap-2">
-                            <select id="yoloeSaveScope" class="form-select form-select-sm" aria-label="Images to save"><option value="current">Current image</option><option value="all">All images</option></select>
-                                <button id="saveYoloeCurrentBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Run &amp; save results</button>
-                        </div>
-                        <p id="yoloeResultFolder" class="small text-muted mt-2 mb-0 text-truncate" title=""></p><p id="yoloeInputSource" title="Canvas preprocessing does not change YOLOE input." class="small text-muted mt-1 mb-0">Input: Original image</p>
-                        <p id="yoloeRunStatus" class="small mt-2 mb-0" role="status" hidden></p>
-                    </section>
-
                     <section id="detectionReviewWorkspace" class="panel-section review-workspace-section" hidden>
                         <div class="section-heading-row"><h3>Review</h3><button id="rescanReviewBtn" type="button" class="btn btn-outline-primary btn-sm" title="Recheck all images, including current unsaved edits"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Rescan</button><span id="reviewStatusBadge" class="status-badge">Needs review</span></div>
                         <div id="reviewQueueControls" class="review-queue-controls mt-2" data-ui="review-queue-controls" hidden>
@@ -437,7 +419,6 @@
             <canvas id="canvas"></canvas>
             <canvas id="layoutGhostCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
             <canvas id="refineOverlayCanvas" class="layout-ghost-canvas" aria-hidden="true"></canvas>
-            <canvas id="yoloePreviewCanvas" class="layout-ghost-canvas" aria-label="YOLOE sample drawing canvas" tabindex="-1" aria-hidden="true" hidden></canvas>
             <button id="expand-left-panel-btn" type="button" class="panel-expand-btn" title="Expand files panel" aria-label="Expand files panel" style="display: none; left: 10px;"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></button>
             <button id="expand-right-panel-btn" type="button" class="panel-expand-btn" title="Expand inspector" aria-label="Expand inspector" style="display: none; right: 10px;"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></button>
         </main>
@@ -722,122 +703,6 @@
                     <p id="segmentationFormatGuidance" class="form-text mb-0 mt-2" data-ui="segmentation-format-guidance"></p>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="applySegmentationFormatBtn" type="button" class="btn btn-primary">Apply</button></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal fade" id="yoloeSetupModal" tabindex="-1" aria-labelledby="yoloeSetupModalLabel" aria-hidden="true" data-focus-return="openYoloeSetupBtn">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable yoloe-setup-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <div><h5 class="modal-title" id="yoloeSetupModalLabel"><i class="bi bi-cpu" aria-hidden="true"></i> YOLOE-26 · Samples &amp; settings</h5><div id="yoloeSetupSummary" class="small text-muted"></div></div>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body yoloe-setup-body">
-                    <section class="yoloe-sample-workspace" aria-label="Sample workspace">
-                        <div class="yoloe-reference-controls mb-2">
-                            <label class="form-label small fw-semibold mb-0" for="yoloeReferenceSelect">Reference image</label>
-                            <select id="yoloeReferenceSelect" class="form-select form-select-sm"><option value="">Open a dataset first</option></select>
-                            <button id="fitYoloeSampleBtn" type="button" class="btn btn-outline-secondary btn-sm" title="Fit the reference image">Fit image</button>
-                            <span id="yoloeSampleZoom" class="small" aria-live="polite"></span>
-                            <details class="yoloe-view-help"><summary aria-label="Image navigation help" title="Image navigation help"><i class="bi bi-question-circle" aria-hidden="true"></i></summary><p class="small mb-0">Ctrl + wheel: zoom<br>Ctrl / Space + drag or Middle drag: pan</p></details>
-                        </div>
-                        <div id="yoloeSampleStage" class="yoloe-sample-stage"><p id="yoloeSampleEmpty" class="small text-muted">Open a dataset to outline samples.</p></div>
-                    </section>
-                    <section class="yoloe-settings-column" aria-label="Inference settings">
-                        <section class="yoloe-sample-tools" aria-label="Draw samples">
-                        <h6 class="settings-subtitle mt-0">Sample settings</h6>
-                        <div class="yoloe-sample-builder">
-                            <div class="yoloe-target-fields">
-                            <div>
-                        <label class="form-label small mt-2" for="yoloeSampleName">Name the target</label>
-                        <input id="yoloeSampleName" class="form-control form-control-sm" value="sampleA" maxlength="64" autocomplete="off">
-                            </div>
-                        <div id="yoloeTargetChoice" class="mt-2" hidden>
-                            <label class="form-label small" for="yoloeExistingTarget">Existing target</label>
-                            <select id="yoloeExistingTarget" class="form-select form-select-sm"><option value="">New target</option></select>
-                        </div>
-                            </div>
-                            <div>
-                            <label class="form-label small mt-2" for="yoloePromptShape">Sample shape</label>
-                            <select id="yoloePromptShape" class="form-select form-select-sm"><option value="mask">Polygon</option><option value="brush">Brush / Eraser</option><option value="box">Box</option></select>
-                            <div id="yoloeMaskTools" class="mt-2" hidden>
-                                <div class="segmented-control" role="group" aria-label="Sample paint tool">
-                                    <button id="yoloeBrushBtn" type="button" class="btn active" aria-pressed="true"><i class="bi bi-brush" aria-hidden="true"></i> Brush</button>
-                                    <button id="yoloeEraserBtn" type="button" class="btn" aria-pressed="false"><i class="bi bi-eraser" aria-hidden="true"></i> Eraser</button>
-                                </div>
-                                <div class="section-heading-row mt-2"><label class="form-label small mb-0" for="yoloeBrushRadius">Radius (image px)</label><span id="yoloeBrushRadiusValue" class="section-value">8px</span></div>
-                                <input id="yoloeBrushRadius" type="range" class="form-range" value="8" min="1" max="128" step="1">
-                                <label class="form-check form-switch mb-0"><input id="yoloeAutoFillClosedRegionToggle" class="form-check-input" type="checkbox"><span class="form-check-label">Auto fill closed regions</span></label>
-                            </div>
-                            </div>
-                        </div>
-                        <div class="yoloe-sample-actions">
-                        <button id="drawYoloeExampleBtn" type="button" class="btn btn-outline-primary btn-sm w-100" aria-pressed="false" disabled><i class="bi bi-vector-pen" aria-hidden="true"></i> Outline sample</button>
-                        <button id="finishYoloeSampleBtn" type="button" class="btn btn-primary btn-sm w-100" hidden disabled>Finish outline</button>
-                        <button id="undoYoloeStrokeBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden disabled>Undo stroke</button>
-                        </div>
-                        <section id="yoloeDrawingToolbar" class="yoloe-drawing-toolbar" role="status" hidden>
-                            <strong id="yoloeDrawingTitle"></strong>
-                            <span id="yoloeCanvasDrawingHint" class="small"></span>
-                        </section>
-                        </section>
-                        <div class="yoloe-settings-scroll">
-                        <div class="section-heading-row mt-3"><h6 class="settings-subtitle m-0">Samples</h6><button id="clearYoloeExamplesBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Clear samples</button></div>
-                        <div id="yoloeExampleList" class="yoloe-example-list mt-2" aria-live="polite"></div>
-                        <p id="yoloeSamplesEmpty" class="small text-muted mt-2 mb-0">Name a target, then outline it on the reference image.</p>
-                        <details class="advanced-disclosure mt-3"><summary>Use an existing class name</summary>
-                            <label class="form-label small mt-2" for="yoloeExampleClass">Existing label class</label>
-                            <select id="yoloeExampleClass" class="form-select form-select-sm" aria-label="Example class"></select>
-                        </details>
-                        <div id="yoloeExistingBoxes" class="mt-2" hidden>
-                            <div id="yoloeExistingLabelTitle" class="form-label small">Existing boxes · Reference image</div>
-                            <label class="visually-hidden" for="yoloeLabelClassFilter">Filter existing labels by class</label><select id="yoloeLabelClassFilter" class="form-select form-select-sm"><option value="">All classes</option></select>
-                            <div id="yoloeLabelChoices" class="yoloe-label-choices mt-2" aria-label="Existing label choices"></div>
-                            <div class="section-heading-row mt-2"><span id="yoloeLabelSelectionSummary" class="small" role="status"></span><button id="focusYoloeLabelsBtn" type="button" class="btn btn-outline-secondary btn-sm">View selected</button></div>
-                            <div class="d-flex mt-2">
-                                <select id="yoloeExistingBoxSelect" class="visually-hidden" multiple tabindex="-1" aria-hidden="true"><option value="">Loading labels…</option></select>
-                                <button id="addYoloeExistingBtn" type="button" class="btn btn-outline-primary btn-sm" disabled>Add selected as samples</button>
-                            </div>
-                        <button id="addYoloeSelectedBtn" type="button" class="btn btn-outline-secondary btn-sm w-100" hidden disabled>Add main-canvas labels</button>
-                        </div>
-                        <hr>
-                        <h6 class="settings-subtitle mt-0">Inference settings</h6>
-                        <label class="form-label small mt-2" for="yoloePresetSelect">Preset</label>
-                        <select id="yoloePresetSelect" class="form-select form-select-sm"><option value="">Choose a preset…</option></select>
-                        <div class="d-flex gap-1 mt-2" role="group" aria-label="YOLOE presets">
-                            <button id="saveYoloePresetBtn" type="button" class="btn btn-outline-primary btn-sm">Save preset</button>
-                            <button id="saveYoloePresetAsBtn" type="button" class="btn btn-outline-secondary btn-sm">Save as…</button>
-                            <button id="loadYoloePresetBtn" type="button" class="btn btn-outline-secondary btn-sm">Open…</button>
-                        </div>
-                        <input id="yoloePresetFileInput" type="file" accept=".json,application/json" hidden>
-                        <p id="yoloePresetLocation" class="small text-muted mt-1 mb-0 text-truncate"></p><p id="yoloePresetState" class="small mt-1 mb-0" role="status">Not saved</p>
-                            <div class="section-heading-row mt-2"><button id="connectYoloeBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-plug" aria-hidden="true"></i> Reconnect</button></div>
-                            <p id="yoloeConnectionStatus" class="small text-muted mt-2" role="status" hidden></p>
-                            <label class="form-label small mt-2" for="yoloeModelSelect">Model</label>
-                            <select id="yoloeModelSelect" class="form-select form-select-sm" disabled><option value="">Connect first</option></select>
-                            <label class="form-label small mt-2" for="yoloeImageSize">Inference resolution</label>
-                            <select id="yoloeImageSize" class="form-select form-select-sm"><option value="640">640 · Standard</option><option value="1024">1024 · Small targets</option><option value="2048">2048 · Fine details</option></select>
-                            <label class="form-label small mt-2" for="yoloeProfileName">Result set name</label>
-                            <input id="yoloeProfileName" class="form-control form-control-sm" value="targets" maxlength="64" title="Results use this name and the model name.">
-                            <div class="row g-2 mt-1">
-                                <div class="col-6"><label class="form-label small" for="yoloeConfidenceInput">Confidence</label><input id="yoloeConfidenceInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.25"></div>
-                                <div class="col-6"><label class="form-label small" for="yoloeIouInput">NMS IoU</label><input id="yoloeIouInput" type="number" class="form-control form-control-sm" min="0" max="1" step="0.01" value="0.45"></div>
-                            </div>
-                        <div id="yoloeSampleResultToggle" class="form-check mt-2" hidden><input id="yoloeShowSampleResults" class="form-check-input" type="checkbox" checked><label class="form-check-label small" for="yoloeShowSampleResults">Show results</label></div>
-                            <details class="advanced-disclosure mt-2"><summary>Setup &amp; device details</summary><p id="yoloeDeviceInfo" class="small text-muted mt-1 mb-0" role="status"></p><div class="yoloe-setup-commands small mt-2"><code>npm run yoloe:setup</code><code>npm run yoloe:prepare</code><code>npm run yoloe:start</code></div>
-                            <a class="small" href="docs/YOLOE26_GPU_KO.md" target="_blank" rel="noopener">Setup &amp; usage guide</a></details>
-                        </div>
-                    </section>
-                </div>
-                <div class="modal-footer yoloe-footer">
-                    <div class="yoloe-preview-actions">
-                        <p id="yoloeSetupStatus" class="small mb-0" role="status"></p>
-                        <button id="stopYoloePreviewBtn" type="button" class="btn btn-outline-secondary btn-sm" hidden>Stop</button>
-                        <button id="previewYoloeSampleBtn" type="button" class="btn btn-primary btn-sm" disabled><i class="bi bi-play-fill" aria-hidden="true"></i> Run preview</button>
-                        <button id="closeYoloeSetupBtn" type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
