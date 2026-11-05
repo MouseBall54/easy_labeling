@@ -17,8 +17,8 @@ npm run test:e2e            # build + playwright (chromium)
 npm start                   # build + vite on :4173
 npm run tauri:dev           # desktop exe (debug, no installer, fresh dist/ inside) -> target/debug/; desktop e2e specs drive it
 npm run tauri:dist:win      # NSIS installer (bundles the WebView2 offline installer) -> target/release/bundle/nsis/ (needs Rust)
-npm run tauri:dist:yoloe:win   # YOLOE-26 variant installer (src-tauri/tauri.yoloe.conf.json)
-npm run release:tauri         # signed installers + GitHub release with the update feeds (latest.json, latest-yoloe.json)
+npm run tauri:dist:yoloe:win   # YOLOE-26 installer (src-tauri/tauri.yoloe.conf.json)
+npm run release:yoloe          # signed YOLOE-26 installer + release yoloe-v<version>; updates latest-yoloe.json (this branch only)
 ```
 
 Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chromium`.
@@ -54,6 +54,19 @@ Single tests: `npx vitest run <file>`, `npx playwright test <spec> --project=chr
 ## Versioning
 
 Every change that ships to users bumps `package.json` (patch = fix, minor = backward-compatible feature, major = breaking) with `npm version <x.y.z> --no-git-tag-version` so `package-lock.json` follows. In the same change, move `src-tauri/tauri.yoloe.conf.json` `version` to **one minor above package.json with the same patch** (2.7.0 -> 2.8.0, 2.5.1 -> 2.6.1). `tests/unit/release/version-pairing.test.ts` enforces it; the standard installer reads package.json's version (`src-tauri/tauri.conf.json`). Refactors and test-only changes do not bump.
+
+## Branches: main and track/yoloe26 (this branch)
+
+- `main` is Easy Labeling without YOLOE-26. Every shared change (canvas, Refine, Rust core, file I/O, UI) is made on `main`, never only here. This branch, `track/yoloe26`, is the YOLOE-26 app: `main` plus the YOLOE models, code, popup and `src-tauri/tauri.yoloe.conf.json`. Only YOLOE-26 work is committed here directly.
+- Follow `main` by merging it: `git fetch && git merge origin/main`. Never merge this branch into `main`, never open a PR from it to `main`.
+- `main`'s v3.0.0 commit that removed YOLOE is recorded here with `git merge -s ours` (19d645e8). Do not revert or cherry-pick that removal here. Conflicts on later merges come from shared files that hold YOLOE code (`index.html`, `css/style.css`, `ui-manager-adapter.ts`, `event-manager-adapter.ts`, `file-system-adapter.ts`, `inference-controller.ts`, `tauri-desktop.ts`, `globals.d.ts`, `src-tauri/src/main.rs`, `package.json`): keep both `main`'s change and the YOLOE code.
+- `package.json` keeps `main`'s version (merges bring it); `tauri.yoloe.conf.json` sits one minor above, so bump it after each merge that changed `main`'s version.
+- Both apps poll the repo's "latest" release, which always belongs to `main`'s Easy Labeling: it reads `latest.json`, the YOLOE-26 app `latest-yoloe.json`. `main`'s `npm run release:tauri` carries the current `latest-yoloe.json` into each new release (it refuses to run on this branch). Never delete `latest-yoloe.json` from the latest release.
+- Releasing YOLOE-26 from this branch:
+  1. `git merge origin/main`, resolve, bump `tauri.yoloe.conf.json` (one minor above `package.json`, same patch).
+  2. `npm run typecheck`, `npm run test:unit`, `npm run build`, the Rust checks, `npm run tauri:dev`, then the YOLOE specs (`yoloe`, `yoloe-usability`, `tauri-yoloe`) and the specs the merge touched.
+  3. Commit and push `track/yoloe26`.
+  4. `npm run release:yoloe`: builds the YOLOE-26 installer, creates release `yoloe-v<version>` (not marked latest), and replaces `latest-yoloe.json` on the current latest release.
 
 ## Verification
 

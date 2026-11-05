@@ -25,8 +25,8 @@ npm run test:unit              # vitest run, tests/unit/**/*.test.ts
 npm run test:e2e               # build + playwright test (chromium project only)
 npm run tauri:dev              # build + stage + debug desktop exe -> target/debug/ (desktop e2e specs drive it)
 npm run tauri:dist:win         # NSIS installer -> target/release/bundle/nsis/
-npm run tauri:dist:yoloe:win   # YOLOE-26 variant installer
-npm run release:tauri          # signed installers + GitHub release with the update feeds
+npm run tauri:dist:yoloe:win   # YOLOE-26 installer
+npm run release:yoloe          # YOLOE-26 release from track/yoloe26 (AGENTS.md "Branches"); release:tauri is main-only
 npm run benchmark:template-matching  # headless perf benchmark for automation matching
 ```
 

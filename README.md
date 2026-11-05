@@ -56,7 +56,7 @@ Rust(Tauri 2)로 만든 데스크톱 앱입니다. 화면과 기능은 같은 `d
 준비물: `gh auth login`으로 로그인한 GitHub CLI, 서명 키(아래 3번). 키에 비밀번호가 있으면 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`도 설정합니다.
 
 1. `package.json` 버전을 올리고(AGENTS.md "Versioning") 커밋·push한 뒤, 전체 e2e(`npx playwright test --project=chromium`, 약 1시간)를 확인하고 PR로 `main`에 합칩니다. `main`을 받아 그 커밋에서 다음 단계를 실행합니다.
-2. `npm run release:tauri` — 두 설치파일을 서명해 빌드하고 `v<버전>` 릴리스와 업데이트 피드를 올립니다. `-- --draft`로 초안만 만들 수 있고(초안은 앱이 보지 못함), `-- --skip-build`는 이미 서명해 빌드한 설치파일을 그대로 올립니다.
+2. 이 브랜치(`track/yoloe26`)는 YOLOE-26 버전 전용입니다. 일반 버전 릴리스는 `main`에서 `npm run release:tauri`로 만들고, YOLOE-26 버전은 이 브랜치에서 `git merge origin/main` 후 `npm run release:yoloe`로 올립니다(`yoloe-v<버전>` 릴리스, 최신 릴리스의 `latest-yoloe.json` 교체). 자세한 절차는 AGENTS.md "Branches"에 있습니다.
 3. 서명 키는 `%USERPROFILE%\.tauri\easy-labeling-updater.key`(또는 `TAURI_SIGNING_PRIVATE_KEY`)를 씁니다. 같은 키가 GitHub Secret `TAURI_SIGNING_PRIVATE_KEY`에도 있습니다. **이 키를 잃으면 이미 설치된 앱은 더 이상 업데이트를 받을 수 없으니 따로 백업해 두세요.**
 
 ---
