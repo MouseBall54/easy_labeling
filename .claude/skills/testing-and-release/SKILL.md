@@ -25,8 +25,7 @@ npm run test:unit              # vitest run, tests/unit/**/*.test.ts
 npm run test:e2e               # build + playwright test (chromium project only)
 npm run tauri:dev              # build + stage + debug desktop exe -> target/debug/ (desktop e2e specs drive it)
 npm run tauri:dist:win         # NSIS installer -> target/release/bundle/nsis/
-npm run tauri:dist:yoloe:win   # YOLOE-26 variant installer
-npm run release:tauri          # signed installers + GitHub release with the update feeds
+npm run release:tauri          # signed installer + GitHub release with the update feed
 npm run benchmark:template-matching  # headless perf benchmark for automation matching
 ```
 
@@ -98,10 +97,9 @@ Screenshots go to `test-results/`; `ux-stage2` writes tracked
 ## Versioning
 
 `package.json` is bumped with `npm version <x.y.z> --no-git-tag-version`
-for every shipped change. `src-tauri/tauri.yoloe.conf.json` `version`
-must sit one minor above with the same patch (2.7.0 -> 2.8.0);
-`tests/unit/release/version-pairing.test.ts` fails otherwise. The standard
-installer reads package.json's version (`src-tauri/tauri.conf.json`).
+for every shipped change. The installer reads package.json's version
+(`src-tauri/tauri.conf.json`); `tests/unit/release/version-pairing.test.ts`
+checks that and package-lock.json.
 
 ## Template-matching benchmark
 
@@ -134,15 +132,10 @@ installs without internet), and the updater feed. `beforeBuildCommand` runs
 `npm run build` and `scripts/stage-tauri-frontend.mjs`, which copies
 `index.html`, `privacy*.html`, `assets/`, `css/`, `dist/`, `vendor/`,
 `workers/`, `resources/` into `src-tauri/frontend/` (the EdgeSAM models; see
-ai-preprocessing skill). The sample dataset and the YOLOE
-models ship as separate bundle resources (`sample/`, `yoloe26/`).
-`src-tauri/tauri.yoloe.conf.json` overrides name, identifier, version, feed
-and adds the models. `scripts/release-tauri.mjs` builds both, signs the
-updater artifacts (`TAURI_SIGNING_PRIVATE_KEY`) and publishes the GitHub
-release. YOLOE installer checks: `scripts/verify-yoloe-onnx*.mjs`,
-`verify-yoloe-presets.mjs`, `probe-yoloe-onnx.mjs` (default exe
-`target/release/Easy Labeling YOLOE-26.exe`; they import the TS launcher, so
-Node >= 22.18).
+ai-preprocessing skill). The sample dataset ships as a separate bundle
+resource (`sample/`). `scripts/release-tauri.mjs` builds the installer, signs
+the updater artifacts (`TAURI_SIGNING_PRIVATE_KEY`) and publishes the GitHub
+release with `latest.json`.
 
 ## Gotcha checklist
 

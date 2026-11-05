@@ -1,9 +1,7 @@
 // The desktop app's window globals (folder picker, profile libraries, sample folder, close guard, native
 // bridge), backed by Rust commands in src-tauri/src/main.rs. The desktop app injects the compiled dist/platform/tauri-desktop.js as an
-// initialization script (before page scripts) and defines __EASY_LABELING_IS_YOLOE__ around it.
+// initialization script (before page scripts), wrapped in a block.
 // It must stay a classic script: no imports, everything inside the IIFE.
-
-declare const __EASY_LABELING_IS_YOLOE__: boolean;
 
 interface TauriInternals {
   invoke<T>(command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }): Promise<T>;
@@ -194,10 +192,6 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
   window.easyLabelingNative = Object.freeze(webview ? { invoke: call, upload, download, pathOf } : { invoke: call, pathOf });
 
   window.easyLabelingDesktop = Object.freeze({
-    readYoloeModel: __EASY_LABELING_IS_YOLOE__
-      ? async (file: string) => new Uint8Array(await call<ArrayBuffer>("read_yoloe_model", { file }))
-      : undefined,
-    getGpuName: (vendor: string, device: string) => call<string | null>("get_gpu_name", { vendor: String(vendor), device: String(device ?? "") }),
     setHasUnsavedChanges(hasUnsavedChanges: boolean) {
       void call("set_document_dirty", { dirty: Boolean(hasUnsavedChanges) });
     }

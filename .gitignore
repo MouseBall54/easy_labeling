@@ -16,12 +16,6 @@ vendor/
 /.history/
 /.presentation-build/*
 !/.presentation-build/build-easylabeling-deck.mjs
-# Local inference models and runtime state
-runtime/yoloe/.venv/
-runtime/yoloe/models/
-runtime/yoloe/__pycache__/
-runtime/yoloe/.state/
-Ultralytics/
 .claude/settings.local.json
 /target/
 /src-tauri/target/

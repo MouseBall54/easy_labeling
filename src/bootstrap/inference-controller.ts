@@ -39,10 +39,8 @@ export function bindInferenceControls(input: {
     allButton.disabled = !enabled;
     modelInput.disabled = busy;
     modelButton.disabled = busy;
-    for (const id of ["taskInferenceBtn", "taskYoloeBtn"]) {
-      const button = documentRef.getElementById(id) as HTMLButtonElement | null;
-      if (button) button.disabled = busy || documentRef.getElementById("yoloeInferenceControls")?.dataset.busy === "true";
-    }
+    const taskButton = documentRef.getElementById("taskInferenceBtn") as HTMLButtonElement | null;
+    if (taskButton) taskButton.disabled = busy;
     renderBackend();
   };
   const stop = (): void => {

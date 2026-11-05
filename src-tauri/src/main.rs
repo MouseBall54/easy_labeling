@@ -20,8 +20,6 @@ use std::time::UNIX_EPOCH;
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
-const YOLOE_IDENTIFIER: &str = "com.easylabeling.yoloe26";
-
 static DOCUMENT_DIRTY: AtomicBool = AtomicBool::new(false);
 
 type CommandResult<T> = Result<T, String>;
@@ -50,7 +48,6 @@ fn profile_directory_name(kind: &str) -> CommandResult<&'static str> {
     Ok(match kind {
         "preset" => "Template Presets",
         "layout" => "Layouts",
-        "yoloe" => "YOLOE Presets",
         "refine" => "Refine Presets",
         "reclass" => "Reclass Presets",
         "preprocessing" => "Preprocessing Presets",
@@ -220,8 +217,6 @@ struct SaveLibraryOptions {
     kind: String,
     suggested_name: Option<String>,
     contents: String,
-    save_as: Option<bool>,
-    file_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -233,15 +228,10 @@ struct SavedFile {
 #[tauri::command]
 async fn save_library_file(app: AppHandle, window: WebviewWindow, options: SaveLibraryOptions) -> CommandResult<Option<SavedFile>> {
     let directory = ensure_profile_directory(&app, &options.kind)?;
-    let default_path = directory.join(sanitize_suggested_file_name(options.suggested_name.as_deref().unwrap_or("")));
-    let existing = options.file_path.filter(|path| !path.is_empty()).map(PathBuf::from);
-    let is_yoloe = options.kind == "yoloe";
-    let path = if is_yoloe && !options.save_as.unwrap_or(false) {
-        Some(existing.unwrap_or(default_path))
-    } else if let Some(path) = test_picked_file() {
+    let start = directory.join(sanitize_suggested_file_name(options.suggested_name.as_deref().unwrap_or("")));
+    let path = if let Some(path) = test_picked_file() {
         Some(path)
     } else {
-        let start = if is_yoloe { existing.unwrap_or(default_path) } else { default_path };
         let mut dialog = FileDialog::new().set_parent(&window).add_filter("Easy Labeling JSON", &["json"]);
         if let Some(parent) = start.parent() {
             dialog = dialog.set_directory(parent);
@@ -259,71 +249,6 @@ async fn save_library_file(app: AppHandle, window: WebviewWindow, options: SaveL
 #[tauri::command]
 async fn set_document_dirty(dirty: bool) {
     DOCUMENT_DIRTY.store(dirty, Ordering::SeqCst);
-}
-
-#[tauri::command]
-async fn get_gpu_name(vendor: String, device: String) -> Option<String> {
-    let vendor_id = match vendor.to_lowercase().as_str() {
-        "nvidia" => 0x10de,
-        "amd" => 0x1002,
-        "intel" => 0x8086,
-        "qualcomm" => 0x5143,
-        "apple" => 0x106b,
-        _ => return None,
-    };
-    let device_id = device.strip_prefix("0x").or_else(|| device.strip_prefix("0X")).and_then(|hex| u32::from_str_radix(hex, 16).ok());
-    let matches: Vec<String> = gpu_adapters()
-        .into_iter()
-        .filter(|(vendor, device, _)| *vendor == vendor_id && device_id.is_none_or(|id| id == *device))
-        .map(|(_, _, name)| name)
-        .collect();
-    (matches.len() == 1 && !matches[0].is_empty()).then(|| matches[0].clone())
-}
-
-#[cfg(windows)]
-fn gpu_adapters() -> Vec<(u32, u32, String)> {
-    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE};
-    let mut adapters = Vec::new();
-    let Ok(factory) = (unsafe { CreateDXGIFactory1::<IDXGIFactory1>() }) else { return adapters };
-    for index in 0.. {
-        let Ok(adapter) = (unsafe { factory.EnumAdapters1(index) }) else { break };
-        let Ok(desc) = (unsafe { adapter.GetDesc1() }) else { continue };
-        if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
-            continue;
-        }
-        let length = desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
-        adapters.push((desc.VendorId, desc.DeviceId, String::from_utf16_lossy(&desc.Description[..length])));
-    }
-    adapters
-}
-
-#[cfg(not(windows))]
-fn gpu_adapters() -> Vec<(u32, u32, String)> {
-    Vec::new()
-}
-
-fn is_yoloe_model_file(file: &str) -> bool {
-    let Some((size, name)) = file.split_once('/') else { return false };
-    if !matches!(size, "n" | "s" | "m" | "l") {
-        return false;
-    }
-    if matches!(name, "manifest.json" | "encoder.onnx" | "detector.onnx") {
-        return true;
-    }
-    ["encoder-", "detector-"].iter().any(|prefix| {
-        name.strip_prefix(prefix)
-            .and_then(|rest| rest.strip_suffix(".data"))
-            .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-    })
-}
-
-#[tauri::command]
-async fn read_yoloe_model(app: AppHandle, file: String) -> CommandResult<Response> {
-    if app.config().identifier != YOLOE_IDENTIFIER || !is_yoloe_model_file(&file) {
-        return Err("TypeError: Invalid bundled YOLOE model file.".into());
-    }
-    let path = app.path().resource_dir().map_err(|error| error.to_string())?.join("yoloe26").join(file);
-    fs::read(path).map(Response::new).map_err(|error| io_error(error, "YOLOE model file"))
 }
 
 // File System Access polyfill commands (see src/platform/tauri-desktop.ts).
@@ -447,10 +372,10 @@ fn confirm_close(window: &tauri::Window) {
 
 /// The window globals bridge (src/platform/tauri-desktop.ts, compiled into the frontend's dist/). tsc
 /// marks it as an ES module with a trailing `export {};`, which an initialization script cannot have.
-fn desktop_script(frontend: &Path, is_yoloe: bool) -> Result<String, String> {
+fn desktop_script(frontend: &Path) -> Result<String, String> {
     let source = fs::read_to_string(frontend.join("dist/platform/tauri-desktop.js"))
         .map_err(|error| format!("dist/platform/tauri-desktop.js is missing from the frontend folder: {error}"))?;
-    Ok(classic_script(&source, is_yoloe))
+    Ok(classic_script(&source))
 }
 
 /// The frontend is served from the installed `frontend/` folder by WebView2 itself. Tauri's own
@@ -478,14 +403,13 @@ fn serve_frontend(window: &WebviewWindow, frontend: PathBuf) -> tauri::Result<()
     })
 }
 
-fn classic_script(source: &str, is_yoloe: bool) -> String {
+fn classic_script(source: &str) -> String {
     let body: String = source.lines().filter(|line| line.trim() != "export {};").collect::<Vec<_>>().join(
         "
 ",
     );
     format!(
         "{{
-const __EASY_LABELING_IS_YOLOE__ = {is_yoloe};
 {body}
 }}
 "
@@ -561,8 +485,6 @@ fn main() {
             list_library_files,
             save_library_file,
             set_document_dirty,
-            get_gpu_name,
-            read_yoloe_model,
             fs_read_dir,
             fs_child,
             fs_read,
@@ -596,10 +518,9 @@ fn main() {
             native::preprocess_view_run_shared
         ])
         .setup(|app| {
-            let is_yoloe = app.config().identifier == YOLOE_IDENTIFIER;
             // resource_dir() is a verbatim \?\ path, which breaks every subresource of a virtual host.
             let frontend = dunce::simplified(&app.path().resource_dir()?.join("frontend")).to_path_buf();
-            let script = desktop_script(&frontend, is_yoloe)?;
+            let script = desktop_script(&frontend)?;
             let title = app.config().product_name.clone().unwrap_or_else(|| "Easy Labeling".into());
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External("about:blank".parse()?))
                 .title(title)
@@ -637,15 +558,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn yoloe_model_file_names() {
-        assert!(is_yoloe_model_file("n/manifest.json"));
-        assert!(is_yoloe_model_file("l/detector-12.data"));
-        assert!(!is_yoloe_model_file("x/encoder.onnx"));
-        assert!(!is_yoloe_model_file("n/../secret"));
-        assert!(!is_yoloe_model_file("n/encoder-.data"));
-    }
-
-    #[test]
     fn library_names_are_sanitized_and_sorted_naturally() {
         assert_eq!(sanitize_suggested_file_name("a*b?"), "a-b-.json");
         assert_eq!(sanitize_suggested_file_name("../x.JSON"), "x.JSON");
@@ -674,10 +586,8 @@ mod tests {
             "(() => {})();
 export {};
 ",
-            true,
         );
         assert!(!script.contains("export"));
-        assert!(script.contains("const __EASY_LABELING_IS_YOLOE__ = true;"));
     }
 
     #[test]

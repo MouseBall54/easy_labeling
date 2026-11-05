@@ -15,7 +15,7 @@
 | Tauri 2 | `src-tauri/` | `src/platform/tauri-desktop.ts`가 Rust command(`src-tauri/src/main.rs`)를 창 전역으로 노출 | 파일·대화상자·프로필 라이브러리·업데이터 + **Refine 네이티브** |
 
 - 프론트엔드: 번들러 없는 TS(`tsc` 1:1 → `dist/`), fabric.js 캔버스, 라이브러리는 `vendor/` 스크립트 전역.
-- 배포: Tauri 설치파일은 `npm run release:tauri`로 서명 후 GitHub Release와 인앱 업데이트 피드(`latest.json`, `latest-yoloe.json`)를 올린다. Electron 설치파일은 `npm run electron:dist:win`(수동). YOLOE 변형은 버전을 한 minor 위로 쌍으로 관리한다.
+- 배포: Tauri 설치파일은 `npm run release:tauri`로 서명 후 GitHub Release와 인앱 업데이트 피드(`latest.json`)를 올린다. Electron 설치파일은 `npm run electron:dist:win`(수동).
 - 결과적으로 **킷의 2단계(Electron → Tauri 2)는 이미 병행 배포 상태**이고, 킷의 1·2단계 중 refine 이식도 Tauri 한정으로 끝나 있다.
 
 ### 기존 Rust 코드 (확인)
@@ -219,7 +219,7 @@ PR 전 검수 (2026-10-30):
 | 3 | TIFF 디코드: `src/features/images/image-decoder.ts` | tiff.js(Emscripten) → RGBA canvas → `toBlob` PNG 인코드 → objectURL → `img.decode()` (확인) | 8bit gray SEM이 RGBA로 4배 커지고 PNG 인코드·디코드를 한 번 더 함 (추정) | **중**: 압축 종류, 16bit, 멀티페이지, 색공간 동등성 | TIFF 데이터셋의 이미지 전환 단축 (추정). **실제 데이터 포맷 확인 필요** |
 | 4 | 슈퍼픽셀: `src/features/segmentation/superpixels.ts` (277줄) | TS, 메인 스레드, 결과 캐시 있음 (확인) | 첫 계산 지연 (추정) | 중 | 측정 후 판단 |
 | 5 | 템플릿 매칭: `workers/template-matching-worker.js` | OpenCV.js worker | 이전 네이티브 시도가 WebView2 IPC 때문에 더 느렸음 (확인: `a95511dc` 메시지) | 중 | 이미지가 Rust에 상주하게 된 뒤(3번 이후) 재측정. 그 전에는 보류 |
-| 6 | ONNX(YOLO, YOLOE, EdgeSAM, SR): `workers/*-inference-worker.js` 등 | onnxruntime-web, WebGPU 우선 | 네이티브(ort+DirectML)는 패키징 부담이 크고 IPC로 이득이 상쇄됨 (확인: 같은 커밋 메시지) | 상 | 범위 밖 |
+| 6 | ONNX(YOLO, EdgeSAM, SR): `workers/*-inference-worker.js` 등 | onnxruntime-web, WebGPU 우선 | 네이티브(ort+DirectML)는 패키징 부담이 크고 IPC로 이득이 상쇄됨 (확인: 같은 커밋 메시지) | 상 | 범위 밖 |
 | 7 | 박스 상태·히트테스트·undo (킷 3단계): `src/features/canvas/*` | fabric 객체가 상태를 소유하고, undo는 전체 rect 스냅샷 | 5,000박스 Rect 생성 약 85ms, 캔버스 적용 약 177ms. 둘 다 **fabric 비용** (확인: 같은 문서) | 상 | Rust가 상태를 가져가도 렌더링은 fabric(JS)에 남고, 편집마다 IPC 왕복이 추가된다. 렌더러 교체 없이는 이득이 불확실하다 (추정) → **보류 권장** |
 | 8 | YOLO 파싱·직렬화: `src/domain/yolo/yolo.ts` | TS | 5,000박스 1.8ms (확인: 같은 문서) | 하 | **이득 없음.** `toFixed(15)` 출력의 바이트 호환 위험만 있다 → **이식 제외 권장** |
 
@@ -248,7 +248,7 @@ PR 전 검수 (2026-10-30):
 - **WebView2 IPC 비용.** 큰 데이터를 왕복시키는 이식은 이득이 상쇄된다(템플릿 매칭·ONNX 사례). 경계에서는 raw 바이너리를 쓰고, 상태는 Rust에 상주시키고, 결과만 보낸다.
 - **바이트 호환.** Review 메시지, YOLO 문자열, 전처리 캐시 키는 기존과 동일해야 한다.
 - **빌드 비용.** fat LTO는 메모리·시간 문제로 이미 배제했다. 크레이트 이동 시 `target/` 위치가 바뀌어 parity 테스트 경로, `.gitignore`, 릴리스 스크립트에 영향이 있다.
-- **두 변형.** 일반/YOLOE 설치파일과 버전 쌍 규칙. 감사 당시의 `codex/yoloe26-gpu` 브랜치는 합쳐졌고, 지금은 같은 코드에서 설치 설정만 다르다(`docs/DEVELOPMENT_VARIANTS_KO.md`).
+- **한 변형.** YOLOE-26 변형은 v2.41.0(일반 v2.40.0)을 끝으로 이 레포에서 분리했다(`track/yoloe26` 브랜치).
 - **킷과 레포 설정 충돌.**
   - 킷의 `CLAUDE.md`, `.claude/skills/verify`, `.claude/settings.json`이 레포의 기존 파일과 이름이 겹친다. 덮어쓰지 않고 병합해야 한다.
   - 킷 문서의 `ui/` 경로는 이 레포에 없다. 프론트엔드는 루트 `src/`다.

@@ -505,7 +505,6 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 | Reclass 프리셋 | `Reclass Presets` |
 | 전처리 프리셋 | `Preprocessing Presets` |
 | Superpixel(세그멘테이션 도구) 프리셋 | `Segmentation Presets` |
-| YOLOE 프리셋 | `YOLOE Presets` |
 
 - 선택 목록은 해당 폴더의 파일을 자동으로 읽어 만든다. 데이터셋과 상관없이 같은 프리셋을 쓸 수 있다.
 - Save를 누르면 대화상자 없이 그 폴더에 바로 저장한다. 목록에서 불러온 프리셋은 그 파일을 덮어쓰고, 새 이름은 `<이름>.json`으로 저장한다. 새 이름의 파일이 이미 있으면 바꿀지 먼저 묻는다.

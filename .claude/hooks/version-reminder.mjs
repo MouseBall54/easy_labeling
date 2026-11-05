@@ -23,8 +23,7 @@ try {
   process.stdout.write(JSON.stringify({
     decision: "block",
     reason: `Shipped files changed (${shipped.slice(0, 5).join(", ")}${shipped.length > 5 ? ", ..." : ""}) but package.json is still ${current}. `
-      + "Per AGENTS.md: bump with `npm version <x.y.z> --no-git-tag-version` (patch = fix, minor = feature) and move "
-      + "src-tauri/tauri.yoloe.conf.json version in step (one minor ahead, same patch). "
+      + "Per AGENTS.md: bump with `npm version <x.y.z> --no-git-tag-version` (patch = fix, minor = feature). "
       + "If this change should not ship a new version (refactor, tests only, or the user said not to), say so and stop."
   }));
 } catch {

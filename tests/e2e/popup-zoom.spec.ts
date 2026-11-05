@@ -2,10 +2,9 @@ import { expect, test, type Locator } from "@playwright/test";
 
 for (const workflow of ["detection", "segmentation"] as const) test(`image popup zoom reaches 3000% and preserves ${workflow} labels`, async ({ page }) => {
   test.setTimeout(90_000);
-  await page.route("http://127.0.0.1:8766/status", (route) => route.fulfill({ json: { version: 5, cuda: false, gpu: null, models: ["yoloe-26n-seg"] } }));
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/index.html?yoloe=python", { waitUntil: "domcontentloaded" });
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
   await page.locator("#emptyLoadSampleBtn").click();
   await expect(page.locator("#workspaceStandbyPanel")).toBeHidden({ timeout: 45_000 });
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount())).toBe(207);
@@ -68,32 +67,6 @@ for (const workflow of ["detection", "segmentation"] as const) test(`image popup
     expect(Number(await templateZoom.inputValue())).toBeLessThan(100);
     await page.locator("#templateMatchingModal .modal-footer").getByRole("button", { name: "Close", exact: true }).click();
   }
-  await page.locator("#taskYoloeBtn").click();
-  await page.locator("#openYoloeSetupBtn").click();
-  await expect(page.locator("#yoloeSampleStage > #yoloePreviewCanvas")).toBeVisible();
-  await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
-  await page.locator("#yoloeReferenceSelect").selectOption("sample_2.jpg");
-  await expect(page.locator("#yoloeReferenceSelect")).toBeEnabled();
-  await expect(page.locator("#yoloeReferenceSelect")).toHaveValue("sample_2.jpg");
-  const canvas = page.locator("#yoloePreviewCanvas");
-  const zoom = page.locator("#yoloeSampleZoom");
-  await expect(zoom).toHaveText(/\d+%/);
-  const fitted = await zoom.textContent();
-  await zoomWithWheel(canvas, zoom);
-  await expect(zoom).toHaveText("3000%");
-  await wheel(canvas, -100);
-  await expect(zoom).toHaveText("3000%");
-  await page.evaluate(() => {
-    const toggle = document.getElementById("darkModeToggle") as HTMLInputElement;
-    toggle.checked = true; toggle.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await expect(zoom).toHaveText("3000%");
-  await page.screenshot({ path: `output/popup-zoom-${workflow}-3000.png` });
-  await wheel(canvas, 200);
-  await expect.poll(async () => Number.parseInt((await zoom.textContent())!)).toBeLessThan(3000);
-  await page.locator("#fitYoloeSampleBtn").click();
-  await expect(zoom).toHaveText(fitted!);
-  await page.locator("#closeYoloeSetupBtn").click();
   expect(await labels()).toEqual(original);
   expect(errors).toEqual([]);
 });
