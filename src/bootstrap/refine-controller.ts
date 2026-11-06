@@ -6,6 +6,7 @@ import {
   parseReclassPresetFiles,
   parseRefinePresetFiles,
   parseRefineSettings,
+  resolvePresetParams,
   resolveRefineParams,
   serializeReclassPresets,
   serializeRefinePresets,
@@ -201,17 +202,17 @@ export function createRefineController(input: {
     ? { kind: "processed", config: (processing?.config as SegmentationPreprocessingConfig | undefined) ?? (input.canvasController.preprocessing ?? raw).getSegmentationPreprocessingConfig?.() }
     : { kind: "original" };
   /**
-   * What a run uses: the Run-with preset (same rule for every class, with its image and processing) or the
+   * What a run uses: the Run-with preset (its default plus its per-class values, with its image and processing) or the
    * saved class settings. Presets saved before image sources existed keep the current image settings.
    */
-  const runConfig = (): { params(classId: string): RefineParams; image: RefineImageInput; label: string } => {
+  const runConfig = (): { params(classId: string): RefineParams; ownClasses: string[]; image: RefineImageInput; label: string } => {
     const preset = settings.activePreset ? allPresets().find((item) => item.name === settings.activePreset) : undefined;
     if (preset) {
       const source = preset.imageSource ?? settings.imageSource;
       const processing = preset.imageSource ? preset.processing ?? null : settings.processing;
-      return { params: () => preset.params, image: imageInput(source, processing), label: refinePresetLabel(preset) };
+      return { params: (classId) => resolvePresetParams(preset, classId), ownClasses: Object.keys(preset.classes ?? {}), image: imageInput(source, processing), label: refinePresetLabel(preset) };
     }
-    return { params: (classId) => resolveRefineParams(settings, classId), image: imageInput(settings.imageSource, settings.processing), label: "class settings" };
+    return { params: (classId) => resolveRefineParams(settings, classId), ownClasses: Object.keys(settings.classes), image: imageInput(settings.imageSource, settings.processing), label: "class settings" };
   };
   /** What Reclass Apply uses: the Reclass-with preset (its rule and image) or the Lab rule; the default rule when none is saved. */
   const reclassConfig = (): { rule: ReclassRule; image: RefineImageInput; preset: ReclassPreset | undefined } => {
@@ -347,7 +348,7 @@ export function createRefineController(input: {
       return option;
     }));
     runSelect.value = active?.name ?? "";
-    runSelect.title = active ? "Every class is refined with this preset; class settings are left unchanged" : "Each class uses its own settings";
+    runSelect.title = active ? "Boxes are refined with this preset's default and class values; the saved class settings are left unchanged" : "Each class uses its own settings";
     byId("refineRunPresetDetail").textContent = active
       ? describePreset(active)
       : `${own ? `${own} class${own === 1 ? "" : "es"} with own rules` : "Default rule for every class"}${presets.length ? "" : " · save presets in Refine Lab to switch here"}`;
@@ -675,9 +676,9 @@ export function createRefineController(input: {
     };
     // Desktop app: Rust refines every image it can decode like the page; the rest go through transform.
     const batch = async (images: readonly unknown[], labelNames: readonly string[], onProgress: (done: number) => void, signal: AbortSignal | undefined) => {
-      // Classes without their own settings use the default (resolveRefineParams), as does any class with a preset.
+      // Classes without their own values (in the class settings or the Run-with preset) use the default.
       // fromEntries makes own keys even for an id like "__proto__", which plain assignment would not.
-      const paramsByClass: Record<string, RefineParams> = Object.fromEntries(Object.keys(settings.classes).map((classId) => [classId, edge.params(classId)]));
+      const paramsByClass: Record<string, RefineParams> = Object.fromEntries(edge.ownClasses.map((classId) => [classId, edge.params(classId)]));
       const rewrites = await refineFolderNatively({
         images, labelNames, labelFolder: input.state.session.labelFolderHandle, paramsByClass,
         defaultParams: edge.params(UNPATCHED_CLASS), source: edge.image, signal, onProgress
