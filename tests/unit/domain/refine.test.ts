@@ -34,6 +34,7 @@ import {
   parseRefineSettings,
   refineOverriddenKeys,
   resetRefineSettings,
+  resolvePresetParams,
   resolveRefineParams,
   updateRefineSettings,
   type RefineSettingsDocument
@@ -392,6 +393,23 @@ describe("domain/refine/settings", () => {
     expect(refineOverriddenKeys(doc, "2")).toEqual(["rangeOut", "sides.B"]);
     doc = resetRefineSettings(doc, ["2"], ["rangeOut", "sides.B"]);
     expect(doc.classes["2"]).toBeUndefined();
+  });
+
+  it("keeps per-class values in presets: saved, applied to the default, resolved for runs and round-tripped", () => {
+    const doc = updateRefineSettings(updateRefineSettings(createRefineSettings(), "default", { rangeOut: 20 }), ["2"], { rangeOut: 9 });
+    const saved = saveRefinePreset(doc, "Per class", doc.default, undefined, doc.classes);
+    const preset = saved.presets[0]!;
+    expect(preset.classes).toEqual({ 2: { rangeOut: 9 } });
+    expect(resolvePresetParams(preset, "2").rangeOut).toBe(9);
+    expect(resolvePresetParams(preset, "1").rangeOut).toBe(20);
+    // Applied to the default it replaces the class values too; an older preset without classes clears them.
+    const applied = applyRefinePreset({ ...saved, classes: { 5: { rangeOut: 3 } } }, "Per class", "default");
+    expect(applied.classes).toEqual({ 2: { rangeOut: 9 } });
+    const old = saveRefinePreset(saved, "Old", normalizeRefineParams({ rangeOut: 7 }));
+    expect(applyRefinePreset(applied, "Old", "default", old.presets).classes).toEqual({});
+    const imported = importRefinePresets(createRefineSettings(), serializeRefinePresets(old.presets)).doc;
+    expect(imported.presets.find((item) => item.name === "Per class")?.classes).toEqual({ 2: { rangeOut: 9 } });
+    expect(imported.presets.find((item) => item.name === "Old")?.classes).toBeUndefined();
   });
 
   it("saves, applies to a class group, exports and imports presets", () => {

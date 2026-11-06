@@ -835,7 +835,7 @@ test("presets: Save settings saves into the named preset, asks for a name, and t
   await openSemDataset(page);
   await selectBoxes(page, [0]);
   await page.keyboard.press("r");
-  type Saved = { activePreset: string | null; default: { rangeOut: number }; classes: Record<string, unknown>; presets: { name: string; params: { rangeOut: number } }[] };
+  type Saved = { activePreset: string | null; default: { rangeOut: number }; classes: Record<string, unknown>; presets: { name: string; params: { rangeOut: number }; classes?: Record<string, { rangeOut?: number }> }[] };
   const saved = async () => (await settingsFile(page)) as unknown as Saved;
   const presetRange = async (name: string) => (await saved())?.presets.find((preset) => preset.name === name)?.params.rangeOut;
   const presetName = lab(page).locator('[data-ref="presetName"]');
@@ -877,11 +877,12 @@ test("presets: Save settings saves into the named preset, asks for a name, and t
   expect(await presetRange("Tuned")).toBe(23);
   expect((await saved()).default.rangeOut).toBe(25);
 
-  // Run with a preset: the Lab edits that preset for every class and leaves class settings alone.
+  // Run with a preset: the Lab edits that preset (Default selected, class chips shown) and leaves class settings alone.
   await page.locator("#refineRunPresetSelect").selectOption("Tuned");
   await openLab(page);
   await expect(page.locator("#refineLabPresetBanner")).toContainText('Run with "Tuned"');
-  await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeHidden();
+  await expect(page.locator("#refineLabEditor [data-ref=chips]")).toBeVisible();
+  await expect(page.locator("#refineLabEditor .refine-class-chip[data-class-id='']")).toHaveAttribute("aria-pressed", "true");
   await expect(presetName).toHaveValue("Tuned");
   await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("23");
   for (const theme of ["light", "dark"]) {
@@ -891,12 +892,23 @@ test("presets: Save settings saves into the named preset, asks for a name, and t
   }
   await page.evaluate(() => { const toggle = document.getElementById("darkModeToggle") as HTMLInputElement; toggle.checked = false; toggle.dispatchEvent(new Event("change", { bubbles: true })); });
   await page.locator("#refineLabField-rangeOut").fill("30");
+  // A class chip gives that class its own value inside the preset.
+  await editClass(page, "0");
+  await page.locator("#refineLabField-rangeOut").fill("12");
   await saveLab(page);
   await expect.poll(() => presetRange("Tuned")).toBe(30);
   const after = await saved();
+  expect(after.presets.find((preset) => preset.name === "Tuned")?.classes?.["0"]?.rangeOut).toBe(12);
+  expect(after.classes).toEqual({});
   expect(after.default.rangeOut).toBe(25);
   expect(after.activePreset).toBe("Tuned");
   await expect(page.locator("#refineRunPresetDetail")).toContainText("out 30 px");
+  // Reopened, the Lab shows the preset's class value again.
+  await openLab(page);
+  await editClass(page, "0");
+  await expect(page.locator("#refineLabField-rangeOut")).toHaveValue("12");
+  await lab(page).locator(".modal-footer [data-bs-dismiss=modal]").click();
+  await expect(lab(page)).toBeHidden();
 
   // Back on class settings, the Lab edits them again.
   await page.locator("#refineRunPresetSelect").selectOption("");
