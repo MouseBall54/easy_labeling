@@ -2,6 +2,7 @@ import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessi
 import type { DirectoryHandleLike } from "../types/files.js";
 import { loadPreprocessingPresetLibrary, savePreprocessingPresets, serializePreprocessingPresets, upsertPreprocessingPreset, type StoredPreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
 import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { emptyLastSelections, parseLastSelections, recallSelection, rememberSelection, type LastSelections } from "../domain/last-selections.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
@@ -134,6 +135,8 @@ export function createEventManagerAdapter(input: {
     easyLabelingDesktop: Window["easyLabelingDesktop"];
     showDirectoryPicker: Window["showDirectoryPicker"];
     getEasyLabelingProfileDirectory: Window["getEasyLabelingProfileDirectory"];
+    localStorage: Storage;
+    easyLabelingNative: Window["easyLabelingNative"];
   }>;
   documentRef?: Document;
 }): EventManager {
@@ -433,6 +436,8 @@ export function createEventManagerAdapter(input: {
             input.uiManager.updateWorkspaceStandbyStep("matching", "warning", "Matching engine unavailable");
             hasWarning = true;
           }
+
+          if (options.loadDataset) await restoreLastSelections();
 
           input.uiManager.finishWorkspaceStandby(
             hasWarning ? "warning" : "ready",
@@ -1531,6 +1536,61 @@ export function createEventManagerAdapter(input: {
         return true;
       };
       preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
+
+      // Last choices per dataset folder (domain/last-selections.ts), kept in this browser or app profile: a folder
+      // opened before gets its own back, a new one the latest choice. Restoring fires the select's own change handler.
+      const LAST_SELECTIONS_KEY = "easyLabeling.lastSelections";
+      const lastSelectionSelects = ([
+        ["classFile", "class-file-select"],
+        ["preprocessPreset", "segmentationPreprocessPresetSelect"],
+        ["segmentationPreset", "segmentationToolPresetSelect"],
+        ["automationPreset", "automationPresetSelect"],
+        ["boxLayout", "boxLayoutSelect"]
+      ] as const).flatMap(([kind, id]) => {
+        const select = input.documentRef?.getElementById(id);
+        return typeof HTMLSelectElement !== "undefined" && select instanceof HTMLSelectElement ? [{ kind, select }] : [];
+      });
+      const readLastSelections = (): LastSelections => {
+        try { return parseLastSelections(input.windowRef.localStorage?.getItem(LAST_SELECTIONS_KEY) ?? null); } catch { return emptyLastSelections(); }
+      };
+      const writeLastSelections = (store: LastSelections): void => {
+        try { input.windowRef.localStorage?.setItem(LAST_SELECTIONS_KEY, JSON.stringify(store)); } catch { /* storage unavailable: nothing remembered */ }
+      };
+      // ponytail: the web build keys folders by name (no path there), so same-named folders share their choices.
+      const lastSelectionFolder = (): string | null => {
+        const folder = input.state.session.imageFolderHandle;
+        return folder ? input.windowRef.easyLabelingNative?.pathOf?.(folder) ?? folder.name : null;
+      };
+      const chosenName = (select: HTMLSelectElement): string | null => {
+        const option = select.selectedOptions[0];
+        return option && option.value && option.value !== "__CREATE_NEW__" ? option.text : null;
+      };
+      for (const { kind, select } of lastSelectionSelects) {
+        select.addEventListener("change", () => {
+          const folder = lastSelectionFolder();
+          const name = chosenName(select);
+          if (folder && name) writeLastSelections(rememberSelection(readLastSelections(), folder, kind, name));
+        });
+      }
+      let restoredSelectionsFolder: string | null = null;
+      const restoreLastSelections = async (): Promise<void> => {
+        const folder = lastSelectionFolder();
+        if (!folder || folder === restoredSelectionsFolder) return; // a refresh keeps what is chosen now
+        restoredSelectionsFolder = folder;
+        await reloadPreprocessPresets().catch(() => undefined);
+        let store = readLastSelections();
+        for (const { kind, select } of lastSelectionSelects) {
+          const name = recallSelection(store, folder, kind);
+          const option = name === undefined ? undefined : [...select.options].find((item) => item.value && item.text === name);
+          if (!option) continue;
+          // Recorded for this folder now, so its next opening keeps it even if another folder chooses differently.
+          store = rememberSelection(store, folder, kind, option.text);
+          if (option.selected) continue;
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        writeLastSelections(store);
+      };
       input.documentRef?.getElementById("taskPreprocessingBtn")?.addEventListener("click", refreshPreprocessPresets);
       preprocessPresetSelect?.addEventListener("change", () => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
