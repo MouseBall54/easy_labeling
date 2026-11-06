@@ -230,7 +230,7 @@ export function createRefineLab(input: {
     presetBanner.textContent = !edit?.runWith ? ""
       : draft.mode === "reclass"
         ? `Reclass with "${edit.name}": edits here update this preset. To edit the Lab rule, choose Lab rule under Reclass with in the Refine pane.`
-        : `Run with "${edit.name}": edits here update this preset, which refines every class. To edit class settings, choose Class settings under Run with in the Refine pane.`;
+        : `Run with "${edit.name}": edits here (the Default and each class) update this preset. To edit the saved class settings, choose Class settings under Run with in the Refine pane.`;
     const apply = byId("refineLabApplyBtn");
     apply.textContent = draft.mode === "reclass" ? "Save & reclass these boxes" : "Save & refine these boxes";
   };
@@ -262,12 +262,14 @@ export function createRefineLab(input: {
     if (edge && (edge.runWith || edge.sync)) {
       const { name, target } = edge;
       const datasetOwned = next.presets.some((preset) => preset.name === name);
-      const updated = saveRefinePreset(next, name, target === "default" ? next.default : resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing });
+      const updated = target === "default"
+        ? saveRefinePreset(next, name, next.default, { imageSource: next.imageSource, processing: next.processing }, next.classes)
+        : saveRefinePreset(next, name, resolveRefineParams(next, target[0]!), { imageSource: next.imageSource, processing: next.processing });
       // Only an edited preset is written (an untouched profile preset stays out of the dataset).
       const before = mergeRefinePresets(next.presets, input.profilePresets()).find((preset) => preset.name === name);
       const after = updated.presets.find((preset) => preset.name === name);
       // Presets saved before image sources existed compare on their params alone.
-      const key = (preset: RefinePreset | undefined, image: boolean): string => JSON.stringify(preset && [preset.params, image ? [preset.imageSource, preset.processing ?? null] : null]);
+      const key = (preset: RefinePreset | undefined, image: boolean): string => JSON.stringify(preset && [preset.params, preset.classes ?? {}, image ? [preset.imageSource, preset.processing ?? null] : null]);
       if (key(before, Boolean(before?.imageSource)) !== key(after, Boolean(before?.imageSource))) {
         next = updated;
         if (!datasetOwned && !input.deleteProfilePreset) input.notify(`Saved "${name}" to this dataset's presets; the profile folder file is unchanged.`);
@@ -1136,14 +1138,13 @@ export function createRefineLab(input: {
       const run = saved.activePreset ? presets.find((preset) => preset.name === saved.activePreset) : undefined;
       const reclassPresets = mergeRefinePresets(saved.reclassPresets, input.profileReclassPresets());
       const reclassRun = saved.activeReclassPreset ? reclassPresets.find((preset) => preset.name === saved.activeReclassPreset) : undefined;
-      // With a Run-with preset the Lab edits that preset: every class previews with it, as runs do.
-      draft = run ? applyRefinePreset({ ...saved, classes: {} }, run.name, "default", presets) : saved;
+      // With a Run-with preset the Lab edits that preset (its default and class values), as runs use it.
+      draft = run ? applyRefinePreset(saved, run.name, "default", presets) : saved;
       if (reclassRun) draft = applyReclassPreset(draft, reclassRun.name, reclassPresets);
       presetEdits = {
         edge: run ? { name: run.name, target: "default", runWith: true, sync: true } : null,
         reclass: reclassRun ? { name: reclassRun.name, target: "default", runWith: true, sync: true } : null
       };
-      editor.setClassesLocked(Boolean(run));
       nameMode = null; // show the opened mode's preset name
       renderPresetEdit();
       void input.loadPreprocessingPresets().then((presets) => { preprocessingPresets = presets; editor.render(); }).catch(() => undefined);

@@ -73,8 +73,6 @@ export interface RefineEditor {
   setPresetName(name: string): void;
   /** Marks the name field as missing, with a message under it, and focuses it. */
   requirePresetName(message: string): void;
-  /** Locked: only the default is edited (class chips hidden), e.g. while editing the Run-with preset. */
-  setClassesLocked(locked: boolean): void;
 }
 
 type FieldKey = Exclude<keyof RefineParams, "sides">;
@@ -291,7 +289,6 @@ export function createRefineEditor(input: {
   let scope: RefineEditScope = "all";
   const targetListeners: (() => void)[] = [];
   const presetListeners: ((name: string, target: "default" | string[], mode: RefineMode) => void)[] = [];
-  let classesLocked = false;
   const scopeListeners: ((scope: RefineEditScope) => void)[] = [];
   const setScope = (next: RefineEditScope): void => {
     if (next === scope) return;
@@ -402,11 +399,8 @@ export function createRefineEditor(input: {
       fragment.appendChild(chip(classId, name ? `${classId} ${name}` : classId));
     }
     ref("chips").replaceChildren(fragment);
-    ref("chips").hidden = classesLocked;
-    root.querySelector<HTMLElement>('[data-act="all"]')!.hidden = classesLocked;
     const t = targets();
-    ref("hint").textContent = classesLocked ? "Editing the preset; it applies to every class."
-      : t === "default"
+    ref("hint").textContent = t === "default"
       ? "Editing the default for every class without its own value."
       : `Editing class ${t.join(", ")}${t.length > 1 ? " together; differing values show as mixed" : ""}.`;
   };
@@ -711,7 +705,9 @@ export function createRefineEditor(input: {
         const name = nameInput.value.trim() || presetName;
         if (!name) { store.notify("Type a preset name."); nameInput.focus(); return; }
         const docNow = store.getDoc();
-        setDoc(docNow.mode === "reclass" ? saveReclassPreset(docNow, name) : saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing }));
+        setDoc(docNow.mode === "reclass" ? saveReclassPreset(docNow, name) : (t === "default"
+          ? saveRefinePreset(docNow, name, docNow.default, { imageSource: docNow.imageSource, processing: docNow.processing }, docNow.classes)
+          : saveRefinePreset(docNow, name, editedParams()[0], { imageSource: docNow.imageSource, processing: docNow.processing })));
         setPresetName(name);
         ref<HTMLSelectElement>("presetSelect").value = name;
         presetListeners.forEach((listener) => listener(name, t, docNow.mode));
@@ -785,11 +781,6 @@ export function createRefineEditor(input: {
       hint.hidden = false;
       nameInput.scrollIntoView({ block: "center" });
       nameInput.focus();
-    },
-    setClassesLocked(locked) {
-      classesLocked = locked;
-      if (locked) selected = new Set();
-      targetsChanged();
     }
   };
 }

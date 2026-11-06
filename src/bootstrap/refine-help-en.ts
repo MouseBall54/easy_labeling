@@ -129,8 +129,8 @@ ${tip("Median or anisotropic diffusion plus auto levels usually beats raising σ
     "edge-classes": {
       title: "Default, classes and presets",
       html: `<p>With no class chip pressed you edit the <em>Default</em>, which every class uses. Press a chip to give that class its own values on top of the Default (only changed values are stored); the reset button returns it to the Default.</p>
-<p><em>Presets</em> store the values and the image: <em>Save</em> with a name, choose one to apply it, export or import preset files. The preset name field links the Lab to a preset: applying or saving a preset fills it in, and <em>Save settings</em> saves the values into the preset it names (a new name makes a new preset). On the desktop app presets are files in <em>Documents/Easy Labeling</em>, shared by every dataset.</p>
-${tip(`In the Refine pane, <em>Run with</em> applies one preset to every class without changing class settings; the Lab then edits that preset. See ${link("folder-run", "whole-folder runs")}.`)}`
+<p><em>Presets</em> store the values (the Default and every class's own values) and the image: <em>Save</em> with a name, choose one to apply it, export or import preset files. The preset name field links the Lab to a preset: applying or saving a preset fills it in, and <em>Save settings</em> saves the values into the preset it names (a new name makes a new preset). On the desktop app presets are files in <em>Documents/Easy Labeling</em>, shared by every dataset.</p>
+${tip(`In the Refine pane, <em>Run with</em> refines with one preset (its Default and class values) without changing the saved class settings; the Lab then edits that preset, class chips included. See ${link("folder-run", "whole-folder runs")}.`)}`
     },
     "reclass-quickstart": {
       title: "Tutorial: find boxes of the wrong class",

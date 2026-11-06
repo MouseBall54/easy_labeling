@@ -134,7 +134,7 @@ ${tip("σ를 올리는 것보다 median이나 anisotropic diffusion에 auto leve
       title: "Default, 클래스, 프리셋",
       html: `<p>클래스 칩을 누르지 않으면 모든 클래스가 쓰는 <em>Default</em>를 편집합니다. 칩을 누르면 그 클래스만 Default 위에 따로 값을 가집니다(바꾼 값만 저장). 리셋 버튼은 Default로 되돌립니다.</p>
 <p><em>Presets</em>는 값과 이미지를 저장합니다: 이름을 적고 <em>Save</em>, 골라서 적용, 파일로 내보내기/가져오기. preset name 칸이 Lab과 프리셋을 잇습니다: 프리셋을 적용하거나 저장하면 이름이 채워지고, <em>Save settings</em>는 그 이름의 프리셋에 값을 저장합니다(새 이름이면 새 프리셋). 데스크톱 앱에서는 프리셋이 <em>Documents/Easy Labeling</em>의 파일로 저장되어 모든 데이터셋에서 함께 씁니다.</p>
-${tip(`Refine pane의 <em>Run with</em>는 클래스 설정을 바꾸지 않고 한 프리셋을 모든 클래스에 적용합니다. 이때 Lab은 그 프리셋을 편집합니다. ${link("folder-run", "폴더 전체 실행")}도 보세요.`)}`
+${tip(`Refine pane의 <em>Run with</em>는 저장된 클래스 설정을 바꾸지 않고 한 프리셋(그 프리셋의 Default와 클래스별 값)으로 실행합니다. 이때 Lab은 클래스 칩까지 포함해 그 프리셋을 편집합니다. ${link("folder-run", "폴더 전체 실행")}도 보세요.`)}`
     },
     "reclass-quickstart": {
       title: "튜토리얼: 클래스가 잘못된 박스 찾기",

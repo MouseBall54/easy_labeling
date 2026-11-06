@@ -58,7 +58,10 @@ export interface RefineSettingsDocument {
 /** Edge preset. Rules older versions saved in it ("reclass") are ignored: reclass has presets of its own. */
 export interface RefinePreset {
   name: string;
+  /** The preset's default, used by every class without its own values. */
   params: RefineParams;
+  /** Per-class changed keys on top of params, like the document's classes (absent in older presets = none). */
+  classes?: Record<string, RefineParamsPatch>;
   /** Image the preset was tuned on; absent in presets saved before image sources existed. */
   imageSource?: RefineImageSource;
   processing?: RefineProcessing | null;
@@ -95,6 +98,20 @@ function merge(base: RefineParams, patch: RefineParamsPatch | undefined): Refine
 
 export function resolveRefineParams(doc: RefineSettingsDocument, classId: string): RefineParams {
   return merge(doc.default, doc.classes[classId]);
+}
+
+/** The values a preset gives a class: its default plus that class's own changes. */
+export function resolvePresetParams(preset: RefinePreset, classId: string): RefineParams {
+  return merge(preset.params, preset.classes?.[classId]);
+}
+
+function parseClassPatches(defaults: RefineParams, value: unknown): Record<string, RefineParamsPatch> {
+  const classes: Record<string, RefineParamsPatch> = {};
+  for (const [classId, patch] of Object.entries((typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>)) {
+    const clean = cleanPatch(defaults, patch);
+    if (!isEmptyPatch(clean)) classes[classId] = clean;
+  }
+  return classes;
 }
 
 /** Keeps only known keys, normalised against the default so stored values are always in range. */
@@ -208,11 +225,7 @@ export function parseRefineSettings(text: string): RefineSettingsDocument {
   if (typeof parsed !== "object" || parsed === null) throw new Error("Invalid refine settings");
   const source = parsed as Record<string, unknown>;
   const defaults = normalizeRefineParams(source.default);
-  const classes: Record<string, RefineParamsPatch> = {};
-  for (const [classId, patch] of Object.entries((source.classes ?? {}) as Record<string, unknown>)) {
-    const clean = cleanPatch(defaults, patch);
-    if (!isEmptyPatch(clean)) classes[classId] = clean;
-  }
+  const classes = parseClassPatches(defaults, source.classes);
   const imageSource = parseImageSource(source.imageSource) ?? "original";
   const processing = parseProcessing(source.processing);
   const reclassImageSource = parseImageSource(source.reclassImageSource);
@@ -259,6 +272,8 @@ function parsePresetList(value: unknown): RefinePreset[] {
     const name = typeof item?.name === "string" ? item.name.trim() : "";
     if (!name) continue;
     const preset: RefinePreset = { name, params: normalizeRefineParams(item.params) };
+    const classes = parseClassPatches(preset.params, item.classes);
+    if (Object.keys(classes).length) preset.classes = classes;
     if (item.imageSource === "processed" || item.imageSource === "original") {
       preset.imageSource = item.imageSource;
       preset.processing = parseProcessing(item.processing);
@@ -268,16 +283,19 @@ function parsePresetList(value: unknown): RefinePreset[] {
   return [...byName.values()];
 }
 
-/** Adds the preset (with the image it was tuned on), replacing one with the same name. */
+/** Adds the preset (with the image it was tuned on and any per-class values), replacing one with the same name. */
 export function saveRefinePreset(
   doc: RefineSettingsDocument,
   name: string,
   params: RefineParams,
-  image?: { imageSource: RefineImageSource; processing: RefineProcessing | null }
+  image?: { imageSource: RefineImageSource; processing: RefineProcessing | null },
+  classes?: Record<string, RefineParamsPatch>
 ): RefineSettingsDocument {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Preset name is required");
   const preset: RefinePreset = { name: trimmed, params: normalizeRefineParams(params) };
+  const patches = classes ? parseClassPatches(preset.params, classes) : {};
+  if (Object.keys(patches).length) preset.classes = patches;
   if (image) {
     preset.imageSource = image.imageSource;
     preset.processing = cloneProcessing(image.processing);
@@ -292,14 +310,15 @@ export function deleteRefinePreset(doc: RefineSettingsDocument, name: string): R
 }
 
 /**
- * Pins the target to the preset: classes store every key, so later default edits do not drift them.
+ * Applied to the default, the preset replaces the default and every class's values. Applied to classes, it pins
+ * them to the preset's default: classes store every key, so later default edits do not drift them.
  * A preset that carries an image source also restores the image source and its processing.
  */
 export function applyRefinePreset(doc: RefineSettingsDocument, name: string, target: "default" | readonly string[], presets: readonly RefinePreset[] = doc.presets): RefineSettingsDocument {
   const preset = presets.find((item) => item.name === name);
   if (!preset) return doc;
   const image = preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : {};
-  if (target === "default") return { ...doc, ...image, default: normalizeRefineParams(preset.params) };
+  if (target === "default") return { ...doc, ...image, default: normalizeRefineParams(preset.params), classes: parseClassPatches(preset.params, preset.classes) };
   const classes = { ...doc.classes };
   for (const classId of target) classes[classId] = { ...preset.params, sides: { ...preset.params.sides }, sideRules: cloneRules(preset.params.sideRules) };
   return { ...doc, ...image, classes };
@@ -318,7 +337,7 @@ export function importRefinePresets(doc: RefineSettingsDocument, text: string): 
   if (!presets.length) throw new Error("No refine presets found in the file");
   let next = doc;
   for (const preset of presets) {
-    next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined);
+    next = saveRefinePreset(next, preset.name, preset.params, preset.imageSource ? { imageSource: preset.imageSource, processing: preset.processing ?? null } : undefined, preset.classes);
   }
   return { doc: next, count: presets.length, names: presets.map((preset) => preset.name) };
 }
