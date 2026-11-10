@@ -292,3 +292,32 @@ export function planEqualEdgeGapDistribution(rects: readonly FabricRectLike[], a
     };
   });
 }
+
+/** Width/height change for selected boxes: `by` adds pixels (negative shrinks), `to` sets the size. Null leaves that side alone. */
+export interface BoxSizeChange {
+  mode: "by" | "to";
+  width: number | null;
+  height: number | null;
+}
+
+/** New bounds for each box, resized around its centre. Throws (changing nothing) if any box would shrink to 0 px or leave the image. */
+export function planSizeChange(
+  boxes: readonly Pick<RectBounds, "left" | "top" | "width" | "height">[],
+  change: BoxSizeChange,
+  image: { width: number; height: number }
+): { left: number; top: number; width: number; height: number }[] {
+  const size = (current: number, value: number | null): number => (value === null ? current : change.mode === "by" ? current + value : value);
+  return boxes.map((box) => {
+    const width = size(box.width, change.width);
+    const height = size(box.height, change.height);
+    if (!(width > 0 && height > 0)) {
+      throw new Error("Resizing would shrink a box to 0 px or less");
+    }
+    const left = box.left + (box.width - width) / 2;
+    const top = box.top + (box.height - height) / 2;
+    if (left < 0 || top < 0 || left + width > image.width || top + height > image.height) {
+      throw new Error("Resizing the selection would place a box outside the image bounds");
+    }
+    return { left, top, width, height };
+  });
+}

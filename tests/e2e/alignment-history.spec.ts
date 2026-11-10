@@ -273,6 +273,30 @@ test("arrange/history: align-left, undo/redo, distribute, delete, undo-delete", 
   expect(leftGap).toBeCloseTo(rightGap, 4);
   expect(middle.left).toBeGreaterThan(sourceMinLeft);
 
+  // Size: set every selected width, then grow the heights, each one undo step around the box centre.
+  const selectedGeometries = async () => {
+    const snapshot = await readSnapshot(page);
+    return snapshot.selectedRectIds.map((id) => snapshot.geometries.find((geometry) => geometry.annotationId === id)!);
+  };
+  const beforeResize = await selectedGeometries();
+  await page.locator("#selectionResizeModeSelect").selectOption("to");
+  await page.locator("#selectionResizeWidthInput").fill("0.05");
+  await page.locator('[data-ui="selection-resize-controls"] button').click();
+  await expect.poll(async () => (await selectedGeometries()).map((geometry) => Math.round(geometry.width * 1000) / 1000)).toEqual([0.05, 0.05, 0.05]);
+  const resized = await selectedGeometries();
+  resized.forEach((geometry, index) => {
+    expect(geometry.left + geometry.width / 2).toBeCloseTo(beforeResize[index].left + beforeResize[index].width / 2, 3);
+    expect(geometry.height).toBeCloseTo(beforeResize[index].height, 3);
+  });
+  await page.locator("#selectionResizeModeSelect").selectOption("by");
+  await page.locator("#selectionResizeWidthInput").fill("");
+  await page.locator("#selectionResizeHeightInput").fill("-0.04");
+  await page.locator('[data-ui="selection-resize-controls"] button').click();
+  await expect.poll(async () => (await selectedGeometries()).map((geometry, index) => Math.round((geometry.height - beforeResize[index].height) * 1000) / 1000)).toEqual([-0.04, -0.04, -0.04]);
+  await page.locator('[data-ui="history-undo"]').click();
+  await page.locator('[data-ui="history-undo"]').click();
+  await expect.poll(async () => (await selectedGeometries()).map((geometry) => Math.round(geometry.width * 1000) / 1000)).toEqual(beforeResize.map((geometry) => Math.round(geometry.width * 1000) / 1000));
+
   await page.locator("body").click();
   await page.keyboard.press("Delete");
   await expect.poll(async () => (await readSnapshot(page)).rectCount).toBe(0);

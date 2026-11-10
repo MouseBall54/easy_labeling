@@ -27,6 +27,24 @@ function denseItems(count: number) {
 }
 
 describe("features/canvas/annotation-label-renderer", () => {
+  it("adds the rounded W×H to selected tags only when asked", () => {
+    const items = [
+      { annotationId: "a", classId: "1", displayName: "1: fin", bounds: { left: 100, top: 100, width: 40.6, height: 20.4 } },
+      { annotationId: "b", classId: "2", displayName: "2: pad", bounds: { left: 300, top: 300, width: 50, height: 30 } }
+    ];
+    const layout = (showSelectedSize: boolean) => layoutAnnotationLabels({
+      items,
+      mode: "full",
+      zoom: 1,
+      imageBounds: { left: 0, top: 0, width: 600, height: 600 },
+      selectedAnnotationIds: new Set(["a"]),
+      showSelectedSize
+    }).map((placement) => placement.text);
+
+    expect(layout(true)).toEqual(["1: fin 41×20", "2: pad"]);
+    expect(layout(false)).toEqual(["1: fin", "2: pad"]);
+  });
+
   it("keeps auto labels inside the image and collision-free for the dense sample shape", () => {
     const placements = layoutAnnotationLabels({
       items: denseItems(59),

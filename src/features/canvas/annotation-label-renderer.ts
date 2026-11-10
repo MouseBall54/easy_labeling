@@ -35,6 +35,8 @@ export interface AnnotationLabelLayoutInput {
   visibleSceneBounds?: AnnotationLabelBounds;
   selectedAnnotationIds?: ReadonlySet<string>;
   hoveredAnnotationId?: string | null;
+  /** Adds "W×H" (bounds rounded to whole pixels) to the tags of selected boxes. */
+  showSelectedSize?: boolean;
   preferredFontSizePx?: number;
   measureText?: (text: string, fontSizePx: number) => number;
 }
@@ -207,7 +209,7 @@ export function layoutAnnotationLabels(input: AnnotationLabelLayoutInput): Annot
   const maximumTextWidthPx = Math.max(24, (input.imageBounds.width * zoom) - 12);
   const drafts = input.items.map((item, order) => {
     if (isOutsideViewport(item.bounds, viewport)) {
-      return { item, order, representation: "hidden" as const, priority: 0 };
+      return { item, order, representation: "hidden" as const, priority: 0, selected: false };
     }
     const selected = selectedIds.has(item.annotationId);
     const hovered = input.hoveredAnnotationId === item.annotationId;
@@ -221,20 +223,21 @@ export function layoutAnnotationLabels(input: AnnotationLabelLayoutInput): Annot
       zoom
     });
     const priority = selected ? 1000 : hovered ? 900 : representation === "full" ? 100 : representation === "compact" ? 50 : 0;
-    return { item, order, representation, priority };
+    return { item, order, representation, priority, selected };
   });
 
   const output = new Map<string, AnnotationLabelPlacement>();
   const index = new SpatialLabelIndex(64 / zoom);
   drafts
     .sort((left, right) => right.priority - left.priority || left.order - right.order)
-    .forEach(({ item, representation, priority }) => {
+    .forEach(({ item, representation, priority, selected }) => {
       if (representation === "hidden") {
         output.set(item.annotationId, hiddenPlacement(item.annotationId));
         return;
       }
 
-      const requestedText = representation === "full" ? item.displayName : item.classId;
+      const name = representation === "full" ? item.displayName : item.classId;
+      const requestedText = selected && input.showSelectedSize ? `${name} ${Math.round(item.bounds.width)}×${Math.round(item.bounds.height)}` : name;
       const text = fitText(requestedText, maximumTextWidthPx, preferredFontSizePx, measureText);
       const width = (measureText(text, preferredFontSizePx) + 10) / zoom;
       const height = (preferredFontSizePx + 7) / zoom;

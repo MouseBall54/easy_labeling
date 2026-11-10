@@ -52,6 +52,8 @@ export interface AppViewState {
   isAutoSaveEnabled: boolean;
   showLabelsOnCanvas: boolean;
   labelDisplayMode?: LabelDisplayMode;
+  /** Selected boxes' tags also show their width × height in image pixels. */
+  showSelectedBoxSize?: boolean;
   labelFontSize: number;
   lastMousePosition: CanvasPoint;
   labelSortOrder: LabelSortOrder;

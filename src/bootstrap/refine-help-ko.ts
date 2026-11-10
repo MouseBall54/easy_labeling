@@ -116,6 +116,7 @@ ${def("Row/column tolerance (px)", "같은 행(열)의 박스 중 위/아래(왼
 <dl class="rh-defs">
 ${def("Flag below confidence", "신뢰도가 이 값보다 낮은 변을 표시합니다.", D.reviewBelow)}
 ${def("Flag area growth / shrink over (%)", "면적이 이보다 더 바뀐 박스는 빨간 테두리. 0이면 끕니다.", `${pct(D.areaGrowLimit)} / ${pct(D.areaShrinkLimit)}`)}
+${def("Min width / Max width / Min height / Max height (px)", "크기 안전장치: refine 결과 너비(높이)가 이 범위를 벗어나면 좌우(상하) 변을 원래 자리에 두고 검토 대상으로 표시합니다. 그 축이 움직이지 않은 박스는 건드리지 않습니다. 0이면 그 한계는 끕니다.", "0 (끔)")}
 </dl><p>캔버스에서: ${keys("N")} / ${keys("Shift", "N")} 다음 / 이전 검토 박스, ${keys("F")}로 승인(Approve), <em>Approve all</em>로 남은 검토 대상을 모두 승인. <em>Show review marks</em>를 끄면 표시를 숨깁니다.</p>`
     },
     "edge-advanced": {

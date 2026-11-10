@@ -367,6 +367,8 @@ function writeRefine() {
     "box-outside": { crit: "grad", scanSpan: "boxOutside", extendStart: 6, extendEnd: 9, avoidNeighbors: false, iterations: 4 },
     "side-rules": { scanSpan: "outside", extendEnd: 5, sides: { L: "off", R: "flank", T: "inherit", B: "thr" }, sideRules: { R: { rangeOut: 4, polarity: "darkInside" }, T: { sigma: 2.5, inset: 0.3 } } },
     "review-limits": { peerTolerance: 0.5, reviewBelow: 0.8, areaGrowLimit: 0.05, areaShrinkLimit: 0.05 },
+    "size-guard": { maxWidth: 23.1, minHeight: 31.1 },
+    "size-guard-one-bound": { pairTB: "grow", minWidth: 23.15, maxHeight: 31.2 },
     "extremes": { rangeIn: 2000, rangeOut: 300, contextRing: 200, sigma: 12, gradStep: 40, segments: 100, iterations: 6, inset: 0.49 },
     "huge-extend": { scanSpan: "boxOutside", extendStart: 4000, extendEnd: 4000, avoidNeighbors: false, sideRules: { L: { rangeIn: 2000, polarity: "darkInside" }, B: { rangeOut: 2000, segments: 1 } } },
     "strongest": { scanSpan: "boxOutside", extendStart: 8, extendEnd: 12, partMode: "strongest" },

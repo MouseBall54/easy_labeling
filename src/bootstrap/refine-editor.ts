@@ -174,6 +174,10 @@ const FIELDS: FieldSpec[] = [
   { key: "reviewBelow", label: "Flag below confidence", type: "num", group: "advanced", ...bounds("reviewBelow"), step: 0.05 },
   { key: "areaGrowLimit", label: "Flag area growth over (%)", title: "Boxes that grow more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", ...bounds("areaGrowLimit", 100), step: 5 },
   { key: "areaShrinkLimit", label: "Flag area shrink over (%)", title: "Boxes that shrink more than this are outlined red and queued for review; 0 turns it off", type: "pct", group: "advanced", ...bounds("areaShrinkLimit", 100), step: 5 },
+  { key: "minWidth", label: "Min width (px)", title: "Size guard: a refined width under this puts the left and right sides back and flags the box; 0 turns it off", type: "num", group: "advanced", ...bounds("minWidth"), step: 1 },
+  { key: "maxWidth", label: "Max width (px)", title: "Size guard: a refined width over this puts the left and right sides back and flags the box; 0 turns it off", type: "num", group: "advanced", ...bounds("maxWidth"), step: 1 },
+  { key: "minHeight", label: "Min height (px)", title: "Size guard: a refined height under this puts the top and bottom sides back and flags the box; 0 turns it off", type: "num", group: "advanced", ...bounds("minHeight"), step: 1 },
+  { key: "maxHeight", label: "Max height (px)", title: "Size guard: a refined height over this puts the top and bottom sides back and flags the box; 0 turns it off", type: "num", group: "advanced", ...bounds("maxHeight"), step: 1 },
   { key: "autoOnDraw", label: "Refine new boxes on draw", type: "bool", group: "advanced" }
 ];
 /** Labels of every setting field (the Lab guide must explain each). */

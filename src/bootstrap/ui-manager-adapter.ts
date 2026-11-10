@@ -107,6 +107,7 @@ export interface RuntimeUiManager extends UIManager {
   syncWorkspaceState(): void;
   syncSelectionInspector(): void;
   setLabelDisplayMode(mode: LabelDisplayMode, persist?: boolean): void;
+  setShowSelectedBoxSize?(enabled: boolean, persist?: boolean): void;
   togglePanel(panel: HTMLElement, splitter: HTMLElement, expandButton: HTMLElement, collapse: boolean): void;
   setupSplitters(): void;
   showClassFileContentModal(): void;
@@ -749,6 +750,15 @@ export function createUiManagerAdapter(input: {
       if (changedTab) elements.rightPanel.querySelector<HTMLElement>(".panel-content")?.scrollTo?.(0, 0);
     },
 
+    setShowSelectedBoxSize(enabled: boolean, persist = true): void {
+      input.state.view.showSelectedBoxSize = enabled;
+      elements.showSelectedBoxSizeToggle.checked = enabled;
+      getCanvasController()?.raw.updateAllLabelTexts();
+      if (persist) {
+        input.storage.setItem("easy-labeling:show-selected-box-size", enabled ? "1" : "0");
+      }
+    },
+
     setLabelDisplayMode(mode: LabelDisplayMode, persist = true): void {
       input.state.view.labelDisplayMode = mode;
       input.state.view.showLabelsOnCanvas = mode !== "off";
@@ -1252,6 +1262,7 @@ export function createUiManagerAdapter(input: {
         allowedModes.has(storedLabelMode as LabelDisplayMode) ? storedLabelMode as LabelDisplayMode : "auto",
         false
       );
+      manager.setShowSelectedBoxSize?.(input.storage.getItem("easy-labeling:show-selected-box-size") === "1", false);
     },
 
     renderImageList(): void {

@@ -24,6 +24,8 @@ import {
   extractVisibleRectSelection,
   getRectBounds,
   planEdgeAlignment,
+  planSizeChange,
+  type BoxSizeChange,
   planGroupedCenterAlignment,
   planRowSetColumnCenterAlignment,
   planEqualEdgeGapDistribution,
@@ -1030,6 +1032,22 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
     },
 
+    resizeSelectedBoxes(change: BoxSizeChange): number {
+      const image = state.currentImage;
+      if (!image) {
+        throw new Error("Load an image before resizing selected boxes");
+      }
+      if ([change.width, change.height].some((value) => value !== null && !Number.isFinite(value))) {
+        throw new Error("Box size must use finite pixel values");
+      }
+      const rects = extractVisibleRectSelection(canvas.getActiveObject());
+      if (rects.length === 0) {
+        throw new Error("Select at least one visible box to resize");
+      }
+      const plan = planSizeChange(rects.map(getRectBounds), change, image);
+      return this.updateBoxGeometries!(rects.map((rect, index) => ({ annotationId: ensureAnnotationId(rect), x: plan[index].left, y: plan[index].top, width: plan[index].width, height: plan[index].height })));
+    },
+
     getSelectedBoxCount(): number {
       return extractVisibleRectSelection(canvas.getActiveObject()).length;
     },
@@ -1493,6 +1511,7 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
         visibleSceneBounds,
         selectedAnnotationIds: new Set(selection.annotationIds),
         hoveredAnnotationId,
+        showSelectedSize: state.showSelectedBoxSize === true,
         preferredFontSizePx: state.labelFontSize
       });
       const placementById = new Map(placements.map((placement) => [placement.annotationId, placement]));
