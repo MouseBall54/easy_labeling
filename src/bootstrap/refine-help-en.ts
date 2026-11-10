@@ -112,6 +112,7 @@ ${def("Row/column tolerance (px)", "Boxes in one row (column) whose top/bottom (
 <dl class="rh-defs">
 ${def("Flag below confidence", "Sides weaker than this are flagged.", D.reviewBelow)}
 ${def("Flag area growth / shrink over (%)", "Boxes whose area changes more than this get a red frame. 0 turns it off.", `${pct(D.areaGrowLimit)} / ${pct(D.areaShrinkLimit)}`)}
+${def("Min width / Max width / Min height / Max height (px)", "Size guard: when refinement leaves the width (height) outside this range, the left and right (top and bottom) sides stay where they were and the box is flagged. A box that does not move on that axis is left alone. 0 turns a bound off.", "0 (off)")}
 </dl><p>On the canvas: ${keys("N")} / ${keys("Shift", "N")} next / previous flagged box, ${keys("F")} approves it, <em>Approve all</em> approves every flag left. <em>Show review marks</em> hides the marks.</p>`
     },
     "edge-advanced": {

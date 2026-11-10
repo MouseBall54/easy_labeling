@@ -90,6 +90,7 @@ export function createRefineController(input: {
   let service: RefineService | null = null;
   let settings: RefineSettingsDocument = createRefineSettings();
   let settingsFolder: unknown = undefined;
+  let settingsLoad: Promise<void> = Promise.resolve();
   /**
    * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets, Reclass Presets). A
    * preset saved or edited here moves out of refine-settings.json into its own file; presets an older version
@@ -377,26 +378,37 @@ export function createRefineController(input: {
     if (!ids.length) select.add(new Option("No classes", ""));
     select.value = ids.includes(previous) ? previous : ids[0] ?? "";
   };
-  const loadSettings = async (): Promise<void> => {
+  /**
+   * Reads the open folder's settings once per folder. Callers that change settings wait for it (also while a read is
+   * in flight), so a choice made in the pane is never replaced by the file read that follows a folder switch.
+   */
+  const loadSettings = (): Promise<void> => {
     const folder = input.state.session.imageFolderHandle;
-    if (folder === settingsFolder) return;
+    if (folder === settingsFolder) return settingsLoad;
     settingsFolder = folder;
-    settings = createRefineSettings();
-    edgeLibrary.dataset = [];
-    reclassLibrary.dataset = [];
-    if (folder) {
-      try {
-        const directory = await getSubdirectoryHandle(folder as unknown as DirectoryHandleLike, ".easy-labeling");
-        settings = parseRefineSettings(await readTextFileByName(directory, REFINE_SETTINGS_FILE));
-        edgeLibrary.dataset = settings.presets;
-        reclassLibrary.dataset = settings.reclassPresets;
-      } catch (error: unknown) {
-        if (!isNotFoundError(error)) input.uiManager.notify("Refine settings were invalid; defaults are in use.", 5000);
+    clearTimeout(saveTimer);
+    settingsLoad = (async () => {
+      let next = createRefineSettings();
+      if (folder) {
+        try {
+          const directory = await getSubdirectoryHandle(folder as unknown as DirectoryHandleLike, ".easy-labeling");
+          next = parseRefineSettings(await readTextFileByName(directory, REFINE_SETTINGS_FILE));
+        } catch (error: unknown) {
+          if (!isNotFoundError(error)) input.uiManager.notify("Refine settings were invalid; defaults are in use.", 5000);
+        }
       }
-    }
-    await refreshProfilePresets();
-    renderPane();
+      await refreshProfilePresets();
+      if (folder !== settingsFolder) return; // another folder opened meanwhile; its own read wins
+      settings = next;
+      edgeLibrary.dataset = settings.presets;
+      reclassLibrary.dataset = settings.reclassPresets;
+      renderPane();
+    })();
+    return settingsLoad;
   };
+  /** Applies a pane change on top of the open folder's settings. */
+  const changeLoadedSettings = (patch: (current: RefineSettingsDocument) => RefineSettingsDocument): Promise<void> =>
+    loadSettings().then(() => changeSettings(patch(settings)));
   const changeSettings = (next: RefineSettingsDocument): void => {
     // Desktop: new and edited presets go to the profile folder instead of the dataset file.
     next = { ...next, presets: moveToProfile(next.presets, edgeLibrary), reclassPresets: moveToProfile(next.reclassPresets, reclassLibrary) };
@@ -451,8 +463,10 @@ export function createRefineController(input: {
       const skipped = targets.length - fresh.length;
       const flagged = fresh.filter((r) => r.flagged).length;
       const areaFlags = fresh.filter((r) => r.areaFlagged).length;
+      const sizeFlags = fresh.filter((r) => r.sizeLimited).length;
+      const reasons = [areaFlags ? `${areaFlags} with a large area change` : "", sizeFlags ? `${sizeFlags} kept within the size limits` : ""].filter(Boolean).join(", ");
       setStatus(`${fresh.length} refined in ${Math.round(performance.now() - started)} ms`
-        + (skipped ? ` · ${skipped} skipped` : "") + ` · ${flagged} to review` + (areaFlags ? ` (${areaFlags} with a large area change)` : ""));
+        + (skipped ? ` · ${skipped} skipped` : "") + ` · ${flagged} to review` + (reasons ? ` (${reasons})` : ""));
       preview = [];
       renderReviewCounter();
       raw.canvas.requestRenderAll?.();
@@ -794,6 +808,8 @@ export function createRefineController(input: {
     if (changed) raw.canvas.requestRenderAll?.();
   };
   const drawOverlay = (): void => {
+    // A folder opened while the pane is open: show that folder's settings and presets.
+    if (paneOpen() && input.state.session.imageFolderHandle !== settingsFolder) void loadSettings();
     const fabricCanvas = raw.canvas;
     const width = Math.max(1, Math.round(fabricCanvas.getWidth()));
     const height = Math.max(1, Math.round(fabricCanvas.getHeight()));
@@ -932,17 +948,17 @@ export function createRefineController(input: {
       renderPane();
       byId("refineRunPresetSelect").addEventListener("change", (event) => {
         const name = (event.target as HTMLSelectElement).value;
-        changeSettings({ ...settings, activePreset: name || null });
+        void changeLoadedSettings((current) => ({ ...current, activePreset: name || null }));
         setStatus(name ? `Refining with ${name} for every class.` : "Refining with class settings.");
       });
       byId("refineReclassPresetSelect").addEventListener("change", (event) => {
         const name = (event.target as HTMLSelectElement).value;
-        changeSettings({ ...settings, activeReclassPreset: name || null });
+        void changeLoadedSettings((current) => ({ ...current, activeReclassPreset: name || null }));
         setStatus(name ? `Reclassing with ${name}.` : "Reclassing with the Lab rule.");
       });
       byId("refineModeToggle").addEventListener("click", (event) => {
         const mode = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode;
-        if ((mode === "edge" || mode === "reclass") && mode !== settings.mode) changeSettings({ ...settings, mode });
+        if (mode === "edge" || mode === "reclass") void changeLoadedSettings((current) => (mode === current.mode ? current : { ...current, mode }));
       });
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);

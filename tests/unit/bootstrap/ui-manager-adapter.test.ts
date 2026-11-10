@@ -333,6 +333,7 @@ function createElements() {
     drawModeBtn: new FakeElement("input"),
     editModeBtn: new FakeElement("input"),
     labelDisplayModeSelect: new FakeElement("select"),
+    showSelectedBoxSizeToggle: new FakeElement("input"),
     selectedAnnotationCount: new FakeElement("span"),
     selectionEmptyState: new FakeElement("div"),
     selectionDetails: new FakeElement("div"),

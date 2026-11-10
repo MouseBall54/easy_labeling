@@ -523,6 +523,7 @@ export function createEventManagerAdapter(input: {
         (elements.distributeHorizontalBtn as HTMLButtonElement).disabled = distributeDisabled;
         (elements.distributeVerticalBtn as HTMLButtonElement).disabled = distributeDisabled;
         elements.moveSelectedBoxesBtn.disabled = actionableCount < 1;
+        elements.resizeSelectedBoxesBtn.disabled = actionableCount < 1;
         (elements.undoBtn as HTMLButtonElement).disabled = undoDisabled;
         (elements.redoBtn as HTMLButtonElement).disabled = redoDisabled;
         input.uiManager.syncSelectionInspector?.();
@@ -950,6 +951,9 @@ export function createEventManagerAdapter(input: {
       });
       elements.labelDisplayModeSelect.addEventListener("change", () => {
         input.uiManager.setLabelDisplayMode?.(elements.labelDisplayModeSelect.value as LabelDisplayMode);
+      });
+      elements.showSelectedBoxSizeToggle.addEventListener("change", () => {
+        input.uiManager.setShowSelectedBoxSize?.(elements.showSelectedBoxSizeToggle.checked);
       });
       ["detectionLabelOnlyToggle", "segmentationLabelOnlyToggle"].forEach((id) => {
         input.documentRef?.getElementById(id)?.addEventListener("change", (event) => {

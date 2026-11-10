@@ -1400,3 +1400,45 @@ test("reclass: pins stay readable on a 3072 x 2048 image with 700 boxes", async 
   await page.locator('label[for="darkModeToggle"]').click();
   await page.locator("#canvas-container").screenshot({ path: "test-results/reclass-dense-dark.png" });
 });
+
+test("presets: the Run-with preset picked while another folder's settings show is the one E runs with", async ({ page }) => {
+  // Class settings refine no side, so boxes move only when Snap runs. Folder B saved "Off" as its Run-with preset.
+  const allOff = { T: "off", B: "off", L: "off", R: "off" };
+  await openSemDataset(page, { settings: { default: { sides: allOff }, presets: [{ name: "Snap", params: {} }], activePreset: null } });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineRunPresetSelect")).toHaveValue("");
+
+  // Open folder B (same images, its own settings) with the Refine pane still open.
+  await page.evaluate((offSides) => {
+    const a = Reflect.get(window, "__refineTestFolder") as { entries: Map<string, unknown>; name: string };
+    const tools = a.entries.get(".easy-labeling") as { entries: Map<string, { content: string }> };
+    const clone = <T extends object>(source: T, patch: Partial<T>): T => Object.assign(Object.create(Object.getPrototypeOf(source)), source, patch);
+    const settingsFile = clone(tools.entries.get("refine-settings.json")!, {
+      content: JSON.stringify({ default: { sides: offSides }, presets: [{ name: "Snap", params: {} }, { name: "Off", params: { sides: offSides } }], activePreset: "Off" })
+    });
+    const bTools = clone(tools, { entries: new Map([["refine-settings.json", settingsFile]]) });
+    const b = clone(a, { name: "images-b", entries: new Map([...a.entries, [".easy-labeling", bTools]]) });
+    Reflect.set(window, "__refineFolderA", a);
+    Reflect.set(window, "__refineTestFolder", b);
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, writable: true, value: async () => b });
+  }, allOff);
+  const before = await geometries(page);
+  await page.locator("#selectImageFolderBtn").click();
+  await expect.poll(async () => (await geometries(page)).length).toBe(2);
+
+  await page.locator("#refineRunPresetSelect").selectOption("Snap");
+  await selectBoxes(page, [0, 1]);
+  await page.locator("#canvas-container").focus();
+  await page.keyboard.press("e");
+  await expect.poll(async () => maxError(await geometries(page))).toBeLessThan(0.6);
+  expect(maxError(before)).toBeGreaterThan(2);
+  await expect(page.locator("#refineRunPresetSelect")).toHaveValue("Snap");
+  await expect.poll(async () => (await settingsFile(page) as { activePreset?: string } | null)?.activePreset).toBe("Snap");
+  // Folder A's file keeps its own choice.
+  const aPreset = await page.evaluate(async () => {
+    const a = Reflect.get(window, "__refineFolderA") as { getDirectoryHandle(n: string): Promise<{ getFileHandle(n: string): Promise<{ content: string }> }> };
+    return JSON.parse((await (await a.getDirectoryHandle(".easy-labeling")).getFileHandle("refine-settings.json")).content).activePreset ?? null;
+  });
+  expect(aPreset).toBeNull();
+});

@@ -1676,6 +1676,23 @@ export function createAutomationController(input: {
         }
       });
 
+      elements.resizeSelectedBoxesBtn.addEventListener("click", () => {
+        try {
+          const side = (field: HTMLInputElement, name: string): number | null => (field.value.trim() === "" ? null : readFinite(field, name));
+          const width = side(elements.selectionResizeWidthInput, "Width");
+          const height = side(elements.selectionResizeHeightInput, "Height");
+          if (width === null && height === null) {
+            throw new Error("Enter a width or height to resize the selection");
+          }
+          const mode = elements.selectionResizeModeSelect.value === "to" ? "to" : "by";
+          const count = input.canvasController.raw.resizeSelectedBoxes({ mode, width, height });
+          input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
+          input.uiManager.notify(`Resized ${count} box${count === 1 ? "" : "es"}`);
+        } catch (error: unknown) {
+          input.uiManager.notify(error instanceof Error ? error.message : "Unable to resize selection", 5000);
+        }
+      });
+
       elements.openLayoutSetupBtn.addEventListener("click", () => {
         try {
           if (!input.state.session.currentImage) {

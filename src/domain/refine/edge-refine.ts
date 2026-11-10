@@ -66,6 +66,14 @@ export interface RefineParams {
   areaGrowLimit: number;
   /** Flag boxes whose area shrank by more than this fraction (0.5 = -50%); 0 disables. */
   areaShrinkLimit: number;
+  /**
+   * Size guard (px, 0 = off): when refinement leaves the width (height) outside [min, max], the left and right
+   * (top and bottom) sides keep their original place and the box is flagged for review.
+   */
+  minWidth: number;
+  maxWidth: number;
+  minHeight: number;
+  maxHeight: number;
   autoOnDraw: boolean;
   /** Width (px) of the background ring sampled outside the search range; 0 disables context. */
   contextRing: number;
@@ -99,6 +107,8 @@ export interface RefineResult {
   areaChange: number;
   /** The area changed beyond areaGrowLimit / areaShrinkLimit. */
   areaFlagged: boolean;
+  /** The refined width or height left the size guard, so that axis kept its original sides. */
+  sizeLimited: boolean;
   flagged: boolean;
 }
 
@@ -136,6 +146,10 @@ export const DEFAULT_REFINE_PARAMS: Readonly<RefineParams> = Object.freeze({
   reviewBelow: 0.35,
   areaGrowLimit: 1,
   areaShrinkLimit: 0.5,
+  minWidth: 0,
+  maxWidth: 0,
+  minHeight: 0,
+  maxHeight: 0,
   autoOnDraw: false,
   contextRing: 8,
   avoidNeighbors: true,
@@ -161,6 +175,10 @@ export const REFINE_PARAM_LIMITS = Object.freeze({
   reviewBelow: [0, 1],
   areaGrowLimit: [0, 100],
   areaShrinkLimit: [0, 0.99],
+  minWidth: [0, 20000],
+  maxWidth: [0, 20000],
+  minHeight: [0, 20000],
+  maxHeight: [0, 20000],
   contextRing: [0, 500],
   peerTolerance: [0, 500]
 } as const satisfies Record<string, readonly [number, number]>);
@@ -235,6 +253,10 @@ export function normalizeRefineParams(value: unknown): RefineParams {
     reviewBelow: limit("reviewBelow", num(p.reviewBelow, d.reviewBelow)),
     areaGrowLimit: limit("areaGrowLimit", num(p.areaGrowLimit, d.areaGrowLimit)),
     areaShrinkLimit: limit("areaShrinkLimit", num(p.areaShrinkLimit, d.areaShrinkLimit)),
+    minWidth: limit("minWidth", num(p.minWidth, d.minWidth)),
+    maxWidth: limit("maxWidth", num(p.maxWidth, d.maxWidth)),
+    minHeight: limit("minHeight", num(p.minHeight, d.minHeight)),
+    maxHeight: limit("maxHeight", num(p.maxHeight, d.maxHeight)),
     autoOnDraw: p.autoOnDraw === undefined ? d.autoOnDraw : Boolean(p.autoOnDraw),
     contextRing: limit("contextRing", Math.round(num(p.contextRing, d.contextRing))),
     avoidNeighbors: p.avoidNeighbors === undefined ? d.avoidNeighbors : Boolean(p.avoidNeighbors),
@@ -1148,6 +1170,13 @@ export function refineBox(
     current = next;
     if (settled) break;
   }
+  // Size guard: an axis that moved and left [min, max] (0 = no bound) goes back to its original sides.
+  const leaves = (length: number, min: number, max: number): boolean => (min > 0 && length < min) || (max > 0 && length > max);
+  const widthLimited = (current.x0 !== box.x0 || current.x1 !== box.x1) && leaves(current.x1 - current.x0, params.minWidth, params.maxWidth);
+  const heightLimited = (current.y0 !== box.y0 || current.y1 !== box.y1) && leaves(current.y1 - current.y0, params.minHeight, params.maxHeight);
+  if (widthLimited) current = { ...current, x0: box.x0, x1: box.x1 };
+  if (heightLimited) current = { ...current, y0: box.y0, y1: box.y1 };
+  const sizeLimited = widthLimited || heightLimited;
   const weakSides = REFINE_SIDES.filter((side) => (sideConf[side] ?? 1) < params.reviewBelow);
   const values = Object.values(sideConf) as number[];
   const before = (box.x1 - box.x0) * (box.y1 - box.y0);
@@ -1161,7 +1190,8 @@ export function refineBox(
     weakSides,
     areaChange,
     areaFlagged,
-    flagged: weakSides.length > 0 || areaFlagged
+    sizeLimited,
+    flagged: weakSides.length > 0 || areaFlagged || sizeLimited
   };
 }
 

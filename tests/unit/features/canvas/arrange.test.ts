@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  planSizeChange,
   calculateSelectionBounds,
   extractVisibleRectSelection,
   planEdgeAlignment,
@@ -212,5 +213,27 @@ describe("features/canvas/arrange", () => {
     const normalizedSecond = secondOrder.map((entry) => ({ id: entry.rect.labelClass, left: entry.left, top: entry.top }));
 
     expect(normalizedFirst).toEqual(normalizedSecond);
+  });
+});
+
+describe("planSizeChange", () => {
+  const image = { width: 100, height: 100 };
+  const boxes = [{ left: 10, top: 10, width: 20, height: 10 }, { left: 50, top: 40, width: 30, height: 20 }];
+
+  it("changes each box by pixels or sets one size, around its centre, keeping an empty side", () => {
+    expect(planSizeChange(boxes, { mode: "by", width: 4, height: -2 }, image)).toEqual([
+      { left: 8, top: 11, width: 24, height: 8 },
+      { left: 48, top: 41, width: 34, height: 18 }
+    ]);
+    expect(planSizeChange(boxes, { mode: "to", width: 10, height: null }, image)).toEqual([
+      { left: 15, top: 10, width: 10, height: 10 },
+      { left: 60, top: 40, width: 10, height: 20 }
+    ]);
+  });
+
+  it("refuses sizes of 0 px or less and boxes pushed past the image", () => {
+    expect(() => planSizeChange(boxes, { mode: "by", width: -20, height: null }, image)).toThrow(/0 px or less/);
+    expect(() => planSizeChange(boxes, { mode: "to", width: 0, height: null }, image)).toThrow(/0 px or less/);
+    expect(() => planSizeChange(boxes, { mode: "to", width: null, height: 90 }, image)).toThrow(/outside the image/);
   });
 });

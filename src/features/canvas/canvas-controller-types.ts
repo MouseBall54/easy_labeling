@@ -57,6 +57,7 @@ export interface CanvasControllerState {
   labelFolderHandle: unknown | null;
   showLabelsOnCanvas: boolean;
   labelDisplayMode?: LabelDisplayMode;
+  showSelectedBoxSize?: boolean;
   labelFontSize: number;
   isCrosshairVisible: boolean;
   lastMousePosition: CanvasPoint;
@@ -121,6 +122,8 @@ export interface CanvasController {
   applyDetectionBoxes(boxes: readonly DetectionBoxInput[], options?: { replaceExisting?: boolean }): AppliedDetectionBoxes;
   translateLayoutInstance(instanceId: string, delta: PixelPoint): void;
   translateSelectedBoxes(delta: PixelPoint): void;
+  /** Resizes the selected boxes around their centres as one undo step; returns the count updated. */
+  resizeSelectedBoxes(change: import("./arrange.js").BoxSizeChange): number;
   getSelectedBoxCount(): number;
   updateSelectedBoxGeometry?(geometry: { x: number; y: number; width: number; height: number }): boolean;
   /** Sets bounding-rect geometry (image px) for many boxes as one undo step; returns the count updated. */
