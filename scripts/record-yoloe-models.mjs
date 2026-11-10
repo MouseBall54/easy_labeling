@@ -13,5 +13,9 @@ for (const size of "nsml") {
   }
   models.push({ model: manifest.model, size, bytes: manifest.files.reduce((sum, file) => sum + file.bytes, 0) });
 }
-await writeFile(path.join(folder, "manifest.json"), JSON.stringify({ format: "onnx-visual-prompt-v1", models }, null, 2) + "\n");
+// Keep the checked-out line endings (CRLF on Windows) so a build leaves the tracked file unchanged.
+const target = path.join(folder, "manifest.json");
+const previous = await readFile(target, "utf8").catch(() => "");
+const text = JSON.stringify({ format: "onnx-visual-prompt-v1", models }, null, 2) + "\n";
+await writeFile(target, previous.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
 console.log("Verified N/S/M/L ONNX files and recorded sizes for Git.");
