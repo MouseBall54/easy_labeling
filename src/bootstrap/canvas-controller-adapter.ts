@@ -56,6 +56,14 @@ class LiveCanvasControllerState implements CanvasControllerState {
     this.appState.view.labelDisplayMode = value;
   }
 
+  get showSelectedBoxSize() {
+    return this.appState.view.showSelectedBoxSize ?? false;
+  }
+
+  set showSelectedBoxSize(value) {
+    this.appState.view.showSelectedBoxSize = value;
+  }
+
   get labelFontSize() {
     return this.appState.view.labelFontSize;
   }

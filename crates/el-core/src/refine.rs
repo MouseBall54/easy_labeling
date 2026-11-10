@@ -88,6 +88,15 @@ pub struct RefineParams {
     review_below: f64,
     area_grow_limit: f64,
     area_shrink_limit: f64,
+    /// Size guard (px, 0 = off); older settings without it read as off.
+    #[serde(default)]
+    min_width: f64,
+    #[serde(default)]
+    max_width: f64,
+    #[serde(default)]
+    min_height: f64,
+    #[serde(default)]
+    max_height: f64,
     context_ring: f64,
     avoid_neighbors: bool,
     peer_tolerance: f64,
@@ -178,6 +187,7 @@ pub struct RefineResult {
     pub weak_sides: Vec<Side>,
     pub area_change: f64,
     pub area_flagged: bool,
+    pub size_limited: bool,
     pub flagged: bool,
 }
 
@@ -999,6 +1009,19 @@ fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbou
             break;
         }
     }
+    // Size guard: an axis that moved and left [min, max] (0 = no bound) goes back to its original sides.
+    let leaves = |length: f64, min: f64, max: f64| (min > 0.0 && length < min) || (max > 0.0 && length > max);
+    let width_limited = (current.x0 != start.x0 || current.x1 != start.x1) && leaves(current.x1 - current.x0, params.min_width, params.max_width);
+    let height_limited = (current.y0 != start.y0 || current.y1 != start.y1) && leaves(current.y1 - current.y0, params.min_height, params.max_height);
+    if width_limited {
+        current.x0 = start.x0;
+        current.x1 = start.x1;
+    }
+    if height_limited {
+        current.y0 = start.y0;
+        current.y1 = start.y1;
+    }
+    let size_limited = width_limited || height_limited;
     let weak_sides: Vec<Side> = SIDES.iter().copied().filter(|side| side_conf.get(side).copied().unwrap_or(1.0) < params.review_below).collect();
     let before = (start.x1 - start.x0) * (start.y1 - start.y0);
     let area_change = if before > 0.0 { (current.x1 - current.x0) * (current.y1 - current.y0) / before - 1.0 } else { 0.0 };
@@ -1012,10 +1035,11 @@ fn refine_box(img: &GrayImage, input: &BoxInput, params: &RefineParams, neighbou
         rect: current,
         conf,
         side_conf,
-        flagged: !weak_sides.is_empty() || area_flagged,
+        flagged: !weak_sides.is_empty() || area_flagged || size_limited,
         weak_sides,
         area_change,
         area_flagged,
+        size_limited,
     }
 }
 

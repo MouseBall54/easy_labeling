@@ -212,6 +212,7 @@
                             <select id="labelDisplayModeSelect" class="form-select form-select-sm">
                                 <option value="auto">Auto</option><option value="full">Full</option><option value="compact">Compact</option><option value="selected">Selected only</option><option value="off">Off</option>
                             </select>
+                            <label class="form-check form-switch mt-2" title="Selected boxes' tags also show their width × height in image pixels, rounded to whole pixels"><input class="form-check-input" type="checkbox" id="showSelectedBoxSizeToggle"><span class="form-check-label">Show box size (W×H)</span></label>
                             <div class="mt-3 pt-3 border-top">
                                 <label class="form-check form-switch" title="Ctrl+L"><input class="form-check-input" type="checkbox" id="detectionLabelOnlyToggle"><span class="form-check-label">Label-only view</span></label>
                                 <div class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Label-only background">
@@ -526,6 +527,14 @@
                                     <label class="input-group input-group-sm"><span class="input-group-text">Y</span><input id="selectionMoveYInput" type="number" class="form-control" value="0" step="1" aria-label="Selection Y delta pixels"></label>
                                 </div>
                                 <button id="moveSelectedBoxesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrows-move" aria-hidden="true"></i> Move selection</button>
+                            </div>
+                            <div class="selection-move-controls mt-2" data-ui="selection-resize-controls" title="Resize the selected boxes around their centres. Change by adds pixels (negative shrinks); Set to gives every box that size. Leave W or H empty to keep it.">
+                                <select id="selectionResizeModeSelect" class="form-select form-select-sm mb-2" aria-label="Resize mode"><option value="by" selected>Change size by (px)</option><option value="to">Set size to (px)</option></select>
+                                <div class="automation-coordinate-grid">
+                                    <label class="input-group input-group-sm"><span class="input-group-text">W</span><input id="selectionResizeWidthInput" type="number" class="form-control" step="1" placeholder="keep" aria-label="Selection width pixels"></label>
+                                    <label class="input-group input-group-sm"><span class="input-group-text">H</span><input id="selectionResizeHeightInput" type="number" class="form-control" step="1" placeholder="keep" aria-label="Selection height pixels"></label>
+                                </div>
+                                <button id="resizeSelectedBoxesBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" disabled><i class="bi bi-arrows-angle-expand" aria-hidden="true"></i> Resize selection</button>
                             </div>
                         </section>
                     </section>

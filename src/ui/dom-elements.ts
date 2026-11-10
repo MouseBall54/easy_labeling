@@ -65,6 +65,10 @@ export interface UiDomElements {
   selectionMoveXInput: HTMLInputElement;
   selectionMoveYInput: HTMLInputElement;
   moveSelectedBoxesBtn: HTMLButtonElement;
+  selectionResizeModeSelect: HTMLSelectElement;
+  selectionResizeWidthInput: HTMLInputElement;
+  selectionResizeHeightInput: HTMLInputElement;
+  resizeSelectedBoxesBtn: HTMLButtonElement;
   openLayoutSetupBtn: HTMLButtonElement;
   newBoxLayoutBtn: HTMLButtonElement;
   layoutEditorTitle: HTMLElement;
@@ -318,6 +322,7 @@ export interface UiDomElements {
   hideSelectionBtn: HTMLButtonElement;
   deleteSelectionBtn: HTMLButtonElement;
   labelDisplayModeSelect: HTMLSelectElement;
+  showSelectedBoxSizeToggle: HTMLInputElement;
   layoutPlacementNotice: HTMLElement;
   headerDocumentStatus: HTMLElement;
   statusImageInfo: HTMLElement;
@@ -404,6 +409,10 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     selectionMoveXInput: requireById<HTMLInputElement>(documentRef, "selectionMoveXInput"),
     selectionMoveYInput: requireById<HTMLInputElement>(documentRef, "selectionMoveYInput"),
     moveSelectedBoxesBtn: requireById<HTMLButtonElement>(documentRef, "moveSelectedBoxesBtn"),
+    selectionResizeModeSelect: requireById<HTMLSelectElement>(documentRef, "selectionResizeModeSelect"),
+    selectionResizeWidthInput: requireById<HTMLInputElement>(documentRef, "selectionResizeWidthInput"),
+    selectionResizeHeightInput: requireById<HTMLInputElement>(documentRef, "selectionResizeHeightInput"),
+    resizeSelectedBoxesBtn: requireById<HTMLButtonElement>(documentRef, "resizeSelectedBoxesBtn"),
     openLayoutSetupBtn: requireById<HTMLButtonElement>(documentRef, "openLayoutSetupBtn"),
     newBoxLayoutBtn: requireById<HTMLButtonElement>(documentRef, "newBoxLayoutBtn"),
     layoutEditorTitle: requireById<HTMLElement>(documentRef, "layoutEditorTitle"),
@@ -657,6 +666,7 @@ export function getDOMElements(documentRef: Document, bootstrapRef: BootstrapLik
     hideSelectionBtn: requireById<HTMLButtonElement>(documentRef, "hideSelectionBtn"),
     deleteSelectionBtn: requireById<HTMLButtonElement>(documentRef, "deleteSelectionBtn"),
     labelDisplayModeSelect: requireById<HTMLSelectElement>(documentRef, "labelDisplayModeSelect"),
+    showSelectedBoxSizeToggle: requireById<HTMLInputElement>(documentRef, "showSelectedBoxSizeToggle"),
     layoutPlacementNotice: requireById<HTMLElement>(documentRef, "layoutPlacementNotice"),
     headerDocumentStatus: requireById<HTMLElement>(documentRef, "headerDocumentStatus"),
     statusImageInfo: requireById<HTMLElement>(documentRef, "statusImageInfo"),

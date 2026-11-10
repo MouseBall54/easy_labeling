@@ -1211,6 +1211,9 @@ export function createSegmentationCanvasWorkflow(
     translateSelectedBoxes(): never {
       throw new Error("Detection boxes are only available in Detection mode");
     },
+    resizeSelectedBoxes(): never {
+      throw new Error("Detection boxes are only available in Detection mode");
+    },
 
     getSelectedBoxCount(): number {
       return 0;

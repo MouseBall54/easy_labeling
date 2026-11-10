@@ -103,6 +103,35 @@ describe("domain/refine/edge-refine", () => {
     expect(run(truth, {}).areaFlagged).toBe(false);
   });
 
+  it("puts an axis back when its refined length leaves the size guard, and flags the box", () => {
+    const truth = { x0: 40, y0: 40, x1: 80, y1: 100 }; // 40 × 60
+    const img = paint(140, 150, [truth]);
+    const drawn = { x0: 44, y0: 44, x1: 76, y1: 96 }; // 32 × 52, refines to the truth
+    const run = (params: object) =>
+      refineBoxes(img, [{ id: "a", classId: "0", ...drawn }], { 0: normalizeRefineParams({ rangeIn: 12, rangeOut: 12, areaGrowLimit: 0, ...params }) })[0];
+
+    const free = run({});
+    expect(maxError(free.box, truth)).toBeLessThan(0.5);
+    expect(free.sizeLimited || free.flagged).toBe(false);
+
+    // Width 40 is over the max: left/right stay, top/bottom still snap.
+    const narrow = run({ maxWidth: 36 });
+    expect(narrow.box.x0).toBe(drawn.x0);
+    expect(narrow.box.x1).toBe(drawn.x1);
+    expect(Math.abs(narrow.box.y0 - truth.y0)).toBeLessThan(0.5);
+    expect(narrow.sizeLimited && narrow.flagged).toBe(true);
+    // Height 60 is under the min: top/bottom stay.
+    const short = run({ minHeight: 70, minWidth: 30, maxWidth: 50 });
+    expect([short.box.y0, short.box.y1]).toEqual([drawn.y0, drawn.y1]);
+    expect(Math.abs(short.box.x0 - truth.x0)).toBeLessThan(0.5);
+    expect(short.sizeLimited).toBe(true);
+    // An axis that did not move (its sides are off) is left alone even when it is outside the range.
+    const still = run({ maxWidth: 10, sides: { L: "off", R: "off" } });
+    expect(still.sizeLimited).toBe(false);
+    expect(Math.abs(still.box.y1 - truth.y1)).toBeLessThan(0.5);
+    expect(normalizeRefineParams({ maxWidth: -5, minHeight: 1e9 })).toMatchObject({ maxWidth: 0, minHeight: 20000 });
+  });
+
   it("does not jump to a close neighbour's edge", () => {
     const a = { x0: 20, y0: 20, x1: 50, y1: 80 };
     const b = { x0: 58, y0: 20, x1: 88, y1: 80 };

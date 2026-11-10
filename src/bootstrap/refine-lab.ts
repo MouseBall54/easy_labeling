@@ -910,12 +910,13 @@ export function createRefineLab(input: {
       off || !d.parts ? "" : `Parts (strength): ${partNames(d).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
       ...surroundingsText(c, r, d),
       `Polarity used: ${usedPolarity}`,
-      r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : ""
+      r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : "",
+      r.result?.sizeLimited ? "Refined size left the min/max width or height: that axis kept its sides, flagged for review" : ""
     ].filter(Boolean).map((line, index) => {
       const row = doc.createElement("div");
       row.textContent = line;
       if (line.startsWith("Polarity used") && line.includes("differs")) row.className = "text-warning";
-      if (line.includes("area limit")) row.className = "text-danger";
+      if (line.includes("area limit") || line.includes("min/max width")) row.className = "text-danger";
       return row;
     }));
   };

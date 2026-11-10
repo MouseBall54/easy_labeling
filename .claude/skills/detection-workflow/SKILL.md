@@ -55,6 +55,7 @@ their labels — it does not destroy/recreate them.
 | Copy/paste | `controller.copy/paste` (`clipboard.ts`) | `Ctrl+C`/`Ctrl+V` (:2540/2548) |
 | Align | `alignSelectionLeft/Right/Top/Bottom` (`arrange.ts: planEdgeAlignment`) | `Alt+Shift+L/R/T/D` (:2482-2507) |
 | Distribute | `distributeSelectionHorizontally/Vertically` (`arrange.ts: planEqualEdgeGapDistribution`, needs ≥3 boxes) | `Alt+Shift+H/V` |
+| Resize | `resizeSelectedBoxes` (`arrange.ts: planSizeChange`; Transform pane "Resize selection": change W/H by px or set to px, around each centre, one undo step via `updateBoxGeometries`) | — |
 | Nudge | `translateSelectedBoxes` | Arrow keys (1px), `Shift+Arrow` (10px), edit mode only (:2608+) |
 | Select all / by class | `selectAllLabels` (`Ctrl+A`, :2455), `selectLabelsByClass` | |
 | Delete | `deleteSelection` | `Delete`/`Backspace` (:251/258/913) |
@@ -85,6 +86,10 @@ for performance.
 `annotation-label-renderer.ts: layoutAnnotationLabels()` is a pure,
 independently-testable function doing spatial-grid collision-avoidance label
 placement (full/compact/hidden text depending on zoom/density/viewport).
+`showSelectedSize` (state `view.showSelectedBoxSize`, the "Show box size (W×H)"
+switch under Label display, stored as `easy-labeling:show-selected-box-size`)
+appends the rounded bounding-rect `W×H` to selected tags. The e2e reads tags
+through `__easyLabelingTestApi.getLabelTagTexts()` (`box-size-tag.spec.ts`).
 Class colors come from `colors.ts: getColorForClass` — `classNumber % 30`
 palette; non-numeric/negative class IDs render black.
 

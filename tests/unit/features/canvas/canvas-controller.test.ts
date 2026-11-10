@@ -1741,6 +1741,28 @@ describe("features/canvas/canvas-controller", () => {
     expect(controller.getObjects("rect")[0]?.getBoundingRect(true)).toEqual({ left: 10, top: 15, width: 20, height: 10 });
   });
 
+  it("resizes every selected box around its centre with one-step undo", () => {
+    const fabric = createFakeFabricRuntime();
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ fabric, historyService: history }));
+    const first = createRect({ left: 10, top: 15, width: 20, height: 10, labelClass: "2" });
+    const second = createRect({ left: 55, top: 40, width: 15, height: 12, labelClass: "7" });
+    controller.canvas.add(first, second);
+    controller.canvas.setActiveObject(new fabric.ActiveSelection([first, second], { canvas: controller.canvas }));
+
+    expect(controller.resizeSelectedBoxes({ mode: "to", width: 10, height: null })).toBe(2);
+    expect(first.getBoundingRect()).toEqual({ left: 15, top: 15, width: 10, height: 10 });
+    expect(second.getBoundingRect()).toEqual({ left: 57.5, top: 40, width: 10, height: 12 });
+    expect(history.getPastEntries()).toHaveLength(1);
+    expect(controller.getSelectedBoxCount()).toBe(2);
+
+    controller.undo();
+    expect(controller.getObjects("rect").map((rect) => rect.getBoundingRect(true))).toEqual([
+      { left: 10, top: 15, width: 20, height: 10 },
+      { left: 55, top: 40, width: 15, height: 12 }
+    ]);
+  });
+
   it("rejects inspector geometry that would leave the image", () => {
     const controller = createCanvasController(createState(), createDeps());
     const rect = createRect({ left: 10, top: 15, width: 20, height: 10, labelClass: "2" });
