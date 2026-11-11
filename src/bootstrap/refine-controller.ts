@@ -35,7 +35,8 @@ import { loadPreprocessingPresetLibrary } from "../features/segmentation/preproc
 import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
 import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
-import type { DetectionLabelRewrite, RuntimeFileSystem } from "./file-system-adapter.js";
+import type { DetectionLabelRewrite, LabelFilePlan, RuntimeFileSystem } from "./file-system-adapter.js";
+import { summarizeEdgeFolder, summarizeReclassFolder, type EdgeImageRecord, type ReclassImageRecord } from "../domain/refine/folder-summary.js";
 
 const CRITERION_SHORT: Record<RefineParams["crit"], string> = { grad: "Gradient", flank: "Band 50%", peak: "Band peak", thr: "50% level" };
 
@@ -77,7 +78,13 @@ export interface RefineAgentApi {
   reclass(scope: RefineScope, options: { preset?: string | null; keepHandEdited?: boolean; dryRun?: boolean }): Promise<RefineRunOutcome>;
   reviewQueue(mode?: "edge" | "reclass"): { mode: "edge" | "reclass"; boxes: Record<string, unknown>[] };
   approve(ids: readonly string[] | "all", mode?: "edge" | "reclass"): { approved: number; remaining: number };
-  runFolder(mode: "edge" | "reclass", options: { preset?: string | null; confirm(message: string): Promise<boolean> }): Promise<RefineRunOutcome>;
+  /**
+   * `dryRun`: computes every change and returns a summary and a `resultId` without writing (no approval asked).
+   * `only`: image indexes to run (a sample); every image when omitted.
+   */
+  runFolder(mode: "edge" | "reclass", options: { preset?: string | null; confirm(message: string): Promise<boolean>; dryRun?: boolean; only?: readonly number[]; outliers?: number }): Promise<RefineRunOutcome>;
+  /** Writes a dry run's changes exactly as previewed, after the person allows it. */
+  applyFolderPlan(resultId: string, options: { confirm(message: string): Promise<boolean> }): Promise<RefineRunOutcome>;
 }
 
 export interface RefineController {
@@ -97,7 +104,7 @@ export function createRefineController(input: {
   uiManager: RuntimeUiManager;
   documentRef: Document;
   /** Folder runs (every image's label file); without it the folder buttons report that they are unavailable. */
-  fileSystem?: Pick<RuntimeFileSystem, "rewriteDetectionLabels" | "decodeImageForAutomation">;
+  fileSystem?: Pick<RuntimeFileSystem, "rewriteDetectionLabels" | "decodeImageForAutomation" | "commitLabelFilePlan">;
 }): RefineController {
   const doc = input.documentRef;
   const windowRef = doc.defaultView!;
@@ -489,7 +496,7 @@ export function createRefineController(input: {
       const changes = fresh.map((r) => {
         const before = sent.get(r.id)!;
         return { annotationId: r.id, classId: r.classId, before: { x0: before.x0, y0: before.y0, x1: before.x1, y1: before.y1 }, after: r.box,
-          flagged: r.flagged, weakSides: r.weakSides, areaChange: r.areaChange, areaFlagged: r.areaFlagged, sizeLimited: r.sizeLimited };
+          flagged: r.flagged, weakSides: r.weakSides, areaChange: r.areaChange, areaFlagged: r.areaFlagged, sizeLimited: r.sizeLimited, ...confidenceOf(r) };
       });
       const skipped = targets.length - fresh.length;
       const flagged = fresh.filter((r) => r.flagged).length;
@@ -683,6 +690,11 @@ export function createRefineController(input: {
     void reclass(visibleRects().map(toBox).filter((box) => box.classId === classId), reclassSkipManual(), `No class ${classId} boxes on this image.`);
   };
 
+  /** What the agent reads to judge a refined box: confidence 0..1 overall and per refined side (low = unsure). */
+  const confidenceOf = (result: RefineResult): { confidence: number; sideConfidence: Partial<Record<string, number>> } => ({
+    confidence: Number(result.conf.toFixed(3)),
+    sideConfidence: Object.fromEntries(Object.entries(result.sideConf).map(([side, value]) => [side, Number((value ?? 0).toFixed(3))]))
+  });
   // ---------------------------------------------------------------- folder runs (every image's label file)
   /** A class id no label uses: its params are the default every class without its own settings gets. */
   const UNPATCHED_CLASS = "\u0000";
@@ -690,9 +702,14 @@ export function createRefineController(input: {
    * Edge: refines every box of every image with the Run-with settings. Reclass: changes every box the
    * Reclass-with rule matches (shrink against the box as saved). Goes through the label files, one backup.
    */
+  /** Dry runs kept for applyFolderPlan, newest last. */
+  const folderPlans = new Map<string, { mode: "edge" | "reclass"; plan: LabelFilePlan; label: string; boxesChanged: number }>();
+  const FOLDER_PLANS_KEPT = 5;
+  let folderPlanCount = 0;
   const runFolder = async (
     mode: "edge" | "reclass",
-    confirm: (message: string) => boolean | Promise<boolean> = (message) => windowRef.confirm(message)
+    confirm: (message: string) => boolean | Promise<boolean> = (message) => windowRef.confirm(message),
+    options: { dryRun?: boolean; only?: readonly number[]; outliers?: number } = {}
   ): Promise<RefineRunOutcome> => {
     if (busy) return fail("Refine is already running.", "busy");
     if (!isDetection() || !input.state.session.imageFiles.length) return fail("Open an image folder in the Detection workflow first.");
@@ -707,13 +724,17 @@ export function createRefineController(input: {
     const what = mode === "edge"
       ? `Refine every box in all ${total} images of "${folderName}" with ${edge.label}?`
       : `Reclass boxes in all ${total} images of "${folderName}" with ${config.preset ? refinePresetLabel(config.preset) : "the Lab rule"} (${describeReclassRule(config.rule, className)})?`;
-    if (!(await confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
+    if (!options.dryRun && !(await confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
       return { ok: false, message: "The person declined the folder run.", code: "declined" };
     }
     let boxesChanged = 0;
+    // Dry run: each image's boxes and results, for the summary.
+    const edgeRecords: EdgeImageRecord[] = [];
+    const reclassRecords: ReclassImageRecord[] = [];
+    const nameOf = (file: unknown): string => (file as { name?: string }).name ?? "";
     // Inside transform: the image upload into refine, then the refine / reclass work itself (ms).
     const work = { loadMs: 0, runMs: 0 };
-    const transform = async (_file: unknown, yolo: string, image: HTMLImageElement): Promise<string | null> => {
+    const transform = async (file: unknown, yolo: string, image: HTMLImageElement): Promise<string | null> => {
       const width = image.naturalWidth || image.width;
       const height = image.naturalHeight || image.height;
       const { lines, boxes } = labelFileBoxes(yolo, width, height);
@@ -727,18 +748,26 @@ export function createRefineController(input: {
         const params: Record<string, RefineParams> = {};
         for (const box of boxes) params[box.classId] ??= edge.params(box.classId);
         const sent = new Map(boxes.map((box) => [box.id, box]));
-        const changes = (await getService().refine(image, boxes, params, boxes, edge.image))
-          .filter((result) => movedBy(result.box, sent.get(result.id)!, LABEL_FILE_MOVE_EPSILON))
-          .map((result) => ({ line: Number(result.id), classId: result.classId, box: result.box }));
+        const results = await getService().refine(image, boxes, params, boxes, edge.image);
+        const moved = results.filter((result) => movedBy(result.box, sent.get(result.id)!, LABEL_FILE_MOVE_EPSILON));
+        const changes = moved.map((result) => ({ line: Number(result.id), classId: result.classId, box: result.box }));
+        if (options.dryRun) {
+          const kept = results.filter((result) => result.flagged || movedBy(result.box, sent.get(result.id)!, LABEL_FILE_MOVE_EPSILON));
+          edgeRecords.push({ image: nameOf(file), boxes, results: new Map(kept.map((result) => [result.id, result])) });
+        }
         work.runMs += performance.now() - mark;
         boxesChanged += changes.length;
         return applyLabelFileChanges(lines, changes, width, height);
       } else {
+        const classChanges: ReclassImageRecord["changes"][number][] = [];
         for (const match of await matchReclass(image, boxes, boxes, config, edge)) {
+          const from = boxes.find((box) => box.id === match.id)?.classId ?? "";
           // Only the class changes; the coordinates keep their text.
           lines[Number(match.id)] = [match.toClass, ...lines[Number(match.id)].trim().split(/\s+/).slice(1)].join(" ");
           changed += 1;
+          classChanges.push({ line: Number(match.id), from, to: match.toClass });
         }
+        if (options.dryRun) reclassRecords.push({ image: nameOf(file), boxes, changes: classChanges });
       }
       work.runMs += performance.now() - mark;
       boxesChanged += changed;
@@ -751,9 +780,14 @@ export function createRefineController(input: {
       const paramsByClass: Record<string, RefineParams> = Object.fromEntries(edge.ownClasses.map((classId) => [classId, edge.params(classId)]));
       const rewrites = await refineFolderNatively({
         images, labelNames, labelFolder: input.state.session.labelFolderHandle, paramsByClass,
-        defaultParams: edge.params(UNPATCHED_CLASS), source: edge.image, signal, onProgress
+        defaultParams: edge.params(UNPATCHED_CLASS), source: edge.image, details: options.dryRun, signal, onProgress
       });
-      rewrites?.forEach((rewrite) => { boxesChanged += rewrite?.changed ?? 0; });
+      rewrites?.forEach((rewrite, index) => {
+        boxesChanged += rewrite?.changed ?? 0;
+        if (options.dryRun && rewrite?.boxes && rewrite.results) {
+          edgeRecords.push({ image: nameOf(images[index]), boxes: rewrite.boxes, results: new Map(rewrite.results.map((result) => [result.id, result])) });
+        }
+      });
       return rewrites;
     };
     setBusy(true);
@@ -761,11 +795,13 @@ export function createRefineController(input: {
     let outcome: DetectionLabelRewrite | null;
     try {
       outcome = await files.rewriteDetectionLabels({
-        title: mode === "edge" ? "Refining every image" : "Reclassing every image",
+        title: options.dryRun ? (mode === "edge" ? "Previewing Refine on images" : "Previewing Reclass on images") : mode === "edge" ? "Refining every image" : "Reclassing every image",
         backupPrefix: mode === "edge" ? "refine-all" : "reclass-all",
         prepare: (file) => files.decodeImageForAutomation(file),
         transform,
-        batch: mode === "edge" ? batch : undefined
+        batch: mode === "edge" ? batch : undefined,
+        only: options.only,
+        dryRun: options.dryRun
       });
     } catch (error: unknown) {
       return fail(`Folder run failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -773,6 +809,7 @@ export function createRefineController(input: {
       setBusy(false);
     }
     if (!outcome) return fail("Folder run stopped. No files changed.");
+    if (options.dryRun) return dryRunOutcome(mode, outcome, boxesChanged, edgeRecords, reclassRecords, mode === "edge" ? edge.label : config.preset ? refinePresetLabel(config.preset) : "the Lab rule", options.outliers);
     // The current image reloaded from its file: earlier flags and reclass reviews no longer apply.
     records.clear();
     reclassed.clear();
@@ -793,6 +830,60 @@ export function createRefineController(input: {
       ok: true, message: status.textContent ?? "", boxesChanged, imagesChanged: outcome.changed, images: outcome.total,
       backupPath: outcome.backupPath, skipped: outcome.failures
     };
+  };
+
+  /** A dry run's result: the summary in numbers, kept for applyFolderPlan under a new resultId. */
+  const dryRunOutcome = (
+    mode: "edge" | "reclass", outcome: DetectionLabelRewrite, boxesChanged: number,
+    edgeRecords: EdgeImageRecord[], reclassRecords: ReclassImageRecord[], label: string, outliers: number | undefined
+  ): RefineRunOutcome => {
+    const resultId = `${mode}-${++folderPlanCount}`;
+    if (outcome.plan) {
+      folderPlans.set(resultId, { mode, plan: outcome.plan, label, boxesChanged });
+      while (folderPlans.size > FOLDER_PLANS_KEPT) folderPlans.delete(folderPlans.keys().next().value!);
+    }
+    // Images in list order, whichever path refined them.
+    const order = new Map(input.state.session.imageFiles.map((file, index) => [file.name, index]));
+    const byOrder = <T extends { image: string }>(list: T[]): T[] => list.sort((a, b) => (order.get(a.image) ?? 0) - (order.get(b.image) ?? 0));
+    const failed = outcome.failures.length;
+    const summary = mode === "edge"
+      ? summarizeEdgeFolder(byOrder(edgeRecords), { failed, outliers, moveEpsilon: LABEL_FILE_MOVE_EPSILON })
+      : summarizeReclassFolder(byOrder(reclassRecords), { failed, outliers });
+    setStatus(`Preview: ${boxesChanged} box${boxesChanged === 1 ? "" : "es"} would change in ${outcome.changed} of ${outcome.total} images (nothing written)`);
+    return {
+      ok: true, dryRun: true, resultId, message: status.textContent ?? "", settings: label,
+      imagesChecked: outcome.total, imagesChanged: outcome.changed, boxesChanged, skipped: outcome.failures, summary
+    };
+  };
+  const applyFolderPlan = async (resultId: string, confirm: (message: string) => boolean | Promise<boolean>): Promise<RefineRunOutcome> => {
+    if (busy) return fail("Refine is already running.", "busy");
+    const entry = folderPlans.get(resultId);
+    if (!entry) return fail(`No dry run with resultId ${resultId} (only the last ${FOLDER_PLANS_KEPT} are kept). Run the dry run again.`);
+    const files = input.fileSystem;
+    if (!files) return fail("Folder runs are not available here.");
+    const { plan } = entry;
+    if (!plan.edits.length) return { ok: true, message: "The dry run changed nothing; nothing to write.", boxesChanged: 0, imagesChanged: 0 };
+    const verb = entry.mode === "edge" ? "Refine" : "Reclass";
+    if (!(await confirm(`${verb} ${entry.boxesChanged} boxes in ${plan.edits.length} label files of "${plan.folder.name}" with ${entry.label}, exactly as the dry run showed?\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
+      return { ok: false, message: "The person declined the folder run.", code: "declined" };
+    }
+    setBusy(true);
+    let backupPath: string | null;
+    try {
+      backupPath = await files.commitLabelFilePlan(plan);
+    } catch (error: unknown) {
+      return fail(`Writing the dry run failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+    if (!backupPath) return fail("Stopped. No files changed.");
+    folderPlans.delete(resultId);
+    records.clear();
+    reclassed.clear();
+    renderReviewCounter();
+    raw.canvas.requestRenderAll?.();
+    setStatus(`${entry.boxesChanged} boxes ${entry.mode === "edge" ? "refined" : "reclassed"} in ${plan.edits.length} images as previewed · originals in ${backupPath}`);
+    return { ok: true, message: status.textContent ?? "", boxesChanged: entry.boxesChanged, imagesChanged: plan.edits.length, backupPath };
   };
 
   // ---------------------------------------------------------------- canvas preview (selected boxes, not applied)
@@ -1048,7 +1139,7 @@ export function createRefineController(input: {
             return { ...position, from: entry?.from ?? null, to: entry?.match.toClass ?? null };
           }
           const result = records.get(box.id)?.result;
-          return { ...position, weakSides: result?.weakSides ?? [], areaChange: result?.areaChange ?? null, areaFlagged: result?.areaFlagged ?? false, sizeLimited: result?.sizeLimited ?? false };
+          return { ...position, weakSides: result?.weakSides ?? [], areaChange: result?.areaChange ?? null, areaFlagged: result?.areaFlagged ?? false, sizeLimited: result?.sizeLimited ?? false, ...(result ? confidenceOf(result) : {}) };
         })
       };
     },
@@ -1065,7 +1156,8 @@ export function createRefineController(input: {
       return { approved: targets.length, remaining: reviewQueue(mode).length };
     },
     runFolder: (mode, options) => withPresets(mode === "edge" ? options.preset : undefined, mode === "reclass" ? options.preset : undefined,
-      () => runFolder(mode, options.confirm))
+      () => runFolder(mode, options.confirm, { dryRun: options.dryRun, only: options.only, outliers: options.outliers })),
+    applyFolderPlan: (resultId, options) => applyFolderPlan(resultId, options.confirm)
   };
 
   const runShortcut = (action: RefineShortcut): void => {

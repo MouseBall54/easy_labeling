@@ -123,7 +123,7 @@ test("an MCP agent reads, navigates and captures the open app", async () => {
   const { page, mcp, dataset, errors, close } = await openAgentApp();
   try {
     expect(await mcp.tools()).toEqual([
-      "add_boxes", "app_state", "apply_layout", "approve", "capture_view", "delete_boxes", "find_similar", "get_boxes", "get_classes",
+      "add_boxes", "analyze_boxes", "app_state", "apply_layout", "approve", "capture_view", "delete_boxes", "find_similar", "get_boxes", "get_classes",
       "get_refine_settings", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "read_labels",
       "reclass_folder", "redo", "refine_folder", "remap_classes", "review_folder", "review_queue", "run_inference",
       "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "select_boxes", "set_review_status", "undo", "update_boxes"
@@ -295,6 +295,10 @@ test("an MCP agent runs Refine, review and folder-wide changes the person allows
     expect(refined.refined).toBe(1);
     const change = refined.changes[0];
     expect(change.annotationId).toBe(first.annotationId);
+    // Confidence to judge the result by: overall and per refined side, 0..1.
+    expect(change.confidence).toBeGreaterThan(0);
+    expect(change.confidence).toBeLessThanOrEqual(1);
+    expect(Object.keys(change.sideConfidence).sort()).toEqual(["B", "L", "R", "T"]);
     // Snapped inward onto the block (13..52), from the loose box (9..56).
     expect(change.after.x0).toBeGreaterThan(change.before.x0 + 2);
     expect(change.after.x1).toBeLessThan(change.before.x1 - 2);
@@ -336,11 +340,38 @@ test("an MCP agent runs Refine, review and folder-wide changes the person allows
     const remappedRows = (await readFile(path.join(dataset, "label/b.txt"), "utf8")).trim().split(/\r?\n/);
     expect(remappedRows.map((row) => row.split(" ")[0])).toEqual(["0", "0", "0", "5", "5", "5"]);
 
-    // Folder refine: every loose box of b.png snaps; the originals are backed up.
-    const folder = json(await mcp.call("refine_folder"));
-    expect(folder.images).toBe(2);
-    expect(folder.boxesChanged).toBeGreaterThanOrEqual(6);
-    expect(folder.backupPath).toBeTruthy();
+    // Folder refine is a dry run first: a summary in numbers and a resultId; no file changes.
+    const remappedText = await readFile(path.join(dataset, "label/b.txt"), "utf8");
+    const dryRun = json(await mcp.call("refine_folder", { outliers: 3 }));
+    expect(dryRun).toMatchObject({ dryRun: true, imagesChecked: 2, imagesChanged: 2 });
+    expect(dryRun.resultId).toMatch(/^edge-/);
+    // 12 boxes; the three class-1 boxes of a.png were refined (and saved) above, so they no longer move.
+    expect(dryRun.summary.boxes).toMatchObject({ total: 12, moved: 9 });
+    expect(dryRun.boxesChanged).toBe(9);
+    expect(dryRun.summary.shiftPx.median).toBeGreaterThan(2);
+    expect(dryRun.summary.byClass["0"].boxes).toBe(6);
+    expect(dryRun.summary.outliers.boxes).toHaveLength(3);
+    expect(Object.keys(dryRun.summary.afterRefine.counts).sort()).toEqual(["crowded", "missing", "off-column", "off-row", "size"]);
+    expect(await readFile(path.join(dataset, "label/b.txt"), "utf8")).toBe(remappedText);
+    // The TS path (native folder refine off) summarizes the same results.
+    await page.evaluate(() => Reflect.set(window, "easyLabelingNativeOff", ["refine-folder"]));
+    const tsDryRun = json(await mcp.call("refine_folder", { outliers: 3 }));
+    await page.evaluate(() => Reflect.deleteProperty(window, "easyLabelingNativeOff"));
+    expect(tsDryRun.summary).toEqual(dryRun.summary);
+    // A sample of one image.
+    const sample = json(await mcp.call("refine_folder", { sample: 1 }));
+    expect(sample).toMatchObject({ imagesChecked: 1 });
+    expect(sample.summary.boxes.total).toBe(6);
+
+    // Applying the dry run writes exactly what it previewed; a resultId is used once.
+    const applied = json(await mcp.call("refine_folder", { resultId: dryRun.resultId }));
+    expect(applied).toMatchObject({ boxesChanged: dryRun.boxesChanged, imagesChanged: 2 });
+    expect(applied.backupPath).toBeTruthy();
+    expect(textOf(await mcp.call("refine_folder", { resultId: dryRun.resultId }))).toMatch(/^failed: No dry run with resultId/);
+    // The sample's dry run (a.png) went stale when the apply rewrote a.txt: refused, and a.txt stays as written.
+    const appliedA = await readFile(path.join(dataset, "label/a.txt"), "utf8");
+    expect(textOf(await mcp.call("refine_folder", { resultId: sample.resultId }))).toMatch(/changed since the dry run/);
+    expect(await readFile(path.join(dataset, "label/a.txt"), "utf8")).toBe(appliedA);
     const refinedRows = (await readFile(path.join(dataset, "label/b.txt"), "utf8")).trim().split(/\r?\n/);
     const width = Number(refinedRows[0].split(" ")[3]) * SEM_SIZE.width;
     expect(width).toBeLessThan(loose(0, 0).x1 - loose(0, 0).x0 - 4);
@@ -402,8 +433,21 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     const added = json(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, apply: true, limit: 0 }));
     expect(added.annotationIds).toHaveLength(similar.found);
     expect(await rectCount()).toBe(start + similar.found);
+    // Population check on the filled grid: class 0 now covers every cell but the three class-1 boxes, which show as
+    // missing positions in the class-0 columns, at the class-1 boxes' centres; sizes and alignment are regular.
+    const classOne = json(await mcp.call("get_boxes", { classId: 1 })).boxes as Array<{ x0: number; y0: number; x1: number; y1: number }>;
+    const stats = json(await mcp.call("analyze_boxes", { classId: 0 }));
+    expect(stats.counts).toMatchObject({ size: 0, "off-row": 0, "off-column": 0, missing: 3 });
+    expect(stats.byClass["0"].rows).toBeGreaterThanOrEqual(7);
+    for (const hole of stats.missing as Array<{ x: number; y: number }>) {
+      expect(classOne.some((box) => Math.abs((box.x0 + box.x1) / 2 - hole.x) < 4 && Math.abs((box.y0 + box.y1) / 2 - hole.y) < 4)).toBe(true);
+    }
     json(await mcp.call("undo"));
     expect(await rectCount()).toBe(start);
+
+    // Saved label files of both images (normalized): three boxes per class per image is too few to judge.
+    const filesStats = json(await mcp.call("analyze_boxes", { sample: 2 }));
+    expect(filesStats).toMatchObject({ units: "normalized", imagesChecked: 2, imagesWithFindings: 0 });
 
     // A layout from the class-0 row, placed two rows lower (anchor + 96 px), then undone.
     const saved = json(await mcp.call("save_layout", { name: "Agent row", annotationIds: classZero.map((box) => box.annotationId) }));

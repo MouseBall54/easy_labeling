@@ -45,7 +45,7 @@ import { openProfilePresetFolder } from "../features/presets/profile-presets.js"
 import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
-interface LabelFileEdit { name: string; original: string | null; text: string }
+export interface LabelFileEdit { name: string; original: string | null; text: string }
 
 /**
  * Label files written at once in batch edits: on a NAS each file costs round trips, not bandwidth.
@@ -93,7 +93,25 @@ export async function forEachLimited<T>(items: readonly T[], limit: number, work
 
 /** A label file a batch rewrote: its text before (null = no file) and after (null = unchanged). */
 export interface LabelFileRewrite { original: string | null; text: string | null }
-export interface DetectionLabelRewrite { total: number; changed: number; backupPath: string | null; failures: { fileName: string; reason: string }[]; timings: LabelRewriteTimings }
+export interface DetectionLabelRewrite {
+  total: number;
+  changed: number;
+  backupPath: string | null;
+  failures: { fileName: string; reason: string }[];
+  timings: LabelRewriteTimings;
+  /** A dry run's edits (nothing was written); commitLabelFilePlan writes them after checking the files did not change. */
+  plan?: LabelFilePlan;
+}
+
+/** Label file edits computed without writing, to write later exactly as previewed. */
+export interface LabelFilePlan {
+  folder: FileSystemDirectoryHandle;
+  imageFolder: FileSystemDirectoryHandle | null;
+  /** The image list's label file names when computed: a changed list means a stale plan. */
+  fileNames: string[];
+  edits: LabelFileEdit[];
+  backupPrefix: string;
+}
 export interface ClassRemapPlan extends ClassRemapSummary {
   folder: FileSystemDirectoryHandle;
   imageFolder: FileSystemDirectoryHandle | null;
@@ -274,7 +292,16 @@ export interface RuntimeFileSystem extends FileSystem {
      * that image still needs prepare + transform. Null for all of them; a cancellation rejects.
      */
     batch?(files: readonly FileHandleLike[], labelNames: readonly string[], onProgress: (done: number) => void, signal: AbortSignal | undefined): Promise<ReadonlyArray<LabelFileRewrite | null> | null>;
+    /** Only these images (indexes in the image list); every image when omitted. */
+    only?: readonly number[];
+    /** Compute the edits and return them as `plan` without backing up or writing anything. */
+    dryRun?: boolean;
   }): Promise<DetectionLabelRewrite | null>;
+  /**
+   * Writes a dry run's edits (backup first, as rewriteDetectionLabels does) after saving current edits and checking
+   * that the folder, the image list and every edited file are as they were when previewed. Null when stopped.
+   */
+  commitLabelFilePlan(plan: LabelFilePlan, signal?: AbortSignal): Promise<string | null>;
   previewClassRemap(folder: FileSystemDirectoryHandle, rule: ClassRemapRule, signal?: AbortSignal): Promise<ClassRemapPlan | null>;
   applyClassRemap(plan: ClassRemapPlan, signal?: AbortSignal): Promise<string | null>;
   navigateImage(direction: number): Promise<void>;
@@ -1589,10 +1616,14 @@ export function createFileSystemAdapter(input: {
           const folder = session.labelFolderHandle;
           if (session.workflow !== "detection" || !folder) throw new Error("Connect a Detection label folder first.");
           const directory = folder as unknown as DirectoryHandleLike;
-          const files = [...session.imageFiles] as unknown as FileHandleLike[];
-          const names = files.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
-          if (new Set(names).size !== names.length) throw new Error("Images with the same label filename cannot be updated together.");
-          await runTrackedOperation({ title: options.title, detail: `All images · ${folder.name}`, stoppedMessage: `${options.title} stopped. No files changed.` }, async (operation) => {
+          const allFiles = [...session.imageFiles] as unknown as FileHandleLike[];
+          const allNames = allFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
+          if (new Set(allNames).size !== allNames.length) throw new Error("Images with the same label filename cannot be updated together.");
+          const chosen = options.only ? [...new Set(options.only)].filter((index) => index >= 0 && index < allFiles.length).sort((a, b) => a - b) : null;
+          const files = chosen ? chosen.map((index) => allFiles[index]!) : allFiles;
+          const names = chosen ? chosen.map((index) => allNames[index]!) : allNames;
+          const scope = chosen ? `${files.length} of ${allFiles.length} images` : "All images";
+          await runTrackedOperation({ title: options.title, detail: `${scope} · ${folder.name}`, stoppedMessage: `${options.title} stopped. No files changed.` }, async (operation) => {
             await saveBeforeLabelSwitch();
             const edits: Array<LabelFileEdit | undefined> = [];
             const failures: DetectionLabelRewrite["failures"] = [];
@@ -1660,13 +1691,41 @@ export function createFileSystemAdapter(input: {
             }
             throwIfOperationCancelled(operation?.signal);
             const changed = edits.filter((edit): edit is LabelFileEdit => edit !== undefined);
-            const backupPath = changed.length ? await commitLabelFileEdits(folder, changed, options.backupPrefix, operation, { timings, steps: { first: 2, total: 4 } }) : null;
+            const backupPath = changed.length && !options.dryRun ? await commitLabelFileEdits(folder, changed, options.backupPrefix, operation, { timings, steps: { first: 2, total: 4 } }) : null;
             for (const key of ["waitMs", "prepareMs", "transformMs"] as const) timings[key] = Math.round(timings[key]);
             timings.totalMs = Math.round(performance.now() - startedAt);
             outcome = { total: files.length, changed: changed.length, backupPath: backupPath && `${folder.name}/${backupPath}`, failures, timings };
+            if (options.dryRun) {
+              outcome.plan = { folder, imageFolder: session.imageFolderHandle as FileSystemDirectoryHandle | null, fileNames: allNames, edits: changed, backupPrefix: options.backupPrefix };
+            }
           });
         });
         return outcome;
+      },
+
+      async commitLabelFilePlan(plan, signal): Promise<string | null> {
+        let backupPath: string | null = null;
+        await enqueueOperation(async () => {
+          const { session } = input.state;
+          if (session.workflow !== "detection" || session.labelFolderHandle !== plan.folder || session.imageFolderHandle !== plan.imageFolder
+            || session.imageFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`).join("\n") !== plan.fileNames.join("\n")) {
+            throw new Error("The folder or its images changed since the dry run. Run it again.");
+          }
+          if (!plan.edits.length) return;
+          await runTrackedOperation({ title: "Writing previewed label changes", detail: `${plan.edits.length} files · ${plan.folder.name}`, stoppedMessage: "Stopped; original label files restored.", signal }, async (operation) => {
+            await saveBeforeLabelSwitch();
+            for (const edit of plan.edits) {
+              throwIfOperationCancelled(operation?.signal);
+              let current: string | null = null;
+              try { current = await readTextFileByName(plan.folder as unknown as DirectoryHandleLike, edit.name); }
+              catch (error) { if (!isNotFoundError(error)) throw error; }
+              if (current !== edit.original) throw new Error(`${edit.name} changed since the dry run. Run it again.`);
+            }
+            const written = await commitLabelFileEdits(plan.folder, plan.edits, plan.backupPrefix, operation);
+            backupPath = `${plan.folder.name}/${written}`;
+          });
+        });
+        return backupPath;
       },
 
       async previewClassRemap(folder, rule, signal): Promise<ClassRemapPlan | null> {

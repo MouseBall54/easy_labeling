@@ -6,6 +6,7 @@
 import type { AppState } from "../app/state.js";
 import type { ClassRemapRule } from "../domain/class-remap.js";
 import { AgentToolError, listPage, optionalArg, type AgentTool, type AgentToolContext } from "../features/agent/agent-api.js";
+import { evenSample } from "../domain/refine/folder-summary.js";
 import { checkClassId } from "./agent-tools-edit.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RefineAgentApi, RefineRunOutcome, RefineScope } from "./refine-controller.js";
@@ -102,13 +103,37 @@ export function createAgentRefineTools(deps: AgentRefineToolDeps): Record<string
     return outcome;
   };
 
+  /** Which images a folder dry run covers: `images` by name, or an even `sample`; every image when neither is given. */
+  const imagesArg = (args: Record<string, unknown>): number[] | undefined => {
+    const files = state.session.imageFiles;
+    if (Array.isArray(args.images)) {
+      const names = args.images.map(String);
+      const missing = names.filter((name) => !files.some((file) => file.name === name));
+      if (missing.length) throw new AgentToolError("not_found", `No image named ${missing.slice(0, 5).join(", ")} in the open folder.`);
+      return names.map((name) => files.findIndex((file) => file.name === name));
+    }
+    const sample = optionalArg(args, "sample", "number");
+    if (sample === undefined) return undefined;
+    if (!Number.isInteger(sample) || sample < 1) throw new AgentToolError("invalid_args", "sample must be a whole number of images, 1 or more.");
+    return evenSample(files.length, sample);
+  };
   const folderRun = (mode: "edge" | "reclass"): AgentTool => ({
     changesApp: true,
     async run(args, context) {
       requireFolder();
       const api = refine();
       stopOnCancel(context);
-      return edited(settled(await presetErrors(() => api.runFolder(mode, { preset: presetArg(args), confirm: deps.confirm }))));
+      const resultId = optionalArg(args, "resultId", "string");
+      if (resultId !== undefined) {
+        if (!resultId.startsWith(`${mode}-`)) throw new AgentToolError("invalid_args", `resultId ${resultId} is not a ${mode === "edge" ? "refine" : "reclass"}_folder dry run.`);
+        return edited(settled(await api.applyFolderPlan(resultId, { confirm: deps.confirm })));
+      }
+      const dryRun = optionalArg(args, "dryRun", "boolean") ?? true;
+      const only = imagesArg(args);
+      if (!dryRun && only) throw new AgentToolError("invalid_args", "images and sample are for dry runs; apply one with its resultId.");
+      const outliers = Math.min(100, Math.max(0, Math.floor(optionalArg(args, "outliers", "number") ?? 20)));
+      const outcome = settled(await presetErrors(() => api.runFolder(mode, { preset: presetArg(args), confirm: deps.confirm, dryRun, only, outliers })));
+      return dryRun ? outcome : edited(outcome);
     }
   });
 

@@ -4,6 +4,8 @@
  */
 import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
+import { analyzeBoxes, type StatBox } from "../domain/refine/box-statistics.js";
+import { evenSample } from "../domain/refine/folder-summary.js";
 import { parseYoloRows } from "../domain/yolo/yolo.js";
 import { AgentImageResult, AgentToolError, LIST_PAGE_MAX, listPage, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
 import { getRectBounds } from "../features/canvas/arrange.js";
@@ -183,6 +185,62 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     }
   };
 
+  /** Boxes of the current image as the canvas has them (pixels, unsaved edits included). */
+  const canvasStatBoxes = (): StatBox[] => rects(canvasController).map((rect) => {
+    rect.setCoords();
+    const bounds = getRectBounds(rect);
+    return { id: ensureAnnotationId(rect), classId: String(rect.labelClass ?? "0"), x0: bounds.left, y0: bounds.top, x1: bounds.right, y1: bounds.bottom };
+  });
+
+  const analyzeBoxesTool: AgentTool = {
+    changesApp: false,
+    async run(args) {
+      requireFolder();
+      const classFilter = args.classId === undefined || args.classId === null ? null : String(args.classId);
+      const keep = (boxes: StatBox[]) => classFilter === null ? boxes : boxes.filter((box) => box.classId === classFilter);
+      const files = session.imageFiles;
+      let indexes: number[] | null = null;
+      if (Array.isArray(args.images)) {
+        const names = args.images.map(String);
+        const missingNames = names.filter((name) => !files.some((file) => file.name === name));
+        if (missingNames.length) throw new AgentToolError("not_found", `No image named ${missingNames.slice(0, 5).join(", ")} in the open folder.`);
+        indexes = names.map((name) => files.findIndex((file) => file.name === name));
+      } else {
+        const sample = optionalArg(args, "sample", "number");
+        if (sample !== undefined) {
+          if (!Number.isInteger(sample) || sample < 1) throw new AgentToolError("invalid_args", "sample must be a whole number of images, 1 or more.");
+          indexes = evenSample(files.length, sample);
+        }
+      }
+      if (!indexes) {
+        // The current image: pixels, findings by annotationId.
+        requireImage();
+        const result = analyzeBoxes(keep(canvasStatBoxes()));
+        const findings = listPage(result.findings, args, 50);
+        return {
+          image: session.currentImageFile?.name, units: "pixels", byClass: result.byClass, counts: result.counts,
+          findings: findings.items, findingsTotal: findings.total, truncated: findings.truncated, missing: result.missing.slice(0, LIST_PAGE_MAX)
+        };
+      }
+      // Saved label files of several images: normalized units, findings by row index (as read_labels numbers them).
+      if (!session.labelFolderHandle) throw new AgentToolError("no_folder", "The open folder has no label folder.");
+      const totals = { size: 0, "off-row": 0, "off-column": 0, crowded: 0, missing: 0 };
+      const images: Array<{ image: string; boxes: number; counts: typeof totals; findings: unknown[]; missing: unknown[] }> = [];
+      for (const index of indexes) {
+        const name = files[index]!.name;
+        const rows = parseYoloRows(await fileSystem.readDetectionLabels(name), 1, 1);
+        const boxes = keep(rows.map((row, line) => ({ id: String(line), classId: row.labelClass, x0: row.rectLeft, y0: row.rectTop, x1: row.rectLeft + row.rectWidth, y1: row.rectTop + row.rectHeight })));
+        const result = analyzeBoxes(boxes);
+        for (const key of Object.keys(totals) as Array<keyof typeof totals>) totals[key] += result.counts[key];
+        images.push({ image: name, boxes: boxes.length, counts: result.counts, findings: result.findings.slice(0, 5).map(({ id, ...finding }) => ({ index: Number(id), ...finding })), missing: result.missing.slice(0, 5) });
+      }
+      const issues = (image: (typeof images)[number]) => Object.values(image.counts).reduce((sum, count) => sum + count, 0);
+      images.sort((a, b) => issues(b) - issues(a));
+      const page = listPage(images.filter((image) => issues(image) > 0), args, 20);
+      return { units: "normalized", imagesChecked: indexes.length, counts: totals, imagesWithFindings: page.total, images: page.items, truncated: page.truncated };
+    }
+  };
+
   const readLabels: AgentTool = {
     changesApp: false,
     async run(args) {
@@ -225,6 +283,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     get_classes: getClasses,
     get_boxes: getBoxes,
     read_labels: readLabels,
+    analyze_boxes: analyzeBoxesTool,
     capture_view: captureView
   };
 }

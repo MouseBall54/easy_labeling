@@ -30,6 +30,9 @@ pub struct RefineFolderRequest {
     params_by_class: HashMap<String, RefineParams>,
     default_params: RefineParams,
     source: RefineSource,
+    /// Also return each moved or flagged box's full result (a dry run's summary).
+    #[serde(default)]
+    details: bool,
 }
 
 #[tauri::command]
@@ -37,8 +40,12 @@ pub async fn refine_folder(request: RefineFolderRequest) -> Result<Vec<Option<Fo
     tauri::async_runtime::spawn_blocking(move || {
         let job = Job::start(&request.job_id, request.images.len());
         let images: Vec<FolderImage> = request.images.into_iter().map(|image| FolderImage { path: PathBuf::from(image.path), label: image.label }).collect();
-        let settings =
-            FolderSettings { params_by_class: &request.params_by_class, default_params: &request.default_params, processing: request.source.processing()? };
+        let settings = FolderSettings {
+            params_by_class: &request.params_by_class,
+            default_params: &request.default_params,
+            processing: request.source.processing()?,
+            details: request.details,
+        };
         run(Path::new(&request.label_folder), &images, &settings, PARALLEL_IMAGES, || job.cancelled(), || job.advance()).map_err(|error| match error {
             FolderError::Cancelled => CANCELLED.to_string(),
             FolderError::Io(message) => message,
