@@ -480,6 +480,30 @@ describe("features/canvas/canvas-controller", () => {
     expect(history.getPastEntries()).toHaveLength(0);
   });
 
+  it("runAsOneHistoryStep records several edits as one undo step, even when the run throws", () => {
+    const history = createCanvasHistoryService();
+    const controller = createCanvasController(createState(), createDeps({ historyService: history }));
+    const rects = [createRect({ left: 5, top: 6, width: 10, height: 12, labelClass: "1" }), createRect({ left: 25, top: 16, width: 9, height: 10, labelClass: "2" })];
+    controller.canvas.add(...rects);
+    rects.forEach((rect) => controller.drawLabelText(rect));
+    const ids = rects.map((rect) => ensureAnnotationId(rect));
+
+    expect(controller.runAsOneHistoryStep?.(() => {
+      controller.updateBoxClasses?.([{ annotationId: ids[0], classId: "7" }]);
+      return controller.updateBoxClasses?.([{ annotationId: ids[1], classId: "8" }]);
+    })).toBe(1);
+    expect(history.getPastEntries()).toHaveLength(1);
+    controller.undo();
+    expect(rects.map((rect) => rect.labelClass)).toEqual(["1", "2"]);
+
+    expect(() => controller.runAsOneHistoryStep?.(() => {
+      controller.updateBoxClasses?.([{ annotationId: ids[0], classId: "9" }]);
+      throw new Error("stop");
+    })).toThrow("stop");
+    expect(history.getPastEntries()).toHaveLength(1);
+    expect(rects[0].labelClass).toBe("9");
+  });
+
   it("recalculates Fabric offsets after viewport and size changes", () => {
     const controller = createCanvasController(createState(), createDeps());
     const canvas = controller.canvas as FakeCanvas;

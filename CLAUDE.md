@@ -22,6 +22,7 @@ The shared project rules above come from `AGENTS.md` (also read by Codex). Edit 
 | `/port-module` | Port one TS module to `crates/el-core` (golden fixtures, bench, Tauri path, TS kept) |
 | `/perf-baseline` | Same-input TS/Rust measurements appended to `docs/migration/BENCH.md` |
 | `rust-ts-bridge`, `rust-perf` | Tauri boundary rules; Rust performance patterns |
+| `agent-integration` | AI agent bridge (MCP): agent tools, `easy-labeling-mcp.exe`, named pipe, approvals |
 
 Agent `rust-perf-reviewer` (`.claude/agents/`) reviews a finished port read-only.
 

@@ -184,6 +184,8 @@ export interface CanvasController {
   distributeSelectionVertically(): void;
   captureHistoryBaseline(): CanvasHistoryGestureBaseline;
   commitHistoryFromBaseline(baseline: CanvasHistoryGestureBaseline): void;
+  /** Runs several edits (each would push its own entry) as one undo step. */
+  runAsOneHistoryStep?<T>(run: () => T): T;
   clearHistory(): void;
   undo(): void;
   redo(): void;

@@ -35,6 +35,10 @@ export interface FileSystem {
 
 export interface EventManager {
   bindEventListeners(): void;
+  /** Opens a folder as the Open folder button does, the folder already chosen; settles when that finishes. */
+  openImageFolder?(folder: Promise<FileSystemDirectoryHandle>): Promise<void>;
+  /** Refreshes the label list, toolbar and inspector after edits made outside the canvas's own events. */
+  syncAfterEdit?(): void;
 }
 
 export interface ServiceFactoryInput {

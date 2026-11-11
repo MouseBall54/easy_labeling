@@ -1,0 +1,6 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build && node scripts/stage-tauri-frontend.mjs && node scripts/stage-mcp-sidecar.mjs"
+  },
+  "bundle": { "externalBin": ["binaries/easy-labeling-mcp"] }
+}

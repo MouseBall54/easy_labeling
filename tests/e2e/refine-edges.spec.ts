@@ -1424,8 +1424,11 @@ test("presets: the Run-with preset picked while another folder's settings show i
     Object.defineProperty(window, "showDirectoryPicker", { configurable: true, writable: true, value: async () => b });
   }, allOff);
   const before = await geometries(page);
+  const idsOf = (list: Geometry[]): string => list.map((g) => g.annotationId).join(",");
   await page.locator("#selectImageFolderBtn").click();
-  await expect.poll(async () => (await geometries(page)).length).toBe(2);
+  // Both folders show the same image with two boxes: wait until B's boxes replace A's (new ids), or the
+  // selection below lands on A's boxes and is dropped when B finishes loading.
+  await expect.poll(async () => { const now = await geometries(page); return now.length === 2 && idsOf(now) !== idsOf(before); }).toBe(true);
 
   await page.locator("#refineRunPresetSelect").selectOption("Snap");
   await selectBoxes(page, [0, 1]);

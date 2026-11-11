@@ -1,6 +1,7 @@
 // Tauri shell for Easy Labeling: the desktop app's window, file access, profile libraries and native commands.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod jobs;
 mod label_commit;
 mod native;
@@ -515,7 +516,12 @@ fn main() {
             superpixels::superpixels_take,
             superpixels::superpixels_take_shared,
             native::preprocess_view_run,
-            native::preprocess_view_run_shared
+            native::preprocess_view_run_shared,
+            agent::agent_reply,
+            agent::agent_reply_bytes,
+            agent::agent_progress,
+            agent::agent_confirm,
+            agent::agent_status
         ])
         .setup(|app| {
             // resource_dir() is a verbatim \?\ path, which breaks every subresource of a virtual host.
@@ -530,6 +536,7 @@ fn main() {
                 .disable_drag_drop_handler()
                 .build()?;
             serve_frontend(&window, frontend)?;
+            agent::start(window.clone());
             // Release builds only, and never under the e2e seams (they must not meet a dialog).
             if !cfg!(debug_assertions) && std::env::var_os("EASY_LABELING_TEST_PROFILE_ROOT").is_none() {
                 let handle = app.handle().clone();

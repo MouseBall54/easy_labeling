@@ -34,6 +34,8 @@ export async function launchDesktop(exe: string, sandbox: string, pickDirectorie
       APPDATA: path.join(sandbox, "appdata"),
       EASY_LABELING_TEST_PROFILE_ROOT: path.join(sandbox, "profiles"),
       EASY_LABELING_TEST_PICK_DIRECTORIES: pickDirectories.join(";"),
+      // Its own agent pipe, so a test app never takes the one a real Easy Labeling uses (src-tauri/src/agent.rs).
+      EASY_LABELING_AGENT_PIPE: `\\\\.\\pipe\\easy-labeling-agent-test-${port}`,
       ...options.env
     },
     stdio: "ignore"

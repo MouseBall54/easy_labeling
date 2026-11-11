@@ -16,7 +16,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dunce = "1"
 el-core = { path = "../crates/el-core" }
+el-agent-protocol = { path = "../crates/el-agent-protocol" }
 tauri-plugin-updater = "2"
+# Already in the tree through tauri; the agent pipe (src/agent.rs) needs its named pipes.
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros"] }
 
 [target.'cfg(windows)'.dependencies]
 # The WebView2 bindings wry uses, for serving the frontend folder through a virtual host.

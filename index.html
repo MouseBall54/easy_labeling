@@ -104,6 +104,9 @@
                 </button>
             </div>
             <div class="task-rail-footer">
+                <button id="agentPanelBtn" type="button" class="task-rail-button" title="AI agent connection (MCP): setup, status, permissions, activity" aria-label="AI agent panel" aria-controls="agentPanel" aria-pressed="false" hidden>
+                    <i class="bi bi-robot" aria-hidden="true"></i><span>Agent</span>
+                </button>
                 <input class="btn-check" type="checkbox" id="darkModeToggle" data-ui="dark-mode-toggle" autocomplete="off">
                 <label class="task-rail-button" for="darkModeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">
                     <i class="bi bi-moon-stars" aria-hidden="true"></i><span>Theme</span>
@@ -672,6 +675,59 @@
             </div>
         </aside>
         </div>
+        <div id="agentIndicator" class="agent-indicator" data-state="working" role="status" aria-live="polite" hidden>
+            <i class="bi bi-robot" aria-hidden="true"></i>
+            <button id="agentIndicatorText" type="button" class="agent-indicator-text" title="Open the Agent panel">Agent working…</button>
+            <button id="agentPauseBtn" type="button" class="btn btn-outline-secondary btn-sm">Stop</button>
+        </div>
+        <aside id="agentPanel" class="agent-panel" aria-label="AI agent" hidden>
+            <div class="agent-panel-header">
+                <h2><i class="bi bi-robot" aria-hidden="true"></i> AI agent (MCP)</h2>
+                <button id="agentPanelCloseBtn" type="button" class="btn-close" aria-label="Close the Agent panel"></button>
+            </div>
+            <section class="agent-panel-section">
+                <h3>Connection</h3>
+                <p id="agentStatusLine" class="agent-status" data-state="checking">Checking…</p>
+                <p id="agentLastCall" class="agent-muted">No agent call yet.</p>
+                <label class="form-label small mb-1" for="agentServerPath">MCP server (stdio, no arguments)</label>
+                <div class="input-group input-group-sm">
+                    <input id="agentServerPath" class="form-control" type="text" readonly>
+                    <button id="agentCopyPathBtn" type="button" class="btn btn-outline-secondary" title="Copy the server path">Copy</button>
+                </div>
+                <p id="agentServerWarning" class="agent-warning" hidden>easy-labeling-mcp.exe is not next to the app. Reinstall Easy Labeling, or build it with cargo build -p el-mcp when developing.</p>
+            </section>
+            <section class="agent-panel-section">
+                <h3>Connect an agent</h3>
+                <label class="form-label small mb-1" for="agentClientSelect">Agent app</label>
+                <select id="agentClientSelect" class="form-select form-select-sm"></select>
+                <p id="agentClientWhere" class="agent-muted mt-2"></p>
+                <pre id="agentClientSnippet" class="agent-snippet"></pre>
+                <div class="agent-snippet-actions">
+                    <button id="agentCopySnippetBtn" type="button" class="btn btn-outline-primary btn-sm"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy</button>
+                    <span id="agentCopyStatus" class="agent-muted" role="status"></span>
+                </div>
+                <p id="agentClientNote" class="agent-muted"></p>
+            </section>
+            <section class="agent-panel-section">
+                <h3>Permissions</h3>
+                <label class="form-check form-switch" title="Off: every agent call is refused"><input class="form-check-input" type="checkbox" id="agentEnabledToggle" checked><span class="form-check-label">Allow AI agents</span></label>
+                <label class="form-check form-switch" title="Off: agents can only read (state, boxes, captures)"><input class="form-check-input" type="checkbox" id="agentChangesToggle" checked><span class="form-check-label">Allow changes (edits, Refine, automation)</span></label>
+                <label class="form-label small mb-1 mt-2" for="agentFolderSelect">Folder-wide changes (folder runs, class remap, inference on every image)</label>
+                <select id="agentFolderSelect" class="form-select form-select-sm">
+                    <option value="ask">Ask me each time</option>
+                    <option value="block">Block</option>
+                </select>
+                <button id="agentPanelPauseBtn" type="button" class="btn btn-outline-danger btn-sm mt-3">Stop agent</button>
+            </section>
+            <section class="agent-panel-section agent-activity-section">
+                <div class="agent-activity-heading">
+                    <h3>Activity <span id="agentActivityCount" class="agent-muted"></span></h3>
+                    <button id="agentClearActivityBtn" type="button" class="btn btn-link btn-sm">Clear</button>
+                </div>
+                <ol id="agentActivityList" class="agent-activity"></ol>
+                <p id="agentActivityEmpty" class="agent-muted">Calls from agents appear here.</p>
+            </section>
+        </aside>
         <section id="activeOperationPanel" class="active-operation-panel" data-state="running" role="status" aria-live="polite" aria-atomic="true" hidden>
             <div class="active-operation-heading">
                 <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>

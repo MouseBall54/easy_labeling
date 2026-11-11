@@ -23,6 +23,21 @@ declare global {
     easyLabelingDesktop?: {
       setHasUnsavedChanges(hasUnsavedChanges: boolean): void;
     };
+    /** Desktop (Tauri) only: answers agent calls (src/features/agent/, src-tauri/src/agent.rs). */
+    easyLabelingAgentBridge?: {
+      reply(id: string, ok: boolean, result: unknown, error: unknown): Promise<void>;
+      replyBytes(id: string, result: unknown, bytes: Uint8Array): Promise<void>;
+      progress(id: string, done: number, total?: number, message?: string): Promise<void>;
+      /** A directory handle for a folder entry Rust resolved (open_folder). */
+      directory(entry: { path: string; name: string; directory: boolean }): FileSystemDirectoryHandle;
+      /** A file handle for a file entry Rust resolved (load_model). */
+      file(entry: { path: string; name: string; directory: boolean }): { getFile(): Promise<File> };
+      /** The person's answer, in a native dialog, before an agent call changes label files across the folder. */
+      confirm(message: string): Promise<boolean>;
+      /** The bridge's state for the Agent panel (src-tauri/src/agent.rs agent_status). */
+      status(): Promise<Record<string, unknown>>;
+      pathOf(handle: unknown): string | null;
+    };
     /** Features to keep on their TS path even in the desktop app (see src/platform/native-bridge.ts). */
     easyLabelingNativeOff?: string[];
     /** Desktop (Tauri) only: calls a Rust command; raw byte bodies pass headers alongside. */

@@ -1,0 +1,15 @@
+[package]
+name = "el-agent-protocol"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Frames between easy-labeling-mcp.exe (crates/el-mcp) and the running app (src-tauri/src/agent.rs) over a
+# Windows named pipe. Plan: docs/AGENT_MCP_PLAN_KO.md section 3.1.
+
+[dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "rt", "macros"] }

@@ -4,14 +4,24 @@ import type { OutputFormat } from "../features/inference/yolo.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
+export interface InferenceRunSettings { confidence: number; iou: number; maxDetections: number; outputFormat: string; inputSize: number }
+
+/** The Inference panel's model and runs (read by src/bootstrap/agent-tools-auto.ts). */
+export interface InferenceAgentApi {
+  status(): { model: string | null; ready: boolean; busy: boolean; backend: string | null; settings: InferenceRunSettings };
+  loadModel(file: File): Promise<{ model: string; description: string; backend: string | null }>;
+  /** The panel's settings unless given; results go to the model's own label folder, which becomes active. */
+  run(options: { allImages: boolean; confidence?: number; iou?: number; maxDetections?: number }): Promise<{ imageCount: number; detectionCount: number; folderName: string }>;
+}
+
 export function bindInferenceControls(input: {
   state: AppState;
   documentRef: Document;
   fileSystem: RuntimeFileSystem;
   uiManager: RuntimeUiManager;
-}): () => void {
+}): { dispose(): void; agent: InferenceAgentApi | null } {
   const { documentRef, uiManager, fileSystem, state } = input;
-  if (!documentRef.getElementById("detectionInferenceWorkspace")) return () => {};
+  if (!documentRef.getElementById("detectionInferenceWorkspace")) return { dispose: () => {}, agent: null };
   const element = <T extends HTMLElement>(id: string): T => documentRef.getElementById(id) as T;
   const modelInput = element<HTMLInputElement>("inferenceModelInput");
   const modelButton = element<HTMLButtonElement>("selectInferenceModelBtn");
@@ -67,51 +77,59 @@ export function bindInferenceControls(input: {
     files.items.add(selectedFile);
     modelInput.files = files.files;
   });
+  /** Loads a model as choosing it in the panel does; errors show in the panel and are thrown. */
+  const loadModel = async (file: File): Promise<void> => {
+    if (busy) throw new Error("The Inference panel is busy.");
+    modelFilename.textContent = file.name;
+    modelFilename.title = file.name;
+    stop();
+    busy = true;
+    sync();
+    const operation = uiManager.beginOperation({ title: "Loading YOLO model", detail: file.name, cancellable: true });
+    operation.signal.addEventListener("abort", stop, { once: true });
+    try {
+      modelStatus.hidden = false;
+      modelStatus.textContent = `Loading ${file.name}…`;
+      if (!/\.onnx$/i.test(file.name)) throw new Error("Select a Detection .onnx file.");
+      service = createInferenceService((status) => { backendStatus = status; renderBackend(); });
+      const model = await service.load(await file.arrayBuffer(), element<HTMLInputElement>("inferenceSizeInput").valueAsNumber);
+      if (operation.signal.aborted) throw new Error("Model loading stopped.");
+      modelName = file.name;
+      ready = true;
+      modelDescription = `${file.name} · ${model.channels}ch · ${model.layout.toUpperCase()} · ${model.width} × ${model.height}${model.dynamic ? " · dynamic" : ""}`;
+      renderBackend();
+    } catch (error) {
+      stop();
+      reportError(modelStatus, error);
+      throw error;
+    } finally {
+      operation.signal.removeEventListener("abort", stop);
+      operation.finish();
+      busy = false;
+      sync();
+    }
+  };
   modelInput.addEventListener("change", () => {
     const file = modelInput.files?.[0];
     if (!file || busy) return;
-    modelFilename.textContent = file.name;
-    modelFilename.title = file.name;
-    void (async () => {
-      stop();
-      busy = true;
-      sync();
-      const operation = uiManager.beginOperation({ title: "Loading YOLO model", detail: file.name, cancellable: true });
-      operation.signal.addEventListener("abort", stop, { once: true });
-      try {
-        modelStatus.hidden = false;
-        modelStatus.textContent = `Loading ${file.name}…`;
-        if (!/\.onnx$/i.test(file.name)) throw new Error("Select a Detection .onnx file.");
-        service = createInferenceService((status) => { backendStatus = status; renderBackend(); });
-        const model = await service.load(await file.arrayBuffer(), element<HTMLInputElement>("inferenceSizeInput").valueAsNumber);
-        if (operation.signal.aborted) throw new Error("Model loading stopped.");
-        modelName = file.name;
-        ready = true;
-        modelDescription = `${file.name} · ${model.channels}ch · ${model.layout.toUpperCase()} · ${model.width} × ${model.height}${model.dynamic ? " · dynamic" : ""}`;
-        renderBackend();
-      } catch (error) {
-        stop();
-        reportError(modelStatus, error);
-      } finally {
-        operation.signal.removeEventListener("abort", stop);
-        operation.finish();
-        busy = false;
-        sync();
-      }
-    })();
+    loadModel(file).catch(() => undefined); // shown in the panel
   });
-  const run = async (allImages: boolean): Promise<void> => {
-    if (!ready || !service || busy) return;
-    const confidence = element<HTMLInputElement>("inferenceConfidenceInput").valueAsNumber;
-    const iou = element<HTMLInputElement>("inferenceIouInput").valueAsNumber;
-    const maxDet = element<HTMLInputElement>("inferenceMaxDetInput").valueAsNumber;
+  const fail = (error: Error): never => {
+    reportError(runStatus, error);
+    throw error;
+  };
+  /** Runs as the panel's buttons do; `overrides` replace the panel's values for this run only. Null when stopped. */
+  const run = async (allImages: boolean, overrides: { confidence?: number; iou?: number; maxDetections?: number } = {}) => {
+    if (!ready || !service) throw new Error("Load an ONNX model first.");
+    if (busy) throw new Error("The Inference panel is busy.");
+    const confidence = overrides.confidence ?? element<HTMLInputElement>("inferenceConfidenceInput").valueAsNumber;
+    const iou = overrides.iou ?? element<HTMLInputElement>("inferenceIouInput").valueAsNumber;
+    const maxDet = overrides.maxDetections ?? element<HTMLInputElement>("inferenceMaxDetInput").valueAsNumber;
     if (![confidence, iou].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
-      reportError(runStatus, new Error("Confidence and IoU must be between 0 and 1."));
-      return;
+      return fail(new Error("Confidence and IoU must be between 0 and 1."));
     }
     if (!Number.isInteger(maxDet) || maxDet < 1 || maxDet > 30000) {
-      reportError(runStatus, new Error("Max detections must be a whole number between 1 and 30,000."));
-      return;
+      return fail(new Error("Max detections must be a whole number between 1 and 30,000."));
     }
     const format = element<HTMLSelectElement>("inferenceOutputFormat").value as OutputFormat;
     busy = true;
@@ -132,14 +150,40 @@ export function bindInferenceControls(input: {
         ? `${result.imageCount} image(s) · ${result.detectionCount} detection(s). Active: ${result.folderName}`
         : "Inference stopped. Partial results remain on disk. Reload the model to continue.";
       if (!ready) modelStatus.textContent = "Model stopped. Reload the ONNX model to continue.";
+      return result;
     } catch (error) {
       reportError(runStatus, error);
+      throw error;
     } finally { busy = false; sync(); }
   };
-  currentButton.addEventListener("click", () => { void run(false); });
-  allButton.addEventListener("click", () => { void run(true); });
+  currentButton.addEventListener("click", () => { run(false).catch(() => undefined); });
+  allButton.addEventListener("click", () => { run(true).catch(() => undefined); });
   documentRef.defaultView?.addEventListener("easy-labeling:document-status-change", sync);
   documentRef.defaultView?.addEventListener("easy-labeling:label-source-change", sync);
   sync();
-  return stop;
+  const agent: InferenceAgentApi = {
+    status: () => ({
+      model: ready ? modelName : null,
+      ready,
+      busy,
+      backend: backendStatus.backend,
+      settings: {
+        confidence: element<HTMLInputElement>("inferenceConfidenceInput").valueAsNumber,
+        iou: element<HTMLInputElement>("inferenceIouInput").valueAsNumber,
+        maxDetections: element<HTMLInputElement>("inferenceMaxDetInput").valueAsNumber,
+        outputFormat: element<HTMLSelectElement>("inferenceOutputFormat").value,
+        inputSize: element<HTMLInputElement>("inferenceSizeInput").valueAsNumber
+      }
+    }),
+    async loadModel(file) {
+      await loadModel(file);
+      return { model: modelName, description: modelDescription, backend: backendStatus.backend };
+    },
+    async run(options) {
+      const result = await run(options.allImages, options);
+      if (!result) throw new Error("Inference stopped. Partial results remain on disk.");
+      return { imageCount: result.imageCount, detectionCount: result.detectionCount, folderName: result.folderName };
+    }
+  };
+  return { dispose: stop, agent };
 }

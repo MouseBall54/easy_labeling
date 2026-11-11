@@ -191,6 +191,24 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
 
   window.easyLabelingNative = Object.freeze(webview ? { invoke: call, upload, download, pathOf } : { invoke: call, pathOf });
 
+  // Agent bridge (src-tauri/src/agent.rs): replies to calls src/features/agent/ ran for easy-labeling-mcp.exe.
+  window.easyLabelingAgentBridge = Object.freeze({
+    reply: (id: string, ok: boolean, result: unknown, error: unknown) => call<void>("agent_reply", { id, ok, result: result ?? null, error: error ?? null }),
+    async replyBytes(id: string, result: unknown, bytes: Uint8Array) {
+      const headers = { "x-agent-id": encodeURIComponent(id), "x-agent-result": encodeURIComponent(JSON.stringify(result ?? null)) };
+      const shared = webview ? await upload(bytes).catch(() => null) : null;
+      await (shared === null
+        ? call<void>("agent_reply_bytes", bytes, { headers })
+        : call<void>("agent_reply_bytes", new Uint8Array(0), { headers: { ...headers, "x-shared-buffer": String(shared) } }));
+    },
+    progress: (id: string, done: number, total?: number, message?: string) => call<void>("agent_progress", { id, done, total: total ?? null, message: message ?? null }),
+    directory: (entry: NativeEntry) => createDirectoryHandle(entry),
+    file: (entry: NativeEntry) => createFileHandle(entry),
+    confirm: (message: string) => call<boolean>("agent_confirm", { message }),
+    status: () => call<Record<string, unknown>>("agent_status"),
+    pathOf
+  });
+
   window.easyLabelingDesktop = Object.freeze({
     setHasUnsavedChanges(hasUnsavedChanges: boolean) {
       void call("set_document_dirty", { dirty: Boolean(hasUnsavedChanges) });

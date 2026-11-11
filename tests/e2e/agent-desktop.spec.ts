@@ -1,0 +1,577 @@
+import { expect, test, type Page } from "@playwright/test";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { inferenceModel } from "./fixtures/inference-model.js";
+import { grayPng } from "./fixtures/review-dataset.js";
+import { launchDesktop } from "./fixtures/tauri-app.js";
+
+// Drives the desktop app the way an AI agent does: easy-labeling-mcp.exe over stdio (MCP JSON-RPC), which
+// forwards to the app over its named pipe (docs/AGENT_MCP_PLAN_KO.md). Needs `npm run tauri:dev` and
+// `cargo build -p el-mcp`.
+const root = path.resolve(".");
+const exe = process.env.EASY_LABELING_TAURI_EXE ?? path.join(root, "target/debug/Easy Labeling.exe");
+const mcpExe = process.env.EASY_LABELING_MCP_EXE ?? path.join(root, "target/debug/easy-labeling-mcp.exe");
+test.skip(!existsSync(exe) || !existsSync(mcpExe), `Desktop or MCP executable not built: ${exe}, ${mcpExe}`);
+
+interface ToolResult {
+  isError?: boolean;
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+}
+
+/** A minimal MCP client over the server's stdio. */
+function startMcp(pipe: string) {
+  const child: ChildProcessWithoutNullStreams = spawn(mcpExe, [], { env: { ...process.env, EASY_LABELING_AGENT_PIPE: pipe } });
+  const waiting = new Map<number, (message: { result?: unknown; error?: unknown }) => void>();
+  let buffer = "";
+  let next = 1;
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    buffer += chunk;
+    for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+      const line = buffer.slice(0, end).trim();
+      buffer = buffer.slice(end + 1);
+      if (!line) continue;
+      const message = JSON.parse(line) as { id?: number; result?: unknown; error?: unknown };
+      if (message.id !== undefined) waiting.get(message.id)?.(message);
+    }
+  });
+  const request = (method: string, params: unknown) => new Promise<{ result?: unknown; error?: unknown }>((resolve) => {
+    const id = next++;
+    waiting.set(id, resolve);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  });
+  return {
+    async initialize() {
+      const reply = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+      return reply.result as { serverInfo: { name: string } };
+    },
+    async tools() {
+      return ((await request("tools/list", {})).result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name).sort();
+    },
+    async call(name: string, args: Record<string, unknown> = {}) {
+      return (await request("tools/call", { name, arguments: args })).result as ToolResult;
+    },
+    close: () => child.kill()
+  };
+}
+
+const textOf = (result: ToolResult): string => result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+const json = (result: ToolResult) => {
+  expect(result.isError, textOf(result)).toBeFalsy();
+  return JSON.parse(textOf(result));
+};
+const testApi = <T>(page: Page, body: string): Promise<T> => page.evaluate(`(() => { const api = window.__easyLabelingTestApi; return ${body}; })()`) as Promise<T>;
+
+/** Two photos from the bundled sample with their labels. */
+async function sampleDataset(dataset: string): Promise<void> {
+  for (const name of ["sample_1", "sample_2"]) {
+    await copyFile(path.join(root, `assets/sample/${name}.jpg`), path.join(dataset, `${name}.jpg`));
+    await copyFile(path.join(root, `assets/sample/label/${name}.txt`), path.join(dataset, `label/${name}.txt`));
+  }
+}
+
+/** SEM-like gray PNGs (bright blocks at x 13..51, y 10..39 of every 64 x 48 cell) with boxes drawn 4 px too large. */
+const SEM_SIZE = { width: 512, height: 384 };
+const loose = (column: number, row: number) => ({ x0: column * 64 + 9, y0: row * 48 + 6, x1: column * 64 + 56, y1: row * 48 + 44 });
+async function semDataset(dataset: string): Promise<void> {
+  const cells = [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]];
+  const rows = cells.map(([column, row], index) => {
+    const box = loose(column, row);
+    const { width, height } = SEM_SIZE;
+    return `${index < 3 ? 0 : 1} ${(box.x0 + box.x1) / 2 / width} ${(box.y0 + box.y1) / 2 / height} ${(box.x1 - box.x0) / width} ${(box.y1 - box.y0) / height}`;
+  }).join("\n");
+  for (const name of ["a", "b"]) {
+    await writeFile(path.join(dataset, `${name}.png`), grayPng(SEM_SIZE.width, SEM_SIZE.height, name === "a" ? 3 : 4));
+    await writeFile(path.join(dataset, `label/${name}.txt`), rows);
+  }
+}
+
+/** The app on a dataset with its own pipe, and an MCP client for it. */
+async function openAgentApp(options: { dataset?: (folder: string) => Promise<void>; approve?: "accept" | "decline" } = {}) {
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-agent-"));
+  const dataset = path.join(sandbox, "데이터셋");
+  await mkdir(path.join(dataset, "label"), { recursive: true });
+  await (options.dataset ?? sampleDataset)(dataset);
+  await copyFile(path.join(root, "assets/sample/label/classes.yaml"), path.join(dataset, "label/classes.yaml"));
+  // The desktop app reads class files from the profile's Class Info folder.
+  await mkdir(path.join(sandbox, "profiles", "Class Info"), { recursive: true });
+  await copyFile(path.join(root, "assets/sample/label/classes.yaml"), path.join(sandbox, "profiles", "Class Info", "classes.yaml"));
+  const pipe = `\\\\.\\pipe\\easy-labeling-agent-e2e-${process.pid}-${Date.now()}`;
+  const app = await launchDesktop(exe, sandbox, [], { env: { EASY_LABELING_AGENT_PIPE: pipe, EASY_LABELING_TEST_AGENT_APPROVE: options.approve ?? "accept" } });
+  const mcp = startMcp(pipe);
+  const errors: string[] = [];
+  app.page.on("pageerror", (error) => errors.push(error.message));
+  expect((await mcp.initialize()).serverInfo.name).toBe("easy-labeling");
+  return {
+    page: app.page,
+    mcp,
+    dataset,
+    errors,
+    async close() {
+      mcp.close();
+      await app.close();
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+    }
+  };
+}
+
+test("an MCP agent reads, navigates and captures the open app", async () => {
+  test.setTimeout(180_000);
+  const { page, mcp, dataset, errors, close } = await openAgentApp();
+  try {
+    expect(await mcp.tools()).toEqual([
+      "add_boxes", "app_state", "apply_layout", "approve", "capture_view", "delete_boxes", "find_similar", "get_boxes", "get_classes",
+      "get_refine_settings", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "read_labels",
+      "reclass_folder", "redo", "refine_folder", "remap_classes", "review_folder", "review_queue", "run_inference",
+      "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "select_boxes", "set_review_status", "undo", "update_boxes"
+    ]);
+
+    expect(json(await mcp.call("app_state"))).toMatchObject({ folder: null, imageCount: 0, agentPaused: false });
+    const noFolder = await mcp.call("list_images");
+    expect(noFolder.isError).toBe(true);
+    expect(textOf(noFolder)).toMatch(/^no_folder:/);
+
+    const opened = json(await mcp.call("open_folder", { path: dataset }));
+    expect(opened).toMatchObject({ folder: dataset, imageCount: 2 });
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("sample_1.jpg");
+
+    const listed = json(await mcp.call("list_images", { limit: 10 }));
+    expect(listed.images.map((image: { name: string }) => image.name)).toEqual(["sample_1.jpg", "sample_2.jpg"]);
+
+    const moved = json(await mcp.call("go_to_image", { image: "sample_2.jpg" }));
+    expect(moved.currentImage).toBe("sample_2.jpg");
+    expect(await testApi<string>(page, "api.getCurrentImageName()")).toBe("sample_2.jpg");
+    expect(textOf(await mcp.call("go_to_image", { image: "missing.jpg" }))).toMatch(/^not_found:/);
+
+    const boxes = json(await mcp.call("get_boxes"));
+    const geometries = await testApi<Array<{ annotationId: string; left: number; top: number; right: number; bottom: number }>>(page, "api.getRectGeometries()");
+    expect(boxes.boxes).toHaveLength(geometries.length);
+    expect(boxes.boxes.length).toBeGreaterThan(0);
+    // get_boxes refreshes the cached corners first; the test API reads them as they are (last-digit noise).
+    const round = (value: number) => Math.round(value * 1e6) / 1e6;
+    expect(boxes.boxes.map((box: { annotationId: string; x0: number; y0: number; x1: number; y1: number }) => [box.annotationId, ...[box.x0, box.y0, box.x1, box.y1].map(round)]))
+      .toEqual(geometries.map((rect) => [rect.annotationId, ...[rect.left, rect.top, rect.right, rect.bottom].map(round)]));
+
+    const labels = json(await mcp.call("read_labels", { image: "sample_1.jpg" }));
+    expect(labels.units).toBe("normalized");
+    expect(labels.boxes.length).toBeGreaterThan(0);
+    expect(labels.boxes.every((box: { x0: number; x1: number }) => box.x0 >= -0.01 && box.x1 <= 1.01 && box.x0 < box.x1)).toBe(true);
+
+    const classes = json(await mcp.call("get_classes"));
+    expect(classes.classes.length).toBeGreaterThan(0);
+    expect(classes.classes[0]).toEqual({ id: expect.any(String), name: expect.any(String), color: expect.stringMatching(/^#[0-9a-f]{6}$/i) });
+
+    const capture = await mcp.call("capture_view", { maxSide: 512 });
+    expect(capture.isError, textOf(capture)).toBeFalsy();
+    const image = capture.content.find((part) => part.type === "image");
+    expect(image?.type === "image" && image.mimeType).toBe("image/png");
+    const png = Buffer.from(image?.type === "image" ? image.data : "", "base64");
+    expect(png.subarray(1, 4).toString("ascii")).toBe("PNG");
+    const info = JSON.parse(textOf(capture));
+    expect(Math.max(png.readUInt32BE(16), png.readUInt32BE(20))).toBe(Math.max(info.width, info.height));
+    expect(Math.max(info.width, info.height)).toBeLessThanOrEqual(512);
+    await writeFile(test.info().outputPath("capture_view.png"), png);
+
+    // The person typing: calls that change the app wait; reading still works.
+    await page.evaluate(() => {
+      const input = document.createElement("input");
+      input.id = "agentBusyProbe";
+      document.body.append(input);
+      input.focus();
+    });
+    expect(textOf(await mcp.call("go_to_image", { step: -1 }))).toMatch(/^busy:/);
+    expect(json(await mcp.call("app_state")).busy).toMatch(/typing/);
+    await page.evaluate(() => document.getElementById("agentBusyProbe")?.remove());
+
+    // The person's Stop pauses the agent until resumed.
+    await page.evaluate(() => document.getElementById("agentPauseBtn")?.click());
+    await expect(page.locator("#agentIndicator")).toBeVisible();
+    await expect(page.locator("#agentIndicatorText")).toHaveText("Agent paused");
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((dark) => document.body.classList.toggle("dark-mode", dark), theme === "dark");
+      const height = await page.evaluate(() => window.innerHeight);
+      await page.screenshot({ path: test.info().outputPath(`agent-indicator-${theme}.png`), clip: { x: 0, y: height - 120, width: 1480, height: 120 } });
+    }
+    await page.evaluate(() => document.body.classList.remove("dark-mode"));
+    expect(textOf(await mcp.call("go_to_image", { step: -1 }))).toMatch(/^declined:/);
+    expect(json(await mcp.call("app_state")).agentPaused).toBe(true);
+    await page.locator("#agentPauseBtn").click();
+    expect(json(await mcp.call("go_to_image", { step: -1 })).currentImage).toBe("sample_1.jpg");
+    await expect(page.locator("#agentIndicator")).toBeHidden();
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent edits boxes, each call one undo step, and saves", async () => {
+  test.setTimeout(180_000);
+  const { page, mcp, dataset, errors, close } = await openAgentApp();
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("sample_1.jpg");
+    const start = await testApi<number>(page, "api.getRectCount()");
+    const rectCount = () => testApi<number>(page, "api.getRectCount()");
+    const boxOf = async (id: string) => json(await mcp.call("get_boxes", { ids: [id] })).boxes[0];
+    await expect(page.locator("#undoBtn")).toBeDisabled();
+
+    const added = json(await mcp.call("add_boxes", { boxes: [
+      { classId: "1", x0: 10, y0: 20, x1: 60, y1: 80 },
+      { classId: 3, x0: 100.5, y0: 100, x1: 150, y1: 140.25 }
+    ] }));
+    expect(added.annotationIds).toHaveLength(2);
+    expect(added.boxCount).toBe(start + 2);
+    expect(await rectCount()).toBe(start + 2);
+    const [first, second] = added.annotationIds as string[];
+    expect(await boxOf(first)).toMatchObject({ classId: "1", x0: 10, y0: 20, x1: 60, y1: 80 });
+    const secondBox = await boxOf(second);
+    expect([secondBox.classId, secondBox.x0, secondBox.y0, secondBox.x1, secondBox.y1]).toEqual(["3", 100.5, 100, 150, 140.25]);
+    await expect(page.locator("#undoBtn")).toBeEnabled();
+
+    // Bad input changes nothing.
+    expect(textOf(await mcp.call("add_boxes", { boxes: [{ classId: "1", x0: 10, y0: 20, x1: 99_999, y1: 80 }] }))).toMatch(/^invalid_args: boxes\[0\]: lies outside/);
+    expect(textOf(await mcp.call("add_boxes", { boxes: [{ classId: "-1", x0: 10, y0: 20, x1: 60, y1: 80 }] }))).toMatch(/^invalid_args:/);
+    expect(textOf(await mcp.call("update_boxes", { updates: [{ annotationId: "nope", x0: 1 }] }))).toMatch(/^not_found:/);
+    expect(await rectCount()).toBe(start + 2);
+
+    // Geometry and class together: one undo step restores both.
+    expect(json(await mcp.call("update_boxes", { updates: [{ annotationId: first, x1: 70, classId: "2" }] }))).toMatchObject({ moved: 1, relabelled: 1 });
+    expect(await boxOf(first)).toMatchObject({ classId: "2", x0: 10, x1: 70 });
+    expect(json(await mcp.call("undo"))).toMatchObject({ undone: 1 });
+    expect(await boxOf(first)).toMatchObject({ classId: "1", x0: 10, x1: 60 });
+
+    expect(json(await mcp.call("delete_boxes", { annotationIds: [first, second] }))).toMatchObject({ deleted: 2, boxCount: start });
+    expect(await rectCount()).toBe(start);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start + 2);
+    json(await mcp.call("redo"));
+    expect(await rectCount()).toBe(start);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start + 2);
+
+    expect(json(await mcp.call("select_boxes", { annotationIds: [second] })).selectedIds).toEqual([second]);
+    expect(await testApi<string[]>(page, "api.getSelectedRectIds()")).toEqual([second]);
+    expect(json(await mcp.call("select_boxes", { select: "none" })).selectedIds).toEqual([]);
+
+    // The person holding the mouse on the canvas: edits wait.
+    const canvas = await page.locator("#canvas").boundingBox();
+    await page.mouse.move(canvas!.x + canvas!.width - 5, canvas!.y + canvas!.height - 5);
+    await page.mouse.down();
+    expect(textOf(await mcp.call("add_boxes", { boxes: [{ classId: "1", x0: 1, y0: 1, x1: 5, y1: 5 }] }))).toMatch(/^busy:/);
+    await page.mouse.up();
+    expect(await rectCount()).toBe(start + 2);
+
+    expect(json(await mcp.call("save"))).toMatchObject({ saved: "sample_1.jpg", unsavedChanges: false });
+    const rows = (await readFile(path.join(dataset, "label/sample_1.txt"), "utf8")).trim().split(/\r?\n/);
+    expect(rows).toHaveLength(start + 2);
+    expect(rows.some((row) => row.startsWith("3 "))).toBe(true);
+
+    // The person's Ctrl+Z undoes the agent's edit: one shared history.
+    json(await mcp.call("add_boxes", { boxes: [{ classId: "1", x0: 1, y0: 1, x1: 9, y1: 9 }] }));
+    expect(await rectCount()).toBe(start + 3);
+    await page.keyboard.press("Control+KeyZ");
+    await expect.poll(rectCount).toBe(start + 2);
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent runs Refine, review and folder-wide changes the person allows", async () => {
+  test.setTimeout(240_000);
+  const { page, mcp, dataset, errors, close } = await openAgentApp({ dataset: semDataset });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("a.png");
+    const settings = json(await mcp.call("get_refine_settings"));
+    expect(settings).toMatchObject({ mode: "edge", runWith: null, edgePresets: [] });
+
+    const boxes = json(await mcp.call("get_boxes")).boxes as Array<{ annotationId: string; classId: string; x0: number; x1: number }>;
+    const first = boxes[0];
+    const refined = json(await mcp.call("run_refine", { annotationIds: [first.annotationId] }));
+    expect(refined.refined).toBe(1);
+    const change = refined.changes[0];
+    expect(change.annotationId).toBe(first.annotationId);
+    // Snapped inward onto the block (13..52), from the loose box (9..56).
+    expect(change.after.x0).toBeGreaterThan(change.before.x0 + 2);
+    expect(change.after.x1).toBeLessThan(change.before.x1 - 2);
+    const after = json(await mcp.call("get_boxes", { ids: [first.annotationId] })).boxes[0];
+    expect(Math.abs(after.x0 - change.after.x0)).toBeLessThan(1e-6);
+    json(await mcp.call("undo"));
+    expect(json(await mcp.call("get_boxes", { ids: [first.annotationId] })).boxes[0].x0).toBeCloseTo(first.x0, 6);
+
+    const classRun = json(await mcp.call("run_refine", { classId: "1" }));
+    expect(classRun.changes.length).toBeGreaterThan(0);
+    expect(classRun.changes.every((item: { classId: string }) => item.classId === "1")).toBe(true);
+    const queue = json(await mcp.call("review_queue"));
+    expect(queue.mode).toBe("edge");
+    expect(json(await mcp.call("approve", { all: true })).remaining).toBe(0);
+    expect(json(await mcp.call("review_queue")).boxes).toEqual([]);
+
+    expect(textOf(await mcp.call("run_refine", { preset: "No such preset" }))).toMatch(/^not_found:/);
+    expect(textOf(await mcp.call("run_refine", { annotationIds: ["nope"] }))).toMatch(/^not_found: No box with annotationId nope/);
+    // Reclass with the default rule: the matches join the reclass queue; one undo puts the classes back.
+    const reclassed = json(await mcp.call("run_reclass", { classId: "1" }));
+    expect(reclassed.changed.length).toBeGreaterThan(0);
+    expect(reclassed.changed.every((item: { from: string }) => item.from === "1")).toBe(true);
+    expect(json(await mcp.call("review_queue", { mode: "reclass" })).boxes).toHaveLength(reclassed.changed.length);
+    expect(json(await mcp.call("approve", { all: true, mode: "reclass" })).remaining).toBe(0);
+    json(await mcp.call("undo"));
+    const classOne = json(await mcp.call("get_boxes")).boxes.filter((box: { classId: string }) => box.classId === "1");
+    expect(classOne).toHaveLength(3);
+
+    const review = json(await mcp.call("review_folder"));
+    expect(review.imagesChecked).toBe(2);
+
+    // Class remap: a dry run changes nothing; applying it rewrites both label files after the person allows it.
+    const before = await readFile(path.join(dataset, "label/b.txt"), "utf8");
+    const dry = json(await mcp.call("remap_classes", { mapping: [{ from: "1", to: "5" }] }));
+    expect(dry).toMatchObject({ changedBoxes: 6, imagesChanged: 2, applied: false });
+    expect(await readFile(path.join(dataset, "label/b.txt"), "utf8")).toBe(before);
+    const remapped = json(await mcp.call("remap_classes", { mapping: [{ from: "1", to: "5" }], dryRun: false }));
+    expect(remapped).toMatchObject({ applied: true, changedBoxes: 6 });
+    const remappedRows = (await readFile(path.join(dataset, "label/b.txt"), "utf8")).trim().split(/\r?\n/);
+    expect(remappedRows.map((row) => row.split(" ")[0])).toEqual(["0", "0", "0", "5", "5", "5"]);
+
+    // Folder refine: every loose box of b.png snaps; the originals are backed up.
+    const folder = json(await mcp.call("refine_folder"));
+    expect(folder.images).toBe(2);
+    expect(folder.boxesChanged).toBeGreaterThanOrEqual(6);
+    expect(folder.backupPath).toBeTruthy();
+    const refinedRows = (await readFile(path.join(dataset, "label/b.txt"), "utf8")).trim().split(/\r?\n/);
+    const width = Number(refinedRows[0].split(" ")[3]) * SEM_SIZE.width;
+    expect(width).toBeLessThan(loose(0, 0).x1 - loose(0, 0).x0 - 4);
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and layouts", async () => {
+  test.setTimeout(240_000);
+  const { page, mcp, dataset, errors, close } = await openAgentApp({ dataset: semDataset });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("a.png");
+    const rectCount = () => testApi<number>(page, "api.getRectCount()");
+
+    // Paged boxes with counts for the whole image.
+    const firstPage = json(await mcp.call("get_boxes", { limit: 2 }));
+    expect(firstPage).toMatchObject({ total: 6, offset: 0, truncated: true, countsByClass: { 0: 3, 1: 3 } });
+    expect(firstPage.boxes).toHaveLength(2);
+    expect(json(await mcp.call("get_boxes", { limit: 0 })).boxes).toEqual([]);
+    const classZero = json(await mcp.call("get_boxes", { classId: 0 })).boxes as Array<{ annotationId: string; x0: number; y0: number; x1: number; y1: number }>;
+    expect(classZero).toHaveLength(3);
+
+    // Dry runs return what would change and change nothing.
+    const dry = json(await mcp.call("run_refine", { classId: "1", dryRun: true }));
+    expect(dry.dryRun).toBe(true);
+    expect(dry.changes.length).toBeGreaterThan(0);
+    const unchanged = json(await mcp.call("get_boxes", { ids: [dry.changes[0].annotationId] })).boxes[0];
+    expect(unchanged.x0).toBeCloseTo(dry.changes[0].before.x0, 6);
+    const one = json(await mcp.call("run_refine", { classId: "1", limit: 1 }));
+    expect(one.changes).toHaveLength(1);
+    expect(one.listed).toMatchObject({ total: 3, truncated: true });
+    json(await mcp.call("undo"));
+    const reclassDry = json(await mcp.call("run_reclass", { classId: "1", dryRun: true }));
+    expect(reclassDry.dryRun).toBe(true);
+    expect(Object.values(reclassDry.changesByClass as Record<string, number>).reduce((sum, count) => sum + count, 0)).toBe(reclassDry.listed.total);
+    expect(json(await mcp.call("get_boxes", { classId: "1" })).total).toBe(3);
+
+    // A zoomed crop around one box.
+    const crop = await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512 });
+    const cropInfo = JSON.parse(textOf(crop));
+    const cropImage = crop.content.find((part) => part.type === "image");
+    expect(cropImage).toBeTruthy();
+    if (cropImage?.type === "image") await writeFile(path.join(root, "test-results/agent-capture-crop.png"), Buffer.from(cropImage.data, "base64"));
+    expect(Math.max(cropInfo.width, cropInfo.height)).toBeLessThanOrEqual(512);
+    expect(cropInfo.imageFromCapture.offsetX).toBeCloseTo(Math.max(0, classZero[0].x0 - (classZero[0].x1 - classZero[0].x0) / 2), 6);
+    expect(textOf(await mcp.call("capture_view", { region: { x0: 600, y0: 0, x1: 700, y1: 10 } }))).toMatch(/^invalid_args:/);
+
+    // find_similar: every block in the 8 x 8 grid matches the labelled one; the 6 labelled blocks are skipped.
+    const start = await rectCount();
+    const similar = json(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, limit: 5 }));
+    expect(similar.applied).toBe(false);
+    expect(similar.found).toBeGreaterThanOrEqual(50);
+    expect(similar.candidates).toHaveLength(5);
+    expect(similar.overlappingExisting).toBeGreaterThanOrEqual(5);
+    expect(await rectCount()).toBe(start);
+    const added = json(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, apply: true, limit: 0 }));
+    expect(added.annotationIds).toHaveLength(similar.found);
+    expect(await rectCount()).toBe(start + similar.found);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start);
+
+    // A layout from the class-0 row, placed two rows lower (anchor + 96 px), then undone.
+    const saved = json(await mcp.call("save_layout", { name: "Agent row", annotationIds: classZero.map((box) => box.annotationId) }));
+    expect(saved).toMatchObject({ layout: "Agent row", boxCount: 3, overwritten: false });
+    expect(textOf(await mcp.call("save_layout", { name: "Agent row", scope: "all" }))).toMatch(/^invalid_args:/);
+    expect(json(await mcp.call("list_templates")).layouts).toContainEqual({ name: "Agent row", boxCount: 3 });
+    const placed = json(await mcp.call("apply_layout", { layout: "Agent row", x: saved.sourceAnchor.x, y: saved.sourceAnchor.y + 96 }));
+    expect(placed.applied).toBe(3);
+    const placedBoxes = json(await mcp.call("get_boxes", { ids: placed.annotationIds })).boxes as Array<{ y0: number }>;
+    expect(placedBoxes.map((box) => box.y0).sort((a, b) => a - b)[0]).toBeCloseTo(Math.min(...classZero.map((box) => box.y0)) + 96, 6);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start);
+    expect(textOf(await mcp.call("apply_layout", { layout: "No such layout" }))).toMatch(/^not_found:/);
+
+    // Review status, as the image list's buttons set it.
+    expect(json(await mcp.call("set_review_status", { status: "reviewed" }))).toMatchObject({ images: ["a.png"], reviewedInFolder: 1, imageCount: 2 });
+    const reviewState = JSON.parse(await readFile(path.join(dataset, ".easy-labeling/review-state.json"), "utf8"));
+    expect(reviewState.images["a.png"].status).toBe("reviewed");
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent runs template automation presets and YOLO inference", async () => {
+  test.setTimeout(240_000);
+  const { page, mcp, dataset, errors, close } = await openAgentApp({
+    dataset: async (folder) => {
+      await sampleDataset(folder);
+      // The sample's automation presets, which open_folder loads with the folder.
+      await mkdir(path.join(folder, ".easy-labeling"), { recursive: true });
+      await copyFile(path.join(root, "assets/sample/.easy-labeling/automation-library.json"), path.join(folder, ".easy-labeling/automation-library.json"));
+      await writeFile(path.join(path.dirname(folder), "local.onnx"), inferenceModel(1, "nchw"));
+    }
+  });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("sample_1.jpg");
+    const rectCount = () => testApi<number>(page, "api.getRectCount()");
+    const start = await rectCount();
+
+    const library = json(await mcp.call("list_templates"));
+    expect(library.presets.map((preset: { name: string }) => preset.name)).toEqual(["Sample Pink Anchor + Layout", "Sample Pink Vehicle Finder"]);
+    expect(library.layouts).toEqual([{ name: "Sample Color Grid (4 Cars)", boxCount: 4 }]);
+
+    // A preview finds the anchor and changes nothing; apply adds the layout's boxes as one undo step.
+    const preview = json(await mcp.call("run_template_matching", { preset: "Sample Pink Anchor + Layout" }));
+    expect(preview.applied).toBe(false);
+    expect(preview.match.score).toBeGreaterThanOrEqual(0.85);
+    expect(preview.match.layout).toBe("Sample Color Grid (4 Cars)");
+    expect(await rectCount()).toBe(start);
+    const applied = json(await mcp.call("run_template_matching", { preset: "Sample Pink Anchor + Layout", apply: true }));
+    expect(applied.applied).toBe(true);
+    expect(applied.annotationIds.length).toBeGreaterThan(0);
+    expect(await rectCount()).toBe(start + applied.annotationIds.length);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start);
+
+    const candidates = json(await mcp.call("run_template_matching", { preset: "Sample Pink Vehicle Finder" })).candidates;
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.every((item: { score: number; classId: string }) => item.score >= 0.82 && typeof item.classId === "string")).toBe(true);
+    expect(textOf(await mcp.call("run_template_matching", { preset: "No such preset" }))).toMatch(/^not_found:/);
+
+    // Inference: a model from a path; results go to the model's own label folder.
+    expect(textOf(await mcp.call("load_model", { path: path.join(dataset, "sample_1.jpg") }))).toMatch(/^invalid_args:/);
+    expect(textOf(await mcp.call("run_inference"))).toMatch(/^failed: Load an ONNX model first/);
+    expect(json(await mcp.call("load_model", { path: path.join(path.dirname(dataset), "local.onnx") })).model).toBe("local.onnx");
+    expect(json(await mcp.call("inference_status"))).toMatchObject({ ready: true, model: "local.onnx" });
+    const current = json(await mcp.call("run_inference"));
+    expect(current).toEqual({ imageCount: 1, detectionCount: 1, folderName: "inference-local" });
+    expect((await readFile(path.join(dataset, "inference-local/sample_1.txt"), "utf8")).trim().split(/\s+/)).toHaveLength(5);
+    expect(json(await mcp.call("run_inference", { allImages: true, confidence: 0.1 }))).toMatchObject({ imageCount: 2, folderName: "inference-local" });
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("the Agent panel shows the connection, how to register each client, permissions and activity", async () => {
+  test.setTimeout(180_000);
+  const { page, mcp, dataset, errors, close } = await openAgentApp();
+  try {
+    await expect(page.locator("#agentPanelBtn")).toBeVisible();
+    await page.locator("#agentPanelBtn").click();
+    const panel = page.locator("#agentPanel");
+    await expect(panel).toBeVisible();
+    await expect(page.locator("#agentStatusLine")).toHaveAttribute("data-state", "listening");
+    await expect(page.locator("#agentStatusLine")).toContainText("Waiting for agents");
+    const serverPath = await page.locator("#agentServerPath").inputValue();
+    expect(serverPath).toMatch(/easy-labeling-mcp\.exe$/);
+    await expect(page.locator("#agentServerWarning")).toBeHidden();
+
+    // Every client gets a snippet with the server path; Codex also gets a long tool time limit.
+    await page.locator("#agentClientSelect").selectOption("codex");
+    await expect(page.locator("#agentClientSnippet")).toContainText("tool_timeout_sec = 3600");
+    await expect(page.locator("#agentClientSnippet")).toContainText(serverPath);
+    await page.locator("#agentClientSelect").selectOption("opencode");
+    await expect(page.locator("#agentClientSnippet")).toContainText('"type": "local"');
+    await page.locator("#agentClientSelect").selectOption("claude-code");
+    await expect(page.locator("#agentClientSnippet")).toHaveText(`claude mcp add --scope user easy-labeling -- "${serverPath}"`);
+
+    // A call shows up as the last call (with the client's name) and in the activity list.
+    json(await mcp.call("open_folder", { path: dataset }));
+    json(await mcp.call("app_state"));
+    await expect(page.locator("#agentLastCall")).toContainText("Last call: app_state from e2e 0");
+    await expect(page.locator("#agentActivityList li").first()).toContainText("app_state");
+    await expect(page.locator("#agentActivityList li")).toHaveCount(2);
+
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((dark) => document.body.classList.toggle("dark-mode", dark), theme === "dark");
+      await panel.screenshot({ path: test.info().outputPath(`agent-panel-${theme}.png`) });
+      await page.screenshot({ path: test.info().outputPath(`agent-panel-window-${theme}.png`) });
+    }
+    await page.evaluate(() => document.body.classList.remove("dark-mode"));
+
+    // Read-only: reading works, changes are declined.
+    await page.locator("#agentChangesToggle").uncheck();
+    expect(textOf(await mcp.call("go_to_image", { step: 1 }))).toMatch(/^declined: .*read-only/);
+    json(await mcp.call("get_boxes"));
+    await page.locator("#agentChangesToggle").check();
+
+    // Folder-wide changes blocked: refused without a dialog, files untouched.
+    await page.locator("#agentFolderSelect").selectOption("block");
+    const before = await readFile(path.join(dataset, "label/sample_1.txt"), "utf8");
+    expect(textOf(await mcp.call("remap_classes", { mapping: [{ from: "1", to: "5" }], dryRun: false }))).toMatch(/^declined: Folder-wide changes are blocked/);
+    expect(await readFile(path.join(dataset, "label/sample_1.txt"), "utf8")).toBe(before);
+    await page.locator("#agentFolderSelect").selectOption("ask");
+
+    // Agents off: every call is declined, reads included.
+    await page.locator("#agentEnabledToggle").uncheck();
+    expect(textOf(await mcp.call("app_state"))).toMatch(/^declined: The person turned agent access off/);
+    await page.locator("#agentEnabledToggle").check();
+    json(await mcp.call("app_state"));
+    await expect(page.locator("#agentActivityList li[data-ok='false']")).toHaveCount(3);
+
+    // The settings stay after a reload.
+    await page.locator("#agentChangesToggle").uncheck();
+    await page.reload();
+    await page.waitForFunction(() => Boolean(Reflect.get(window, "__easyLabelingTestApi")));
+    await page.locator("#agentPanelBtn").click();
+    await expect(page.locator("#agentChangesToggle")).not.toBeChecked();
+    await page.locator("#agentPanelCloseBtn").click();
+    await expect(panel).toBeHidden();
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("the person can decline what the agent asks for", async () => {
+  test.setTimeout(120_000);
+  const { mcp, dataset, close } = await openAgentApp({ approve: "decline" });
+  try {
+    expect(textOf(await mcp.call("open_folder", { path: dataset }))).toMatch(/^declined:/);
+    expect(json(await mcp.call("app_state")).folder).toBeNull();
+  } finally {
+    await close();
+  }
+});
+
+test("the MCP server answers app_not_running when no app listens", async () => {
+  const mcp = startMcp(`\\\\.\\pipe\\easy-labeling-agent-nobody-${process.pid}`);
+  try {
+    await mcp.initialize();
+    const result = await mcp.call("app_state");
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/^app_not_running:/);
+  } finally {
+    mcp.close();
+  }
+});

@@ -649,3 +649,10 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 - `src/features/automation/template-workspace.ts`: Template ROI/결과 선택, 팬, 확대, Fit, 후보 포커스.
 - `src/features/canvas/detection-canvas-workflow.ts`: Detection 박스 생성, 선택, 정렬, 이동 및 편집.
 - `src/features/segmentation/workflow.ts`: Brush/Erase, 연결 영역 선택, 이동, 클래스 변경, 자동 채우기.
+
+## 16. AI 에이전트 연동 (데스크톱)
+
+데스크톱 앱은 AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 MCP 도구로 조종할 수 있게 `easy-labeling-mcp.exe`를 함께 설치한다. 에이전트는 박스 읽기·편집, Refine/Reclass/검수, 폴더 전체 변경(사람 승인), 템플릿 매칭 프리셋, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 undo 한 단계다. 하단 상태 표시줄의 Stop으로 언제든 멈출 수 있다.
+
+- 연결 방법, 도구 목록, 안전 장치: [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)
+- 구현 계획과 진행 기록: [AGENT_MCP_PLAN_KO.md](AGENT_MCP_PLAN_KO.md)

@@ -20,5 +20,6 @@ vendor/
 /target/
 /src-tauri/target/
 /src-tauri/frontend/
+/src-tauri/binaries/
 /src-tauri/gen/
 /crates/el-bench/fixtures/generated/
