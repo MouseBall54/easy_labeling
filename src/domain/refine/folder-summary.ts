@@ -4,6 +4,7 @@
  * Rust batch and the TS path feed it the same per-box results, so the summary cannot differ between them.
  * DOM-free.
  */
+import { analyzeBoxes, type BoxFindingType } from "./box-statistics.js";
 import type { RefineBoxInput, RefineRect, RefineResult, RefineSide } from "./edge-refine.js";
 
 /** One image of an edge dry run: every box read from its label file, and the refine result of each box that moved or was flagged. */
@@ -41,6 +42,11 @@ export interface EdgeFolderSummary {
     boxes: Array<{ image: string; line: number; classId: string; shiftPx: number; areaChangePercent: number; confidence: number; sideConfidence: Partial<Record<RefineSide, number>>; reasons: string[]; before: RefineRect; after: RefineRect }>;
     /** Images with the most flagged boxes (share of their boxes). */
     images: Array<{ image: string; boxes: number; moved: number; flagged: number; flaggedPercent: number }>;
+  };
+  /** Population checks (box-statistics) on the boxes as Refine would leave them: size outliers, off-row/column, crowded, missing positions. */
+  afterRefine: {
+    counts: Record<BoxFindingType | "missing", number>;
+    images: Array<{ image: string; counts: Record<BoxFindingType | "missing", number> }>;
   };
 }
 
@@ -91,7 +97,13 @@ export function summarizeEdgeFolder(images: readonly EdgeImageRecord[], options:
   let moved = 0;
   let flagged = 0;
   let withChanges = 0;
+  const afterCounts: Record<BoxFindingType | "missing", number> = { size: 0, "off-row": 0, "off-column": 0, crowded: 0, missing: 0 };
+  const afterImages: EdgeFolderSummary["afterRefine"]["images"] = [];
   for (const record of images) {
+    const after = analyzeBoxes(record.boxes.map((box) => ({ ...box, ...(record.results.get(box.id)?.box ?? {}) })));
+    const issues = Object.values(after.counts).reduce((sum, count) => sum + count, 0);
+    for (const key of Object.keys(afterCounts) as Array<keyof typeof afterCounts>) afterCounts[key] += after.counts[key];
+    if (issues) afterImages.push({ image: record.image, counts: after.counts });
     let imageMoved = 0;
     let imageFlagged = 0;
     for (const box of record.boxes) {
@@ -152,7 +164,11 @@ export function summarizeEdgeFolder(images: readonly EdgeImageRecord[], options:
     byClass: Object.fromEntries([...classes].sort(([a], [b]) => Number(a) - Number(b)).map(([classId, entry]) => [classId, {
       boxes: entry.boxes, moved: entry.moved, flagged: entry.flagged, medianShiftPx: round(quantile(ascending(entry.shifts), 0.5))
     }])),
-    outliers: { boxes: outlierBoxes.slice(0, limit), images: perImage.filter((image) => image.flagged > 0).slice(0, limit) }
+    outliers: { boxes: outlierBoxes.slice(0, limit), images: perImage.filter((image) => image.flagged > 0).slice(0, limit) },
+    afterRefine: {
+      counts: afterCounts,
+      images: afterImages.sort((a, b) => Object.values(b.counts).reduce((x, y) => x + y, 0) - Object.values(a.counts).reduce((x, y) => x + y, 0)).slice(0, limit)
+    }
   };
 }
 

@@ -28,7 +28,7 @@ and apply_layout take offset/limit and always return the totals (limit 0 returns
 with annotationId or region (a zoomed crop) over listing every box.\n\n\
 Typical flow: find_similar from one good box (or run_template_matching / apply_layout) to add boxes -> run_refine with dryRun \
 to see what would move, then without dryRun (pass the returned annotationIds as the scope) -> review_queue and capture_view \
-on flagged boxes -> approve or update_boxes -> save -> set_review_status. Before run_reclass, read reclassRule from \
+on flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Before run_reclass, read reclassRule from \
 get_refine_settings and try dryRun first. For a whole folder, judge by numbers rather than captures: dry-run refine_folder / \
 reclass_folder on a sample (sample: 20), read the summary (flagged share, shift and confidence spreads, outliers), capture only \
 the outliers, adjust, and write the accepted result with its resultId. Every edit is one undo step; folder-wide writes ask the person first.";
@@ -76,6 +76,21 @@ struct PixelRegion {
     y0: f64,
     x1: f64,
     y1: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeBoxesArgs {
+    #[schemars(description = "Only this class (default: every class, each checked on its own)")]
+    class_id: Option<Value>,
+    #[schemars(description = "Check the saved label files of this many images spread evenly over the list, instead of the current image")]
+    sample: Option<u32>,
+    #[schemars(description = "Or: check the saved label files of these images")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Index of the first finding (current image) or image (several images) to list (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Findings (default 50) or images (default 20) to list")]
+    limit: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -422,6 +437,20 @@ impl EasyLabeling {
         ct: CancellationToken,
     ) -> CallToolResult {
         forward("read_labels", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Check boxes against their own population, per class, as an expert scans a label set: size outliers (robust median/MAD), boxes off their row or column, crowded spacing (possible duplicates) and gaps where the row/column pitch skips a position (likely missed objects, with estimated centres). Current image by default (pixels, annotationIds, unsaved edits included); sample or images check saved label files (normalized, row indexes as read_labels). Use it after find_similar, run_refine or apply_layout instead of looking at captures.",
+        annotations(read_only_hint = true)
+    )]
+    async fn analyze_boxes(
+        &self,
+        Parameters(args): Parameters<AnalyzeBoxesArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("analyze_boxes", to_value(&args), (meta, peer, ct)).await
     }
 
     #[tool(
@@ -973,6 +1002,7 @@ mod tests {
             names,
             [
                 "add_boxes",
+                "analyze_boxes",
                 "app_state",
                 "apply_layout",
                 "approve",
