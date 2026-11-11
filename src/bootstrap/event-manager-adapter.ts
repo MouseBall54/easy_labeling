@@ -13,11 +13,11 @@ import type { CanvasHistoryGestureBaseline } from "../features/canvas/history.js
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-system-adapter.js";
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
-import { createRefineController, resolveRefineShortcut } from "./refine-controller.js";
-import { createAutomationController, type AutomationWindow } from "./automation-controller.js";
+import { createRefineController, resolveRefineShortcut, type RefineAgentApi } from "./refine-controller.js";
+import { createAutomationController, type AutomationAgentApi, type AutomationWindow } from "./automation-controller.js";
 import { saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
-import { bindInferenceControls } from "./inference-controller.js";
+import { bindInferenceControls, type InferenceAgentApi } from "./inference-controller.js";
 import { getDefaultColorForClass } from "../features/canvas/colors.js";
 import { bindClassRemapControls } from "./class-remap-controller.js";
 
@@ -121,6 +121,16 @@ export const ARRANGE_SHORTCUTS = {
   KeyV: "distributeSelectionVertically"
 } as const;
 
+/** The event manager with what the desktop agent drives (src/bootstrap/agent-runtime.ts). */
+export interface RuntimeEventManager extends EventManager {
+  /** Refine's pane actions with explicit targets; null before bindEventListeners or without a document. */
+  refineAgent(): RefineAgentApi | null;
+  /** Saved automation presets on the current image; null before bindEventListeners or without a document. */
+  automationAgent(): AutomationAgentApi | null;
+  /** The Inference panel's model and runs; null without the panel. */
+  inferenceAgent(): InferenceAgentApi | null;
+}
+
 export function createEventManagerAdapter(input: {
   state: AppState;
   uiManager: RuntimeUiManager;
@@ -138,11 +148,22 @@ export function createEventManagerAdapter(input: {
     easyLabelingNative: Window["easyLabelingNative"];
   }>;
   documentRef?: Document;
-}): EventManager {
+}): RuntimeEventManager {
+  let openImageFolder: ((folder: Promise<FileSystemDirectoryHandle>) => Promise<void>) | null = null;
+  let syncAfterEdit: (() => void) | null = null;
+  let refineAgent: RefineAgentApi | null = null;
+  let automationAgent: AutomationAgentApi | null = null;
+  let inferenceAgent: InferenceAgentApi | null = null;
   return {
+    refineAgent: () => refineAgent,
+    automationAgent: () => automationAgent,
+    inferenceAgent: () => inferenceAgent,
+    openImageFolder: (folder) => openImageFolder ? openImageFolder(folder) : Promise.reject(new Error("The app is still starting.")),
+    syncAfterEdit: () => syncAfterEdit?.(),
     bindEventListeners(): void {
       const { elements } = input.uiManager;
-      const disposeInference = input.documentRef ? bindInferenceControls({ ...input, documentRef: input.documentRef }) : () => {};
+      const inference = input.documentRef ? bindInferenceControls({ ...input, documentRef: input.documentRef }) : { dispose: () => {}, agent: null };
+      inferenceAgent = inference.agent;
       const disposeClassRemap = input.documentRef ? bindClassRemapControls({ ...input, documentRef: input.documentRef }) : () => {};
       const segmentationFormatStorageKey = "easy-labeling:segmentation-format-settings";
       const settingsStorage = input.documentRef?.defaultView?.localStorage;
@@ -246,6 +267,7 @@ export function createEventManagerAdapter(input: {
         })
         : null;
       automationController?.bind();
+      automationAgent = automationController?.agent ?? null;
       const refineController = input.documentRef
         ? createRefineController({
           state: input.state,
@@ -256,6 +278,7 @@ export function createEventManagerAdapter(input: {
         })
         : null;
       refineController?.bind();
+      refineAgent = refineController?.agent ?? null;
 
 
       const runAsync = (action: () => Promise<void>): void => {
@@ -504,6 +527,12 @@ export function createEventManagerAdapter(input: {
           .filter((object) => object.visible !== false).length;
       };
 
+      // Edits made outside the canvas's own events (the agent): refresh the label list, toolbar and inspector.
+      syncAfterEdit = () => {
+        input.uiManager.updateLabelList();
+        syncToolbarActionState();
+        input.uiManager.syncWorkspaceState?.();
+      };
       const syncToolbarActionState = (): void => {
         const actionableCount = getActiveVisibleRectSelectionCount();
         const alignDisabled = actionableCount < 2;
@@ -1006,16 +1035,24 @@ export function createEventManagerAdapter(input: {
         runAsync(deleteSelectedBoxesWithProgress);
       });
 
+      const openDataset = (selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void> => automationController
+        ? prepareWorkspace({
+          title: "Preparing dataset workspace",
+          summary: "Connecting the dataset and checking each labeling feature.",
+          loadDataset: (reportProgress) => input.fileSystem.selectImageFolder(reportProgress, selectedFolder)
+        })
+        : input.fileSystem.selectImageFolder(undefined, selectedFolder);
       elements.selectImageFolderBtn.addEventListener("click", () => {
         const selectedFolder = input.windowRef.showDirectoryPicker?.();
-        runExclusive("open-dataset", automationController
-          ? () => prepareWorkspace({
-            title: "Preparing dataset workspace",
-            summary: "Connecting the dataset and checking each labeling feature.",
-            loadDataset: (reportProgress) => input.fileSystem.selectImageFolder(reportProgress, selectedFolder)
-          })
-          : () => input.fileSystem.selectImageFolder(undefined, selectedFolder), elements.selectImageFolderBtn as HTMLButtonElement);
+        runExclusive("open-dataset", () => openDataset(selectedFolder), elements.selectImageFolderBtn as HTMLButtonElement);
       });
+      // The agent's open_folder: the button's path with the folder already chosen; settles when it finishes.
+      openImageFolder = (folder) => {
+        if (pendingActions.has("open-dataset")) return Promise.reject(new Error("A folder is already being opened."));
+        return new Promise<void>((resolve) => {
+          runExclusive("open-dataset", () => openDataset(folder).finally(resolve), elements.selectImageFolderBtn as HTMLButtonElement);
+        });
+      };
 
       elements.selectLabelFolderBtn.addEventListener("click", () => {
         const selectedFolder = input.windowRef.showDirectoryPicker?.();
@@ -2842,7 +2879,7 @@ export function createEventManagerAdapter(input: {
         (event as BeforeUnloadEvent).returnValue = "";
       });
       input.windowRef.addEventListener("unload", () => {
-        disposeInference();
+        inference.dispose();
         disposeClassRemap();
         automationController?.dispose();
       });

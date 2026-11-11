@@ -21,7 +21,10 @@ import { grayImageElement, isOpaque } from "../features/images/gray-image.js";
 import { grayBytesToRgba } from "../features/segmentation/native-preprocessing.js";
 import { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
-import { parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
+import { DEFAULT_MULTIPLE_DETECTION_SETTINGS, parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
+import { intersectionOverUnion } from "../features/automation/matching-candidates.js";
+import { getRectBounds } from "../features/canvas/arrange.js";
+import { ensureAnnotationId, isRectObject } from "../features/canvas/fabric-types.js";
 import {
   createTemplateMatchingService,
   requireAcceptedMatch,
@@ -40,8 +43,10 @@ import {
   type AutomationPreset,
   type BoxLayout,
   type ExistingLabelsPolicy,
+  type PixelPoint,
   type PixelRect,
   type TemplateAsset,
+  type TemplatePreprocessingSettings,
   type TemplateMatchCandidate,
   type TemplateMatchResult,
 } from "../features/automation/types.js";
@@ -54,7 +59,62 @@ import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
 
+/** What a preset run on the current image did (read by src/bootstrap/agent-tools-auto.ts). */
+export interface AutomationRunOutcome {
+  preset: string;
+  applied: boolean;
+  /** The preset keeps existing labels and the image has some. */
+  skipped?: string;
+  annotationIds?: string[];
+  discardedOutOfBounds?: number;
+  /** Not applied (a preview): the best match of a layout preset, or every candidate of a multiple-boxes preset. */
+  match?: { score: number; x: number; y: number; width: number; height: number; layout: string | null };
+  candidates?: Array<{ score: number; x: number; y: number; width: number; height: number; classId: string }>;
+}
+
+/** Saved automation presets, run on the current image as the Run on current image button does. */
+export interface AutomationAgentApi {
+  library(): {
+    presets: Array<{ name: string; outputMode: string; layout: string | null; classId: string | null; minimumScore: number; existingLabels: string }>;
+    layouts: Array<{ name: string; boxCount: number }>;
+  };
+  runPreset(name: string, options: { apply: boolean }): Promise<AutomationRunOutcome>;
+  /** An ad hoc template from a region of the current image (Template Matching Setup's engine, default settings). */
+  findSimilar(options: SimilarSearch): Promise<SimilarOutcome>;
+  /** Places a saved layout with its first box's top-left at `anchor` (default: where it was saved), as Apply layout does. */
+  applyLayout(name: string, options: { anchor?: PixelPoint; replaceExisting: boolean }): { layout: string; anchor: PixelPoint; annotationIds: string[]; discardedOutOfBounds: number };
+  /** Saves boxes of the current image as a layout, as Save layout does (`overwrite` replaces one with that name). */
+  saveLayout(name: string, options: { boxes: "selected" | "all" | readonly string[]; overwrite: boolean }): Promise<{ layout: string; boxCount: number; sourceAnchor: PixelPoint; overwritten: boolean }>;
+}
+
+export interface SimilarSearch {
+  roi: PixelRect;
+  classId: string;
+  minimumScore: number;
+  maximumDetections: number;
+  /** Drop matches that overlap an existing box (IoU >= 0.3), such as the template box itself. */
+  skipOverlapping: boolean;
+  apply: boolean;
+}
+
+export interface SimilarOutcome {
+  applied: boolean;
+  /** Matches over the minimum score, best first, minus the overlapping ones when skipOverlapping. */
+  candidates: Array<{ score: number; x0: number; y0: number; x1: number; y1: number }>;
+  overlappingExisting: number;
+  annotationIds?: string[];
+  discardedOutOfBounds?: number;
+}
+
+/** Template Matching Setup's defaults (automation-preset-form.ts reset()). */
+const SIMILAR_PREPROCESSING: TemplatePreprocessingSettings = {
+  grayscale: true, gaussianBlurEnabled: true, blurKernelSize: 13, blurSigma: 0, gaussianNoiseEnabled: false, gaussianNoiseSigma: 0, gaussianNoiseSeed: 1
+};
+/** Overlap with an existing box at which find_similar treats a match as already labelled. */
+const SIMILAR_OVERLAP_IOU = 0.3;
+
 export interface AutomationController {
+  readonly agent: AutomationAgentApi;
   bind(): void;
   refreshLibrary(options?: { selectFirst?: boolean }): Promise<void>;
   prepareMatchingEngine(): Promise<void>;
@@ -1299,8 +1359,8 @@ export function createAutomationController(input: {
     input.uiManager.notify(existingPreset ? `Preset "${name}" overwritten.` : `Preset "${name}" added.`);
   };
 
-  const runSelectedPresetOnCurrentImage = async (operation: RuntimeOperationHandle): Promise<void> => {
-    const preset = selectedPreset();
+  /** Runs a preset's template match on the current image and applies the boxes, unless `apply` is false (the agent's preview). */
+  const runPresetOnCurrentImage = async (preset: AutomationPreset | null, operation: RuntimeOperationHandle, apply = true): Promise<AutomationRunOutcome> => {
     const targetImage = input.state.session.currentImage;
     if (!preset) {
       throw new Error("Choose an automation preset first");
@@ -1313,7 +1373,7 @@ export function createAutomationController(input: {
     }
     if (preset.existingLabelsPolicy === "skip" && input.canvasController.raw.getObjects("rect").length > 0) {
       input.uiManager.notify("Current image skipped because this preset keeps existing labels.");
-      return;
+      return { preset: preset.name, applied: false, skipped: "The preset keeps existing labels and this image has some." };
     }
 
     const template = library.templates.find((candidate) => candidate.id === preset.templateId);
@@ -1344,10 +1404,20 @@ export function createAutomationController(input: {
       setMatchingEngineStatus("ready", "Matching engine: Ready");
     }
 
+    if (!apply) {
+      if (preset.outputMode === "layout-best-match") {
+        requireAcceptedMatch(result, preset.matching.minimumScore);
+        return { preset: preset.name, applied: false, match: { score: result.score, x: result.x, y: result.y, width: result.width, height: result.height, layout: layout?.name ?? null } };
+      }
+      const classId = preset.multipleDetection.classId;
+      return { preset: preset.name, applied: false, candidates: result.matches.map(({ score, x, y, width, height }) => ({ score, x, y, width, height, classId })) };
+    }
+
     operation.update({ detail: "Applying generated boxes" });
     const replaceExisting = preset.existingLabelsPolicy === "replace";
     let appliedCount = 0;
     let discardedOutOfBoundsCount = 0;
+    let annotationIds: string[] = [];
     if (preset.outputMode === "layout-best-match") {
       requireAcceptedMatch(result, preset.matching.minimumScore);
       if (!layout) {
@@ -1360,6 +1430,7 @@ export function createAutomationController(input: {
       );
       appliedCount = application.annotationIds.length;
       discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
+      annotationIds = application.annotationIds;
     } else {
       if (result.matches.length === 0) {
         throw new Error(`No matches met the minimum ${(preset.matching.minimumScore * 100).toFixed(1)}% score`);
@@ -1373,6 +1444,7 @@ export function createAutomationController(input: {
       })), { replaceExisting });
       appliedCount = application.annotationIds.length;
       discardedOutOfBoundsCount = application.discardedOutOfBoundsCount;
+      annotationIds = application.annotationIds;
     }
 
     input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
@@ -1381,6 +1453,117 @@ export function createAutomationController(input: {
       ? ` ${discardedOutOfBoundsCount} outside the image removed.`
       : "";
     input.uiManager.notify(`${preset.name}: ${appliedCount} boxes applied to the current image.${discarded}`);
+    return { preset: preset.name, applied: true, annotationIds, discardedOutOfBounds: discardedOutOfBoundsCount };
+  };
+  const runSelectedPresetOnCurrentImage = async (operation: RuntimeOperationHandle): Promise<void> => {
+    await runPresetOnCurrentImage(selectedPreset(), operation);
+  };
+
+  const agent: AutomationAgentApi = {
+    library: () => ({
+      presets: library.presets.map((preset) => ({
+        name: preset.name,
+        outputMode: preset.outputMode,
+        layout: preset.layoutId ? library.layouts.find((layout) => layout.id === preset.layoutId)?.name ?? null : null,
+        classId: preset.outputMode === "layout-best-match" ? null : preset.multipleDetection.classId,
+        minimumScore: preset.matching.minimumScore,
+        existingLabels: preset.existingLabelsPolicy
+      })),
+      layouts: library.layouts.map((layout) => ({ name: layout.name, boxCount: layout.boxes.length }))
+    }),
+    async runPreset(name, options) {
+      const preset = library.presets.find((candidate) => candidate.name === name || candidate.id === name);
+      if (!preset) throw new Error(`No automation preset named "${name}".`);
+      let outcome: AutomationRunOutcome | undefined;
+      await runCancellableMatchingOperation({
+        title: options.apply ? "Running template automation" : "Testing template automation",
+        detail: "Preparing current image",
+        stoppedMessage: "Current image automation stopped."
+      }, async (operation) => { outcome = await runPresetOnCurrentImage(preset, operation, options.apply); });
+      if (!outcome) throw new Error("Template automation stopped.");
+      return outcome;
+    },
+    async findSimilar(search) {
+      const targetImage = input.state.session.currentImage;
+      if (!targetImage || !input.state.session.currentImageFile) throw new Error("Load an image before running template matching");
+      let outcome: SimilarOutcome | undefined;
+      await runCancellableMatchingOperation({
+        title: search.apply ? "Finding and labelling similar objects" : "Finding similar objects",
+        detail: "Preparing template",
+        stoppedMessage: "Template matching stopped."
+      }, async (operation) => {
+        setMatchingEngineStatus("loading", "Matching engine: Running");
+        let result: TemplateMatchResult;
+        try {
+          const template = prepareAutomationImageData(await pngDataUrlToImageData(cropImageElementToPngDataUrl(targetImage, search.roi, input.documentRef), input.documentRef));
+          throwIfOperationCancelled(operation.signal);
+          operation.update({ detail: "Running OpenCV template matching" });
+          result = await matchWithRecovery({
+            target: await prepareAutomationTarget(targetImage),
+            template,
+            preprocessing: SIMILAR_PREPROCESSING,
+            matching: { minimumScore: search.minimumScore, searchRoi: null, mode: "accurate" },
+            outputMode: "multiple-detection-boxes",
+            multipleDetection: { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: search.maximumDetections }
+          });
+          throwIfOperationCancelled(operation.signal);
+        } finally {
+          setMatchingEngineStatus("ready", "Matching engine: Ready");
+        }
+        const existing = input.canvasController.raw.getObjects("rect").filter(isRectObject).map((rect) => {
+          const bounds = getRectBounds(rect);
+          return { score: 1, x: bounds.left, y: bounds.top, width: bounds.right - bounds.left, height: bounds.bottom - bounds.top };
+        });
+        const overlapping = (match: TemplateMatchCandidate) => existing.some((box) => intersectionOverUnion(match, box) >= SIMILAR_OVERLAP_IOU);
+        const kept = search.skipOverlapping ? result.matches.filter((match) => !overlapping(match)) : result.matches;
+        const candidates = [...kept].sort((a, b) => b.score - a.score);
+        outcome = {
+          applied: false,
+          candidates: candidates.map(({ score, x, y, width, height }) => ({ score, x0: x, y0: y, x1: x + width, y1: y + height })),
+          overlappingExisting: result.matches.length - kept.length
+        };
+        if (!search.apply || !candidates.length) return;
+        const application = input.canvasController.raw.applyDetectionBoxes(candidates.map((match) => ({
+          classId: search.classId, x: match.x, y: match.y, width: match.width, height: match.height
+        })), { replaceExisting: false });
+        input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
+        input.uiManager.updateLabelList();
+        input.uiManager.notify(`${application.annotationIds.length} similar boxes added to the current image.`);
+        outcome = { ...outcome, applied: true, annotationIds: application.annotationIds, discardedOutOfBounds: application.discardedOutOfBoundsCount };
+      });
+      if (!outcome) throw new Error("Template matching stopped.");
+      return outcome;
+    },
+    applyLayout(name, options) {
+      const layout = library.layouts.find((candidate) => candidate.name === name || candidate.id === name);
+      if (!layout) throw new Error(`No layout named "${name}".`);
+      if (!input.state.session.currentImage || input.state.session.workflow !== "detection") throw new Error("Open an image in the Detection workflow first");
+      const anchor = options.anchor ?? { ...layout.sourceAnchor };
+      const result = input.canvasController.raw.applyBoxLayout(layout, anchor, { replaceExisting: options.replaceExisting });
+      input.windowRef.dispatchEvent(new Event("easy-labeling:history-change"));
+      input.uiManager.updateLabelList();
+      input.uiManager.notify(`Layout "${layout.name}": ${result.annotationIds.length} boxes applied.`);
+      return { layout: layout.name, anchor, annotationIds: result.annotationIds, discardedOutOfBounds: result.discardedOutOfBoundsCount };
+    },
+    async saveLayout(name, options) {
+      const existing = library.layouts.find((layout) => layout.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
+      if (existing && !options.overwrite) throw new Error(`A layout named "${name.trim()}" already exists`);
+      const normalized = requireUniqueLayoutName(name, existing?.id);
+      const raw = input.canvasController.raw;
+      if (Array.isArray(options.boxes)) {
+        const ids = new Set(options.boxes);
+        const chosen = raw.getObjects("rect").filter(isRectObject).filter((rect) => ids.has(ensureAnnotationId(rect)));
+        if (chosen.length !== ids.size) throw new Error("No box with one of those annotationIds on the current image.");
+        raw.setActiveSelection(chosen, chosen[0] ?? null);
+      }
+      const captured = raw.captureBoxLayout(normalized, input.state.session.currentImageFile?.name ?? "", options.boxes === "all" ? "all" : "selected");
+      const layout: BoxLayout = existing ? { ...captured, id: existing.id, createdAt: existing.createdAt, updatedAt: new Date().toISOString() } : captured;
+      library = { ...library, layouts: upsertById(library.layouts, layout) };
+      await persistLibrary();
+      refreshSelects({ layoutId: layout.id });
+      input.uiManager.notify(`Layout ${existing ? "updated" : "saved"} with ${layout.boxes.length} boxes.`);
+      return { layout: layout.name, boxCount: layout.boxes.length, sourceAnchor: layout.sourceAnchor, overwritten: !!existing };
+    }
   };
 
   const batchController = createAutomationBatchController({
@@ -1438,6 +1621,7 @@ export function createAutomationController(input: {
   };
 
   return {
+    agent,
     dispose(): void {
       if (disposed) {
         return;

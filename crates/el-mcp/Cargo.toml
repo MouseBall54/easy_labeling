@@ -1,0 +1,23 @@
+[package]
+name = "el-mcp"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# easy-labeling-mcp.exe: the MCP server (stdio) AI agents start. No app logic: each tool is forwarded to the
+# running Easy Labeling app over a named pipe (docs/AGENT_MCP_PLAN_KO.md).
+
+[[bin]]
+name = "easy-labeling-mcp"
+path = "src/main.rs"
+
+[dependencies]
+el-agent-protocol = { path = "../el-agent-protocol" }
+# Pinned: a newer rmcp may negotiate other protocol versions (checked in stage 0 of the plan).
+rmcp = { version = "=3.9.0", features = ["server", "transport-io", "macros", "schemars"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time"] }
+tokio-util = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+base64 = "0.22"

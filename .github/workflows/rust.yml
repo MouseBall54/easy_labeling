@@ -95,5 +95,9 @@ jobs:
           npm run build
           node scripts/stage-tauri-frontend.mjs
 
-      - name: Clippy (Tauri app)
-        run: cargo clippy -p easy-labeling --all-targets -- -D warnings
+      # The agent crates use Windows named pipes, so they are checked here, not in the Linux job.
+      - name: Clippy (Tauri app and agent bridge)
+        run: cargo clippy -p easy-labeling -p el-agent-protocol -p el-mcp --all-targets -- -D warnings
+
+      - name: Tests (agent bridge)
+        run: cargo test -p el-agent-protocol -p el-mcp

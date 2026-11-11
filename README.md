@@ -36,6 +36,15 @@ Rust(Tauri 2)로 만든 데스크톱 앱입니다. 화면과 기능은 같은 `d
 - 설치 없이 실행 파일만 빌드(디버그): `npm run tauri:dev` → `target/debug/Easy Labeling.exe`
 - 데스크톱 e2e: `npx playwright test tests/e2e/tauri-desktop.spec.ts --project=chromium` (위 실행 파일 사용, 웹 코드를 바꾼 뒤에는 `npm run tauri:dev`를 다시 실행)
 
+### AI 에이전트 연동(MCP)
+
+설치형 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 들어 있어, Claude Code·Claude Desktop·Codex·Cursor 같은 AI 에이전트가 열려 있는 앱 창을 도구로 조종할 수 있습니다(박스 편집, Refine/Reclass/검수, 폴더 전체 변경은 사람 승인 후, 템플릿 매칭 프리셋, YOLO 추론). 에이전트의 호출 하나는 undo 한 단계이고, 하단의 Stop으로 언제든 멈출 수 있습니다. 로컬 전용이며 마켓플레이스 등록은 필요 없습니다.
+
+- Claude Code 등록: `claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.exe"`
+- 앱 왼쪽 레일의 **Agent** 버튼: 연결 상태, 에이전트 앱별(Claude Code, Claude Desktop, Cursor, VS Code, Windsurf, Codex, Gemini CLI, OpenCode, LM Studio 등) 등록 내용 복사, 권한, 활동 기록
+- 연결 방법, 도구 29개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
+- 개발: `cargo build -p el-mcp`(MCP 서버), 데스크톱 e2e `tests/e2e/agent-desktop.spec.ts`
+
 ### 다운로드와 자동 업데이트(GitHub Releases)
 
 - 다운로드: [Releases](https://github.com/MouseBall54/easy_labeling/releases/latest)에서 `EasyLabeling_<버전>_x64-setup.exe`를 받아 설치합니다.

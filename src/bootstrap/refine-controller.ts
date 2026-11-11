@@ -56,9 +56,34 @@ export function resolveRefineShortcut(event: Pick<KeyboardEvent, "code" | "ctrlK
   }
 }
 
+/** Which boxes of the current image a run takes (the pane's buttons are "selected", "all" and a class). */
+export type RefineScope = "selected" | "all" | { classId: string } | { annotationIds: readonly string[] };
+
+/** What a run did: the status line text plus its numbers (read by the agent tools). */
+export interface RefineRunOutcome {
+  ok: boolean;
+  message: string;
+  /** Why it did not run: busy (another run), declined (the person said no), failed. */
+  code?: "busy" | "declined" | "failed";
+  [detail: string]: unknown;
+}
+
+/** Runs the pane's actions with explicit targets and returns what happened (src/bootstrap/agent-tools-refine.ts). */
+export interface RefineAgentApi {
+  settingsSummary(): Promise<Record<string, unknown>>;
+  /** `preset`: an edge preset for this call (null: class settings; omitted: the pane's Run with). */
+  refine(scope: RefineScope, options: { preset?: string | null; keepHandEdited?: boolean; dryRun?: boolean }): Promise<RefineRunOutcome>;
+  /** `preset`: a reclass preset for this call (null: the Lab rule; omitted: the pane's Reclass with). */
+  reclass(scope: RefineScope, options: { preset?: string | null; keepHandEdited?: boolean; dryRun?: boolean }): Promise<RefineRunOutcome>;
+  reviewQueue(mode?: "edge" | "reclass"): { mode: "edge" | "reclass"; boxes: Record<string, unknown>[] };
+  approve(ids: readonly string[] | "all", mode?: "edge" | "reclass"): { approved: number; remaining: number };
+  runFolder(mode: "edge" | "reclass", options: { preset?: string | null; confirm(message: string): Promise<boolean> }): Promise<RefineRunOutcome>;
+}
+
 export interface RefineController {
   bind(): void;
   runShortcut(action: RefineShortcut): void;
+  readonly agent: RefineAgentApi;
 }
 
 const PREVIEW_LIMIT = 50;
@@ -91,6 +116,9 @@ export function createRefineController(input: {
   let settings: RefineSettingsDocument = createRefineSettings();
   let settingsFolder: unknown = undefined;
   let settingsLoad: Promise<void> = Promise.resolve();
+  /** The agent's preset for one call: undefined uses the pane's Run with / Reclass with, null the class settings / Lab rule. */
+  let edgePresetOverride: string | null | undefined;
+  let reclassPresetOverride: string | null | undefined;
   /**
    * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets, Reclass Presets). A
    * preset saved or edited here moves out of refine-settings.json into its own file; presets an older version
@@ -207,7 +235,8 @@ export function createRefineController(input: {
    * saved class settings. Presets saved before image sources existed keep the current image settings.
    */
   const runConfig = (): { params(classId: string): RefineParams; ownClasses: string[]; image: RefineImageInput; label: string } => {
-    const preset = settings.activePreset ? allPresets().find((item) => item.name === settings.activePreset) : undefined;
+    const name = edgePresetOverride === undefined ? settings.activePreset : edgePresetOverride;
+    const preset = name ? allPresets().find((item) => item.name === name) : undefined;
     if (preset) {
       const source = preset.imageSource ?? settings.imageSource;
       const processing = preset.imageSource ? preset.processing ?? null : settings.processing;
@@ -217,7 +246,8 @@ export function createRefineController(input: {
   };
   /** What Reclass Apply uses: the Reclass-with preset (its rule and image) or the Lab rule; the default rule when none is saved. */
   const reclassConfig = (): { rule: ReclassRule; image: RefineImageInput; preset: ReclassPreset | undefined } => {
-    const preset = settings.activeReclassPreset ? allReclassPresets().find((item) => item.name === settings.activeReclassPreset) : undefined;
+    const name = reclassPresetOverride === undefined ? settings.activeReclassPreset : reclassPresetOverride;
+    const preset = name ? allReclassPresets().find((item) => item.name === name) : undefined;
     return preset
       ? { rule: reclassRuleOf(preset.reclass), image: imageInput(preset.imageSource, preset.processing), preset }
       : { rule: reclassRuleOf(settings.reclass), image: imageInput(settings.reclassImageSource, settings.reclassProcessing), preset };
@@ -225,6 +255,8 @@ export function createRefineController(input: {
   const imageText = (source: RefineImageSource, processing: RefineProcessing | null): string =>
     source === "processed" ? `Processed (${processing?.name || "live Preprocess panel"})` : "Original";
   const setStatus = (text: string): void => { status.textContent = text; };
+  /** A run that did not happen: the status line says why, and so does the outcome. */
+  const fail = (text: string, code: RefineRunOutcome["code"] = "failed"): RefineRunOutcome => { setStatus(text); return { ok: false, message: text, code }; };
   /** One-line rule summary shown under each Run-with choice. */
   const describePreset = (preset: RefineSettingsDocument["presets"][number]): string => {
     const p = preset.params;
@@ -304,9 +336,9 @@ export function createRefineController(input: {
     return Boolean(entry && !entry.reviewed && (rect.labelClass ?? "0") === entry.match.toClass);
   };
   /** Boxes to look at, top to bottom: Refine flags in Edge mode, reclassed boxes in Reclass mode. */
-  const reviewQueue = (): RefineBoxInput[] => {
+  const reviewQueue = (mode = settings.mode): RefineBoxInput[] => {
     const byPosition = (a: RefineBoxInput, b: RefineBoxInput): number => (a.y0 - b.y0) || (a.x0 - b.x0);
-    if (reclassMode()) return reclassed.size ? visibleRects().filter(reclassPending).map(toBox).sort(byPosition) : [];
+    if (mode === "reclass") return reclassed.size ? visibleRects().filter(reclassPending).map(toBox).sort(byPosition) : [];
     if (!records.size) return [];
     return visibleRects()
       .filter((rect) => { const record = records.get(ensureAnnotationId(rect)); return Boolean(record?.result.flagged && !record.reviewed); })
@@ -433,26 +465,38 @@ export function createRefineController(input: {
     pane.querySelectorAll<HTMLButtonElement>("[data-refine-run]").forEach((button) => { button.disabled = value; });
   };
 
-  const run = async (targets: RefineBoxInput[], skipManual: boolean): Promise<void> => {
+  /** `dryRun` (the agent's preview): computes the same results and returns them without moving a box. */
+  const run = async (targets: RefineBoxInput[], skipManual: boolean, dryRun = false): Promise<RefineRunOutcome> => {
     const image = syncImage();
-    if (!image || !isDetection()) return setStatus("Open an image in the Detection workflow first.");
-    if (busy) return;
+    if (!image || !isDetection()) return fail("Open an image in the Detection workflow first.");
+    if (busy) return fail("Refine is already running.", "busy");
     await loadSettings();
     const candidates = skipManual ? targets.filter((box) => !manual.has(box.id)) : targets;
     const paramsByClass = paramsFor(candidates);
     const runnable = candidates.filter((box) => paramsByClass[box.classId].enabled);
-    if (!runnable.length) return setStatus(targets.length ? "Nothing to refine: boxes are hand-edited or their class is off." : "No boxes to refine.");
+    if (!runnable.length) return fail(targets.length ? "Nothing to refine: boxes are hand-edited or their class is off." : "No boxes to refine.");
     const started = performance.now();
     const token = ++generation;
     setBusy(true);
     setStatus(`Refining ${runnable.length} box${runnable.length === 1 ? "" : "es"}…`);
     try {
       const results = await getService().refine(image, runnable, paramsByClass, rects().map(toBox), runConfig().image);
-      if (token !== generation || image !== input.state.session.currentImage) return;
+      if (token !== generation || image !== input.state.session.currentImage) return fail("The image or the boxes changed while refining; nothing was applied.");
       // Skip boxes the user moved while the worker was busy.
       const now = new Map(rects().map(toBox).map((box) => [box.id, box]));
       const sent = new Map(runnable.map((box) => [box.id, box]));
       const fresh = results.filter((r) => { const current = now.get(r.id); const before = sent.get(r.id); return current && before && sameRect(current, before, 1e-6); });
+      const changes = fresh.map((r) => {
+        const before = sent.get(r.id)!;
+        return { annotationId: r.id, classId: r.classId, before: { x0: before.x0, y0: before.y0, x1: before.x1, y1: before.y1 }, after: r.box,
+          flagged: r.flagged, weakSides: r.weakSides, areaChange: r.areaChange, areaFlagged: r.areaFlagged, sizeLimited: r.sizeLimited };
+      });
+      const skipped = targets.length - fresh.length;
+      const flagged = fresh.filter((r) => r.flagged).length;
+      if (dryRun) {
+        setStatus(`Preview: ${fresh.length} would be refined · ${flagged} to review (nothing applied)`);
+        return { ok: true, dryRun: true, message: status.textContent ?? "", refined: fresh.length, skipped, flagged, changes };
+      }
       applying = true;
       try {
         raw.updateBoxGeometries?.(fresh.map((r) => ({ annotationId: r.id, x: r.box.x0, y: r.box.y0, width: r.box.x1 - r.box.x0, height: r.box.y1 - r.box.y0 })));
@@ -460,8 +504,6 @@ export function createRefineController(input: {
         applying = false;
       }
       fresh.forEach((result) => { records.set(result.id, { result, reviewed: false }); manual.delete(result.id); });
-      const skipped = targets.length - fresh.length;
-      const flagged = fresh.filter((r) => r.flagged).length;
       const areaFlags = fresh.filter((r) => r.areaFlagged).length;
       const sizeFlags = fresh.filter((r) => r.sizeLimited).length;
       const reasons = [areaFlags ? `${areaFlags} with a large area change` : "", sizeFlags ? `${sizeFlags} kept within the size limits` : ""].filter(Boolean).join(", ");
@@ -470,8 +512,9 @@ export function createRefineController(input: {
       preview = [];
       renderReviewCounter();
       raw.canvas.requestRenderAll?.();
+      return { ok: true, message: status.textContent ?? "", refined: fresh.length, skipped, flagged, changes };
     } catch (error: unknown) {
-      setStatus(`Refine failed: ${error instanceof Error ? error.message : String(error)}`);
+      return fail(`Refine failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBusy(false);
     }
@@ -575,30 +618,35 @@ export function createRefineController(input: {
    * Apply (Reclass mode), like Edge's: judges the target boxes with the Reclass-with rule now, changes every match to
    * the rule's class in one undo step and queues the changed boxes for review (N, F, Approve all).
    */
-  const reclass = async (targets: RefineBoxInput[], skipManual: boolean, emptyText: string): Promise<void> => {
+  const reclass = async (targets: RefineBoxInput[], skipManual: boolean, emptyText: string, dryRun = false): Promise<RefineRunOutcome> => {
     const image = syncImage();
-    if (!image || !isDetection()) return setStatus("Open an image in the Detection workflow first.");
-    if (busy) return;
-    if (!targets.length) return setStatus(emptyText);
+    if (!image || !isDetection()) return fail("Open an image in the Detection workflow first.");
+    if (busy) return fail("Refine is already running.", "busy");
+    if (!targets.length) return fail(emptyText);
     // Busy from the first await on, so a second click cannot start another run.
     setBusy(true);
     try {
       await loadSettings();
       const config = reclassConfig();
-      if (!config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) return setStatus("The reclass rule has no check on.");
+      if (!config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) return fail("The reclass rule has no check on.");
       const checked = skipManual ? targets.filter((box) => !manualClass.has(box.id)) : targets;
       const kept = targets.length - checked.length;
       // Boxes the rule checks that already have its class: nothing to change.
       const already = checked.filter((box) => box.classId === config.rule.toClass && ruleChecks(config.rule, box.classId)).length;
-      if (!checked.length) return setStatus("Nothing to reclass: every box had its class changed by hand.");
+      if (!checked.length) return fail("Nothing to reclass: every box had its class changed by hand.");
       const started = performance.now();
       setStatus(`Reclassing ${checked.length} box${checked.length === 1 ? "" : "es"}…`);
       const matches = await matchReclass(image, checked, rects().map(toBox), config, runConfig());
-      if (image !== input.state.session.currentImage) return;
+      if (image !== input.state.session.currentImage) return fail("The image changed while reclassing; nothing was applied.");
       // Skip boxes edited while the check ran.
       const now = new Map(rects().map(toBox).map((box) => [box.id, box]));
       const sent = new Map(checked.map((box) => [box.id, box]));
       const fresh = matches.filter((match) => { const box = now.get(match.id); return box && signature(box) === signature(sent.get(match.id)!); });
+      const changes = fresh.map((match) => ({ annotationId: match.id, from: sent.get(match.id)!.classId, to: match.toClass }));
+      if (dryRun) {
+        setStatus(`Preview: ${fresh.length} of ${checked.length} box${checked.length === 1 ? "" : "es"} would become class ${config.rule.toClass} (nothing applied)`);
+        return { ok: true, dryRun: true, message: status.textContent ?? "", checked: checked.length, alreadyTargetClass: already, keptHandEdited: kept, changed: changes };
+      }
       let changed = 0;
       if (fresh.length) {
         applying = true;
@@ -617,8 +665,11 @@ export function createRefineController(input: {
       if (changed) renderPane(); // the class lists gain the new class
       renderReviewCounter();
       raw.canvas.requestRenderAll?.();
+      return {
+        ok: true, message: status.textContent ?? "", checked: checked.length, alreadyTargetClass: already, keptHandEdited: kept, changed: changes
+      };
     } catch (error: unknown) {
-      setStatus(`Reclass failed: ${error instanceof Error ? error.message : String(error)}`);
+      return fail(`Reclass failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBusy(false);
     }
@@ -639,21 +690,26 @@ export function createRefineController(input: {
    * Edge: refines every box of every image with the Run-with settings. Reclass: changes every box the
    * Reclass-with rule matches (shrink against the box as saved). Goes through the label files, one backup.
    */
-  const runFolder = async (mode: "edge" | "reclass"): Promise<void> => {
-    if (busy) return;
-    if (!isDetection() || !input.state.session.imageFiles.length) return setStatus("Open an image folder in the Detection workflow first.");
+  const runFolder = async (
+    mode: "edge" | "reclass",
+    confirm: (message: string) => boolean | Promise<boolean> = (message) => windowRef.confirm(message)
+  ): Promise<RefineRunOutcome> => {
+    if (busy) return fail("Refine is already running.", "busy");
+    if (!isDetection() || !input.state.session.imageFiles.length) return fail("Open an image folder in the Detection workflow first.");
     const files = input.fileSystem;
-    if (!files) return setStatus("Folder runs are not available here.");
+    if (!files) return fail("Folder runs are not available here.");
     await loadSettings();
     const edge = runConfig();
     const config = reclassConfig();
-    if (mode === "reclass" && !config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) return setStatus("The reclass rule has no check on.");
+    if (mode === "reclass" && !config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) return fail("The reclass rule has no check on.");
     const total = input.state.session.imageFiles.length;
     const folderName = input.state.session.labelFolderHandle?.name ?? "label";
     const what = mode === "edge"
       ? `Refine every box in all ${total} images of "${folderName}" with ${edge.label}?`
       : `Reclass boxes in all ${total} images of "${folderName}" with ${config.preset ? refinePresetLabel(config.preset) : "the Lab rule"} (${describeReclassRule(config.rule, className)})?`;
-    if (!windowRef.confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`)) return;
+    if (!(await confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
+      return { ok: false, message: "The person declined the folder run.", code: "declined" };
+    }
     let boxesChanged = 0;
     // Inside transform: the image upload into refine, then the refine / reclass work itself (ms).
     const work = { loadMs: 0, runMs: 0 };
@@ -712,11 +768,11 @@ export function createRefineController(input: {
         batch: mode === "edge" ? batch : undefined
       });
     } catch (error: unknown) {
-      return setStatus(`Folder run failed: ${error instanceof Error ? error.message : String(error)}`);
+      return fail(`Folder run failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBusy(false);
     }
-    if (!outcome) return setStatus("Folder run stopped. No files changed.");
+    if (!outcome) return fail("Folder run stopped. No files changed.");
     // The current image reloaded from its file: earlier flags and reclass reviews no longer apply.
     records.clear();
     reclassed.clear();
@@ -733,6 +789,10 @@ export function createRefineController(input: {
       + (outcome.backupPath ? ` · originals in ${outcome.backupPath}` : "") + skipped
       + ` · Time ${s(timings.totalMs)}: ${timings.batchImages ? `native ${timings.batchImages} images ${s(timings.batchMs)}, ` : ""}read+decode ${s(timings.prepareMs)} (waited ${s(timings.waitMs)}), load ${s(timings.loadMs)}, `
       + `${mode === "edge" ? "refine" : "reclass"} ${s(timings.runMs)}, backup ${s(timings.backupMs)}, write ${s(timings.writeMs)}, reload ${s(timings.reloadMs)}`);
+    return {
+      ok: true, message: status.textContent ?? "", boxesChanged, imagesChanged: outcome.changed, images: outcome.total,
+      backupPath: outcome.backupPath, skipped: outcome.failures
+    };
   };
 
   // ---------------------------------------------------------------- canvas preview (selected boxes, not applied)
@@ -930,6 +990,84 @@ export function createRefineController(input: {
     });
   };
 
+  // ---------------------------------------------------------------- agent (the pane's actions with explicit targets)
+  const scopeBoxes = (scope: RefineScope): RefineBoxInput[] => {
+    if (scope === "selected") return selectedRects().map(toBox);
+    if (scope === "all") return visibleRects().map(toBox);
+    if ("classId" in scope) return visibleRects().map(toBox).filter((box) => box.classId === scope.classId);
+    const byId = new Map(rects().map((rect) => [ensureAnnotationId(rect), rect]));
+    const missing = scope.annotationIds.filter((id) => !byId.has(id));
+    if (missing.length) throw new Error(`No box with annotationId ${missing.slice(0, 5).join(", ")} on the current image.`);
+    return scope.annotationIds.map((id) => toBox(byId.get(id)!));
+  };
+  /** Runs `work` with the agent's presets; a preset name that does not exist is an error. */
+  const withPresets = async <T>(edge: string | null | undefined, reclassName: string | null | undefined, work: () => Promise<T>): Promise<T> => {
+    await loadSettings();
+    if (edge && !allPresets().some((preset) => preset.name === edge)) throw new Error(`No edge preset named "${edge}".`);
+    if (reclassName && !allReclassPresets().some((preset) => preset.name === reclassName)) throw new Error(`No reclass preset named "${reclassName}".`);
+    edgePresetOverride = edge;
+    reclassPresetOverride = reclassName;
+    try {
+      return await work();
+    } finally {
+      edgePresetOverride = undefined;
+      reclassPresetOverride = undefined;
+    }
+  };
+  /** The pane's keep-hand-edited toggles apply to whole-image and class runs, never to a chosen set (as Selected). */
+  const keepFor = (scope: RefineScope, explicit: boolean | undefined, toggle: () => boolean): boolean =>
+    explicit ?? (scope === "all" || (typeof scope === "object" && "classId" in scope) ? toggle() : false);
+  const agent: RefineAgentApi = {
+    async settingsSummary() {
+      await loadSettings();
+      return {
+        mode: settings.mode,
+        runWith: settings.activePreset ?? null,
+        reclassWith: settings.activeReclassPreset ?? null,
+        edgePresets: allPresets().map((preset) => preset.name),
+        reclassPresets: allReclassPresets().map((preset) => preset.name),
+        classesWithOwnSettings: Object.keys(settings.classes),
+        imageSource: settings.imageSource,
+        reclassRule: describeReclassRule(reclassConfig().rule, className),
+        keepHandEdited: skipManualToggle().checked,
+        keepHandRelabelled: reclassSkipManual()
+      };
+    },
+    refine: (scope, options) => withPresets(options.preset, undefined,
+      () => run(scopeBoxes(scope), keepFor(scope, options.keepHandEdited, () => skipManualToggle().checked), options.dryRun)),
+    reclass: (scope, options) => withPresets(undefined, options.preset,
+      () => reclass(scopeBoxes(scope), keepFor(scope, options.keepHandEdited, reclassSkipManual), "No boxes to reclass.", options.dryRun)),
+    reviewQueue(mode = settings.mode) {
+      syncImage();
+      return {
+        mode,
+        boxes: reviewQueue(mode).map((box) => {
+          const position = { annotationId: box.id, classId: box.classId, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1 };
+          if (mode === "reclass") {
+            const entry = reclassed.get(box.id);
+            return { ...position, from: entry?.from ?? null, to: entry?.match.toClass ?? null };
+          }
+          const result = records.get(box.id)?.result;
+          return { ...position, weakSides: result?.weakSides ?? [], areaChange: result?.areaChange ?? null, areaFlagged: result?.areaFlagged ?? false, sizeLimited: result?.sizeLimited ?? false };
+        })
+      };
+    },
+    approve(ids, mode = settings.mode) {
+      syncImage();
+      const queue = reviewQueue(mode);
+      const targets = ids === "all" ? queue.map((box) => box.id) : ids.filter((id) => queue.some((box) => box.id === id));
+      for (const id of targets) {
+        const entry = mode === "reclass" ? reclassed.get(id) : records.get(id);
+        if (entry) entry.reviewed = true;
+      }
+      renderReviewCounter();
+      raw.canvas.requestRenderAll?.();
+      return { approved: targets.length, remaining: reviewQueue(mode).length };
+    },
+    runFolder: (mode, options) => withPresets(mode === "edge" ? options.preset : undefined, mode === "reclass" ? options.preset : undefined,
+      () => runFolder(mode, options.confirm))
+  };
+
   const runShortcut = (action: RefineShortcut): void => {
     if (!isDetection()) return;
     switch (action) {
@@ -1024,6 +1162,7 @@ export function createRefineController(input: {
         }
       });
     },
-    runShortcut
+    runShortcut,
+    agent
   };
 }

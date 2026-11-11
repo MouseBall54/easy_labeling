@@ -42,7 +42,8 @@ if (!flag("--skip-build")) {
   const key = process.env.TAURI_SIGNING_PRIVATE_KEY ?? join(os.homedir(), ".tauri", "easy-labeling-updater.key");
   if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !existsSync(key)) throw new Error(`Updater signing key not found: ${key}`);
   const env = { ...process.env, TAURI_SIGNING_PRIVATE_KEY: key, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "" };
-  run("npx tauri build --config src-tauri/tauri.release.conf.json", { env });
+  // tauri.bundle.conf.json adds the MCP server sidecar (easy-labeling-mcp.exe) to the installer.
+  run("npx tauri build --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.release.conf.json", { env });
 }
 
 // GitHub turns spaces in asset names into dots; upload a name without them so the feed URL holds.

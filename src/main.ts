@@ -4,7 +4,7 @@ import {
   createCanvasControllerAdapter,
   type RuntimeCanvasController
 } from "./bootstrap/canvas-controller-adapter.js";
-import { createEventManagerAdapter } from "./bootstrap/event-manager-adapter.js";
+import { createEventManagerAdapter, type RuntimeEventManager } from "./bootstrap/event-manager-adapter.js";
 import { createFileSystemAdapter, type RuntimeFileSystem } from "./bootstrap/file-system-adapter.js";
 import {
   getBrowserRuntimeSnapshot,
@@ -205,6 +205,39 @@ function bootstrapBrowserRuntime(): void {
   runtimeUiManager.restoreDarkModeFromStorage();
   runtimeUiManager.setDirectoryPickerSupport(typeof window.showDirectoryPicker === "function");
   runtimeUiManager.setupSplitters();
+
+  // Desktop app: AI agents call in through easy-labeling-mcp.exe (src-tauri/src/agent.rs evals these).
+  const agentBridge = window.easyLabelingAgentBridge;
+  if (agentBridge) {
+    let agent: Promise<import("./bootstrap/agent-runtime.js").AgentRuntime> | null = null;
+    const loadAgent = () => agent ??= import("./bootstrap/agent-runtime.js").then(({ startAgentRuntime }) => startAgentRuntime({
+      state: appResult.app.state,
+      canvasController: runtimeCanvasController,
+      fileSystem: appResult.app.fileSystem as RuntimeFileSystem,
+      documentRef: document,
+      bridge: agentBridge,
+      openImageFolder: appResult.app.eventManager.openImageFolder?.bind(appResult.app.eventManager),
+      syncAfterEdit: appResult.app.eventManager.syncAfterEdit?.bind(appResult.app.eventManager),
+      refineAgent: () => (appResult.app.eventManager as Partial<RuntimeEventManager>).refineAgent?.() ?? null,
+      automationAgent: () => (appResult.app.eventManager as Partial<RuntimeEventManager>).automationAgent?.() ?? null,
+      inferenceAgent: () => (appResult.app.eventManager as Partial<RuntimeEventManager>).inferenceAgent?.() ?? null
+    }));
+    Reflect.set(window, "__easyLabelingAgent", {
+      dispatch: (request: import("./features/agent/agent-api.js").AgentRequest) => {
+        loadAgent().then((runtime) => runtime.dispatch(request)).catch((error: unknown) => {
+          void agentBridge.reply(request.id, false, null, { code: "failed", message: String(error) });
+        });
+      },
+      cancel: (id: string) => {
+        void agent?.then((runtime) => runtime.cancel(id));
+      }
+    });
+    const agentPanelButton = document.getElementById("agentPanelBtn");
+    if (agentPanelButton) {
+      agentPanelButton.hidden = false;
+      agentPanelButton.addEventListener("click", () => { void loadAgent().then((runtime) => runtime.togglePanel()); });
+    }
+  }
 
   Reflect.set(window, "__easyLabelingTestApi", {
     getRectCount: () => runtimeCanvasController.raw.getObjects("rect").length,

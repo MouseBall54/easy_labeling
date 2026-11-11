@@ -24,7 +24,7 @@ npm test                       # = npm run test:unit
 npm run test:unit              # vitest run, tests/unit/**/*.test.ts
 npm run test:e2e               # build + playwright test (chromium project only)
 npm run tauri:dev              # build + stage + debug desktop exe -> target/debug/ (desktop e2e specs drive it)
-npm run tauri:dist:win         # NSIS installer -> target/release/bundle/nsis/
+npm run tauri:dist:win         # NSIS installer (+ easy-labeling-mcp.exe sidecar, tauri.bundle.conf.json) -> target/release/bundle/nsis/
 npm run release:tauri          # signed installer + GitHub release with the update feed
 npm run benchmark:template-matching  # headless perf benchmark for automation matching
 ```
@@ -79,7 +79,7 @@ over scraping the DOM. Spec files map roughly 1:1 to feature areas:
 
 Desktop specs (`tauri-desktop`, `tauri-image-switch`, `desktop-performance`,
 `class-remap`, `label-sources`, `label-fast-load`, `label-load-performance`,
-`outside-boxes`, `layout-outside-boxes`, `inference-desktop`) launch
+`outside-boxes`, `layout-outside-boxes`, `inference-desktop`, `agent-desktop`) launch
 `target/debug/Easy Labeling.exe` through `tests/e2e/fixtures/tauri-app.ts`
 (`openDesktop`/`launchDesktop`: WebView2 CDP port, temporary profile, e2e
 seams for the folder picker, library file dialogs and profile root) and skip

@@ -1923,6 +1923,15 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       });
     },
 
+    runAsOneHistoryStep<T>(run: () => T): T {
+      const baseline = this.captureHistoryBaseline();
+      try {
+        return history.withReplayMuted(run);
+      } finally {
+        this.commitHistoryFromBaseline(baseline);
+      }
+    },
+
     clearHistory(): void {
       history.reset();
     },
