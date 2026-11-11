@@ -1,15 +1,195 @@
-# Easy Labeling 기능 및 옵션 상세 가이드
+# Easy Labeling 기능 및 옵션 안내
 
-이 문서는 Easy Labeling의 대표 기능과 주요 옵션이 실제로 어떻게 동작하는지 설명한다. 특히 Template Matching Setup의 전처리, 다중 매칭, 레이아웃 적용 옵션은 현재 구현 코드를 기준으로 계산 순서와 상호작용까지 정리했다.
+Easy Labeling의 화면과 기능, 주요 옵션이 실제로 어떻게 동작하는지 설명한다. 화면의 버튼·설정 이름은 앱에 표시되는 영어 그대로 쓴다.
 
-- 문서 기준일: 2026-07-13
-- 주요 구현 근거: `workers/template-matching-worker.js`, `src/features/automation/*`, `src/features/canvas/*`, `src/features/segmentation/*`
-- 템플릿 매칭 방식: OpenCV `TM_CCOEFF_NORMED`
-- 현재 제한: 고정 크기(fixed-scale) 매칭만 지원하며 회전 및 크기 변화 탐색은 지원하지 않는다.
+- 기준: v3.4.0 (2026-11-11)
+- 웹 버전과 Windows 데스크톱 앱(Tauri)은 같은 화면과 기능을 쓴다. 데스크톱 앱에만 있는 것(프로필 프리셋 폴더, AI 에이전트 연동, 네이티브 가속)은 따로 표시한다.
 
-## 1. Template Matching Setup 빠른 답변
+## 1. 화면 구성
 
-### 1.1 Strict non-overlap
+| 위치 | 내용 |
+| --- | --- |
+| 상단 바 | `Detection` / `Segmentation` 전환, 현재 이미지 이름, 이전/다음 이미지, 라벨 폴더 탭, X/Y 좌표 찾기, 확대 배율, Undo/Redo, Save |
+| 왼쪽 작업 레일 | Detection: `Annotate`, `Display`, `Preprocess`, `Inference`, `Review`. Segmentation: `Mask`, `Superpixel`, `Display`, `Preprocess`, `Review`. 아래쪽에 `Agent`(데스크톱), `Theme` |
+| 왼쪽 패널 | 레일에서 고른 작업의 설정. `Annotate`/`Mask`에는 데이터셋, 이미지 목록, 클래스 파일이 함께 있다 |
+| 캔버스 | 이미지와 박스·마스크 |
+| 오른쪽 Inspector | Detection: `Canvas tool`(Draw/Edit), `Refine`, `Automation settings`, 탭 `Annotation`/`Transform`/`Automation`/`Refine`. Segmentation: 도구(Brush/Erase/Polygon/Superpixel/AI Select/Edit), 브러시 크기, 클래스 |
+| 하단 상태 바 | 이미지·박스 정보, 진행 중인 작업과 Stop, 매칭 엔진 상태, 에이전트 작업 표시(데스크톱) |
+
+패널은 접고 펼칠 수 있고 분할선으로 폭을 바꾼다. 상단의 `Easy Labeling` 이름을 누르면 목록·캔버스·배율 표시를 다시 그린다(작업 내용과 Undo 기록은 그대로).
+
+## 2. 데이터셋, 라벨 폴더, 클래스
+
+### 2.1 데이터셋 열기
+
+- `Open Dataset`으로 이미지 폴더를 고른다. 업로드 서버는 없고, 브라우저(또는 데스크톱 앱)가 폴더를 직접 읽고 쓴다.
+- Detection 라벨은 `<이미지 폴더>/label/`, Segmentation 마스크는 `<이미지 폴더>/mask/`를 쓴다. 라벨 폴더가 없으면 만들지 묻는다.
+- 새로고침 버튼은 데이터셋을 다시 읽는다.
+- 이미지 목록: 이름 검색, 상태 필터 버튼(All → Labeled → Unlabeled), Review 필터(All / Needs review / Reviewed / Has issues), 이미지별 박스 수.
+- 이미지 이동: 상단 화살표 또는 `A` / `D`. 데스크톱 앱은 다음 이미지를 미리 읽어 둔다.
+
+### 2.2 라벨 폴더 탭
+
+상단의 라벨 폴더 탭으로 같은 이미지에 대한 여러 라벨 폴더(원본 `label`, 추론 결과 `inference-…`, 직접 추가한 폴더)를 오간다.
+
+- `+` 버튼으로 라벨 폴더를 추가한다. `Ctrl+1`~`Ctrl+9`는 n번째 폴더로 전환한다.
+- 전환 전에 고친 내용은 원래 활성 폴더에 저장된다. 저장에 실패하면 전환하지 않는다.
+- Review 상태와 규칙도 라벨 폴더마다 따로 관리한다.
+
+### 2.3 저장과 Auto save
+
+- `Save` 또는 `Ctrl+S`로 현재 이미지의 라벨을 저장한다. `Auto save`를 켜면 이미지를 바꿀 때 자동으로 저장한다.
+- 저장하지 않은 변경이 있으면 상태가 `Unsaved changes`로 표시된다. 데스크톱 앱은 저장하지 않은 채 창을 닫으면 확인한다.
+- **Remove outside boxes**: 이미지 경계를 넘는 박스를 현재 이미지 또는 활성 라벨 폴더의 모든 이미지에서 지운다. 폴더 전체는 원본 TXT를 백업한 뒤 바꾼다.
+
+### 2.4 클래스 파일 (YAML)
+
+- 클래스 파일은 `id: name` 줄로 된 `.yaml`/`.yml` 파일이다. 클래스 목록에서 파일을 고르면 클래스 이름과 색이 연결된다.
+- `+` 버튼: 새 클래스 파일을 만들고 편집기를 연다. 휴지통 버튼: 고른 클래스 파일을 확인 후 지운다(라벨 파일은 그대로).
+- 편집기(`Edit Class File`)에서 ID, 이름, 색을 고친다. 클래스 검색과 클래스별 표시/숨김을 지원하고, `Ctrl+H`는 모든 클래스를 한 번에 숨기거나 다시 보인다.
+- Class ID는 0 이상의 정수다.
+- 데스크톱 앱은 `<사용자 문서>/Easy Labeling/Class Info` 폴더를 만들고 그 안의 클래스 파일을 목록에 보여 준다.
+
+### 2.5 클래스 번호 일괄 변경 (Change label class IDs)
+
+Detection의 Classes 아래 `Change label class IDs`에서 현재 이미지 또는 활성 라벨 폴더 전체의 클래스 번호를 바꾼다.
+
+- `+3` / `-3` 같은 정수 이동, 또는 `0 → 2`, `2 → 0` 같은 번호별 교환·병합.
+- `Remap IDs` 목록은 현재 이미지의 클래스 번호를 숫자 순으로 채우고 `Original ID = New ID`로 시작한다. 바꿀 `New ID`만 고친다. `Count`는 숨긴 클래스와 경계 밖 박스를 포함한 개수다.
+- `Preview changes`로 바뀔 개수를 확인한 뒤 `Apply changes`를 누른다. 현재 이미지는 Undo로 되돌릴 수 있고, 폴더 전체는 원본 TXT를 `.easy-labeling/class-remap-*`에 백업한 뒤 저장한다.
+
+### 2.6 마지막 선택 기억
+
+클래스 파일, Preprocess 프리셋, Superpixel 프리셋, Automation 프리셋, Box layout에서 고른 항목을 기억한다. 전에 연 폴더를 다시 열면 그 폴더에서 마지막으로 고른 항목을, 처음 여는 폴더는 가장 최근에 고른 항목을 같은 이름으로 찾아 선택한다(없으면 기본값). 기록은 데이터셋이 아니라 브라우저/앱에 저장된다. 웹 버전은 폴더 경로를 알 수 없어 이름이 같은 폴더끼리 기록을 함께 쓴다.
+
+## 3. Detection
+
+### 3.1 Draw와 Edit
+
+- `Draw`: 드래그해 새 박스를 만든다. `Edit`: 박스를 선택해 위치·크기·클래스를 고친다. `Ctrl+Q`로 둘을 전환한다.
+- 박스를 더블클릭하거나 `Ctrl+B`를 누르면 Class ID를 고르는 창이 열린다. 우클릭 메뉴로 클래스 변경, 삭제 등을 한다.
+- 숫자 키 `0`~`9`는 선택한 박스의 클래스를 그 번호로 바꾼다.
+- `Ctrl+A` 전체 선택, `Ctrl+C`/`Ctrl+V` 복사·붙여넣기, `Delete`/`Backspace` 삭제, `Esc` 선택 해제, 화살표 1px 이동, `Shift+화살표` 10px 이동.
+
+### 3.2 Annotation 탭
+
+- `Selection`: 선택한 박스의 Class와 X/Y/W/H를 직접 입력한다. `Duplicate`, `Hide`, `Delete`.
+- `Annotations`: 박스 목록(클래스별 그룹, 오름차순/내림차순 정렬). `Select by class...`로 한 클래스의 박스를 모두 선택한다.
+
+### 3.3 Transform 탭
+
+- `Align`(2개 이상 선택): Edges(좌/우/상/하 경계), Centers(열/행 가운데, 행 세트별 열 가운데), Range, Distribute(가로/세로 균등 간격).
+  - 열별 가운데 정렬은 중심 X가 Range(기본 50%) × 박스 폭 중간값 이내인 박스를 한 열로 묶어 각 열의 평균 중심 X에 맞춘다. 행별은 같은 방식으로 중심 Y를 맞춘다.
+  - 행 세트별 열 가운데 정렬은 열 위치가 같은 행끼리 세트로 묶은 뒤(예: 1·2·5·6행과 3·4·7·8행) 세트마다 열 중심을 따로 맞춘다.
+  - Range 슬라이더(10~150%)는 묶음 범위를 박스 크기 대비 비율로 정한다. 가운데 정렬 직후 슬라이더를 움직이면 정렬 전 위치에서 새 범위로 다시 정렬하고, 슬라이더를 놓을 때마다 Undo 한 단계로 기록된다.
+- `Move selection`: 선택한 모든 박스를 X/Y 픽셀만큼 함께 옮긴다.
+- `Resize selection`: 각 박스의 중심을 유지한 채 너비·높이를 바꾼다. `Change size by (px)`는 입력값만큼 늘리거나(음수면 줄임), `Set size to (px)`는 모든 박스를 그 크기로 맞춘다. 비워 둔 W나 H는 그대로 둔다. 한 박스라도 0 px 이하가 되거나 이미지 밖으로 나가면 아무것도 바꾸지 않는다.
+- `Layout`: 저장된 박스 레이아웃을 고르면 반투명 미리보기가 보이고, `Apply layout`으로 실제 박스를 추가한다(6.4 참고).
+
+### 3.4 Display (라벨 표시)
+
+- `Label display`: `Auto`(화면 밀도에 맞춰 자동), `Full`(클래스 ID와 이름), `Compact`, `Selected only`, `Off`.
+- `Show box size (W×H)`: 선택한 박스 라벨에 너비×높이(이미지 픽셀, 정수)를 함께 표시한다. 기본 꺼짐, 설정은 유지된다.
+- `Label size`: `6px`~`20px`.
+- `Label-only view` (`Ctrl+L`): 이미지를 숨기고 박스만 흰색/검은색/회색 배경(`Shift+1`/`Shift+2`/`Shift+3`) 위에 보여 준다.
+
+### 3.5 저장 형식
+
+`label/<이미지 이름>.txt`에 YOLO 형식(클래스 ID, 정규화된 중심 X/Y, 너비/높이)으로 저장한다.
+
+## 4. Refine (박스 경계 맞추기)과 Reclass
+
+Inspector의 `Refine`(`R`)은 박스 변을 이미지의 실제 경계에 맞추거나(Edge), 박스 안 밝기로 클래스를 바꾼다(Reclass). 두 기능은 맨 위의 **Mode**로 나뉘고, 모드는 `.easy-labeling/refine-settings.json`에 저장된다. 데스크톱 앱은 Refine을 Rust 네이티브로 실행한다(결과는 웹 버전과 같다).
+
+### 4.1 Edge 모드
+
+- **Run with**: 클래스별 설정(Class settings) 또는 Edge 프리셋. 프리셋을 고르면 각 클래스는 그 프리셋의 클래스별 값(없으면 프리셋 Default)으로 실행되고, 저장된 클래스 설정은 그대로 둔다.
+- **Apply**: `Selected`(`E`), `All boxes`(`Shift+E`), 클래스 드롭다운 + `Refine class`. 실행 하나가 Undo 한 단계다. 선택하면 바뀔 모습을 미리 보여 준다.
+- **Keep hand-edited boxes…**(기본 켜짐): All boxes와 Refine class에서 손으로 고친 박스를 건드리지 않는다. Selected는 항상 실행한다.
+- **Refine all images in folder**: Run with 설정으로 폴더의 모든 이미지·모든 박스를 맞춘다(5.3 참고).
+- **크기 안전장치**: Lab의 Advanced에 있는 Min/Max width, Min/Max height(px, 0이면 끔)를 벗어나면 그 축의 변은 원래 자리에 두고 박스를 검토 대상으로 표시한다.
+
+### 4.2 Reclass 모드
+
+박스 위치는 그대로 두고, 규칙에 맞는 박스의 클래스를 바꾼다. 예를 들어 가운데가 어두워야 할 구조물에 밝은 얼룩이 있으면 `unfilled` 클래스로 바꾼다.
+
+- **Reclass with**: Refine Lab의 규칙(Lab rule) 또는 Reclass 프리셋.
+- **Apply**: `Selected`(`E`), `All boxes`(`Shift+E`), 클래스 드롭다운 + `Reclass class`. 맞는 박스의 클래스를 바로 바꾸고(Undo 한 단계), 바뀐 박스는 검토 대상이 된다. 규칙이 검사하지 않는 클래스와 바꿀 대상 클래스는 드롭다운에서 고를 수 없다.
+- **Keep boxes whose class was changed by hand…**(기본 켜짐): All boxes와 Reclass class에서 손으로 클래스를 바꾼 박스를 건드리지 않는다.
+- **Reclass all images in folder**: 폴더 전체에 규칙을 적용한다(면적 줄어듦 검사는 라벨 파일에 저장된 크기와 비교).
+- 규칙(Lab의 Reclass 모드 **Rule**): 검사할 클래스(Classes 칩, All은 전체), 바꿀 클래스(Change to), 가운데 crop을 위·아래·왼쪽·오른쪽에서 뺄 비율(Centre inset %, 0-90%, 마주 보는 두 변의 합은 최대 90%), 판정 조합(OR / AND).
+- 판정 세 가지:
+  - **Mean ≥**: 가운데 crop의 평균 밝기(0~255)가 기준 이상
+  - **Bright pixels ≥ %**: Bright level 이상인 픽셀 비율이 기준 이상
+  - **Area shrinks ≥ %**: 현재 Edge 설정으로 경계를 다시 계산한 면적이 불러온 크기보다 기준 이상 줄어듦
+- 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)을 쓴다. **기본 규칙도 실제로 클래스를 바꾸므로** 처음 쓸 때는 규칙을 먼저 확인한다.
+
+### 4.3 검토 (Review)
+
+- 검토 대상은 박스 옆에 표시한다. 노란 `!` 핀은 Refine 검토 대상, 빨간 `!`는 면적이 크게 바뀐 박스, 마젠타 숫자는 Reclass로 바뀐 클래스다. 박스 바깥의 노란 삼각형은 신뢰도가 낮은 변을 가리킨다. 표시가 있는 동안 다른 박스는 흐리게 보인다(저장되는 라벨과는 무관).
+- `N` / `Shift+N`으로 다음/이전 검토 대상, `F`(Approve)로 승인하고 다음으로, **Approve all**로 남은 대상을 한 번에 승인한다. 현재 모드의 대상만 다룬다.
+- **Show review marks on the canvas**로 표시를 모두 끈다.
+
+### 4.4 Refine Lab
+
+`Open Refine Lab`은 케이스 박스를 확대해 보며 설정을 조정하는 창이다.
+
+- 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule.
+- Edge 모드의 확대 화면은 Surroundings가 읽는 곳을 함께 그린다. 주황 띠는 Background ring, 점선 사각형은 박스 core(안쪽 50%), 회색 점선 박스는 이웃 박스다. Stop halfway to neighbours를 켜면 바깥 검색이 이웃과의 중간에서 멈춘다.
+- Edge rule의 **Scan span**이 Box + outside 또는 Outside only일 때, 각 끝은 박스 너머(Extend before/after)와 **Into box from start / end (px)**만큼 박스 안쪽도 스캔한다.
+- Image(Original/Processed와 Processing)는 모드마다 따로다. 예를 들어 경계는 Processed로 찾고 Reclass 판정은 Original 밝기로 할 수 있다.
+- 프리셋: preset name 칸에 이름이 채워지고, **Save settings**는 설정을 저장하면서 그 이름의 프리셋에도 저장한다(새 이름이면 새 프리셋). Edge 프리셋은 Default와 클래스별 값을 함께 저장한다. Default 상태에서 저장·적용하면 클래스별 값까지 저장·교체되고, 클래스 칩을 고른 채 적용하면 그 클래스들만 프리셋 Default 값으로 맞춘다.
+- **Save & refine these boxes** / **Save & reclass these boxes**: 저장한 뒤 Lab의 케이스 박스에 바로 적용한다.
+- **?** 버튼은 가이드 창을 연다(EN / 한국어 전환, 탭·목차·키워드 검색, 설정별 예시 그림과 증상 → 해결 힌트).
+- Refine 패널이 열린 채 다른 폴더를 열면 패널이 그 폴더의 설정과 프리셋으로 바뀐다.
+
+## 5. Preprocess, Review, Inference
+
+### 5.1 Preprocess (Processed 이미지)
+
+SEM/TEM 이미지를 보기 좋게, 또는 경계를 찾기 좋게 가공한 **Processed** 이미지를 만든다.
+
+- `Show on canvas`(`Q`): 캔버스에 Original / Processed 중 무엇을 보일지. 상단 좌표 입력 왼쪽의 이미지 아이콘도 같다.
+- `Preset` / `Save`: 전처리 설정을 이름 붙여 저장한다.
+- `Processing mode`: `Original`(필터만), `Edge`, `Edge Blend`.
+- Clean-up(경계 위치를 유지): `Median 3×3`, `Destripe`(Rows/Columns), `Flatten σ`(배경 평탄화), `Denoise`(경계 보존 확산, `Edge keep κ`).
+- Contrast(국소 → 전체): `CLAHE`, `CLAHE tiles`, `Auto levels`, `Contrast`, `Gamma`.
+- Edges(Edge / Edge Blend 모드): `Blur strength`, `Edge weight`.
+- `Reset preprocessing`: 기본값으로 되돌린다.
+- **Use for algorithms**: AI Select, Superpixel, Automation(템플릿 매칭) 각각이 Original과 Processed 중 무엇을 읽을지 화면 보기와 따로 정한다. Refine은 Refine Lab의 Image 설정을 따른다.
+- 데스크톱 앱은 Processed 이미지를 Rust에서 백그라운드로 계산해 큰 이미지에서도 화면이 멈추지 않는다.
+
+### 5.2 Review (라벨 품질 검사와 검수 상태)
+
+- `Rescan`: 활성 라벨 폴더의 모든 라벨을 다시 검사한다(저장하지 않은 현재 편집 포함). 데스크톱 앱은 Rust가 파일을 직접 읽어 병렬로 검사한다.
+- 문제 종류: 중복 박스(Duplicate IoU 이상), 너무 작은 박스(Min px 미만), 이미지 밖 박스, 필수 클래스 누락, 빈 라벨. 현재 이미지의 문제를 누르면 해당 박스로 이동한다.
+- `Review queue`: 문제가 있거나 검수가 필요한 이미지를 `Previous` / `Next`로 오간다.
+- `Mark reviewed` / `Mark needs review`: 이미지별 검수 상태. `.easy-labeling/review-state.json`에 저장되고 이미지 목록의 Review 필터에 쓰인다.
+- `Quality rules`: `Min px`, `Duplicate IoU`, `Required classes`(쉼표로 구분). `Save rules and recheck`로 저장하고 다시 검사한다.
+
+### 5.3 폴더 전체 변경과 백업
+
+Refine all images / Reclass all images / Change label class IDs(폴더) / Remove outside boxes(폴더)는 확인 창 뒤에 현재 편집을 먼저 저장하고, 바뀌는 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/` 아래(`refine-all-…`, `reclass-all-…`, `class-remap-…` 등)에 백업한 뒤 쓴다. 중간에 멈추거나 실패하면 어떤 파일도 바뀌지 않는다. Undo로는 되돌릴 수 없고 백업으로 되돌린다.
+
+### 5.4 Inference (YOLO ONNX 추론)
+
+1. 레일의 `Inference`에서 `Load`로 Detection `.onnx` 모델을 고른다. 모델 채널 수, NCHW/NHWC, 입력 크기, 실행 장치(`GPU · WebGPU` 또는 `CPU · WASM`)가 표시된다. GPU를 먼저 쓰고, 안 되면 CPU로 자동 전환한다(이유는 장치 배지에 마우스를 올리면 보인다).
+2. `Confidence`와 `Max detections`(이미지당 1~30,000, 기본 300)를 정한다. `Advanced settings`: `NMS IoU`, `Output format`(Auto / YOLOv8+ `[1, 4+C, N]` / YOLOv5 `[1, N, 5+C]` / NMS·end-to-end `[1, N, 6]`), `Dynamic input size`(기본 640×640).
+3. `Infer current image` 또는 `Infer all images`. 실행 중에는 진행 상황과 Stop이 보인다.
+
+- 결과는 데이터셋 아래 `inference-<모델 파일 이름>` 폴더에 YOLO `.txt`, `classes.yaml`, 실행 정보 `inference.json`으로 저장되고, 그 폴더가 활성 라벨 폴더가 된다. 원래 라벨은 바뀌지 않는다. 같은 모델 이름으로 다시 실행하면 처리한 이미지의 결과만 갱신한다.
+- 결과를 고쳐 검수할 수 있고, 라벨 폴더 탭으로 원본과 결과를 오간다.
+- 지원 범위: float32, batch 1, 입력·출력 하나, 1 또는 3채널 Detection 모델. 이미지는 종횡비를 유지해 letterbox(114)로 맞추고 0–1로 정규화한다. 6열 출력은 단일 클래스 YOLOv5와 NMS 결과를 구분할 수 없어 Output format을 직접 고른다. float16·양자화 입력, segmentation/pose, external-data 파일은 지원하지 않는다.
+- 클래스 이름은 현재 클래스 파일을 쓴다(모델 안의 클래스 이름은 읽지 않음). 모델의 클래스 순서와 맞는 클래스 파일을 고른다.
+- 전체 추론에서 기본 이름이 같은 이미지(`a.jpg`, `a.png`)가 있으면 결과 파일이 겹치므로 실행을 막는다.
+
+## 6. 템플릿 매칭, 레이아웃, 자동화
+
+Inspector의 `Automation settings`에서 `Template Matching Setup`(템플릿 만들기와 매칭 시험)과 `Layout setup`을 열고, Automation 탭에서 저장한 프리셋을 현재 이미지나 데이터셋 전체에 실행한다. 매칭은 OpenCV `TM_CCOEFF_NORMED`이며 고정 크기만 찾는다(회전·크기 변화는 찾지 않는다).
+
+### 6.1 Template Matching Setup 옵션 빠른 답변
+
+#### Strict non-overlap
 
 `Multiple Boxes` 모드에서 점수가 높은 후보부터 결과로 채택할 때, 이미 채택된 박스와 조금이라도 면적이 겹치는 새 후보를 제거하는 옵션이다.
 
@@ -21,7 +201,7 @@
 
 촘촘히 붙어 있는 물체를 각각 검출해야 한다면 Strict non-overlap이 오히려 정상 후보를 제거할 수 있다. 이때는 옵션을 끄고 NMS IoU를 조정한다.
 
-### 1.2 NMS IoU threshold
+#### NMS IoU threshold
 
 Strict non-overlap이 꺼져 있을 때만 사용되는 중복 제거 임계값이다. IoU(Intersection over Union)는 두 박스의 겹친 면적을 두 박스의 합집합 면적으로 나눈 값이다.
 
@@ -45,7 +225,7 @@ IoU = 교차 면적 / (박스 A 면적 + 박스 B 면적 - 교차 면적)
 | `0.5` | 절반 가까이 겹치기 전까지 함께 남을 수 있다. |
 | `1.0` | 정상적인 박스의 IoU는 1을 넘지 않으므로 사실상 NMS 제거가 거의 발생하지 않는다. |
 
-### 1.3 Padding X, Padding Y
+#### Padding X, Padding Y
 
 템플릿 크기로 생성된 검출 박스를 좌우와 상하 방향으로 확장하는 픽셀 값이다.
 
@@ -67,7 +247,7 @@ IoU = 교차 면적 / (박스 A 면적 + 박스 B 면적 - 교차 면적)
 
 Padding은 템플릿 ROI가 실제 객체보다 작을 때 최종 라벨 범위를 보정하는 용도다. 중복 검출 수를 늘리기 위한 옵션은 아니다.
 
-### 1.4 Gaussian Blur의 Sigma
+#### Gaussian Blur의 Sigma
 
 Gaussian Blur는 주변 픽셀을 가우시안 가중치로 평균내어 세부 질감과 고주파 노이즈를 줄인다. Easy Labeling은 대상 이미지와 템플릿 이미지 양쪽에 같은 Blur 설정을 적용한다.
 
@@ -81,7 +261,7 @@ Gaussian Blur는 주변 픽셀을 가우시안 가중치로 평균내어 세부 
 
 같은 Kernel에서 Sigma가 커질수록 더 넓은 주변 픽셀이 비슷한 비중으로 섞여 이미지가 부드러워진다. 너무 큰 Kernel/Sigma는 객체의 경계와 구분 특징까지 없애 매칭 점수를 떨어뜨릴 수 있다.
 
-### 1.5 Gaussian Noise Simulation의 Noise sigma
+#### Gaussian Noise Simulation의 Noise sigma
 
 각 픽셀 채널 값에 평균 0인 가우시안 난수를 더하는 강도다.
 
@@ -95,9 +275,9 @@ Gaussian Blur는 주변 픽셀을 가우시안 가중치로 평균내어 세부 
 - Grayscale이 켜져 있으면 단일 밝기 채널에, 꺼져 있으면 RGB 각 채널에 적용된다.
 - 대상 이미지와 템플릿 양쪽에 같은 Noise sigma 및 Seed 설정이 적용된다.
 
-이 옵션은 항상 정확도를 높이는 마법 같은 보정이 아니다. 노이즈가 있는 입력에 대한 민감도를 확인하거나 특정 데이터에서 견고성을 높이는 실험용 전처리다. 실제 데이터셋에서 Match Preview와 배치 Dry run으로 결과를 비교해야 한다.
+이 옵션은 항상 정확도를 높이는 마법 같은 보정이 아니다. 노이즈가 있는 입력에 대한 민감도를 확인하거나 특정 데이터에서 견고성을 높이는 실험용 전처리다. 실제 데이터셋에서 Preview Match와 배치 Dry run으로 결과를 비교해야 한다.
 
-### 1.6 Gaussian Noise Simulation의 Seed
+#### Gaussian Noise Simulation의 Seed
 
 노이즈 난수열을 시작하는 정수값이다.
 
@@ -109,9 +289,9 @@ Gaussian Blur는 주변 픽셀을 가우시안 가중치로 평균내어 세부 
 
 Seed의 목적은 결과 재현성이다. 특정 Seed에서만 결과가 좋아진다면 일반적인 개선으로 보기 어렵기 때문에 여러 Seed나 실제 노이즈 이미지에서 확인해야 한다.
 
-## 2. 템플릿 매칭 전체 처리 순서
+### 6.2 처리 순서
 
-Match Preview 또는 자동화를 실행하면 다음 순서로 처리된다.
+Preview Match 또는 자동화를 실행하면 다음 순서로 처리된다.
 
 1. 기준 이미지에서 설정한 Template ROI를 템플릿 이미지로 준비한다.
 2. `Limit search area`가 켜져 있으면 대상 이미지의 지정 영역만 검색 대상으로 자른다.
@@ -129,14 +309,14 @@ Match Preview 또는 자동화를 실행하면 다음 순서로 처리된다.
 
 검색 영역을 사용한 경우 최종 좌표는 검색 영역 내부 좌표가 아니라 원본 이미지 좌표로 환산된다.
 
-## 3. Template Matching Setup 옵션 상세
+### 6.3 Template Matching Setup 옵션 상세
 
-### 3.1 Reference image와 Template ROI
+#### Reference image와 Template ROI
 
 - `Reference image`: 템플릿을 채취할 대표 이미지다.
 - `Template ROI`: 기준 이미지에서 실제로 찾을 사각형 영역이다.
 - ROI는 원본 이미지 범위 안에 있어야 하며 너비와 높이가 0보다 커야 한다.
-- ROI를 변경하면 이전 Match Preview 결과는 무효화된다.
+- ROI를 변경하면 이전 Preview Match 결과는 무효화된다.
 - 선택한 ROI 원본과 전처리 결과는 하단 미리보기에서 비교할 수 있다.
 
 마우스 모드:
@@ -151,12 +331,12 @@ Match Preview 또는 자동화를 실행하면 다음 순서로 처리된다.
 - 마우스 휠은 스크롤, `Ctrl+휠`은 포인터 기준 확대/축소로 동작한다.
 - Select results 모드의 왼쪽 드래그 또는 가운데 버튼 드래그로 팬할 수 있다.
 - Fit 버튼은 이미지를 작업 영역에 맞추고 중앙으로 되돌린다.
-- Template workspace 확대 범위는 `1%`~`1000%`다.
+- Template workspace 확대 범위는 `1%`~`3000%`다.
 - 후보 목록을 클릭하면 현재 배율을 유지한 채 해당 후보를 화면 중앙으로 이동하고 강조한다.
 
-### 3.2 출력 모드
+#### 출력 모드
 
-#### Best Match + Layout
+**Best Match + Layout**
 
 최고 점수 한 곳을 앵커로 삼아 저장된 박스 레이아웃 전체를 배치한다.
 
@@ -169,13 +349,13 @@ Match Preview 또는 자동화를 실행하면 다음 순서로 처리된다.
 - `Box layout`: 적용할 저장 레이아웃이다.
 - `Anchor Offset`: Template ROI 위치와 레이아웃 원점 사이의 기준 관계값이다.
 - `Final Adjustment`: 이미지별 또는 현장 조건별 최종 미세 조정값이다.
-- `Layout preview opacity`: Match Preview 위에 보이는 레이아웃 박스 채움의 투명도를 `0%`~`60%`로 조절한다.
+- `Layout preview opacity`: Preview Match 위에 보이는 레이아웃 박스 채움의 투명도를 `0%`~`60%`로 조절한다.
 - 이미지 밖으로 완전히 들어가지 않는 레이아웃 박스는 적용 결과에서 제외된다.
 - 최고 점수가 Minimum score보다 낮으면 레이아웃 박스를 만들지 않는다.
 
 Anchor Offset에는 기준 이미지에서 ROI와 레이아웃의 구조적 관계를 저장하고, Final Adjustment에는 실제 적용 중 필요한 작은 보정값을 두는 방식이 관리하기 쉽다.
 
-#### Multiple Boxes
+**Multiple Boxes**
 
 Minimum score 이상인 여러 매칭 위치를 각각 Detection 박스로 만든다.
 
@@ -188,7 +368,7 @@ Minimum score 이상인 여러 매칭 위치를 각각 Detection 박스로 만�
 
 Class ID는 `0` 또는 양의 정수만 허용된다. 문자가 포함되거나 음수이면 확인 시 오류 메시지를 표시하고 적용하지 않는다.
 
-### 3.3 Grayscale
+#### Grayscale
 
 - 켜짐: 대상과 템플릿을 단일 밝기 채널로 변환한다.
 - 꺼짐: RGB 색상 정보를 유지한다.
@@ -196,7 +376,7 @@ Class ID는 `0` 또는 양의 정수만 허용된다. 문자가 포함되거나 
 - 형태가 비슷하고 색상으로 구분해야 하는 대상은 RGB가 유리할 수 있다.
 - 토글을 바꾸면 전처리 미리보기와 매칭 결과를 다시 계산해야 한다.
 
-### 3.4 Accurate와 Fast
+#### Accurate와 Fast
 
 - `Accurate`: 원본 해상도 전체에서 매칭한다. 일반적으로 더 느리지만 위치 탐색이 직접적이다.
 - `Fast`: 0.5배 축소 영상에서 거친 후보를 찾은 뒤 원본 해상도의 작은 주변 영역에서 보정한다.
@@ -205,7 +385,7 @@ Class ID는 `0` 또는 양의 정수만 허용된다. 문자가 포함되거나 
 
 큰 이미지에서 속도가 중요하면 Fast로 시작하고, 놓치는 대상이나 위치 오차가 있으면 Accurate로 비교한다.
 
-### 3.5 Minimum score
+#### Minimum score
 
 - 허용 범위: `-1.0`~`1.0`
 - 현재 UI 기본값: `0.80`
@@ -217,7 +397,7 @@ Class ID는 `0` 또는 양의 정수만 허용된다. 문자가 포함되거나 
 
 서로 다른 데이터셋이나 전처리 설정의 점수를 절대적으로 동일하게 비교하지 말고, 대표 이미지 여러 장에서 분포를 확인해야 한다.
 
-### 3.6 Limit search area
+#### Limit search area
 
 - 기본값: 꺼짐.
 - 켜면 X/Y/W/H로 지정한 원본 이미지 영역 안에서만 템플릿을 찾는다.
@@ -226,24 +406,24 @@ Class ID는 `0` 또는 양의 정수만 허용된다. 문자가 포함되거나 
 - 검색 영역은 이미지 안에 있어야 하며 템플릿보다 작아서는 안 된다.
 - 위치가 크게 변할 수 있는 데이터에 너무 좁은 영역을 쓰면 실제 대상을 찾지 못한다.
 
-### 3.7 Existing labels
+#### Existing labels
 
-- `Skip labeled (recommended)`: 이미 라벨이 있는 이미지는 배치 처리에서 건너뛴다.
+- `Skip labeled`: 이미 라벨이 있는 이미지는 배치 처리에서 건너뛴다.
 - `Append`: 기존 YOLO 라벨 뒤에 새 결과를 추가한다.
 - `Replace`: 기존 YOLO 라벨을 새 결과로 교체한다.
 
 Replace는 기존 수작업 라벨을 덮어쓸 수 있으므로 먼저 Dry run과 일부 이미지의 현재 이미지 실행으로 결과를 확인한다.
 
-### 3.8 Match Preview, Apply Result, Save Preset
+#### Preview Match, Apply Result, Save Preset
 
-- `Match Preview`: 현재 설정으로 매칭을 계산하고 점수, 좌표, 후보, 처리 시간을 표시한다. 실제 라벨을 쓰지 않는다.
+- `Preview Match`: 현재 설정으로 매칭을 계산하고 점수, 좌표, 후보, 처리 시간을 표시한다. 실제 라벨을 쓰지 않는다.
 - `Apply Result`: 현재 미리보기에서 확인한 결과를 현재 이미지의 Detection 박스로 적용한다.
 - `Save Preset`: 템플릿, 출력 모드, 레이아웃 관계, 전처리, 매칭, 기존 라벨 정책을 하나의 재사용 설정으로 저장한다.
-- 매칭 관련 입력을 변경하면 이전 미리보기는 무효화되므로 다시 Match Preview를 실행해야 한다.
+- 매칭 관련 입력을 변경하면 이전 미리보기는 무효화되므로 다시 Preview Match를 실행해야 한다.
 
-## 4. Layout 기능
+### 6.4 Layout
 
-### 4.1 Layout의 의미
+#### Layout의 의미
 
 Layout은 여러 Detection 박스의 클래스, 크기, 순서, 상대 위치를 하나의 재사용 가능한 구조로 저장한 것이다.
 
@@ -251,241 +431,33 @@ Layout은 여러 Detection 박스의 클래스, 크기, 순서, 상대 위치를
 - 각 박스는 원점으로부터의 상대 X/Y, Width, Height, Class ID를 저장한다.
 - 따라서 레이아웃 전체를 다른 앵커로 옮겨도 내부 박스 간 간격은 유지된다.
 
-### 4.2 Layout Setup
+#### Layout Setup
 
 - 현재 이미지의 선택된 박스 또는 모든 박스로 새 레이아웃을 만든다.
 - 저장된 레이아웃을 선택해 클래스 수, 앵커, 전체 크기, 원본 이미지 크기를 미리 볼 수 있다.
 - New, Duplicate, Rename, Delete로 레이아웃을 관리한다.
 - Save File/Load File로 단일 레이아웃 JSON을 데이터셋 밖에 저장하거나 불러올 수 있다.
-- 데스크톱 앱은 레이아웃과 템플릿 프리셋을 `문서/Easy Labeling/Layouts`, `문서/Easy Labeling/Template Presets`에 하나씩 JSON 파일로 저장하고, 이 폴더들을 자동으로 읽어 선택 목록을 만든다. 자세한 내용은 10장을 본다.
-- 예전 버전이 데이터셋의 `.easy-labeling/automation-library.json`에 저장한 항목도 목록에 나온다. 같은 ID가 양쪽에 있으면 나중에 고친 쪽이 쓰인다.
+- 데스크톱 앱은 레이아웃과 템플릿 프리셋을 `문서/Easy Labeling/Layouts`, `문서/Easy Labeling/Template Presets`에 하나씩 JSON 파일로 저장하고, 이 폴더들을 자동으로 읽어 선택 목록을 만든다. 자세한 내용은 9장을 본다.
+- 데이터셋의 `.easy-labeling/automation-library.json`에 있는 항목도 목록에 나온다. 같은 ID가 양쪽에 있으면 나중에 고친 쪽이 쓰인다.
 - 레이아웃을 삭제하면 그 레이아웃을 참조하는 프리셋도 함께 제거된다.
 
-### 4.3 Transform 탭의 Layout 적용
+#### Transform 탭의 Layout 적용
 
 - 레이아웃을 선택하면 현재 이미지 위에 반투명 ghost preview가 나타난다.
 - Apply layout을 누르면 미리보기 박스가 실제 선택 가능한 Detection 박스로 추가된다.
 - 적용 후에는 일반 박스와 동일하게 선택, 이동, 클래스 변경, 삭제, Undo/Redo가 가능하다.
-- 이미지 밖으로 나가는 박스는 적용되지 않으며 안내 문구에 경고가 표시된다.
+- 이미지 밖으로 나가는 박스도 그대로 추가된다. 필요하면 `Remove outside boxes`(2.3)로 지운다. 템플릿 매칭으로 배치할 때(Best Match + Layout)는 이미지 안에 완전히 들어가는 박스만 남는다.
 
-### 4.4 선택 박스 이동, 크기, 정렬, 분배
+### 6.5 Automation 탭: 프리셋 실행과 배치
 
-- Move selection의 X/Y는 선택한 모든 박스를 지정 픽셀만큼 함께 이동한다.
-- Resize selection은 선택한 모든 박스의 너비(W)·높이(H)를 각 박스의 중심을 유지한 채 바꾼다. `Change size by`는 입력한 픽셀만큼 늘리거나(음수면 줄임), `Set size to`는 모든 박스를 그 크기로 맞춘다. 비워 둔 W나 H는 그대로 둔다. 한 박스라도 0 px 이하가 되거나 이미지 밖으로 나가면 아무것도 바꾸지 않고 알린다. 한 번에 Undo된다.
-- 레이아웃에서 생성된 박스만을 위한 기능이 아니라 현재 선택된 일반 박스에도 동작한다.
-- Align 패널은 Edges(좌/우/상/하 경계), Centers(열/행 세트별 열/행 가운데), Range, Distribute 행으로 나뉜다. 정렬은 2개 이상 선택된 박스에 동작한다.
-- 열별 가운데 정렬은 중심 X가 Range(기본 50%) × 박스 폭 중간값 이내인 박스를 한 열로 묶고, 각 열의 평균 중심 X에 맞춘다. 행별 가운데 정렬은 같은 방식으로 중심 Y를 맞춘다.
-- 행 세트별 열 가운데 정렬은 열 위치가 같은 행끼리 세트로 묶은 뒤(예: 1·2·5·6행과 3·4·7·8행), 세트마다 열 중심을 따로 맞춘다. 세트 간 어긋남이 열 묶음 범위의 절반(기본값에서 박스 폭의 약 1/4)보다 작으면 한 세트로 묶인다.
-- Range 슬라이더(10~150%)는 묶음 범위를 박스 크기 대비 비율로 정한다. 가운데 정렬 직후 슬라이더를 움직이면 정렬 전 위치에서 새 범위로 바로 다시 정렬해 결과를 보며 조절할 수 있고, 슬라이더를 놓을 때마다 실행 취소 한 단계로 기록된다. 그 사이 박스를 다른 방법으로 옮기면 다음 가운데 정렬부터 새 범위가 적용된다.
-- Distribute는 여러 박스의 가로 또는 세로 간격을 균등하게 배치한다.
-- 화살표 키는 1픽셀, Shift+화살표는 10픽셀 이동한다.
+#### Preset 실행
 
-## 5. Detection 작업 기능
-
-### 5.1 Draw와 Edit
-
-- `Draw`: 드래그해 새 Bounding Box를 만든다.
-- `Edit`: 박스를 선택하고 위치, 크기, 클래스를 수정한다.
-- `Ctrl+Q`로 Draw/Edit를 전환한다.
-- 박스를 더블클릭하면 Class ID 변경 입력을 연다.
-- 박스를 우클릭하면 클래스 변경 및 삭제 등 컨텍스트 작업을 사용할 수 있다.
-- 우클릭은 도구 전환 단축키로 사용하지 않는다.
-
-### 5.2 선택 및 편집
-
-- 단일 또는 다중 박스를 선택할 수 있다.
-- Annotation 탭에서 Class와 X/Y/W/H를 직접 입력할 수 있다.
-- Duplicate, Hide, Delete를 사용할 수 있다.
-- 클래스별 선택 기능으로 같은 클래스 박스를 한 번에 선택할 수 있다.
-- `Ctrl+A`, `Ctrl+C`, `Ctrl+V`, `Delete/Backspace`, `Esc`를 지원한다.
-- 숫자 키는 대응하는 클래스 선택에 사용된다.
-
-### 5.3 Label display
-
-- `Auto`: 화면 상태와 밀도에 따라 표시 방식을 자동 선택한다.
-- `Full`: 클래스 ID와 이름을 전체 표시한다.
-- `Compact`: 작은 형태로 표시해 이미지 가림을 줄인다.
-- `Selected only`: 선택된 박스만 라벨 텍스트를 표시한다.
-- `Off`: 박스 라벨 텍스트를 숨긴다.
-- `Show box size (W×H)`를 켜면 선택한 박스의 라벨에 너비×높이(이미지 픽셀, 정수로 반올림)가 함께 표시된다. 예: `0 40×30`. 크기를 바꾸면 바로 갱신되고, 설정은 다음 실행에도 유지된다. 기본값은 꺼짐.
-- Label size는 `6px`~`20px` 범위에서 조절한다.
-
-### 5.4 클래스 및 Annotation 목록
-
-- 클래스 검색과 클래스별 가시성 전환을 지원한다.
-- Annotation 목록은 클래스별로 그룹화해 확인할 수 있다.
-- 목록에서 박스를 선택, 편집, 삭제할 수 있다.
-- 오름차순/내림차순 정렬을 지원한다.
-- **마지막 선택 기억:** 클래스 파일, Preprocess 프리셋, Superpixel 프리셋, Automation 프리셋, Box layout에서 고른 항목을 기억한다. 전에 연 폴더를 다시 열면 그 폴더에서 마지막으로 고른 항목을, 처음 여는 폴더는 어느 폴더에서든 가장 최근에 고른 항목을 같은 이름으로 찾아 자동으로 선택한다(같은 이름이 없으면 기본값). 기록은 데이터셋이 아니라 브라우저/앱 쪽에 저장된다. 웹 버전은 폴더 경로를 알 수 없어 이름이 같은 폴더끼리 기록을 함께 쓴다. 같은 폴더의 새로고침은 지금 선택을 그대로 둔다.
-
-### 5.5 저장 형식
-
-Detection 라벨은 YOLO 형식의 `label/<이미지 이름>.txt`로 저장된다. 좌표는 이미지 크기에 대한 정규화 중심점 X/Y와 Width/Height로 직렬화된다.
-
-### 5.6 Refine 검토 표시와 Reclass
-
-Refine 탭(`R`)에서 확인이 필요한 박스는 테두리를 굵게 그리지 않고 박스 옆에 표시한다.
-
-- **핀:** 박스 오른쪽 위 모서리에 작은 원을 그린다. 노란 `!`는 Refine 검토 대상, 빨간 `!`는 면적이 크게 바뀐 박스, 마젠타 숫자는 Reclass 후보(바뀔 클래스 번호)다.
-- **약한 변:** 박스 바깥의 노란 삼각형이 신뢰도가 낮은 변을 가리킨다. 화면에서 박스가 아주 작으면 생략한다.
-- **태그:** `→ 0 unfilled`, `−42% area` 같은 설명은 박스가 태그보다 넓게 보일 때, 또는 선택하거나 `N`으로 이동한 박스에만 붙는다.
-- **나머지 흐리게:** 표시가 있는 동안 다른 박스는 흐리게 보인다. 저장되는 라벨에는 영향이 없다.
-- Review 섹션의 **Show review marks on the canvas** 스위치로 위 표시를 모두 끌 수 있다.
-
-**Reclass**는 박스 위치는 그대로 두고, 결함으로 보이는 박스를 다른 클래스 후보로 표시한다. 예를 들어 가운데가 어두워야 할 구조물에 밝은 얼룩이 섞이면 `unfilled` 클래스로 바꿀 후보가 된다.
-
-**프리셋 이름 연동(모든 프리셋 UI):** Preprocess 패널, Template Matching, Superpixel, Refine Lab 모두 프리셋을 고르면 그 이름이 이름 칸(Superpixel은 Save를 누를 때 뜨는 이름 입력 창)에 채워진다. 저장할 때 그 이름의 프리셋이 있으면 덮어쓰고, 없는 이름이면 새 프리셋으로 추가한다. Template Matching에서 이름을 바꿔 저장하면 원래 프리셋은 그대로 두고 새 프리셋을 만든다.
-
-**Class 파일 삭제:** Class 파일 목록 오른쪽 + 버튼 왼쪽의 휴지통 버튼은 고른 class 파일(.yaml)을 확인 창 뒤에 지운다. 라벨 파일은 바뀌지 않는다.
-
-**Preset name과 Save settings:** Refine Lab의 Presets에 있는 preset name 칸이 Lab과 프리셋을 잇는다. 프리셋을 고르거나 Apply하면 그 이름이 채워지고, **Save settings**는 설정을 저장하면서 그 이름의 프리셋에도 값을 저장한다(새 이름이면 새 프리셋을 만든다). 이름이 비어 있으면 이름을 입력하라는 안내가 나오고 Lab은 닫히지 않는다. 예전의 "Also update preset" 체크는 없어졌다.
-
-**Edge 프리셋의 클래스별 값:** Edge 프리셋은 Default와 클래스별 값을 함께 저장한다. Default(칩을 누르지 않은 상태)에서 프리셋을 저장하거나 적용하면 클래스별 값까지 저장·교체되고, 클래스 칩을 고른 채 적용하면 그 클래스들만 프리셋의 Default 값으로 맞춘다. Refine 패널의 Run with에서 프리셋을 고르면 각 클래스는 그 프리셋의 클래스별 값(없으면 프리셋 Default)으로 실행되고, Lab은 Default가 선택된 채 열리며 클래스 칩으로 프리셋 안의 클래스별 값을 편집한다. 저장된 클래스 설정은 그대로 둔다. 클래스별 값이 없는 예전 프리셋은 모든 클래스가 Default를 쓴다.
-
-**크기 안전장치:** Lab의 Advanced에 있는 **Min/Max width**, **Min/Max height**(px, 0이면 끔)는 클래스별(또는 프리셋별)로 정한다. Refine 결과 너비가 범위를 벗어나면 좌우 변을, 높이가 벗어나면 상하 변을 원래 자리에 두고 박스를 검토 대상으로 표시한다(나머지 축은 정상 적용). 그 축이 움직이지 않은 박스는 건드리지 않는다. 캔버스·폴더 전체 적용·데스크톱(네이티브) 실행 모두 같은 규칙을 쓴다.
-
-**폴더를 바꿔 열 때:** Refine 패널이 열린 채 다른 폴더를 열면 패널이 곧바로 그 폴더의 설정과 프리셋으로 바뀐다. 설정 파일을 읽는 도중에 Run with/Reclass with/모드를 바꿔도, 읽기가 끝난 뒤 그 선택이 적용·저장된다.
-
-**가이드(?):** Refine Lab 오른쪽 위 닫기(×) 왼쪽의 **?** 버튼은 별도 가이드 창을 연다. 현재 모드의 튜토리얼에서 시작하고, 위쪽의 **EN / 한국어**로 영어판과 한국어판을 바꿔 볼 수 있다(같은 주제를 그대로 보여 주고, 고른 언어는 브라우저에 기억된다. 한국어판에서도 설정·버튼·모드 같은 UI 이름은 화면과 같은 영어로 쓴다). 전체 / 시작 / Edge / Reclass / 힌트 탭, 목차, 키워드 검색(영어와 한국어 키워드 모두, 예: polarity, 극성, 이웃)으로 설정마다 예시 그림과 함께 설명과 힌트(증상 → 해결)를 찾아볼 수 있다. Esc는 가이드만 닫고 Lab은 그대로 둔다.
-
-**Mode (Edge / Reclass):** Refine 탭과 Refine Lab 맨 위의 **Mode**로 경계 맞추기(Edge)와 Reclass를 나눠 쓴다. 두 곳은 같은 모드 값을 쓰고, 모드는 `refine-settings.json`에 저장된다.
-
-- Lab 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule이다.
-- Edge 모드의 Lab 확대 화면은 **Surroundings** 설정이 읽는 곳을 함께 그린다. 주황 띠는 Background ring(검색 범위 바깥의 배경 밝기 측정 영역), 점선 사각형은 박스 core(안쪽 50%)이고, 각 라벨에 측정한 중앙값이 붙는다. 회색 점선 박스는 이웃 박스로, Stop halfway to neighbours를 켜면 바깥 검색이 그 중간에서 멈춘다(끄면 `neighbour (ignored)`). 아래 설명 줄에 core → ring 밝기와 극성, 이웃 수, Row/column tolerance(캔버스에서 여러 박스를 정렬할 때만 검사)가 나온다.
-- Edge rule의 **Scan span**이 Box + outside 또는 Outside only일 때, 각 끝은 박스 너머(Extend before/after)뿐 아니라 **Into box from start / end (px)**만큼 박스 안쪽도 스캔한다. 경계의 힌트가 변의 가운데가 아니라 박스 끝 부근 안팎에 있을 때 쓴다(Outside only면 가운데는 스캔하지 않는다). 끝 구간이 박스 구간이나 반대쪽 끝과 겹치면 겹친 영역은 한 번만 읽는다(Box + outside의 Strongest part는 각 부분을 그대로 둔다). Lab의 Strongest part 그래프는 시작 끝(주황), 박스(초록), 끝 쪽 끝(보라)으로 색이 고정된다. 기본값 0이면 예전과 결과가 같다.
-- 프리셋은 모드마다 따로 저장하고 불러온다. 데스크톱 앱은 Reclass 프리셋을 `Reclass Presets` 폴더에 둔다. 예전 Refine 프리셋에 같이 저장된 Reclass 규칙은 쓰지 않는다(Edge 프리셋으로만 읽는다).
-- Image(Original/Processed와 Processing)도 모드마다 따로다. 예를 들어 경계는 Processed로 찾고 Reclass 판정은 Original 밝기로 할 수 있다. 예전 설정 파일은 Reclass도 Edge와 같은 이미지로 시작한다.
-- Reclass 모드에서 Classes 칩은 규칙의 검사 대상 클래스(From)다. **All**은 모든 클래스를 검사한다.
-- Reclass 모드의 Lab 화면은 가운데 crop, bright 픽셀, 판정 결과만 보여 주고 엣지 프로파일 그래프는 숨긴다. **Save & reclass these boxes**는 저장한 뒤 Lab의 케이스 박스에 규칙을 적용한다(Edge의 Save & refine these boxes와 같다).
-- Refine 탭도 모드에 따라 바뀐다. Edge 모드는 Run with/Apply, Reclass 모드는 **Reclass with**(Lab 규칙 또는 Reclass 프리셋)와 Edge와 같은 구성의 Apply를 보여 준다. Review의 `N`/`Shift+N`/`F`와 **Approve all**은 현재 모드의 대상(Refine 검토 대상 또는 Reclass로 클래스가 바뀐 박스)만 다룬다. **Approve all**은 남은 검토 대상을 한 번에 승인한다. `E`/`Shift+E`는 지금 모드의 Apply를 누른다: Edge 모드는 Selected/All boxes 경계 맞추기, Reclass 모드는 Selected/All boxes 재분류.
-- 폴더 전체 적용: Edge 모드의 **Refine all images in folder**는 Run with에서 고른 설정(프리셋 또는 클래스 설정)으로 현재 폴더 모든 이미지의 모든 박스 경계를 맞추고, Reclass 모드의 **Reclass all images in folder**는 Reclass with에서 고른 규칙에 맞는 모든 박스의 클래스를 바꾼다(손으로 클래스를 바꾼 박스도 판정한다; 면적 줄어듦 검사는 라벨 파일에 저장된 크기와 비교한다). 확인 창 뒤에 현재 편집을 먼저 저장하고, 바꾼 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/refine-all-…` 또는 `reclass-all-…`에 백업한 뒤 열린 이미지를 다시 불러온다. 중간에 멈추면 어떤 파일도 바뀌지 않는다. 실행 취소(Ctrl+Z)로는 되돌릴 수 없고, 백업 파일로 되돌린다.
-
-- 규칙은 하나만 쓴다. Refine Lab의 Reclass 모드 **Rule**에서 검사할 클래스(위 Classes 칩, 비우면 전체), 바꿀 클래스, 가운데 crop을 박스의 위·아래·왼쪽·오른쪽에서 각각 얼마나 빼낼지(Centre inset top / bottom / left / right %, 박스 높이·너비 대비 0-90%, 마주 보는 두 변의 합은 최대 90%), 판정 조합(OR: 하나라도 / AND: 모두)을 정한다. 규칙은 켜고 끄는 스위치 없이 항상 쓰인다(Edge와 Reclass는 Mode로 나뉘므로 Reclass 모드에서 Apply를 누를 때만 판정한다). 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)이 쓰이고, 예전 파일의 꺼짐 설정은 무시한다. 예전 버전의 Centre width % / height %(또는 Centre crop % 하나)는 양쪽에 같은 inset으로 바뀌어 읽히고, 규칙이 여러 개 저장된 파일은 첫 규칙만 읽는다.
-- 판정은 세 가지다.
-  - **Mean ≥:** 가운데 crop의 평균 밝기(0~255)가 기준 이상
-  - **Bright pixels ≥ %:** 가운데 crop에서 Bright level 이상인 픽셀의 비율이 기준 이상
-  - **Area shrinks ≥ %:** 현재 Edge 설정(Run with 선택 또는 클래스 설정)으로 경계를 다시 계산한 면적이 라벨 파일에서 불러온 크기보다 기준 이상 줄어듦(Refine을 적용한 뒤에도 불러온 크기와 비교한다)
-- Lab의 케이스마다 측정값(`mean · bright · area`)과 가운데 crop(점선)이 보이고, 맞는 케이스에는 마젠타 핀이 붙는다. 아래 상태줄에 `reclass N of M match`가 나온다. 바꿀 클래스(Change to)와 이미 같은 클래스의 박스도 검사 대상 클래스라면 같은 설정으로 판정해 보여 주고 `already class N`으로 표시한다(Apply는 바꿀 것이 없으므로 그대로 둔다).
-- Reclass 모드의 **Apply**는 Edge 모드와 같이 동작한다. **Selected**(선택한 박스), **All boxes**(보이는 모든 박스), 클래스 드롭다운 + **Reclass class**(고른 클래스의 박스)를 누르면 그 박스들을 Reclass with 규칙으로 바로 판정해 일치한 박스의 클래스를 바꾼다(한 번의 실행 취소로 되돌릴 수 있다). 따로 찾는 단계는 없다. 규칙이 검사하지 않는 클래스와 규칙이 바꿀 대상 클래스는 드롭다운에서 고를 수 없다.
-- **Keep boxes whose class was changed by hand…**(기본 켜짐)는 Edge의 손 편집 유지 스위치처럼, 손으로 클래스를 바꾼 박스를 All boxes와 Reclass class에서 건드리지 않는다. Selected는 항상 판정한다.
-- 클래스가 바뀐 박스는 검토 대상이 되어 마젠타 핀(`원래 → 바뀐 클래스`)이 붙는다. `N`/`Shift+N`으로 오가며 `F`(Approve)로 하나씩, **Approve all**로 한 번에 승인한다. 규칙이 틀린 박스는 실행 취소하거나 손으로 클래스를 고치면 검토 목록에서 빠진다.
-- 규칙은 `.easy-labeling/refine-settings.json`에 저장되고, 이름을 붙여 Reclass 프리셋으로도 저장할 수 있다.
-
-## 6. Segmentation 작업 기능
-
-### 6.1 Brush와 Erase
-
-- Brush는 활성 클래스 번호로 마스크 픽셀을 칠한다.
-- Erase는 칠해진 픽셀을 배경으로 되돌린다.
-- 크기 범위는 `1px`~`48px`이며 3/6/12/24 프리셋을 제공한다.
-- Draw 모드에서 스트로크를 입력하고 Edit 모드에서 연결 영역을 선택한다.
-
-### 6.2 Auto fill closed regions
-
-- Segmentation 모드에서만 표시되며 기본값은 꺼짐이다.
-- Brush 스트로크가 닫힌 경계를 만들면 스트로크 종료 시 내부 영역을 활성 클래스로 채운다.
-- Erase 도구에서는 실행되지 않는다.
-- 경계가 열려 있거나 이미지 외곽으로 연결된 영역은 의도와 다르게 채워지지 않을 수 있다.
-
-### 6.3 연결 영역 편집
-
-- Edit 모드에서 같은 클래스의 연결된 픽셀 영역을 클릭해 선택한다.
-- 선택 영역을 드래그해 이동할 수 있으며 이미지 경계를 넘지 않도록 이동량이 제한된다.
-- Change painted region class, 더블클릭 또는 `Ctrl+B`로 클래스 번호를 변경한다.
-- Delete/Backspace로 선택된 연결 영역을 배경으로 지울 수 있다.
-- 영역 이동, 클래스 변경, 삭제는 Undo/Redo 대상이다.
-
-### 6.4 표시 옵션
-
-- `Show mask overlay`: 컬러 마스크 표시 여부.
-- `Mask opacity`: 마스크 채움 투명도 `0%`~`100%`, 기본값 `60%`.
-- `Edge highlight`: 마스크 경계를 강조한다.
-- `Edge intensity`: 경계 강조 강도 `0%`~`100%`, 기본값 `70%`.
-- `Visible classes`: 전체 또는 특정 클래스만 표시하거나 클래스별 가시성을 바꾼다.
-
-### 6.5 저장 형식
-
-- `mask/<이미지 이름>.png`: 픽셀 마스크.
-- `mask/<이미지 이름>.seg.json`: Segmentation 부가 정보.
-
-Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기능은 Segmentation 마스크에 동일하게 적용되지 않는다.
-
-## 7. 파일, 클래스, 이미지 탐색
-
-### 7.1 Open Dataset
-
-- 로컬 이미지 폴더를 작업 데이터셋으로 연결한다.
-- 이미지 및 대응하는 Detection/Segmentation 라벨 상태를 읽는다.
-- Refresh는 연결된 데이터셋을 다시 스캔한다.
-- 별도 Label 폴더를 연결할 수 있다.
-- 이미지 이름 검색과 Labeled/Unlabeled 필터를 제공한다.
-
-### 7.2 이미지 이동과 미리보기
-
-- 상단 이전/다음 버튼 또는 `A`/`D`로 이미지를 이동한다.
-- 왼쪽 Images 목록에서 이미지별 Detection 박스 수를 확인하고 이미지를 선택할 수 있다.
-- 현재 이미지 이름과 크기, Annotation 수, 저장 상태는 상단/하단 상태 영역에 표시된다.
-
-### 7.3 클래스 정보 파일
-
-- YAML/YML 클래스 파일이 있는 폴더를 연결한다.
-- 클래스 파일을 선택, 생성, 편집할 수 있다.
-- Class ID는 0과 양의 정수를 사용하며 클래스 이름과 색상 표시를 연결한다.
-- 데스크톱 앱은 사용자 문서 폴더 아래 `Easy Labeling/Class Info`를 시작 시 자동으로 만들고 이 위치의 YAML/YML을 우선 불러온다.
-- `Create new class file...`을 선택하고 옆의 보기 버튼을 누르면 기본 위치에 `classes.yaml` 계열 파일을 자동 생성하고 기존 테이블 편집기를 연다.
-- `All classes` 또는 `Ctrl+H`는 현재 이미지의 모든 클래스를 한 번에 숨기거나 다시 표시한다.
-
-### 7.4 저장과 Auto save
-
-- Save 또는 `Ctrl+S`로 현재 라벨을 저장한다.
-- Auto save를 켜면 이미지 전환 등의 작업 시 변경 내용을 자동으로 기록한다.
-- Unsaved changes 상태가 표시되면 저장되지 않은 변경이 있다는 뜻이다.
-- 데이터셋이나 이미지를 바꾸기 전에는 상태 표시를 확인한다.
-
-## 8. 캔버스 보기와 공통 UI
-
-### 8.1 확대, 축소, 화면 맞춤
-
-- 상단 확대/축소 버튼과 배율 입력을 사용할 수 있다.
-- Fit to screen은 이미지를 현재 캔버스 영역에 맞춘다.
-- 마우스 휠로 확대/축소하며 포인터 주변을 기준으로 뷰가 조정된다.
-- `Alt+드래그` 또는 `Ctrl+드래그`로 캔버스를 팬한다.
-- X/Y 좌표 입력 후 Locate 버튼을 누르면 해당 이미지 좌표를 찾는다.
-- X 입력 왼쪽의 이미지 아이콘은 캔버스의 Original과 Processed 이미지를 오간다(`Q`와 같다). Detection과 Segmentation 모두에서 쓸 수 있고, Processed가 보이는 동안 아이콘이 강조된다. Processed 설정은 Preprocess 패널에서 바꾼다.
-
-### 8.2 Crosshair
-
-포인터의 X/Y 위치를 가로/세로 기준선으로 표시해 정밀한 위치 확인을 돕는다. Detection과 Segmentation에서 공통으로 사용할 수 있다.
-
-### 8.3 Undo와 Redo
-
-- Undo: `Ctrl+Z`
-- Redo: `Ctrl+Y` 또는 `Ctrl+Shift+Z`
-- 박스 생성/편집/삭제, 레이아웃 적용, 지원되는 Segmentation 변경을 되돌릴 수 있다.
-- Easy Labeling 브랜드를 누르면 목록, 캔버스, 배율 표시 등 작업 화면을 다시 렌더링한다. 문서와 작업 이력은 지우지 않으므로 기존 Undo/Redo를 계속 사용할 수 있다.
-
-### 8.4 작업 상태와 강제 중지
-
-- 첫 실행과 데이터셋 연결 시 Standby 패널이 Interface, Dataset access, Label workspace, Images & annotations, Classes, Layouts & presets, Matching engine 준비 상태를 순서대로 확인한다.
-- 모든 필수 단계가 준비될 때까지 작업 화면 입력을 잠근다. 준비가 끝나면 패널이 자동으로 닫힌다.
-- 라벨 폴더 없이 계속하거나 지원 이미지가 없는 경우에는 제한 상태와 원인을 표시하고 Retry 또는 Continue with limits를 제공한다.
-- 클래스 파일, Layout, Preset이 하나도 없는 것은 오류가 아니며 빈 상태로 준비 완료 처리한다.
-- 시간이 걸리는 폴더 스캔, 이미지 로딩, OpenCV 초기화, 매칭, 배치 작업은 Active operation 패널에 현재 단계와 경과 시간을 표시한다.
-- 중지 가능한 작업은 Stop 버튼으로 취소를 요청할 수 있다.
-- 일부 동기 처리 구간은 즉시 끊기지 않고 다음 취소 확인 지점에서 멈출 수 있다.
-- 하단 상태 바에서 Matching engine의 Loading/Ready 상태를 확인할 수 있다.
-- 매칭 엔진은 앱 시작 Standby 단계에서 warm-up되며 Ready가 된 뒤 전체 기능 사용이 가능하다.
-
-## 9. Template Automation과 배치 처리
-
-### 9.1 Preset 실행
-
-- Automation 탭에서 저장된 Preset을 선택한다.
-- Play는 현재 이미지 한 장에 실행한다.
-- Batch는 현재 데이터셋의 이미지를 순차 처리한다.
+- Inspector의 `Automation settings`(Automation 탭)에서 저장된 Preset을 선택한다.
+- 재생 버튼(Run preset on current image)은 현재 이미지 한 장에 실행한다.
+- 배치 버튼(Review and run batch)은 Batch preflight를 연 뒤 `Run batch`로 데이터셋의 이미지를 순차 처리한다.
 - Preset에는 템플릿, 출력 모드, 레이아웃, Offset, 전처리, 매칭 기준, 기존 라벨 정책이 포함된다.
 
-### 9.2 Batch preflight
+#### Batch preflight
 
 - 대상 이미지 수와 기존 라벨 처리 정책을 실행 전에 확인한다.
 - Dry run은 라벨 파일을 쓰지 않고 매칭 가능 여부와 결과를 점검한다.
@@ -493,86 +465,14 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - Stop으로 취소할 수 있고 실패 이미지 재시도를 지원한다.
 - 이미 라벨된 이미지와의 충돌을 피하려면 처음에는 Skip labeled와 Dry run을 권장한다.
 
-### 9.3 결과 상태
+#### 결과 상태
 
 - `success`: 매칭과 결과 생성/저장이 완료됨.
 - `skipped`: Skip labeled 정책 등으로 처리하지 않음.
 - `failed`: 이미지 디코딩, 매칭, 설정 검증, 저장 중 오류가 발생함.
 - Multiple Boxes 결과에서는 검출 수, 최저 검출 점수, 이미지 밖에서 제외된 수를 확인할 수 있다.
 
-## 10. 레이아웃과 프리셋 저장 위치
-
-### 10.1 데스크톱 앱: 기본 폴더
-
-데스크톱 앱은 모든 프리셋을 `<사용자 문서>/Easy Labeling` 아래 종류별 폴더에 프리셋 하나당 JSON 파일 하나로 저장한다.
-
-| 프리셋 | 폴더 |
-|---|---|
-| 템플릿 매칭 프리셋 | `Template Presets` |
-| 레이아웃 | `Layouts` |
-| Refine 프리셋 | `Refine Presets` |
-| Reclass 프리셋 | `Reclass Presets` |
-| 전처리 프리셋 | `Preprocessing Presets` |
-| Superpixel(세그멘테이션 도구) 프리셋 | `Segmentation Presets` |
-
-- 선택 목록은 해당 폴더의 파일을 자동으로 읽어 만든다. 데이터셋과 상관없이 같은 프리셋을 쓸 수 있다.
-- Save를 누르면 대화상자 없이 그 폴더에 바로 저장한다. 목록에서 불러온 프리셋은 그 파일을 덮어쓰고, 새 이름은 `<이름>.json`으로 저장한다. 새 이름의 파일이 이미 있으면 바꿀지 먼저 묻는다.
-- 삭제하면 폴더의 파일을 지운다. 한 파일에 프리셋이 여러 개 들어 있으면 그 프리셋만 빼고 다시 저장한다.
-- 예전 버전이 데이터셋 `.easy-labeling`에 저장한 프리셋도 목록에 나온다. 그 파일은 고치지 않고, 그 프리셋을 고쳐 저장하면 기본 폴더로 옮겨진다. 목록에서 삭제하면 데이터셋 파일에서도 지운다.
-
-### 10.2 웹 브라우저: 데이터셋 내부 자동 저장
-
-웹 브라우저에서는 기본 폴더를 쓸 수 없어 데이터셋의 `.easy-labeling` 폴더에 저장한다. 자동화 라이브러리는 다음 위치에 저장된다.
-
-```text
-<데이터셋>/.easy-labeling/automation-library.json
-```
-
-이 파일은 layouts, templates, presets를 함께 보관한다. 템플릿 이미지는 PNG Data URL 형태로 문서 안에 포함된다.
-
-### 10.3 개별 파일 저장 및 불러오기
-
-- Layout Setup의 Save File/Load File은 단일 `.layout.json`을 다룬다.
-- Template Matching Setup의 Save File/Load File은 템플릿과 필요한 레이아웃을 포함한 `.preset.json`을 다룬다.
-- Preset 파일은 다른 데이터셋에서 불러와 라이브러리에 병합할 수 있다.
-- 같은 ID가 있으면 해당 항목을 갱신하고, 없으면 추가한다.
-
-데스크톱 앱 기본 대화상자 위치:
-
-```text
-<사용자 문서>/Easy Labeling/Layouts
-<사용자 문서>/Easy Labeling/Template Presets
-<사용자 문서>/Easy Labeling/Class Info
-```
-
-웹 브라우저에서는 브라우저의 파일 선택 및 다운로드 동작을 사용하므로 실제 기본 위치는 브라우저 설정에 따를 수 있다.
-
-## 11. 주요 단축키
-
-| 범위 | 단축키 | 기능 |
-| --- | --- | --- |
-| 공통 | `Ctrl+S` | 현재 라벨 저장 |
-| 공통 | `Ctrl+Z` | Undo |
-| 공통 | `Ctrl+Y`, `Ctrl+Shift+Z` | Redo |
-| 공통 | `Ctrl+Q` | 현재 작업 문맥의 도구 모드 전환 |
-| 공통 | `A`, `D` | 이전/다음 이미지 |
-| 공통 | `Esc` | 선택 해제 또는 열린 문맥 작업 취소 |
-| Detection | `Ctrl+A` | 전체 박스 선택 |
-| Detection | `Ctrl+C`, `Ctrl+V` | 선택 박스 복사/붙여넣기 |
-| Detection | `Ctrl+B` | 선택 박스 클래스 변경 |
-| Detection | `Delete`, `Backspace` | 선택 박스 삭제 |
-| Detection | `Arrow` | 선택 박스 1px 이동 |
-| Detection | `Shift+Arrow` | 선택 박스 10px 이동 |
-| Detection | `Alt+Shift+L/R/T/D` | 좌/우/상/하 정렬 |
-| Detection | `Alt+Shift+C/M` | 열별/행별 가운데 정렬 |
-| Detection | `Alt+Shift+S` | 행 세트별 열 가운데 정렬 |
-| Detection | `Alt+Shift+H/V` | 가로/세로 균등 분배 |
-| Template Setup | `Ctrl+Q` | Template ROI/Edit ROI 전환 |
-| Template Setup | `Ctrl+휠` | 포인터 기준 확대/축소 |
-
-입력창에 포커스가 있을 때는 숫자 입력이나 화살표 편집을 방해하지 않도록 대부분의 전역 단축키가 실행되지 않는다.
-
-## 12. 권장 조정 순서
+### 6.6 권장 조정 순서
 
 템플릿 매칭이 기대대로 동작하지 않을 때는 한 번에 여러 값을 바꾸지 말고 다음 순서로 조정한다.
 
@@ -589,9 +489,9 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 11. Noise Simulation은 마지막에 별도 실험하며 Dry run으로 Seed 변화에도 결과가 안정적인지 확인한다.
 12. Preset을 저장한 뒤 소수 이미지에 적용하고, 그 다음 전체 배치를 실행한다.
 
-## 13. 자주 발생하는 문제
+### 6.7 자주 발생하는 문제
 
-### 후보가 너무 적다
+#### 후보가 너무 적다
 
 - Minimum score가 너무 높지 않은지 확인한다.
 - Strict non-overlap 또는 큰 Padding 때문에 인접 후보가 제거되는지 확인한다.
@@ -599,33 +499,173 @@ Detection의 박스 정렬, 박스 목록 다중 편집, 박스 레이아웃 기
 - Blur가 지나치게 강해 구분 특징이 사라지지 않았는지 확인한다.
 - 대상의 크기나 회전이 템플릿과 다른지 확인한다. 현재는 크기/회전 탐색을 하지 않는다.
 
-### 후보가 너무 많다
+#### 후보가 너무 많다
 
 - Minimum score를 올린다.
 - Strict non-overlap을 켜거나 NMS IoU를 낮춘다.
 - Limit search area로 가능한 위치를 제한한다.
 - ROI에 배경이 너무 많이 포함되어 반복 무늬를 찾고 있지 않은지 확인한다.
 
-### 이미지 가장자리 결과가 사라진다
+#### 이미지 가장자리 결과가 사라진다
 
 Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 제외된다. Padding을 줄이거나 Template ROI 범위를 조정한다.
 
-### Match Preview는 좋지만 Layout 위치가 어긋난다
+#### Preview Match는 좋지만 Layout 위치가 어긋난다
 
 - 매칭 좌표보다 Anchor Offset과 Final Adjustment를 먼저 확인한다.
 - 기준 이미지에서 ROI 좌상단과 레이아웃 원점의 차이가 Anchor Offset에 맞게 저장됐는지 확인한다.
 - Layout preview opacity를 높여 미리보기 위치를 확인한 뒤 Final Adjustment를 조정한다.
 
-### Noise를 켰더니 결과가 매번 다르게 보인다
+#### Noise를 켰더니 결과가 매번 다르게 보인다
 
 동일 Seed라면 같은 입력과 설정에서 재현되어야 한다. ROI, 전처리, 이미지 파일 또는 Seed가 변경되지 않았는지 확인한다. Noise sigma가 크면 작은 설정 차이에도 점수 순위가 크게 달라질 수 있다.
 
-## 14. 용어 정리
+## 7. Segmentation
+
+### 7.1 도구
+
+| 도구 | 동작 |
+| --- | --- |
+| `Brush` | 활성 클래스로 마스크를 칠한다. 크기 `1px`~`48px`(3/6/12/24 프리셋, `Numpad +` / `Numpad -`) |
+| `Erase` | 칠한 픽셀을 배경으로 되돌린다(숫자 키 `0`) |
+| `Polygon` | 클릭으로 꼭짓점을 찍고 `Enter`(`Complete`)로 내부를 칠한다. `Esc`(`Cancel`)로 취소 |
+| `Superpixel` | 클릭하거나 드래그한 슈퍼픽셀 영역을 활성 클래스로 칠한다 |
+| `AI Select` | EdgeSAM 모델로 클릭한 물체의 마스크 미리보기를 만든다. 점이나 박스를 더해 다듬고 `Enter`(`Apply preview`)로 적용, `Esc`(`Discard`)로 버린다. `Region constraint`의 `Set ROI`로 결과를 사각형 안으로 제한한다 |
+| `Edit` | 같은 클래스의 연결된 영역을 클릭해 선택한다 |
+
+- 숫자 키 `1`~`9`는 활성 클래스(칠할 클래스)를 고른다. `Ctrl+Q`는 칠하기 도구와 Edit을 전환한다.
+- `Auto fill closed regions`(기본 꺼짐): Brush 스트로크가 닫힌 경계를 만들면 내부를 활성 클래스로 채운다.
+- `Crosshair`: 포인터 위치에 가로/세로 기준선을 그린다(Detection에서도 쓸 수 있다).
+
+### 7.2 영역 편집
+
+- Edit에서 선택한 영역은 드래그해 옮긴다(이미지 경계 안으로 제한).
+- `Region actions`: `Relabel`(또는 더블클릭, `Ctrl+B`)로 클래스를 바꾸고, `Delete`(또는 `Delete`/`Backspace` 키)로 지운다.
+- 이동, 클래스 변경, 삭제, 칠하기는 모두 Undo/Redo 대상이다.
+
+### 7.3 클래스와 표시 (Mask Inspector, Display)
+
+- 오른쪽 `Classes`: 칠할 클래스 고르기, 클래스 검색, 클래스별 표시/숨김.
+- `Display`: `Show mask overlay`(`Ctrl+H`), `Mask opacity`(기본 60%), `Edge highlight`와 `Edge intensity`(기본 70%), `Display class filter`, `Label-only view`(`Ctrl+L`, 배경 `Shift+1`/`2`/`3`).
+
+### 7.4 Superpixel 설정
+
+레일의 `Superpixel`에서 슈퍼픽셀 분할을 정한다(데스크톱 앱은 Rust로 계산).
+
+- `Superpixel size`(px, Fine/Normal/Large/Coarse), `Blur / denoise`, `Contrast`, `Edge sensitivity`(Weak/Balanced/Strong).
+- `Show boundaries`(`B`)로 경계를 그리고, `Recalculate`로 다시 계산한다.
+- `Superpixel preset`: `New` / `Save`로 설정을 프리셋으로 저장한다.
+
+### 7.5 저장 형식과 Format
+
+- 기본 저장: `mask/<이미지 이름>.png`(픽셀 마스크)와 `mask/<이미지 이름>.seg.json`(부가 정보).
+- `Format` 버튼: `Annotation type`(Semantic / Instance), `Annotation source`(Auto Detect / YOLO Segmentation / COCO / PNG Mask / LabelMe, 불러올 형식), `Export format`(저장할 때 `mask/` 파일과 함께 쓰는 형식). 기본 PNG Semantic Mask는 `mask/`만 쓰고, YOLO Segmentation / COCO / LabelMe를 고르면 `segmentation/yolo/labels/`, `segmentation/coco/`, `segmentation/labelme/` 아래에도 쓴다.
+
+## 8. 캔버스와 공통 동작
+
+### 8.1 보기
+
+- 마우스 휠로 포인터 기준 확대/축소, 상단 배율 입력, 화면 맞춤.
+- `Alt+드래그` 또는 `Ctrl+드래그`로 이동(팬).
+- X/Y를 입력하고 찾기 버튼을 누르면 그 이미지 좌표로 이동한다.
+- 좌표 입력 왼쪽의 이미지 아이콘(`Q`): Original과 Processed 보기를 오간다.
+
+### 8.2 Undo와 Redo
+
+- `Ctrl+Z` / `Ctrl+Y`(또는 `Ctrl+Shift+Z`).
+- 박스 생성·편집·삭제, 레이아웃 적용, Refine/Reclass 실행, 마스크 편집을 되돌린다. 폴더 전체 변경은 Undo가 아니라 백업으로 되돌린다(5.3).
+
+### 8.3 준비 화면과 진행 중인 작업
+
+- 첫 실행과 데이터셋 연결 때 준비 화면이 Interface, Dataset access, Label workspace, Images & annotations, Classes, Layouts & presets 상태를 확인하고, 끝나면 자동으로 닫힌다. 라벨 폴더가 없거나 지원 이미지가 없으면 원인과 함께 `Retry` / `Continue with limits`를 보여 준다. 클래스 파일·레이아웃·프리셋이 없는 것은 오류가 아니다.
+- 템플릿 매칭 엔진(OpenCV.js)은 준비 화면에서 기다리지 않고, 작업 화면이 한가할 때 백그라운드에서 준비한다. 상태는 하단 바와 Automation 탭에 보이며, 준비 전에 매칭을 실행하면 준비될 때까지 기다리거나 다시 시도한다.
+- 폴더 스캔, 매칭, 배치, 추론, 폴더 전체 변경 같은 긴 작업은 하단에 단계와 진행률을 보이고, 멈출 수 있는 작업은 `Stop`으로 취소한다.
+- 입력칸에 포커스가 있으면 숫자·화살표 입력을 방해하지 않도록 대부분의 단축키가 동작하지 않는다.
+
+## 9. 프리셋과 레이아웃 저장 위치
+
+### 9.1 데스크톱 앱: 프로필 폴더
+
+데스크톱 앱은 모든 프리셋을 `<사용자 문서>/Easy Labeling` 아래 종류별 폴더에 프리셋 하나당 JSON 파일 하나로 저장한다. 데이터셋과 상관없이 같은 프리셋을 쓴다.
+
+| 프리셋 | 폴더 |
+|---|---|
+| 템플릿 매칭 프리셋 | `Template Presets` |
+| 레이아웃 | `Layouts` |
+| Refine(Edge) 프리셋 | `Refine Presets` |
+| Reclass 프리셋 | `Reclass Presets` |
+| 전처리 프리셋 | `Preprocessing Presets` |
+| Superpixel 프리셋 | `Segmentation Presets` |
+| 클래스 파일 | `Class Info` |
+
+- Save를 누르면 대화상자 없이 그 폴더에 저장한다. 목록에서 불러온 프리셋은 그 파일을 덮어쓰고, 새 이름은 `<이름>.json`으로 저장한다(같은 이름의 파일이 있으면 먼저 묻는다).
+- 삭제하면 폴더의 파일을 지운다.
+- 데이터셋의 `.easy-labeling` 폴더에 있는 프리셋도 목록에 나온다. 고쳐 저장하면 프로필 폴더로 옮겨진다.
+
+### 9.2 웹 브라우저: 데이터셋 안
+
+웹 브라우저는 프로필 폴더를 쓸 수 없어 데이터셋의 `.easy-labeling` 폴더에 저장한다.
+
+| 파일 | 내용 |
+| --- | --- |
+| `automation-library.json` | 레이아웃, 템플릿(PNG Data URL 포함), 자동화 프리셋 |
+| `refine-settings.json` | Refine/Reclass 설정과 프리셋 |
+| `preprocessing-presets.json` | 전처리 프리셋 |
+| `segmentation-tool-presets.json` | Superpixel 프리셋 |
+| `review-state.json` | 검수 상태와 Quality rules (두 버전 공통) |
+
+### 9.3 개별 파일 저장과 불러오기
+
+- Layout Setup의 `Save File` / `Load File`은 레이아웃 하나(`.layout.json`)를, Template Matching Setup의 `Save File` / `Load File`은 템플릿과 레이아웃을 포함한 프리셋(`.preset.json`)을 다룬다. 다른 데이터셋에서 불러와 병합할 수 있고, 같은 ID는 갱신한다.
+
+## 10. 단축키
+
+입력칸에 포커스가 있을 때는 대부분 동작하지 않는다. macOS에서는 `Ctrl` 대신 `Cmd`도 쓸 수 있다.
+
+| 범위 | 단축키 | 기능 |
+| --- | --- | --- |
+| 공통 | `A` / `D` | 이전 / 다음 이미지 |
+| 공통 | `Ctrl+S` | 저장 |
+| 공통 | `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z` | Undo, Redo |
+| 공통 | `Ctrl+Q` | Draw ↔ Edit (Segmentation은 칠하기 도구 ↔ Edit) |
+| 공통 | `Q` | Original ↔ Processed 보기 |
+| 공통 | `Ctrl+L`, `Shift+1`/`2`/`3` | Label-only view, 배경 흰색/검은색/회색 |
+| 공통 | `Ctrl+H` | 모든 클래스 숨기기/보이기 (Segmentation은 마스크 오버레이) |
+| 공통 | `Ctrl+1`~`Ctrl+9` | n번째 라벨 폴더로 전환 |
+| 공통 | `Esc` | 선택 해제, 진행 중인 입력 취소 |
+| 공통 | 마우스 휠, `Alt`/`Ctrl+드래그` | 확대/축소, 팬 |
+| Detection | `Ctrl+A`, `Ctrl+C`, `Ctrl+V` | 전체 선택, 복사, 붙여넣기 |
+| Detection | `Ctrl+B`, 더블클릭 | 클래스 변경 창 |
+| Detection | `0`~`9` | 선택한 박스의 클래스 |
+| Detection | `Delete` / `Backspace` | 삭제 |
+| Detection | 화살표, `Shift+화살표` | 1px, 10px 이동 |
+| Detection | `Alt+Shift+L/R/T/D` | 좌/우/상/하 정렬 |
+| Detection | `Alt+Shift+C/M` | 열별/행별 가운데 정렬 |
+| Detection | `Alt+Shift+S` | 행 세트별 열 가운데 정렬 |
+| Detection | `Alt+Shift+H/V` | 가로/세로 균등 분배 |
+| Refine | `R` | Refine 탭 열기/닫기 |
+| Refine | `E` / `Shift+E` | Selected / All boxes 적용 (현재 모드) |
+| Refine | `N` / `Shift+N` | 다음 / 이전 검토 대상 |
+| Refine | `F` | 승인하고 다음으로 |
+| Segmentation | `1`~`9`, `0` | 칠할 클래스, Erase |
+| Segmentation | `Numpad +` / `Numpad -` | 브러시 크기 |
+| Segmentation | `B` | 슈퍼픽셀 경계 보이기/숨기기 |
+| Segmentation | `Enter` / `Esc` | Polygon 완성 / 취소, AI Select 적용 / 버리기 |
+| Segmentation | `Ctrl+B`, 더블클릭(Edit) | 영역 클래스 변경 |
+| Segmentation | `Delete` / `Backspace` (Edit) | 선택한 영역 지우기 |
+| Template Setup | `Ctrl+Q` | Template ROI ↔ Edit ROI |
+| Template Setup | 마우스 휠, `Ctrl+휠` | 스크롤, 포인터 기준 확대/축소 |
+
+## 11. AI 에이전트 연동 (데스크톱)
+
+데스크톱 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 설치되어, AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 도구로 조종할 수 있다. 박스 읽기·편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 Undo 한 단계다. 폴더 전체 변경은 사람이 승인해야 하고, 하단의 Stop으로 언제든 멈춘다. 연결 방법과 도구 목록은 [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)에 있다.
+
+## 12. 용어 정리
 
 | 용어 | 의미 |
 | --- | --- |
 | Template ROI | 기준 이미지에서 찾을 대상으로 잘라낸 사각형 영역 |
-| Match Preview | 현재 설정으로 계산한 매칭 결과 미리보기 |
+| Preview Match | 현재 설정으로 계산한 매칭 결과 미리보기 |
 | Candidate | Minimum score와 국소 최고점 조건을 통과한 매칭 후보 |
 | NMS | 겹치는 후보 중 낮은 점수 후보를 억제하는 처리 |
 | IoU | 두 박스의 교차 면적을 합집합 면적으로 나눈 겹침 비율 |
@@ -634,25 +674,3 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 | Anchor | Layout을 배치할 때 상대 좌표의 기준이 되는 위치 |
 | Preset | 템플릿, 레이아웃, 전처리, 매칭 및 저장 정책의 조합 |
 | Dry run | 실제 라벨 파일을 쓰지 않고 배치 결과를 점검하는 실행 |
-
-## 15. 구현 확인용 파일
-
-옵션 동작을 코드에서 직접 확인할 때는 다음 파일을 참고한다.
-
-- `workers/template-matching-worker.js`: OpenCV 초기화, 전처리, Accurate/Fast 매칭, 후보 추출, Padding과 중복 억제.
-- `src/features/automation/matching-candidates.ts`: IoU, 교차 면적, 후보 정렬 및 억제 계산.
-- `src/features/automation/preset-codec.ts`: 전처리, 점수, NMS, Padding, Maximum 등의 유효성 검증과 기본값.
-- `src/features/automation/layout.ts`: Layout 생성, Anchor/Offset 계산, 이미지 경계 필터링.
-- `src/features/automation/batch.ts`: 순차 배치, Skip/실패/취소 집계.
-- `src/features/automation/batch-labels.ts`: 매칭 결과를 Detection 박스와 YOLO 라벨로 변환.
-- `src/features/automation/automation-library-service.ts`: 데이터셋 내부 자동화 라이브러리 저장과 파일 병합.
-- `src/features/automation/template-workspace.ts`: Template ROI/결과 선택, 팬, 확대, Fit, 후보 포커스.
-- `src/features/canvas/detection-canvas-workflow.ts`: Detection 박스 생성, 선택, 정렬, 이동 및 편집.
-- `src/features/segmentation/workflow.ts`: Brush/Erase, 연결 영역 선택, 이동, 클래스 변경, 자동 채우기.
-
-## 16. AI 에이전트 연동 (데스크톱)
-
-데스크톱 앱은 AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 MCP 도구로 조종할 수 있게 `easy-labeling-mcp.exe`를 함께 설치한다. 에이전트는 박스 읽기·편집, Refine/Reclass/검수, 폴더 전체 변경(사람 승인), 템플릿 매칭 프리셋, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 undo 한 단계다. 하단 상태 표시줄의 Stop으로 언제든 멈출 수 있다.
-
-- 연결 방법, 도구 목록, 안전 장치: [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)
-- 구현 계획과 진행 기록: [AGENT_MCP_PLAN_KO.md](AGENT_MCP_PLAN_KO.md)

@@ -79,7 +79,7 @@ Failures listed under "Known failures" in `AGENTS.md` are baseline, not regressi
 
 ## 5. UI changes
 
-Take screenshots of the changed UI in light and dark themes (theme toggle or `data-theme` on `<html>`), save them under `test-results/` and look at them. Never write to `docs/` unless the user asked to refresh doc screenshots (`UPDATE_DOC_SCREENSHOTS=1`).
+Take screenshots of the changed UI in light and dark themes (theme toggle or `data-theme` on `<html>`), save them under `test-results/` and look at them. Never write screenshots into tracked `docs/`.
 
 ## 6. Version and leftovers
 

@@ -6,9 +6,9 @@
 
 ## 1) 배포 전제
 
-- 이 프로젝트는 **정적 사이트**(HTML/CSS/JS)로 배포됩니다.
-- 실제 실행 파일은 `index.html` + `dist/*` + `css/*` + 정적 페이지(`privacy.html`, `privacy_ko.html`)입니다.
-- 서버 사이드 API 없이 브라우저에서 동작합니다.
+- 이 프로젝트는 **정적 사이트**(HTML/CSS/JS)로 배포됩니다. 서버 사이드 API 없이 브라우저에서 동작합니다.
+- `dist/`와 `vendor/`는 저장소에 없고 빌드 때 만들어집니다. 그래서 Pages는 GitHub Actions(`.github/workflows/deploy-pages.yml`)로만 배포합니다.
+- 배포 묶음에 들어가는 파일은 이 workflow의 "Prepare static site artifact" 단계가 정합니다. 페이지가 새로 읽는 폴더(예: `workers/`, `assets/`, `resources/`)를 추가하면 이 단계에도 넣어야 합니다.
 
 ---
 
@@ -16,9 +16,7 @@
 
 ### Repository Pages (권장)
 
-- GitHub Pages Source를 다음 중 하나로 설정:
-  - `Deploy from a branch` + `main` 브랜치 `/root`
-  - 또는 GitHub Actions 기반 배포
+- GitHub Pages Source: **GitHub Actions**. `main`에 push하면 `deploy-pages.yml`이 단위 테스트·타입 검사·빌드를 거쳐 배포합니다(수동 실행: `workflow_dispatch`).
 
 ### URL 형태
 
@@ -54,8 +52,7 @@ npm run typecheck
 npm run build
 ```
 
-- `build`는 `tsconfig.build.json` 기준으로 `dist/`를 갱신합니다.
-- Pages에는 최신 `dist/`가 반영되어야 합니다.
+- `build`는 `tsconfig.build.json` 기준으로 `dist/`를 만들고, `vendor/`에 오프라인 라이브러리를 복사합니다. 배포 workflow도 같은 순서로 실행합니다.
 
 ---
 
@@ -81,7 +78,7 @@ Easy Labeling의 핵심 기능은 File System Access API에 의존합니다.
 - [ ] `npm run typecheck` 통과
 - [ ] `npm run build` 통과
 - [ ] `index.html`의 정적 자원 경로가 상대 경로인지 확인
-- [ ] `dist/` 변경 반영 여부 확인
+- [ ] 새로 읽는 정적 폴더가 있으면 `deploy-pages.yml`의 복사 목록에 추가
 
 배포 직후(실서비스 URL):
 
@@ -115,8 +112,8 @@ Easy Labeling의 핵심 기능은 File System Access API에 의존합니다.
 - 해결: Chrome/Edge Desktop에서 확인, 사용자 제스처 직후 호출 구조 유지
 
 ### 문제: 로컬은 되는데 Pages에서만 동작 이상
-- 원인: 빌드 산출물(`dist`) 미반영 또는 캐시
-- 해결: `npm run build` 후 반영, 강력 새로고침(Ctrl+F5)
+- 원인: 배포 묶음에 빠진 폴더(로컬 서버는 저장소 전체를 서비스함) 또는 브라우저 캐시
+- 해결: 브라우저 개발자 도구에서 404가 난 경로를 확인해 `deploy-pages.yml`의 복사 목록에 추가, 강력 새로고침(Ctrl+F5)
 
 ---
 
@@ -124,7 +121,7 @@ Easy Labeling의 핵심 기능은 File System Access API에 의존합니다.
 
 1. 기능 개발 완료
 2. 테스트/타입체크/빌드
-3. Pages 반영 브랜치에 머지
+3. `main`에 머지(배포 workflow가 자동 실행)
 4. 실URL 스모크 테스트
 5. 문제 없으면 릴리즈 노트 기록
 

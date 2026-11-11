@@ -2,6 +2,8 @@
 
 2026-10-29 · 기준 커밋 `34611885` (`main`) · 브랜치 `rust-migration`
 
+> 현재 상태: 데스크톱 앱은 Tauri 하나다. 아래 "현황"은 2026-10-29 시점의 기록이고, Electron 셸은 2026-10-30(v2.27.1)에 지웠다(7항).
+
 표기: **확인** = 코드·커밋·문서에서 직접 봄, **추정** = 측정 필요. 이 문서의 어떤 항목도 "빨라진다"는 주장이 아니며, 수치는 [BENCH.md](BENCH.md)에 측정 후 기록한다.
 
 ## 현황
@@ -215,7 +217,7 @@ PR 전 검수 (2026-10-30):
 | 순위 | 모듈(경로) | 현재 구현 | 의심 병목 | 이식 난이도 | 기대 효과 |
 |---|---|---|---|---|---|
 | 1 | Processed 보기·자동화 전처리: `src/features/segmentation/workflow.ts:503`, `src/bootstrap/automation-controller.ts:210` → `preprocessSegmentationImage` | TS, **메인 스레드 동기 실행** (확인) | 큰 필터(flatten σ, diffusion) 적용 시 UI 정지 (추정) | **하~중**: 같은 알고리즘의 Rust 포트가 이미 있다(`preprocess.rs`, 비트 동일). 다만 맞출 것이 셋이다. ① `toGrayscale`과 알파 보존, ② Original 모드의 채널별 톤 커브(gray 경로 아님), ③ 지금 동기 함수인 호출부를 비동기로 바꾸는 일(캐시·경합 처리) | Tauri에서 정지 시간 감소 (추정). 참고 수치: refine-on-Processed TS 684ms → Rust 141ms (`a95511dc`, 전처리 포함) |
-| 2 | 폴더 전체 Review: `workers/review-worker.js` + `src/features/review/quality.ts`, 호출 `src/bootstrap/file-system-adapter.ts:731` | TS worker, 이미지마다 O(n²) 비교(코드 주석에 `ponytail` 표기) + TXT를 파일 하나씩 읽음 | 60장 × 5,000박스에서 2,964ms (확인: `docs/LABEL_LOADING_FAST_PATH_KO.md`) | **중**: 메시지·인덱스·순서가 바이트 단위로 같아야 한다 | Rust가 파일 읽기·파싱·검사를 rayon으로 병렬 처리하고 결과만 반환하면 큰 폭 단축 (추정) |
+| 2 | 폴더 전체 Review: `workers/review-worker.js` + `src/features/review/quality.ts`, 호출 `src/bootstrap/file-system-adapter.ts:731` | TS worker, 이미지마다 O(n²) 비교(코드 주석에 `ponytail` 표기) + TXT를 파일 하나씩 읽음 | 60장 × 5,000박스에서 2,964ms (확인: git 기록 `af322bde`의 `docs/LABEL_LOADING_FAST_PATH_KO.md`) | **중**: 메시지·인덱스·순서가 바이트 단위로 같아야 한다 | Rust가 파일 읽기·파싱·검사를 rayon으로 병렬 처리하고 결과만 반환하면 큰 폭 단축 (추정) |
 | 3 | TIFF 디코드: `src/features/images/image-decoder.ts` | tiff.js(Emscripten) → RGBA canvas → `toBlob` PNG 인코드 → objectURL → `img.decode()` (확인) | 8bit gray SEM이 RGBA로 4배 커지고 PNG 인코드·디코드를 한 번 더 함 (추정) | **중**: 압축 종류, 16bit, 멀티페이지, 색공간 동등성 | TIFF 데이터셋의 이미지 전환 단축 (추정). **실제 데이터 포맷 확인 필요** |
 | 4 | 슈퍼픽셀: `src/features/segmentation/superpixels.ts` (277줄) | TS, 메인 스레드, 결과 캐시 있음 (확인) | 첫 계산 지연 (추정) | 중 | 측정 후 판단 |
 | 5 | 템플릿 매칭: `workers/template-matching-worker.js` | OpenCV.js worker | 이전 네이티브 시도가 WebView2 IPC 때문에 더 느렸음 (확인: `a95511dc` 메시지) | 중 | 이미지가 Rust에 상주하게 된 뒤(3번 이후) 재측정. 그 전에는 보류 |

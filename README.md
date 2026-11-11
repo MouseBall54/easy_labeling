@@ -1,177 +1,72 @@
 # Easy Labeling
 
-Easy Labeling은 **로컬 이미지 주석(Annotation) 작업**을 위한 웹 도구입니다.  
-현재는 단일 Detection 도구가 아니라, 아래 2개 워크플로우를 지원합니다.
+Easy Labeling은 SEM/TEM 같은 이미지에 라벨을 다는 **로컬 이미지 주석 도구**입니다. 서버 없이 내 PC의 이미지 폴더를 직접 읽고 씁니다.
 
-- **Detection**: YOLO Bounding Box 작업
-- **Segmentation**: 브러시 기반 마스크 작업
+- **Detection**: YOLO 박스 그리기·편집, 정렬, 레이아웃, 클래스 일괄 변경
+- **Refine**: 박스 변을 이미지 경계에 자동으로 맞추기(Edge)와 밝기 규칙으로 클래스 바꾸기(Reclass), 검토와 승인
+- **Template matching**: 템플릿으로 비슷한 물체 찾기, 레이아웃 배치, 데이터셋 일괄 실행
+- **Preprocess**: SEM/TEM용 필터(Destripe, Flatten, Denoise, CLAHE 등)로 만든 Processed 이미지
+- **Review**: 라벨 품질 검사(중복, 작은 박스, 경계 밖, 필수 클래스)와 이미지별 검수 상태
+- **Inference**: YOLO ONNX 모델 추론(GPU 우선, CPU 자동 전환)
+- **Segmentation**: Brush/Erase/Polygon/Superpixel/AI Select(EdgeSAM)로 마스크 작업, YOLO-seg·COCO·LabelMe 내보내기
+- **AI 에이전트 연동(MCP)**: Claude Code 같은 AI 에이전트가 열려 있는 앱을 조종(데스크톱 앱)
 
-> 기본 문서 언어는 한국어입니다.
+기능과 옵션, 단축키는 **[기능 및 옵션 안내](docs/FEATURES_AND_OPTIONS_KO.md)**에 있습니다.
 
-UI·UX 개선을 이어서 작업할 때는 [진행 기록](docs/UI_UX_PROGRESS_KO.md)과 [점검 보고서](docs/UI_UX_AUDIT_20261006_KO.md)를 먼저 확인하세요. 항목별 상태·검증·다음 단계와 변경 이력을 기록합니다.
+## 사용하기
 
-## 바로 사용하기
+### 웹 버전
 
-- 서비스 URL: **https://mouseball54.github.io/easy_labeling/**
-- 별도 설치 없이 브라우저에서 실행 가능
-- 권장 브라우저: **Desktop Chrome / Edge** (File System Access API 필요)
+- 주소: **https://mouseball54.github.io/easy_labeling/**
+- 설치 없이 실행합니다. 폴더를 직접 읽고 쓰기 위해 File System Access API가 필요하므로 **데스크톱 Chrome / Edge**를 권장합니다. 모바일과 일부 브라우저에서는 폴더를 열 수 없습니다.
 
-## 로컬 실행
+### Windows 데스크톱 앱
 
-- 의존성 설치: `npm install`
-- 일반 실행: `npm start`
-- 개발 모드(빌드 watch + 로컬 서버): `npm run dev`
-- 접속 주소: `http://127.0.0.1:4173`
+- [Releases](https://github.com/MouseBall54/easy_labeling/releases/latest)에서 `EasyLabeling_<버전>_x64-setup.exe`를 받아 설치합니다. 앱, 샘플 데이터셋, WebView2 오프라인 설치본이 모두 들어 있어 인터넷 없이 설치·실행됩니다.
+- 시작할 때 새 버전을 확인하고, 있으면 설치할지 묻습니다(저장하지 않은 변경이 있으면 한 번 더 묻습니다). 인터넷이 없으면 조용히 건너뜁니다.
+- 웹 버전과 화면·기능이 같고, 다음이 더해집니다.
+  - 프리셋·레이아웃·클래스 파일을 데이터셋과 상관없이 `문서\Easy Labeling\` 아래에 저장합니다.
+  - Refine, Processed 이미지, Review 검사, 8bit 회색 TIFF 읽기, Superpixel을 Rust로 실행합니다. 결과는 웹 버전과 같고 더 빠르며, 큰 이미지에서도 화면이 멈추지 않습니다. 측정값은 [docs/migration/BENCH.md](docs/migration/BENCH.md)에 있습니다.
+  - 저장하지 않은 채 창을 닫으면 확인합니다.
+  - AI 에이전트 연동(아래).
 
-## Windows 설치형 앱(Tauri / Rust)
+### AI 에이전트 연동 (MCP, 데스크톱)
 
-Rust(Tauri 2)로 만든 데스크톱 앱입니다. 화면과 기능은 같은 `dist/` 웹 코드를 Windows WebView2에서 그대로 실행하고, 폴더 읽기/쓰기·대화상자·프로필 라이브러리·저장 안 한 변경 확인은 Rust가 처리합니다. Refine(박스 경계 맞춤)과 그 전처리 필터는 Rust 네이티브로 실행해 같은 결과를 더 빠르게 냅니다(2048×1536, 600박스 기준 약 4~5배). Processed 보기(Q)도 Rust가 백그라운드에서 계산합니다. 결과는 웹 버전과 픽셀 단위로 같고, 큰 이미지에 무거운 필터를 걸어도 화면이 멈추지 않습니다(4096×3072, Flatten σ200 + Denoise 20 기준: 웹 버전은 약 5.8초 정지, 설치형은 정지 최대 0.2초에 약 1.5초 후 표시). Review의 전체 라벨 검사도 Rust가 파일을 직접 읽어 병렬로 처리합니다. 결과는 웹 버전과 같습니다(2048×1536 TIFF 60장, 이미지당 5,000박스 기준: 약 27초 → 약 0.35초). 네이티브로 처리할 수 없는 경우(GIF 등)는 기존 방식으로 자동 처리합니다. 8bit 회색 TIFF(무압축·LZW·Deflate·PackBits)도 Rust가 직접 읽어 디코드합니다. 화면 픽셀은 웹 버전과 같고, 여는 동안 화면이 멈추지 않습니다(4096×3072 기준 약 1.3~1.7초 → 약 0.2~0.3초). 그 밖의 TIFF는 기존 디코더로 엽니다. Rust와 TS를 옮기는 진행 상황은 [docs/migration](docs/migration/AUDIT.md)에 있습니다.
-
-개발 PC에 Node.js 22.12 이상과 Rust(stable, `rustup`)를 준비하고 `npm ci`를 실행한 뒤 `npm run tauri:dist:win`으로 설치파일을 만듭니다(출력 위치 `target/release/bundle/nsis/`).
-
-설치파일 하나에 앱, 샘플 데이터셋, WebView2 오프라인 설치본이 모두 들어 있어 인터넷 없이 설치·실행됩니다. 프로필 라이브러리(템플릿 프리셋, 레이아웃, Refine 프리셋, 클래스 정보)는 `문서\Easy Labeling\` 폴더를 사용합니다. 예전 Electron 설치본과 같은 위치라 기존 파일을 그대로 읽습니다.
-
-설치 후에는 별도 Python, npm 설치나 모델 다운로드 없이 실행합니다.
-
-- 설치 없이 실행 파일만 빌드(디버그): `npm run tauri:dev` → `target/debug/Easy Labeling.exe`
-- 데스크톱 e2e: `npx playwright test tests/e2e/tauri-desktop.spec.ts --project=chromium` (위 실행 파일 사용, 웹 코드를 바꾼 뒤에는 `npm run tauri:dev`를 다시 실행)
-
-### AI 에이전트 연동(MCP)
-
-설치형 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 들어 있어, Claude Code·Claude Desktop·Codex·Cursor 같은 AI 에이전트가 열려 있는 앱 창을 도구로 조종할 수 있습니다(박스 편집, Refine/Reclass/검수, 폴더 전체 변경은 사람 승인 후, 템플릿 매칭 프리셋, YOLO 추론). 에이전트의 호출 하나는 undo 한 단계이고, 하단의 Stop으로 언제든 멈출 수 있습니다. 로컬 전용이며 마켓플레이스 등록은 필요 없습니다.
+설치형 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 들어 있어, Claude Code·Claude Desktop·Codex·Cursor 같은 AI 에이전트가 열려 있는 앱 창을 도구로 조종할 수 있습니다. 박스 편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행합니다. 에이전트의 호출 하나는 Undo 한 단계이고, 폴더 전체를 바꾸는 작업은 사람이 승인해야 하며, 하단의 Stop으로 언제든 멈춥니다.
 
 - Claude Code 등록: `claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.exe"`
-- 앱 왼쪽 레일의 **Agent** 버튼: 연결 상태, 에이전트 앱별(Claude Code, Claude Desktop, Cursor, VS Code, Windsurf, Codex, Gemini CLI, OpenCode, LM Studio 등) 등록 내용 복사, 권한, 활동 기록
-- 연결 방법, 도구 29개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
-- 개발: `cargo build -p el-mcp`(MCP 서버), 데스크톱 e2e `tests/e2e/agent-desktop.spec.ts`
+- 앱 왼쪽 레일의 **Agent** 버튼: 연결 상태, 에이전트 앱별 등록 내용 복사, 권한, 활동 기록
+- 연결 방법, 도구 33개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
 
-### 다운로드와 자동 업데이트(GitHub Releases)
+## 데이터 형식
 
-- 다운로드: [Releases](https://github.com/MouseBall54/easy_labeling/releases/latest)에서 `EasyLabeling_<버전>_x64-setup.exe`를 받아 설치합니다.
-- 업데이트: 설치된 앱은 시작할 때 최신 릴리스를 확인하고, 새 버전이 있으면 설치 여부를 묻습니다. 수락하면 받은 뒤(창 제목에 진행률 표시) 설치하고 다시 실행합니다. 저장하지 않은 변경이 있으면 설치 전에 한 번 더 묻습니다. 인터넷이 없으면 확인을 조용히 건너뜁니다.
+| 대상 | 위치 |
+| --- | --- |
+| Detection 라벨 | `<이미지 폴더>/label/<이미지 이름>.txt` (YOLO) |
+| Segmentation 마스크 | `<이미지 폴더>/mask/<이미지 이름>.png`, `.seg.json` (+ 고른 내보내기 형식) |
+| 클래스 파일 | `.yaml` (`id: name` 줄) |
+| 도구 설정 | `<이미지 폴더>/.easy-labeling/` (Refine 설정, 검수 상태, 웹 버전의 프리셋) |
 
-릴리스 만들기(관리자):
+## 개발
+
+```bash
+npm install          # Node.js 22.12 이상
+npm start            # 빌드 후 http://127.0.0.1:4173
+npm run dev          # 빌드 watch + 로컬 서버
+npm run typecheck && npm run test:unit && npm run build
+npx playwright test --project=chromium   # e2e
+```
+
+- 데스크톱 앱(Rust stable 필요): `npm run tauri:dev`(디버그 실행 파일 `target/debug/Easy Labeling.exe`), `npm run tauri:dist:win`(설치 파일 `target/release/bundle/nsis/`).
+- MCP 서버: `cargo build -p el-mcp`. 데스크톱 e2e: `tests/e2e/tauri-desktop.spec.ts`, `tests/e2e/agent-desktop.spec.ts`(`npm run tauri:dev` 후).
+- 구조와 작업 규칙: [AGENTS.md](AGENTS.md). TS → Rust 이식 기록: [docs/migration](docs/migration/AUDIT.md). GitHub Pages 배포: [GITHUB_PAGES_GUIDELINES.md](GITHUB_PAGES_GUIDELINES.md).
+
+### 릴리스 (관리자)
 
 릴리스는 **`main`에 합친 커밋에서만** 만듭니다. 설치된 앱은 `releases/latest`를 따라가므로, 다른 브랜치에서 릴리스하면 기존 사용자 전원이 합쳐지지 않은 빌드로 업데이트됩니다. `scripts/release-tauri.mjs`는 커밋이 push됐는지만 확인하고 브랜치는 확인하지 않습니다.
 
 준비물: `gh auth login`으로 로그인한 GitHub CLI, 서명 키(아래 3번). 키에 비밀번호가 있으면 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`도 설정합니다.
 
 1. `package.json` 버전을 올리고(AGENTS.md "Versioning") 커밋·push한 뒤, 전체 e2e(`npx playwright test --project=chromium`, 약 1시간)를 확인하고 PR로 `main`에 합칩니다. `main`을 받아 그 커밋에서 다음 단계를 실행합니다.
-2. `npm run release:tauri`(`main`에서만) — YOLOE-26 버전(`track/yoloe26` 브랜치)이 쓰는 `latest-yoloe.json`을 새 릴리스로 옮겨 올리고, 설치파일을 서명해 빌드하고 `v<버전>` 릴리스와 업데이트 피드를 올립니다. `-- --draft`로 초안만 만들 수 있고(초안은 앱이 보지 못함), `-- --skip-build`는 이미 서명해 빌드한 설치파일을 그대로 올립니다.
+2. `npm run release:tauri`(`main`에서만): YOLOE-26 버전(`track/yoloe26` 브랜치)이 쓰는 `latest-yoloe.json`을 새 릴리스로 옮겨 올리고, 설치 파일을 서명해 빌드하고 `v<버전>` 릴리스와 업데이트 피드를 올립니다. `-- --draft`로 초안만 만들 수 있고(초안은 앱이 보지 못함), `-- --skip-build`는 이미 서명해 빌드한 설치 파일을 그대로 올립니다.
 3. 서명 키는 `%USERPROFILE%\.tauri\easy-labeling-updater.key`(또는 `TAURI_SIGNING_PRIVATE_KEY`)를 씁니다. 같은 키가 GitHub Secret `TAURI_SIGNING_PRIVATE_KEY`에도 있습니다. **이 키를 잃으면 이미 설치된 앱은 더 이상 업데이트를 받을 수 없으니 따로 백업해 두세요.**
-
----
-
-## 핵심 동작 방식
-
-### 1) 로컬 폴더 기반 작업
-
-- 이미지 폴더를 기준으로 작업하며, 파일 업로드 서버가 없습니다.
-- 브라우저에서 로컬 폴더를 직접 선택해 읽기/쓰기 합니다.
-- 자동 저장(Auto Save) 또는 수동 저장(Ctrl+S) 지원
-
-### 2) 2개 워크플로우 탭
-
-- 상단 탭에서 `Detection / Segmentation` 전환
-- 왼쪽 `Annotate`(Detection) / `Mask`(Segmentation)에서 데이터셋 열기, 라벨 폴더 연결, 클래스 파일 관리와 편집을 함께 진행합니다. 별도 Files 탭은 통합했습니다. `Labeled / Unlabeled`는 함께 켜거나 끌 수 있는 이미지 상태 필터입니다.
-
-### 3) 공통 편의 기능
-
-- 이미지 검색/상태 필터(라벨 있음/없음)
-- 하단 이미지 미리보기 바(토글/이전/다음)
-- 확대/축소, 팬(Alt/Ctrl+드래그), 좌표 이동
-- 패널 접기/펼치기 및 분할선 리사이즈
-- 다크 모드, 크로스헤어
-
----
-
-## 워크플로우별 기능
-
-## Detection
-
-- YOLO Bounding Box 생성/수정/삭제
-- 클래스 변경(`Ctrl+B`, 더블클릭, 컨텍스트 메뉴)
-- 다중 선택, 클래스별 선택, 그룹 선택
-- 클래스별 가시성 필터
-- 복사/붙여넣기(`Ctrl+C`, `Ctrl+V`)
-- 화살표 키 이동(1px), `Shift+화살표`(10px)
-- 정렬/분배 도구(좌/우/상/하 정렬, 가로/세로 분배)
-- Undo/Redo
-
-### Detection 저장 형식
-
-- `label/<image>.txt` (YOLO)
-
-## Segmentation
-
-- 브러시/지우개 기반 마스크 편집
-- 브러시/지우개 크기 슬라이더 + 프리셋
-- 마스크 오버레이 표시/숨김 + 투명도
-- 클래스 필터(All/클래스별 단독 표시) + 클래스 가시성 토글
-- Edit 모드에서 연결 영역(connected region) 선택
-- 선택 영역 드래그 이동
-- 선택 영역 클래스 변경
-  - 버튼(`Change Class of Painted Region`)
-  - 더블클릭(Edit 모드)
-  - `Ctrl+B`
-- Undo/Redo
-
-### Segmentation 저장 형식
-
-- `mask/<image>.png`
-- `mask/<image>.seg.json`
-
-### Segmentation 제한 사항(현재)
-
-- Detection 전용 박스 기능(예: 박스 리스트 기반 다중 편집/정렬/복붙)은 동일하게 제공되지 않습니다.
-- Segmentation 삭제는 `Delete` 키 중심이 아니라 **지우개 도구** 중심입니다.
-
-## 클래스 파일(YAML) 기능
-
-- 클래스 정보 폴더 로드(`.yaml`/`.yml`)
-- 클래스 파일 선택 전환
-- 클래스 파일 생성 / 편집 모달 지원
-- Detection의 `Classes → Change label class IDs`에서 현재 이미지 전체 또는 활성 라벨 폴더의 전체 이미지에 `+3` / `-3` 같은 정수 이동과 `0 → 2`, `2 → 0` 같은 번호별 교환·병합을 적용합니다. `Preview changes`로 변경 개수를 확인한 뒤 `Apply changes`를 누릅니다. 현재 이미지는 Undo 후 Save가 가능하며, 폴더 전체는 원본 TXT를 `.easy-labeling/class-remap-*`에 백업하고 저장합니다. [U39 검증 기록](docs/UI_UX_PROGRESS_KO.md#추가-요구-u39--라벨-클래스-번호-일괄-변경)을 참고하세요.
-- 기본 `Remap IDs` 목록은 현재 이미지의 클래스 번호를 숫자 순으로 채우며 `Original ID = New ID`로 시작합니다. `Count`는 숨긴 클래스와 경계 밖 박스를 포함한 현재 이미지의 개수입니다. 바꿀 `New ID`만 수정하면 됩니다.
-
----
-
-## 키보드/마우스 단축키
-
-## 공통
-
-- 이전/다음 이미지: `A` / `D`
-- 저장: `Ctrl+S` (`Cmd+S`)
-- 모드 전환(Draw/Edit): `Ctrl+Q` (`Cmd+Q`)
-- Undo/Redo: `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Shift+Z` (`Cmd` 대응)
-- 확대/축소: 마우스 휠
-- 팬: `Alt + Drag` 또는 `Ctrl + Drag`
-- 선택 해제: `Esc`
-
-## Detection 중심
-
-- 전체 선택: `Ctrl+A` (`Cmd+A`)
-- 복사/붙여넣기: `Ctrl+C` / `Ctrl+V`
-- 클래스 변경: `Ctrl+B` 또는 더블클릭
-- 삭제: `Delete` / `Backspace`
-- 이동: 화살표(1px), `Shift+화살표`(10px)
-- 정렬/분배: `Alt+Shift+L/R/T/D/H/V`, 열/행 가운데 `Alt+Shift+C/M`, 행 세트별 열 가운데 `Alt+Shift+S`
-
-## Segmentation 중심
-
-- 클래스 변경: `Ctrl+B` 또는 더블클릭(Edit 모드)
-- 영역 이동: Edit 모드에서 영역 선택 후 드래그
-
----
-
-## 디렉터리/배포 참고
-
-- GitHub Pages 운영 가이드: [`GITHUB_PAGES_GUIDELINES.md`](./GITHUB_PAGES_GUIDELINES.md)
-- GitHub Actions Pages 배포 워크플로우: `.github/workflows/deploy-pages.yml`
-
----
-
-## 주의 사항
-
-- 모바일 및 일부 브라우저에서는 File System Access API 제한으로 기능이 제한될 수 있습니다.
-- 본 프로젝트는 로컬 파일 기반 툴이므로, 브라우저 권한 허용 및 지원 브라우저 사용이 중요합니다.
