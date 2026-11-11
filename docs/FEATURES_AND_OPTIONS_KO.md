@@ -10,7 +10,7 @@ Easy Labeling의 화면과 기능, 주요 옵션이 실제로 어떻게 동작�
 | 위치 | 내용 |
 | --- | --- |
 | 상단 바 | `Detection` / `Segmentation` 전환, 현재 이미지 이름, 이전/다음 이미지, 라벨 폴더 탭, X/Y 좌표 찾기, 확대 배율, Undo/Redo, Save |
-| 왼쪽 작업 레일 | Detection: `Annotate`, `Display`, `Preprocess`, `Inference`, `Review`. Segmentation: `Mask`, `Superpixel`, `Display`, `Preprocess`, `Review`. 아래쪽에 `Agent`(데스크톱), `Theme` |
+| 왼쪽 작업 레일 | Detection: `Annotate`, `Display`, `Preprocess`, `Inference`, `Review`. Segmentation: `Mask`, `Superpixel`, `Display`, `Preprocess`, `Review`. 아래쪽에 `MCP`(데스크톱, 에이전트 연결 패널을 오른쪽에 붙여 엶), `Theme` |
 | 왼쪽 패널 | 레일에서 고른 작업의 설정. `Annotate`/`Mask`에는 데이터셋, 이미지 목록, 클래스 파일이 함께 있다 |
 | 캔버스 | 이미지와 박스·마스크 |
 | 오른쪽 Inspector | Detection: `Canvas tool`(Draw/Edit), `Refine`, `Automation settings`, 탭 `Annotation`/`Transform`/`Automation`/`Refine`. Segmentation: 도구(Brush/Erase/Polygon/Superpixel/AI Select/Edit), 브러시 크기, 클래스 |
@@ -658,7 +658,7 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 
 ## 11. AI 에이전트 연동 (데스크톱)
 
-데스크톱 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 설치되어, AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 도구로 조종할 수 있다. 박스 읽기·편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 Undo 한 단계다. 폴더 전체 변경은 사람이 승인해야 하고, 하단의 Stop으로 언제든 멈춘다. 연결 방법과 도구 목록은 [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)에 있다.
+데스크톱 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 설치되어, AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 도구로 조종할 수 있다. 박스 읽기·편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 Undo 한 단계다. 폴더 전체 변경은 사람이 승인해야 하고, 하단의 Stop으로 언제든 멈춘다. MCP 패널의 `Live view`를 켜면 에이전트가 추가한 박스가 하나씩 나타나고, Segmentation의 AI 결과는 찾는 대로 마스크에 그려진다(결과와 Undo는 같음). 연결 방법과 도구 목록은 [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)에 있다.
 
 ## 12. 용어 정리
 

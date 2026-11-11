@@ -32,11 +32,12 @@ Easy Labeling은 SEM/TEM 같은 이미지에 라벨을 다는 **로컬 이미지
 
 ### AI 에이전트 연동 (MCP, 데스크톱)
 
-설치형 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 들어 있어, Claude Code·Claude Desktop·Codex·Cursor 같은 AI 에이전트가 열려 있는 앱 창을 도구로 조종할 수 있습니다. 박스 편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행합니다. 에이전트의 호출 하나는 Undo 한 단계이고, 폴더 전체를 바꾸는 작업은 사람이 승인해야 하며, 하단의 Stop으로 언제든 멈춥니다.
+설치형 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 들어 있어, Claude Code·Claude Desktop·Codex·Cursor 같은 AI 에이전트가 열려 있는 앱 창을 도구로 조종할 수 있습니다. 박스 편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론, 세그멘테이션 마스크(영역 읽기·칠하기, AI Select, 박스에서 마스크 만들기, 검사·정리)를 앱의 버튼과 같은 경로로 실행하고, 정답 폴더가 있으면 점수로 확인합니다. 에이전트의 호출 하나는 Undo 한 단계이고, 폴더 전체를 바꾸는 작업은 사람이 승인해야 하며, 하단의 Stop으로 언제든 멈춥니다.
 
 - Claude Code 등록: `claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.exe"`
-- 앱 왼쪽 레일의 **Agent** 버튼: 연결 상태, 에이전트 앱별 등록 내용 복사, 권한, 활동 기록
-- 연결 방법, 도구 35개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
+- 앱 왼쪽 레일의 **MCP** 버튼: 연결 상태, 에이전트 앱별 등록 내용 복사, 권한, Live view(에이전트가 만드는 박스·영역을 하나씩 보기), 활동 기록
+- 연결 방법, 도구 44개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
+- 에이전트용 스킬(사용법과 측정으로 확인한 방법, 영어): [docs/agent-skills/easy-labeling-mcp](docs/agent-skills/easy-labeling-mcp/), 설치 방법은 안내서 1.1
 
 ## 데이터 형식
 
