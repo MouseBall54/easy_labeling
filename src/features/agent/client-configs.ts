@@ -1,5 +1,5 @@
 /**
- * How to register easy-labeling-mcp.exe in each MCP client (the Agent panel's "Connect an agent" section and
+ * How to register easy-labeling-mcp.exe in each MCP client (the MCP panel's "Connect an agent" section and
  * docs/AGENT_MCP_GUIDE_KO.md). The server is the same for every client: stdio, no arguments. DOM-free.
  */
 
