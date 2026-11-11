@@ -63,7 +63,7 @@ claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.
 | 박스 읽기 | `get_boxes`, `read_labels`, `capture_view` | 현재 이미지의 박스(저장 전 편집 포함, 픽셀 좌표, 한 번에 200개씩 나눠 받고 클래스별 개수는 항상 포함), 다른 이미지의 라벨 파일(정규화 좌표), 화면 캡처(PNG) 또는 박스 하나·영역을 확대한 캡처(사람 화면은 그대로) |
 | 박스 편집 | `add_boxes`, `update_boxes`, `delete_boxes`, `select_boxes`, `undo`, `redo`, `save` | 추가·이동·크기·클래스 변경·삭제·선택, 되돌리기, 저장 |
 | Refine·검수 | `get_refine_settings`, `run_refine`, `run_reclass`, `review_queue`, `approve`, `review_folder`, `set_review_status` | Refine pane과 같은 동작(`dryRun`이면 바뀔 결과만 보고 적용하지 않음), 검수 대기 목록과 승인, 폴더 전체 라벨 검사, 이미지별 Reviewed / Needs review 표시 |
-| 폴더 전체 변경 | `refine_folder`, `reclass_folder`, `remap_classes` | 모든 이미지의 라벨 파일 변경(**사람 승인**, 원본 백업). `remap_classes`는 기본이 미리보기 |
+| 폴더 전체 변경 | `refine_folder`, `reclass_folder`, `remap_classes` | 모든 이미지의 라벨 파일 변경(**사람 승인**, 원본 백업). 셋 다 기본이 미리보기(dry run)입니다. `refine_folder`·`reclass_folder`의 dry run은 파일을 쓰지 않고 숫자 요약(움직인·검토 대상 박스 수, 이동 거리·면적 변화·신뢰도 분포, 클래스별, 먼저 볼 이상치 박스와 이미지)과 `resultId`를 돌려주며, `sample`(예: 20장)이나 `images`로 일부만 볼 수 있습니다. `resultId`로 적용하면 미리 본 결과를 그대로 쓰고, 그 사이 바뀐 파일이 있으면 거절합니다 |
 | 템플릿 매칭·레이아웃 | `find_similar`, `list_templates`, `run_template_matching`, `apply_layout`, `save_layout` | 박스 하나(또는 영역)와 비슷한 것을 현재 이미지에서 찾기(기본은 미리보기, 이미 박스가 있는 곳은 건너뜀), 저장된 자동화 프리셋 실행, 레이아웃을 지정한 위치에 적용, 박스를 레이아웃으로 저장 |
 | 추론 | `inference_status`, `load_model`, `run_inference` | ONNX 모델 로드와 YOLO 추론(모든 이미지는 **사람 승인**) |
 

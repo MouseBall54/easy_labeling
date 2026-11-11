@@ -10,7 +10,7 @@
 //! colour-managed PNGs.
 
 use crate::preprocess::{self, PreprocessConfig};
-use crate::refine::{refine_boxes, BoxInput, GrayImage, Rect, RefineParams};
+use crate::refine::{refine_boxes, BoxInput, GrayImage, Rect, RefineParams, RefineResult};
 use crate::review_folder::read_text;
 use crate::{js, tiff_gray};
 use serde::Serialize;
@@ -46,6 +46,9 @@ pub struct FolderResult {
     /// Boxes read from the file, which the page checks against its own reading.
     pub box_count: usize,
     pub changes: Vec<Change>,
+    /// With `FolderSettings::details`: the full result of every box that moved or was flagged (a dry run's summary).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Vec<RefineResult>>,
 }
 
 pub struct FolderImage {
@@ -102,19 +105,34 @@ fn moved(a: &Rect, b: &BoxInput) -> bool {
     !((a.x0 - b.x0).abs() < MOVE_EPSILON && (a.y0 - b.y0).abs() < MOVE_EPSILON && (a.x1 - b.x1).abs() < MOVE_EPSILON && (a.y1 - b.y1).abs() < MOVE_EPSILON)
 }
 
-/// Refines `boxes` (their own neighbours) and returns the moved ones in file order. A non-finite result
-/// would cross to the page as JSON null, so the caller leaves such an image to the TS path.
-pub fn changed_boxes(image: &GrayImage, boxes: &[BoxInput], params_by_class: &HashMap<String, RefineParams>, default_params: &RefineParams) -> Vec<Change> {
+/// Refines `boxes` (their own neighbours, each class with its params or the default) in file order.
+pub fn refined_boxes(
+    image: &GrayImage,
+    boxes: &[BoxInput],
+    params_by_class: &HashMap<String, RefineParams>,
+    default_params: &RefineParams,
+) -> Vec<RefineResult> {
     let mut params = HashMap::new();
     for item in boxes {
         params.entry(item.class_id.clone()).or_insert_with(|| params_by_class.get(&item.class_id).unwrap_or(default_params).clone());
     }
-    let sent: HashMap<&str, &BoxInput> = boxes.iter().map(|item| (item.id.as_str(), item)).collect();
     refine_boxes(image, boxes, &params, boxes)
-        .into_iter()
+}
+
+/// The results whose box moved, as changes to write, in file order.
+fn changes_of(results: &[RefineResult], boxes: &[BoxInput]) -> Vec<Change> {
+    let sent: HashMap<&str, &BoxInput> = boxes.iter().map(|item| (item.id.as_str(), item)).collect();
+    results
+        .iter()
         .filter(|result| sent.get(result.id.as_str()).is_some_and(|before| moved(&result.rect, before)))
-        .filter_map(|result| Some(Change { line: result.id.parse().ok()?, class_id: result.class_id, rect: result.rect }))
+        .filter_map(|result| Some(Change { line: result.id.parse().ok()?, class_id: result.class_id.clone(), rect: result.rect }))
         .collect()
+}
+
+/// Refines `boxes` (their own neighbours) and returns the moved ones in file order. A non-finite result
+/// would cross to the page as JSON null, so the caller leaves such an image to the TS path.
+pub fn changed_boxes(image: &GrayImage, boxes: &[BoxInput], params_by_class: &HashMap<String, RefineParams>, default_params: &RefineParams) -> Vec<Change> {
+    changes_of(&refined_boxes(image, boxes, params_by_class, default_params), boxes)
 }
 
 /// A PNG's pixels as the page's refine reads them (toGray of the RGBA Chromium draws), or None when
@@ -188,16 +206,18 @@ pub struct FolderSettings<'a> {
     pub default_params: &'a RefineParams,
     /// The Processed view's preprocessing, None for the original pixels.
     pub processing: Option<&'a PreprocessConfig>,
+    /// Also return `FolderResult::details` (moved or flagged boxes' full results).
+    pub details: bool,
 }
 
 fn refine_image(label_folder: &Path, image: &FolderImage, settings: &FolderSettings) -> Option<FolderResult> {
     // A read error other than a missing file goes to the TS path, which reports it as the TS run does.
     let Ok(text) = read_text(&label_folder.join(&image.label)) else { return None };
-    let Some(text) = text else { return Some(FolderResult { original: None, width: 0, height: 0, box_count: 0, changes: Vec::new() }) };
+    let Some(text) = text else { return Some(FolderResult { original: None, width: 0, height: 0, box_count: 0, changes: Vec::new(), details: None }) };
     // A blank file is unchanged without opening the image. The TS path opens it for any other text (and
     // lists an image it cannot decode as skipped), so such a file without boxes is left to it.
     if js::trim(&text).is_empty() {
-        return Some(FolderResult { original: Some(text), width: 0, height: 0, box_count: 0, changes: Vec::new() });
+        return Some(FolderResult { original: Some(text), width: 0, height: 0, box_count: 0, changes: Vec::new(), details: None });
     }
     let box_count = label_file_boxes(&text, 1.0, 1.0)?.len();
     if box_count == 0 {
@@ -210,11 +230,20 @@ fn refine_image(label_folder: &Path, image: &FolderImage, settings: &FolderSetti
         Some(config) => preprocess::to_bytes(&preprocess::preprocess_gray(gray.pixels.iter().map(|&v| f32::from(v)).collect(), width, height, config)),
         None => gray.pixels,
     };
-    let changes = changed_boxes(&GrayImage { gray: &pixels, width, height }, &boxes, settings.params_by_class, settings.default_params);
+    let results = refined_boxes(&GrayImage { gray: &pixels, width, height }, &boxes, settings.params_by_class, settings.default_params);
+    let changes = changes_of(&results, &boxes);
     if changes.iter().any(|change| ![change.rect.x0, change.rect.y0, change.rect.x1, change.rect.y1].iter().all(|value| value.is_finite())) {
         return None;
     }
-    Some(FolderResult { original: Some(text), width, height, box_count, changes })
+    let details = settings.details.then(|| {
+        let moved_lines: std::collections::HashSet<usize> = changes.iter().map(|change| change.line).collect();
+        results.into_iter().filter(|result| result.flagged || result.id.parse().is_ok_and(|line| moved_lines.contains(&line))).collect::<Vec<_>>()
+    });
+    // A non-finite confidence or area change would also cross as JSON null; the TS path reports such an image.
+    if details.as_ref().is_some_and(|list| list.iter().any(|result| !result.conf.is_finite() || !result.area_change.is_finite())) {
+        return None;
+    }
+    Some(FolderResult { original: Some(text), width, height, box_count, changes, details })
 }
 
 /// Refines every image's label file, `threads` images at a time; None for an image the TS path must do.

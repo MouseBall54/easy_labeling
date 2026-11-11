@@ -91,4 +91,31 @@ describe("agent refine tools", () => {
     expect(await codeOf(set.set_review_status.run({ status: "done" }, context))).toBe("invalid_args");
     expect(await codeOf(set.set_review_status.run({ status: "reviewed", images: ["c.tif"] }, context))).toBe("not_found");
   });
+
+  it("folder runs are dry runs by default, take a sample or names, and apply a dry run by its resultId", async () => {
+    const runs: unknown[] = [];
+    const applied: string[] = [];
+    const edits: string[] = [];
+    const files = Array.from({ length: 10 }, (_, index) => ({ name: `i${index}.tif` }));
+    const state = { session: { workflow: "detection", currentImageFile: files[0], imageFiles: files, reviewFindings: new Map() } };
+    const set = createAgentRefineTools({
+      state: state as never, fileSystem: {} as never, documentRef: {} as never, confirm: async () => true, afterEdit: () => { edits.push("edit"); },
+      refine: () => ({
+        runFolder: async (mode: string, options: { dryRun?: boolean; only?: number[]; outliers?: number }) => { runs.push([mode, options.dryRun, options.only, options.outliers]); return { ok: true, message: "", resultId: `${mode}-1` }; },
+        applyFolderPlan: async (resultId: string) => { applied.push(resultId); return { ok: true, message: "" }; }
+      }) as never
+    });
+    await set.refine_folder.run({}, context);
+    await set.refine_folder.run({ sample: 3, outliers: 5 }, context);
+    await set.reclass_folder.run({ images: ["i9.tif", "i2.tif"] }, context);
+    expect(runs).toEqual([["edge", true, undefined, 20], ["edge", true, [0, 5, 9], 5], ["reclass", true, [9, 2], 20]]);
+    expect(edits).toEqual([]);
+    await set.refine_folder.run({ resultId: "edge-1" }, context);
+    expect(applied).toEqual(["edge-1"]);
+    expect(edits).toEqual(["edit"]);
+    expect(await codeOf(set.reclass_folder.run({ resultId: "edge-1" }, context))).toBe("invalid_args");
+    expect(await codeOf(set.refine_folder.run({ images: ["nope.tif"] }, context))).toBe("not_found");
+    expect(await codeOf(set.refine_folder.run({ sample: 0 }, context))).toBe("invalid_args");
+    expect(await codeOf(set.refine_folder.run({ dryRun: false, sample: 3 }, context))).toBe("invalid_args");
+  });
 });

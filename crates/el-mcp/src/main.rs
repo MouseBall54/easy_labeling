@@ -29,7 +29,9 @@ with annotationId or region (a zoomed crop) over listing every box.\n\n\
 Typical flow: find_similar from one good box (or run_template_matching / apply_layout) to add boxes -> run_refine with dryRun \
 to see what would move, then without dryRun (pass the returned annotationIds as the scope) -> review_queue and capture_view \
 on flagged boxes -> approve or update_boxes -> save -> set_review_status. Before run_reclass, read reclassRule from \
-get_refine_settings and try dryRun first. Every edit is one undo step; folder-wide tools ask the person first.";
+get_refine_settings and try dryRun first. For a whole folder, judge by numbers rather than captures: dry-run refine_folder / \
+reclass_folder on a sample (sample: 20), read the summary (flagged share, shift and confidence spreads, outliers), capture only \
+the outliers, adjust, and write the accepted result with its resultId. Every edit is one undo step; folder-wide writes ask the person first.";
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 struct OpenFolderArgs {
@@ -211,10 +213,23 @@ struct ApproveArgs {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
 struct FolderRunArgs {
     #[schemars(description = "Preset name for this run; \"\" for the class settings / Lab rule; omit for the pane's current choice")]
     #[serde(skip_serializing_if = "Option::is_none")]
     preset: Option<String>,
+    #[schemars(
+        description = "Compute every change and return a summary and a resultId without writing anything (default true). false writes the whole folder after the person allows it"
+    )]
+    dry_run: Option<bool>,
+    #[schemars(description = "Dry run on this many images spread evenly over the list (e.g. 20) instead of all")]
+    sample: Option<u32>,
+    #[schemars(description = "Or: dry run on these image file names")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Write a previous dry run exactly as it was previewed (the person must allow it); refused if a label file changed since")]
+    result_id: Option<String>,
+    #[schemars(description = "Outlier boxes and images to list in the summary (default 20, at most 100)")]
+    outliers: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -512,7 +527,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Snap boxes of the current image to the image edges (Refine, as the pane's Apply buttons). One undo step. Returns counts and moved boxes before/after, flagged ones first (paged). dryRun: true returns the same without moving anything.",
+        description = "Snap boxes of the current image to the image edges (Refine, as the pane's Apply buttons). One undo step. Returns counts and moved boxes before/after with their confidence (0..1, overall and per side; low = unsure), flagged ones first (paged). dryRun: true returns the same without moving anything.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn run_refine(
@@ -540,7 +555,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Boxes on the current image waiting for review: Refine flags (weak sides, area or size limits) or reclassed boxes.",
+        description = "Boxes on the current image waiting for review: Refine flags (weak sides, area or size limits, with confidence overall and per side) or reclassed boxes.",
         annotations(read_only_hint = true)
     )]
     async fn review_queue(
@@ -590,7 +605,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Refine every box of every image in the folder and rewrite the label files. The person must allow it in a dialog; originals are backed up first. Can take minutes.",
+        description = "Refine every box of the folder's label files. Dry run by default: returns a summary (boxes moved and flagged, shift / area-change / confidence spreads, review reasons, per class, the outlier boxes and images) and a resultId, writing nothing; use sample for a quick look at a few images. Then pass resultId to write exactly that result (the person allows it; originals are backed up), or dryRun false to run and write in one go. Can take minutes.",
         annotations(read_only_hint = false, destructive_hint = true)
     )]
     async fn refine_folder(
@@ -604,7 +619,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Reclass the boxes the reclass rule matches in every image of the folder (only class ids change). The person must allow it; originals are backed up first.",
+        description = "Reclass the boxes the reclass rule matches in the folder's label files (only class ids change). Dry run by default: returns changes per class, the images with the most changes and a resultId; pass resultId to write exactly that (the person allows it; originals are backed up).",
         annotations(read_only_hint = false, destructive_hint = true)
     )]
     async fn reclass_folder(

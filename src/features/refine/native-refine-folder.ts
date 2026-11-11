@@ -1,4 +1,4 @@
-import type { RefineParams } from "../../domain/refine/edge-refine.js";
+import type { RefineBoxInput, RefineParams, RefineResult } from "../../domain/refine/edge-refine.js";
 import { applyLabelFileChanges, labelFileBoxes, type LabelFileChange } from "../../domain/refine/label-file.js";
 import { getNativeBridge, NativeJobCancelledError } from "../../platform/native-bridge.js";
 import { toNativeSource } from "./native-refine-worker.js";
@@ -15,10 +15,19 @@ interface NativeFolderImage {
   boxCount: number;
   /** Boxes that moved, in file order. */
   changes: LabelFileChange[];
+  /** With `details`: the full result of each box that moved or was flagged. */
+  details?: RefineResult[];
 }
 
 /** A label file rewritten natively: its text before and after (null = unchanged). */
-export interface NativeFolderRewrite { original: string | null; text: string | null; changed: number }
+export interface NativeFolderRewrite {
+  original: string | null;
+  text: string | null;
+  changed: number;
+  /** With `details`: every box of the file (pixels) and the results of those that moved or were flagged. */
+  boxes?: RefineBoxInput[];
+  results?: RefineResult[];
+}
 
 /**
  * Desktop app: refines every image's label file in Rust, images in parallel (crates/el-core/src/refine_folder.rs).
@@ -35,6 +44,8 @@ export async function refineFolderNatively(input: {
   paramsByClass: Record<string, RefineParams>;
   defaultParams: RefineParams;
   source: RefineImageInput;
+  /** Also return each moved or flagged box's full result (a dry run's summary). */
+  details?: boolean;
   signal?: AbortSignal;
   onProgress?(done: number, total: number): void;
 }): Promise<Array<NativeFolderRewrite | null> | null> {
@@ -52,7 +63,8 @@ export async function refineFolderNatively(input: {
         images: paths.map((path, index) => ({ path, label: input.labelNames[index] })),
         paramsByClass: input.paramsByClass,
         defaultParams: input.defaultParams,
-        source: toNativeSource(input.source)
+        source: toNativeSource(input.source),
+        details: input.details ?? false
       }
     }), { signal: input.signal, onProgress: input.onProgress });
   } catch (error) {
@@ -68,6 +80,10 @@ export async function refineFolderNatively(input: {
     // Rust read the rows by the same rules; anything else sends the image down the TS path.
     const rows = new Map(boxes.map((box) => [Number(box.id), box.classId]));
     if (boxes.length !== result.boxCount || result.changes.some((change) => rows.get(change.line) !== change.classId)) return null;
-    return { original: result.original, text: applyLabelFileChanges(lines, result.changes, result.width, result.height), changed: result.changes.length };
+    const text = applyLabelFileChanges(lines, result.changes, result.width, result.height);
+    if (!input.details) return { original: result.original, text, changed: result.changes.length };
+    // A blank label file comes back without details (its image was not opened): nothing to summarize.
+    if (!result.details) return result.boxCount === 0 ? { original: result.original, text, changed: 0, boxes: [], results: [] } : null;
+    return { original: result.original, text, changed: result.changes.length, boxes, results: result.details };
   });
 }

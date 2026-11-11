@@ -407,6 +407,51 @@ YOLOE 관련 도구는 이 계획에 넣지 않습니다([13장](#13-나중에-y
 - 바뀐 컨트롤러의 기존 e2e(`refine-edges`, `automation-workflow`, `automation-view`, `layout-apply`, `layout-management`) 31개 중 30개 통과. 실패한 `refine-edges`의 "presets: the Run-with preset picked while another folder's settings show is the one E runs with"는 반복 실행에서 3번 중 2번 실패했고, **이번 dryRun 변경을 되돌린 상태에서도 4번 중 1번 실패**해서 이번 변경과 무관한 기존 불안정이었습니다. 원인은 테스트의 경쟁 상태입니다. 두 폴더가 같은 이미지(박스 2개)를 가져서, 폴더 B를 연 뒤의 대기 조건 "박스 2개"가 아직 화면에 남은 폴더 A의 박스로 바로 충족됐습니다. 그 박스를 선택한 직후 B의 이미지 로드가 끝나 박스가 새로 만들어지면서 선택이 사라졌고, E가 "Select boxes to refine first."로 끝났습니다(실패한 실행에서만 선택한 박스 id와 E 시점의 박스 id가 달랐음). 대기 조건을 "박스 id가 바뀔 때까지"로 고쳐 10회 반복 모두 통과, `refine-edges` 24개 통과를 확인했습니다. 앱 동작은 바꾸지 않았습니다.
 - 실행 중인 사용자 앱과 MCP 서버가 `target/debug`의 exe를 잡고 있어서, 새로 빌드된 `target/debug/deps/`의 바이너리를 `easy-labeling-agent-test.exe`, `easy-labeling-mcp-test.exe`로 복사해 e2e를 돌렸습니다.
 
+### 8단계: 전문가 수준의 Refine·레이아웃·템플릿 매칭 (숫자로 판단하고 폴더 단위로 빠르게)
+
+배경: 7단계까지의 도구로는 에이전트가 **만들어 둔 설정을 실행하고 결과를 확인**할 수 있습니다. 전문가가 하는 일, 즉 데이터에 맞게 설정을 조정하고 재사용할 작업 흐름으로 만드는 일은 할 수 없습니다. 판단도 캡처를 눈으로 보는 데 기대고, 이미지마다 여러 번 호출해야 해서 폴더가 크면 느립니다. 원칙은 두 가지입니다.
+
+- **판단은 숫자로, 그림은 이상치만**: 에이전트에게 분포·신뢰도·이상치를 주고, 캡처는 숫자가 이상하다고 가리킨 곳만 봅니다.
+- **폴더 단위 한 번의 호출**: 폴더(또는 표본)를 한 번에 계산해 요약만 돌려주고, 본 결과를 그대로 적용합니다.
+
+| 순서 | 추가 | 내용 |
+|---|---|---|
+| 8.1 | 폴더·표본 dry run + 요약 + `resultId` 적용 | `refine_folder`·`reclass_folder`에 `dryRun`(기본 true), `sample`(이미지 수, 고르게 뽑음) 또는 `images`. 결과는 요약(변별 이동 거리·면적 변화·신뢰도 분포, 검토 사유별 개수, 클래스별, 이상치 박스와 이미지 상위 N개)과 `resultId`. 적용은 `resultId`를 넘겨 다시 계산하지 않고 미리 본 텍스트를 그대로 쓰며, 그 사이 바뀐 파일이 있으면 거절합니다. 요약 계산은 DOM 없는 TS 모듈 하나(`domain/refine/folder-summary.ts`)가 맡고, 데스크톱의 Rust 폴더 실행은 요청할 때만 박스별 결과(움직였거나 검토 대상인 박스)를 함께 돌려줍니다. |
+| 8.2 | 박스별 신뢰도 숫자 | `run_refine`·`review_queue`·dry run 이상치에 변별 신뢰도(`sideConf`), 전체 신뢰도(`conf`), 이유(약한 변, 면적, 크기 제한)를 붙입니다. Refine이 이미 계산하는 값입니다. |
+| 8.3 | 집단 통계 검사 | 크기 이상치(클래스 중앙값에서 벗어난 너비·높이), 행·열 간격과 격자 이상(빠진 자리, 중복), 정렬 이상. 현재 이미지와 폴더 요약 모두. Refine·매칭·레이아웃 결과 확인에 공통으로 씁니다. |
+| 8.4 | 매칭 점수 해석 | `find_similar`·템플릿 실행 결과에 점수 분포, 가장 큰 간격과 그 위치(임계값 근거), 예상 개수 대비 커버리지. |
+| 8.5 | 설정 읽기·쓰기 | Refine의 클래스·프리셋별 전체 설정 보기와 일부 변경, 프리셋 저장(이전 설정을 보관해 한 번에 되돌리기). `find_similar`의 전체 설정(블러, 패딩, NMS, 검색 영역, 모드, 다른 이미지의 템플릿)과 템플릿 프리셋 저장(레이아웃 관계 포함). 레이아웃 상세(기준점, 박스)와 배치 미리보기, 매칭 위치 + 오프셋 배치. Preprocess 설정과 프리셋 선택. |
+| 8.6 | 기준 라벨 비교 | 다른 라벨 폴더(정답)와 IoU로 맞춰 정밀도·재현율과 평균 경계 오차(px). 설정 조정의 최종 점수. |
+| 8.7 | 모아 보기 | 이상치 박스 N개를 id를 붙인 격자 이미지 한 장으로, 전/후 박스를 한 crop에 겹쳐서. 캡처 N번보다 빠르고 토큰이 적습니다. |
+| 8.8 | 폴더 단위 템플릿 배치 | 앱의 Automation 배치(사전 점검, dry run, 실패 재시도)를 같은 dry run·`resultId` 방식으로. |
+
+에이전트의 작업 흐름은 다음과 같아집니다: 표본 dry run으로 지표 확인 → 진단 숫자로 원인을 추론해 설정 변경 → 같은 표본으로 비교 → 목표 지표(예: 검토 대상 2% 미만, 크기 이상치 0, 기준 대비 평균 오차 1 px 이하)를 만족하면 `resultId`로 적용(사람 승인) → 같은 지표로 다시 검사, 이상치만 모아 보기로 확인.
+
+안전: 폴더 전체 쓰기는 지금처럼 사람 승인과 백업을 거칩니다. dry run은 파일을 쓰지 않습니다. 설정 쓰기(8.5)는 Undo가 없으므로 이전 설정을 보관하고, 프로필 프리셋 쓰기만 허용할지 승인을 받을지는 8.5에서 정합니다. 속도는 폴더 단위 도구와 이미지별 반복을 같은 데이터로 측정해 `docs/migration/BENCH.md`에 기록한 뒤에만 말합니다.
+
+검증(단계마다): 요약·통계 모듈의 단위 테스트, 데스크톱 e2e(dry run이 파일을 바꾸지 않음, `resultId` 적용이 미리 본 텍스트와 같음, 그 사이 파일이 바뀌면 거절), 네이티브와 TS 경로의 요약이 같은지(`easyLabelingNativeOff`), Rust 변경이 있으면 golden·clippy.
+
+#### 8.1 결과 (2026-11-11, 완료)
+
+구현:
+- **요약 모듈** `src/domain/refine/folder-summary.ts`(새 파일, DOM 없음): Edge는 전체·움직인·검토 대상 박스 수와 비율, 검토 사유별(약한 변 / 면적 변화 / 크기 제한)과 변별 개수, 움직인 박스의 최대 변 이동 거리(px) 중앙값·90%·최대, 면적 변화율 분포, 신뢰도 10%·중앙값, 클래스별 수치, 이상치 박스(검토 대상 먼저, 그다음 이동 거리 순, 전후 좌표와 이유 포함)와 검토 비율이 높은 이미지. Reclass는 클래스 변경 쌍별 개수와 변경 비율이 높은 이미지. `evenSample`로 표본을 목록 전체에 고르게 뽑습니다(같은 폴더면 늘 같은 표본).
+- **파일 계층** `file-system-adapter.ts`: `rewriteDetectionLabels`에 `only`(이미지 일부)와 `dryRun`(백업·쓰기 없이 편집 내용을 `plan`으로 반환). 새 `commitLabelFilePlan(plan)`은 현재 편집을 저장한 뒤 폴더·이미지 목록·편집할 파일이 dry run 때와 같은지 확인하고, 같을 때만 기존과 같은 백업·쓰기 경로로 씁니다.
+- **Refine 컨트롤러**: `runFolder`가 `dryRun`이면 승인 없이 계산만 하고, TS 경로와 Rust 경로 양쪽에서 박스별 결과를 모아 요약을 만듭니다. 결과는 `resultId`로 최근 5개까지 보관하고, `applyFolderPlan(resultId)`이 승인 후 그대로 씁니다(한 번 쓰면 지움).
+- **Rust**: `refine_folder`에 `details` 요청을 더해, 요청할 때만 움직였거나 검토 대상인 박스의 전체 결과(`RefineResult`: 신뢰도, 변별 신뢰도, 약한 변, 면적 변화, 크기 제한)를 함께 돌려줍니다. 쓰기용 `changed_boxes`의 출력은 그대로라 golden 고정 데이터는 바꾸지 않았습니다.
+- **도구**: `refine_folder`·`reclass_folder`의 기본이 dry run(`dryRun` 기본 true)이 되었고 `sample`, `images`, `resultId`, `outliers`를 받습니다. 서버 `instructions`에 폴더 작업은 표본 dry run → 요약으로 판단 → 이상치만 캡처 → `resultId`로 적용하라고 적었습니다.
+
+검증:
+- unit 644 통과(새 `folder-summary.test.ts` 4개: 분위수·표본, 움직임·검토 사유·클래스·이상치 집계, 빈 실행, Reclass 집계. `agent-tools-refine.test.ts`에 폴더 dry run 기본값·표본·이름·`resultId` 적용·오류 1개).
+- Rust: fmt, clippy(`-D warnings`), `cargo test -p el-core -p el-bench -p el-mcp -p el-agent-protocol` 통과(golden 폴더 Refine 포함).
+- e2e `agent-desktop` 8개: dry run이 파일을 바꾸지 않음, **네이티브와 TS 경로의 요약이 같음**(`easyLabelingNativeOff = ["refine-folder"]`), 1장 표본, `resultId` 적용이 미리 본 개수대로 쓰고 백업을 남김, 같은 `resultId`는 다시 쓸 수 없음, 적용 뒤 낡은 표본 dry run은 "changed since the dry run"으로 거절하고 파일을 그대로 둠. `tauri-desktop` 18개(기존 네이티브 폴더 Refine 비교 포함), `refine-edges` 24개 통과.
+- 작업 도중 세션이 끊겨 링커가 쓰다 만 PDB·증분 캐시가 손상됐고, 해당 산출물만 지우고 다시 빌드했습니다(코드와 무관).
+
+#### 8.2 결과 (2026-11-11, 완료)
+
+- `run_refine`의 바뀐 박스, `review_queue`의 Edge 대상, 폴더 dry run의 이상치 박스에 `confidence`(전체, 0~1)와 `sideConfidence`(맞춘 변별 T/B/R/L, 0~1)를 붙였습니다. 낮을수록 경계를 확신하지 못한 것이고, 약한 변 판정(`weakSides`)은 변별 신뢰도가 Review below 미만인 변입니다. Refine이 이미 계산하던 값이라 계산은 늘지 않습니다.
+- 도구 설명에 신뢰도를 적었습니다. 단위 테스트(이상치의 변별 신뢰도), e2e(`run_refine` 결과의 신뢰도 범위와 네 변) 통과.
+- 남은 일: Lab의 경계 프로파일(후보 경계 위치와 강도) 자체를 내보내는 진단은 8.5(설정 조정)와 함께 다룹니다. 신뢰도만으로 원인을 좁히기 어려운 경우가 그때 필요합니다.
+
 ## 6. 파일 목록 요약
 
 | 새 파일 / 바뀌는 파일 | 단계 |
@@ -466,7 +511,8 @@ Claude Desktop, Cursor, Codex는 각 클라이언트의 MCP 설정 파일에 같
 | 4 자동화·추론 | 완료 (2026-11-11) | 미커밋, v3.4.0 | unit 629, Rust 4, e2e 20, Claude Code 템플릿 매칭 | 폴더 단위 자동화 배치(선택) |
 | 5 배포·문서 | 완료 (2026-11-11) | 미커밋, v3.4.0 | `tauri:dist:win`으로 사이드카 포함 설치 파일 생성(NSIS 스크립트 확인), 사이드카 없이 기본 빌드 통과, release MCP 서버 확인 | 커밋·PR·릴리스 |
 | 6 Agent 패널·여러 클라이언트 | 완료 (2026-11-11) | 미커밋, v3.4.0 | unit 634, Rust 5, e2e 18, 패널 스크린샷, 오래된 프로토콜 초기화 | 실제 다른 클라이언트(Cursor, Gemini CLI, OpenCode 등)로 연결 시험 |
-| 7 주요 기능 활용 보강 | 완료 (2026-11-11) | 미커밋, v3.4.0 | unit 639, Rust 5, e2e 8(agent-desktop) + 31(refine·automation·layout), 확대 캡처 확인 | 폴더 단위 템플릿 배치, Reclass 규칙 구조화(선택) |
+| 7 주요 기능 활용 보강 | 완료 (2026-11-11) | PR #52, v3.4.0 | unit 639, Rust 5, e2e 8(agent-desktop) + 31(refine·automation·layout), 확대 캡처 확인 | 8단계로 이어짐 |
+| 8 전문가 수준 활용 (숫자 판단, 폴더 단위) | 진행 중 (2026-11-11~), 8.1·8.2 완료 | 미커밋, v3.4.0 | 8.1: unit 644, Rust 31, e2e 50 (agent-desktop 8, tauri-desktop 18, refine-edges 24). 8.2: unit 644, e2e agent-desktop 8 | 8.3~8.8 |
 
 ## 11. 나중에: 헤드리스 대체 경로
 

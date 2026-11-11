@@ -295,6 +295,10 @@ test("an MCP agent runs Refine, review and folder-wide changes the person allows
     expect(refined.refined).toBe(1);
     const change = refined.changes[0];
     expect(change.annotationId).toBe(first.annotationId);
+    // Confidence to judge the result by: overall and per refined side, 0..1.
+    expect(change.confidence).toBeGreaterThan(0);
+    expect(change.confidence).toBeLessThanOrEqual(1);
+    expect(Object.keys(change.sideConfidence).sort()).toEqual(["B", "L", "R", "T"]);
     // Snapped inward onto the block (13..52), from the loose box (9..56).
     expect(change.after.x0).toBeGreaterThan(change.before.x0 + 2);
     expect(change.after.x1).toBeLessThan(change.before.x1 - 2);
@@ -336,11 +340,37 @@ test("an MCP agent runs Refine, review and folder-wide changes the person allows
     const remappedRows = (await readFile(path.join(dataset, "label/b.txt"), "utf8")).trim().split(/\r?\n/);
     expect(remappedRows.map((row) => row.split(" ")[0])).toEqual(["0", "0", "0", "5", "5", "5"]);
 
-    // Folder refine: every loose box of b.png snaps; the originals are backed up.
-    const folder = json(await mcp.call("refine_folder"));
-    expect(folder.images).toBe(2);
-    expect(folder.boxesChanged).toBeGreaterThanOrEqual(6);
-    expect(folder.backupPath).toBeTruthy();
+    // Folder refine is a dry run first: a summary in numbers and a resultId; no file changes.
+    const remappedText = await readFile(path.join(dataset, "label/b.txt"), "utf8");
+    const dryRun = json(await mcp.call("refine_folder", { outliers: 3 }));
+    expect(dryRun).toMatchObject({ dryRun: true, imagesChecked: 2, imagesChanged: 2 });
+    expect(dryRun.resultId).toMatch(/^edge-/);
+    // 12 boxes; the three class-1 boxes of a.png were refined (and saved) above, so they no longer move.
+    expect(dryRun.summary.boxes).toMatchObject({ total: 12, moved: 9 });
+    expect(dryRun.boxesChanged).toBe(9);
+    expect(dryRun.summary.shiftPx.median).toBeGreaterThan(2);
+    expect(dryRun.summary.byClass["0"].boxes).toBe(6);
+    expect(dryRun.summary.outliers.boxes).toHaveLength(3);
+    expect(await readFile(path.join(dataset, "label/b.txt"), "utf8")).toBe(remappedText);
+    // The TS path (native folder refine off) summarizes the same results.
+    await page.evaluate(() => Reflect.set(window, "easyLabelingNativeOff", ["refine-folder"]));
+    const tsDryRun = json(await mcp.call("refine_folder", { outliers: 3 }));
+    await page.evaluate(() => Reflect.deleteProperty(window, "easyLabelingNativeOff"));
+    expect(tsDryRun.summary).toEqual(dryRun.summary);
+    // A sample of one image.
+    const sample = json(await mcp.call("refine_folder", { sample: 1 }));
+    expect(sample).toMatchObject({ imagesChecked: 1 });
+    expect(sample.summary.boxes.total).toBe(6);
+
+    // Applying the dry run writes exactly what it previewed; a resultId is used once.
+    const applied = json(await mcp.call("refine_folder", { resultId: dryRun.resultId }));
+    expect(applied).toMatchObject({ boxesChanged: dryRun.boxesChanged, imagesChanged: 2 });
+    expect(applied.backupPath).toBeTruthy();
+    expect(textOf(await mcp.call("refine_folder", { resultId: dryRun.resultId }))).toMatch(/^failed: No dry run with resultId/);
+    // The sample's dry run (a.png) went stale when the apply rewrote a.txt: refused, and a.txt stays as written.
+    const appliedA = await readFile(path.join(dataset, "label/a.txt"), "utf8");
+    expect(textOf(await mcp.call("refine_folder", { resultId: sample.resultId }))).toMatch(/changed since the dry run/);
+    expect(await readFile(path.join(dataset, "label/a.txt"), "utf8")).toBe(appliedA);
     const refinedRows = (await readFile(path.join(dataset, "label/b.txt"), "utf8")).trim().split(/\r?\n/);
     const width = Number(refinedRows[0].split(" ")[3]) * SEM_SIZE.width;
     expect(width).toBeLessThan(loose(0, 0).x1 - loose(0, 0).x0 - 4);
