@@ -123,18 +123,32 @@ function sample(logits, x, y) {
   return top * (1 - dy) + bottom * dy;
 }
 
-function restoreMask(logits, image, layout) {
-  const mask = new Uint8Array(image.width * image.height);
-  for (let y = 0; y < image.height; y += 1) {
+// The whole image, or only roi {x0, y0, x1, y1} (whole pixels) when given: a box prompt's mask needs no more.
+function restoreMask(logits, image, layout, roi = null) {
+  const x0 = roi ? roi.x0 : 0;
+  const y0 = roi ? roi.y0 : 0;
+  const width = roi ? roi.x1 - roi.x0 : image.width;
+  const height = roi ? roi.y1 - roi.y0 : image.height;
+  const mask = new Uint8Array(width * height);
+  for (let y = y0; y < y0 + height; y += 1) {
     const resizedY = (y + 0.5) * layout.height / image.height - 0.5;
     const lowY = (resizedY + 0.5) * MASK_SIZE / INPUT_SIZE - 0.5;
-    for (let x = 0; x < image.width; x += 1) {
+    for (let x = x0; x < x0 + width; x += 1) {
       const resizedX = (x + 0.5) * layout.width / image.width - 0.5;
       const lowX = (resizedX + 0.5) * MASK_SIZE / INPUT_SIZE - 0.5;
-      mask[y * image.width + x] = sample(logits, lowX, lowY) > 0 ? 1 : 0;
+      mask[(y - y0) * width + (x - x0)] = sample(logits, lowX, lowY) > 0 ? 1 : 0;
     }
   }
   return mask;
+}
+
+function clampRoi(roi, image) {
+  if (!roi) return null;
+  const x0 = Math.max(0, Math.floor(roi.x0));
+  const y0 = Math.max(0, Math.floor(roi.y0));
+  const x1 = Math.min(image.width, Math.ceil(roi.x1));
+  const y1 = Math.min(image.height, Math.ceil(roi.y1));
+  return x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : null;
 }
 
 async function encode(image) {
@@ -167,8 +181,10 @@ async function decode(prompt) {
     if (scores[index] > scores[bestIndex]) bestIndex = index;
   }
   const logits = new Float32Array(masks.buffer, masks.byteOffset + bestIndex * MASK_SIZE * MASK_SIZE * Float32Array.BYTES_PER_ELEMENT, MASK_SIZE * MASK_SIZE);
-  const mask = restoreMask(logits, cachedImage, cachedImage.layout);
-  return { width: cachedImage.width, height: cachedImage.height, mask, score: scores[bestIndex] ?? 0 };
+  const roi = clampRoi(prompt.roi, cachedImage);
+  const mask = restoreMask(logits, cachedImage, cachedImage.layout, roi);
+  const where = roi ? { roi: { x0: roi.x0, y0: roi.y0, width: roi.x1 - roi.x0, height: roi.y1 - roi.y0 } } : {};
+  return { width: cachedImage.width, height: cachedImage.height, mask, score: scores[bestIndex] ?? 0, ...where };
 }
 
 async function handle(request) {

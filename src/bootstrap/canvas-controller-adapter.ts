@@ -100,6 +100,8 @@ class LiveCanvasControllerState implements CanvasControllerState {
 export interface RuntimeCanvasController extends AppCanvasController {
   raw: FeatureCanvasController;
   preprocessing?: FeatureCanvasController;
+  /** The Detection controller whichever workflow is shown (its boxes stay loaded in Segmentation). */
+  detection?: FeatureCanvasController;
   refreshClassColors(): void;
   loadImageSession(input: {
     image: HTMLImageElement;
@@ -191,6 +193,10 @@ export function createCanvasControllerAdapter(input: {
 
     get preprocessing() {
       return workflowControllers.segmentation;
+    },
+
+    get detection() {
+      return workflowControllers.detection;
     },
 
     refreshClassColors(): void {

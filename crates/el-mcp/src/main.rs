@@ -19,7 +19,8 @@ const ERROR_PIPE_BUSY: i32 = 231;
 /// How often a long call tells the client it is still running (see exchange).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
-const INSTRUCTIONS: &str = "Easy Labeling is a desktop image annotation app (YOLO detection boxes on grayscale SEM/TEM images). \
+const INSTRUCTIONS: &str = "Easy Labeling is a desktop image annotation app for grayscale SEM/TEM images: YOLO detection boxes \
+(Detection workflow) and class masks (Segmentation workflow, one class id per pixel). \
 These tools drive the app window the person has open, so they see every change. Coordinates are image pixels {x0, y0, x1, y1} \
 (x0 < x1, y0 < y1) unless a result says \"normalized\". Start with app_state. If a tool answers app_not_running, ask the person \
 to start Easy Labeling; on busy, wait a moment and retry; on timeout, ask the person to check the window (a dialog may be open).\n\n\
@@ -33,7 +34,11 @@ get_refine_settings and try dryRun first. For a whole folder, judge by numbers r
 reclass_folder on a sample (sample: 20), read the summary (flagged share, shift and confidence spreads, outliers), capture only \
 the outliers, adjust, and write the accepted result with its resultId. When the person has reference labels (a folder of \
 checked label files inside the image folder), compare_labels is the score: measure before and after each change and keep what \
-raises F1 and lowers the edge error. Every edit is one undo step; folder-wide writes ask the person first.";
+raises F1 and lowers the edge error. Every edit is one undo step; folder-wide writes ask the person first.\n\n\
+Box tools work in Detection. For masks, set_workflow \"segmentation\" and read the mask as numbers with get_regions \
+(connected regions per class: area, bounding box, centre, a seed pixel), edit it with paint_mask (shapes) and edit_regions (delete or relabel regions by seed, or a class's regions by area), and draw regions from prompts with segment_ai (AI Select: points and boxes, many per call, previewed with score and edgeFit before applying) or boxes_to_masks (one AI region per Detection box of the image); check masks with analyze_masks (specks, holes, merged regions, boundaries off edges, missing spots) and fix them with clean_masks; undo, redo, save and capture_view work in both workflows. \
+With reference masks (a folder of checked mask PNGs inside the image folder), compare_masks is the score: IoU, boundary F1 and \
+region misses/extras; measure before and after each change.";
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 struct OpenFolderArgs {
@@ -49,6 +54,204 @@ struct ListImagesArgs {
     limit: Option<u32>,
     #[schemars(description = "\"all\" (default), \"labeled\", \"unlabeled\" or \"issues\" (images with review findings)")]
     filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct SetWorkflowArgs {
+    #[schemars(description = "\"detection\" (boxes) or \"segmentation\" (masks)")]
+    workflow: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct GetRegionsArgs {
+    #[schemars(description = "Only this class")]
+    class_id: Option<Value>,
+    #[schemars(description = "Only regions of at least this many pixels (default 0: specks included)")]
+    min_area: Option<f64>,
+    #[schemars(description = "Index of the first region listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Regions listed, largest first (default 100; 0 = counts only)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct CompareMasksArgs {
+    #[schemars(description = "Folder inside the image folder holding the reference (ground truth) masks, <image name>.png, e.g. \"mask_gt\"")]
+    reference: String,
+    #[schemars(
+        description = "Folder inside the image folder holding the masks to score (default: the app's mask folder, and the canvas for the current image in Segmentation)"
+    )]
+    labels: Option<String>,
+    #[schemars(description = "Compare this many images spread evenly over the list (default: every image with a reference mask)")]
+    sample: Option<u32>,
+    #[schemars(description = "Or: compare these images")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Boundary pixels within this many pixels of the other mask's boundary count as matched (default 2)")]
+    tolerance: Option<u32>,
+    #[schemars(description = "Regions listed per worst-case list (misses, extras, wrongClass; default 20)")]
+    outliers: Option<u32>,
+    #[schemars(description = "Index of the first image in perImage (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Images listed in perImage, lowest mean IoU first (default 20)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct PaintMaskArgs {
+    #[schemars(
+        description = "Shapes in image pixel edges (a pixel is inside when its centre is): {\"type\":\"rect\",\"x0\",\"y0\",\"x1\",\"y1\"}, {\"type\":\"circle\",\"cx\",\"cy\",\"r\"}, {\"type\":\"polygon\",\"points\":[[x,y],...]} (3+ points) or {\"type\":\"line\",\"points\":[[x,y],...],\"width\"} (a stroke of that width). At most 5000"
+    )]
+    shapes: Vec<Value>,
+    #[schemars(description = "Class to paint (1 or more); not needed with erase")]
+    class_id: Option<Value>,
+    #[schemars(description = "true: set the pixels to background (0) instead")]
+    erase: Option<bool>,
+    #[schemars(description = "true: paint only background pixels, never over existing regions (default false: overwrite)")]
+    background_only: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct EditRegionsArgs {
+    #[schemars(description = "\"delete\" (set to background) or \"relabel\" (give toClassId)")]
+    action: String,
+    #[schemars(description = "Points {x, y} inside the regions to change (e.g. seeds from get_regions or compare_masks). Or give classId instead")]
+    seeds: Option<Vec<Value>>,
+    #[schemars(description = "Instead of seeds: every region of this class, within minArea..maxArea")]
+    class_id: Option<Value>,
+    #[schemars(description = "With classId: only regions of at least this many pixels")]
+    min_area: Option<f64>,
+    #[schemars(description = "With classId: only regions of at most this many pixels (e.g. 30 to remove specks)")]
+    max_area: Option<f64>,
+    #[schemars(description = "New class for relabel")]
+    to_class_id: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct SegmentAiArgs {
+    #[schemars(description = "Class the regions get when applied (1 or more)")]
+    class_id: Value,
+    #[schemars(
+        description = "Up to 500 prompts, each {\"points\": [{\"x\",\"y\",\"label\":\"positive\"|\"negative\"}], \"box\": {\"x0\",\"y0\",\"x1\",\"y1\"}} in image pixels (points, a box, or both; one region per prompt). A box around one object is the most reliable prompt; add a negative point to cut off a neighbour"
+    )]
+    prompts: Option<Vec<Value>>,
+    #[schemars(description = "true: apply every result that passes minScore and minEdgeFit right away (default false: preview only)")]
+    apply: Option<bool>,
+    #[schemars(description = "With apply: only results with at least this model score (0..1)")]
+    min_score: Option<f64>,
+    #[schemars(
+        description = "With apply: only results whose boundary lies on image edges at least this strongly (edgeFit; about 1 = no edge, 2+ = clear edge)"
+    )]
+    min_edge_fit: Option<f64>,
+    #[schemars(description = "Keep each result inside its prompt box (default true)")]
+    clip_to_box: Option<bool>,
+    #[schemars(description = "Keep only each result's largest connected piece (default true)")]
+    keep_largest: Option<bool>,
+    #[schemars(
+        description = "Move each result's boundary up to this many pixels onto the image's intensity step (midway between the gray inside and around it; 0..10, default 0 = the model's boundary). EdgeSAM decodes at 1/4 resolution or coarser, so its boundaries are a few pixels loose on fine structures"
+    )]
+    snap_px: Option<u32>,
+    #[schemars(description = "Paint only background pixels, never over existing regions (default false)")]
+    background_only: Option<bool>,
+    #[schemars(description = "Instead of prompts: apply results of the preview with this resultId")]
+    result_id: Option<String>,
+    #[schemars(description = "With resultId: the result indexes to apply (default: all)")]
+    accept: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct BoxesToMasksArgs {
+    #[schemars(description = "Mask class for every region (default: each box's own class; boxes of class 0 then need this, as 0 is the mask background)")]
+    class_id: Option<Value>,
+    #[schemars(description = "Only boxes of these classes (default: all)")]
+    box_class_ids: Option<Vec<Value>>,
+    #[schemars(description = "Only these boxes (annotationIds from get_boxes in Detection; default: all)")]
+    annotation_ids: Option<Vec<String>>,
+    #[schemars(description = "Grow each box by this many pixels for the prompt and the clip (default 2)")]
+    pad: Option<f64>,
+    #[schemars(description = "true: apply every result that passes minScore and minEdgeFit right away (default false: preview only)")]
+    apply: Option<bool>,
+    #[schemars(description = "With apply: only results with at least this model score (0..1)")]
+    min_score: Option<f64>,
+    #[schemars(description = "With apply: only results whose boundary follows image edges at least this strongly (edgeFit)")]
+    min_edge_fit: Option<f64>,
+    #[schemars(description = "Move each boundary up to this many pixels onto the intensity step (0..10, default 0; 3 measured best on SEM lines)")]
+    snap_px: Option<u32>,
+    #[schemars(description = "Keep each result inside its (padded) box (default true)")]
+    clip_to_box: Option<bool>,
+    #[schemars(description = "Keep only each result's largest connected piece (default true)")]
+    keep_largest: Option<bool>,
+    #[schemars(description = "Paint only background pixels, never over existing regions (default false)")]
+    background_only: Option<bool>,
+    #[schemars(description = "Instead of running: apply results of the preview with this resultId")]
+    result_id: Option<String>,
+    #[schemars(description = "With resultId: the result indexes to apply (default: all)")]
+    accept: Option<Vec<u32>>,
+    #[schemars(description = "Index of the first result listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Results listed (default 100)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeMasksArgs {
+    #[schemars(description = "Only this class")]
+    class_id: Option<Value>,
+    #[schemars(description = "Regions under this many pixels are specks (default: 5% of the class's median region area, at least 4)")]
+    speck_area: Option<f64>,
+    #[schemars(description = "Erosion radius that reveals two regions joined by a bridge (default 1: bridges under 3 px wide)")]
+    neck_px: Option<u32>,
+    #[schemars(description = "Regions whose boundary edgeFit is under this are listed as off the edges (default 1.3)")]
+    min_edge_fit: Option<f64>,
+    #[schemars(description = "Items listed per list (default 20)")]
+    outliers: Option<u32>,
+    #[schemars(description = "\"image\" (default: the current image, from the canvas) or \"folder\" (every image's saved mask)")]
+    scope: Option<String>,
+    #[schemars(description = "Instead: this many images spread evenly over the list (saved masks)")]
+    sample: Option<u32>,
+    #[schemars(description = "Instead: these images (saved masks)")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Folder runs: index of the first image listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Folder runs: images listed, worst first (default 20)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct CleanMasksArgs {
+    #[schemars(description = "Only this class")]
+    class_id: Option<Value>,
+    #[schemars(description = "Delete regions under this many pixels")]
+    remove_specks: Option<u32>,
+    #[schemars(description = "Fill holes (background enclosed by one region) under this many pixels with that region's class")]
+    fill_holes: Option<u32>,
+    #[schemars(
+        description = "Cut bridges narrower than 2 * n + 1 pixels between parts of a region (square opening of radius n; axis-aligned corners stay), 1..5"
+    )]
+    split_necks: Option<u32>,
+    #[schemars(description = "Snap every region's boundary up to this many pixels onto the image's intensity step, 1..10")]
+    snap_px: Option<u32>,
+    #[schemars(
+        description = "true: change the mask (one undo step; folder runs ask the person and back up the mask files); default false returns what would change"
+    )]
+    apply: Option<bool>,
+    #[schemars(description = "\"image\" (default: the current image, from the canvas) or \"folder\" (every image's saved mask)")]
+    scope: Option<String>,
+    #[schemars(description = "Instead: this many images spread evenly over the list (saved masks)")]
+    sample: Option<u32>,
+    #[schemars(description = "Instead: these images (saved masks)")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Folder runs: index of the first image listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Folder runs: images listed, worst first (default 20)")]
+    limit: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -441,7 +644,133 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Boxes on the current image as the canvas has them, unsaved edits included: annotationId, classId, className, x0/y0/x1/y1 in image pixels, hidden, selected. Paged (default 200 per call) with countsByClass and total for the whole image.",
+        description = "Switch the app between the Detection workflow (boxes) and the Segmentation workflow (masks), as the toolbar tabs do. Box tools need Detection; mask tools need Segmentation. Each image keeps both its boxes and its mask.",
+        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true)
+    )]
+    async fn set_workflow(
+        &self,
+        Parameters(args): Parameters<SetWorkflowArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("set_workflow", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "The current image's segmentation mask as numbers (Segmentation workflow, unsaved edits included): pixels and region counts per class, and its connected regions (4-connected, largest first, paged): classId, area in pixels, bounding box x0/y0/x1/y1 (pixel edges), centre cx/cy, and seed (a pixel inside the region). Regions are recomputed on every call and have no stable ids: refer to a region by its seed. Use capture_view to look at the mask.",
+        annotations(read_only_hint = true)
+    )]
+    async fn get_regions(
+        &self,
+        Parameters(args): Parameters<GetRegionsArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("get_regions", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Score segmentation masks against reference (ground truth) masks in another folder of the image folder. Per class: pixel IoU, Dice, precision, recall, boundary precision/recall/F1 within a tolerance (default 2 px), and outwardPx (+1 = the mask reaches 1 px beyond the reference boundary on average; - = too tight). Also meanIou over the reference classes, pixel confusions \"reference->label\", region counts with misses (reference regions covered under 20%), extras (mask regions the reference does not cover) and wrong-class regions, the images with the lowest mean IoU, and the largest worst regions with seeds. Use it as the score when trying AI Select, Smart or cleanup settings: compare, change one thing, compare again. The current image uses the canvas (unsaved edits) in Segmentation; other images use saved masks.",
+        annotations(read_only_hint = true)
+    )]
+    async fn compare_masks(
+        &self,
+        Parameters(args): Parameters<CompareMasksArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("compare_masks", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Paint shapes into the current image's segmentation mask with one class (or erase them to background), as one undo step. Rect, circle, polygon and thick line shapes in image pixels; many shapes per call. backgroundOnly keeps existing regions untouched. Returns changed pixels, their bounds, and the pixel and region counts per class after the edit.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn paint_mask(
+        &self,
+        Parameters(args): Parameters<PaintMaskArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("paint_mask", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Delete or relabel whole connected regions of the current image's mask, as one undo step: the regions under the given seed points, or every region of classId within minArea..maxArea (e.g. classId 10, maxArea 30 deletes specks). A seed on background answers not_found: regions change when the mask changes, so read seeds again with get_regions after edits. Returns how many regions and pixels changed and the counts per class after.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn edit_regions(
+        &self,
+        Parameters(args): Parameters<EditRegionsArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("edit_regions", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "AI Select (EdgeSAM) from prompts on the current image's mask (Segmentation): each prompt (points and/or a box, image pixels) gives one region, clipped to its box and reduced to its largest piece by default. Returns per result: score (model), pixels, bounding box, pieces, edgeFit (mean image gradient on the region boundary over the gradient around it: near 1 = the boundary cuts through texture, 2+ = it follows real edges) and whether it passes minScore/minEdgeFit, plus timing (encodeMs once per image, perPromptMs). Preview by default (nothing changes): apply chosen results with resultId and accept, or pass apply: true with thresholds. Applying is one undo step with classId. Put many prompts in one call: the image is encoded once. On dense repeated structures a single point is ambiguous (measured: points on SEM bars returned whole columns of bars, edgeFit 1.5-1.7): prefer a box around one object, and check pixels against the expected size, since edgeFit does not catch regions that are too large.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn segment_ai(
+        &self,
+        Parameters(args): Parameters<SegmentAiArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("segment_ai", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Turn the current image's Detection boxes into mask regions (Segmentation): AI Select runs once per box with the (padded) box as its prompt, clipped to it. The mask class is each box's class unless classId is given. Returns per box its annotationId, score, pixels, fill (region pixels / box area; low = the model found little inside), edgeFit and passes, the lowest scores, and timing (about 0.15 s per box). Preview by default: apply with resultId and accept, or apply: true with minScore / minEdgeFit; one undo step. Use snapPx (3) for tight boundaries.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn boxes_to_masks(
+        &self,
+        Parameters(args): Parameters<BoxesToMasksArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("boxes_to_masks", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Check the current image's mask (Segmentation) like an expert: per class regions and median area, specks (tiny regions), holes (background enclosed by one region, with that region's seed), necked regions (two objects joined by a thin bridge: an erosion splits them), regions whose boundary is off the image edges (lowest edgeFit first), and layout (analyze_boxes on the regions' bounding boxes: size outliers, off-row/column, missing spots with centres and sizes). Every item has a seed for edit_regions and a bounding box for capture_view. With scope \"folder\", sample or images it reads the saved masks instead and returns counts per image, worst first (no edgeFit there). Read-only.",
+        annotations(read_only_hint = true)
+    )]
+    async fn analyze_masks(
+        &self,
+        Parameters(args): Parameters<AnalyzeMasksArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("analyze_masks", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Clean the current image's mask in one step: removeSpecks (delete regions under N px), fillHoles (fill enclosed holes under N px), splitNecks (cut thin bridges that join two objects), snapPx (move every boundary onto the intensity step, no AI). Preview by default (counts and the per-class totals after); apply: true changes the mask as one undo step. With scope \"folder\", sample or images it cleans the saved mask files: current edits are saved first, everything is computed before anything is written (stopping writes nothing), and apply asks the person, backs up the changed PNGs under mask/.easy-labeling/clean-masks-<time>, then writes them. Check with analyze_masks or compare_masks before and after.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn clean_masks(
+        &self,
+        Parameters(args): Parameters<CleanMasksArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("clean_masks", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Boxes on the current image as the canvas has them, unsaved edits included: annotationId, classId, className, x0/y0/x1/y1 in image pixels, hidden, selected. Paged (default 200 per call) with countsByClass and total for the whole image. annotationIds are assigned anew each time an image loads: read them again after go_to_image or open_folder.",
         annotations(read_only_hint = true)
     )]
     async fn get_boxes(
@@ -469,7 +798,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Check boxes against their own population, per class, as an expert scans a label set: size outliers (robust median/MAD), boxes off their row or column, crowded spacing (possible duplicates) and gaps where the row/column pitch skips a position (likely missed objects, with estimated centres). Current image by default (pixels, annotationIds, unsaved edits included); sample or images check saved label files (normalized, row indexes as read_labels). Use it after find_similar, run_refine or apply_layout instead of looking at captures.",
+        description = "Check boxes against their own population, as an expert scans a label set. Each class is split into size groups (similar width and height; byClass lists them), and each group of 4+ is checked on its own: size outliers (robust median/MAD; a lone box within 2x of a group's size is compared with that group), boxes off their row or column, crowded spacing, and gaps where the row/column pitch skips an empty spot (likely missed objects, with estimated centre and size to pass to add_boxes; spots another box covers are not gaps). Across all classes, similar-size boxes overlapping at IoU 0.2+ are flagged as overlap (likely duplicates). With classId, other classes are left out entirely, so a spot a wrong-class box fills shows as a gap. To fill gaps: add_boxes at the missing spots, run_refine on the new ids, and delete the ones Refine leaves with confidence under 0.3 (no edge there). Current image by default (pixels, annotationIds, unsaved edits included); sample or images check saved label files (normalized, row indexes as read_labels). Use it after find_similar, run_refine or apply_layout instead of looking at captures.",
         annotations(read_only_hint = true)
     )]
     async fn analyze_boxes(
@@ -567,7 +896,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Undo the last edits on the current image (the person's edits too: they share one history).",
+        description = "Undo the last edits on the current image, boxes in Detection or the mask in Segmentation (the person's edits too: they share one history).",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn undo(&self, Parameters(args): Parameters<StepsArgs>, meta: RequestMetaObject, peer: Peer<RoleServer>, ct: CancellationToken) -> CallToolResult {
@@ -580,7 +909,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Save the current image's labels to its label file, as the Save button does.",
+        description = "Save the current image's labels (label file in Detection, mask files in Segmentation), as the Save button does.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn save(&self, meta: RequestMetaObject, peer: Peer<RoleServer>, ct: CancellationToken) -> CallToolResult {
@@ -939,7 +1268,7 @@ async fn open_pipe() -> Result<tokio::net::windows::named_pipe::NamedPipeClient,
 /// One call over its own pipe connection: hello, call, then progress frames until the result.
 async fn exchange(tool: &str, args: Value, (meta, peer, ct): Context) -> Result<(Value, Vec<u8>), Failure> {
     let (mut read, mut write) = tokio::io::split(open_pipe().await?);
-    // The agent's client (from MCP initialize), shown in the app's Agent panel.
+    // The agent's client (from MCP initialize), shown in the app's MCP panel.
     let client = peer.peer_info().map(|info| json!({ "name": info.client_info.name, "version": info.client_info.version }));
     write_frame(&mut write, &json!({ "type": "hello", "protocol": PROTOCOL, "client": client }), &[]).await.map_err(io_failure)?;
     let closed = || failure("failed", "The app closed the connection.");
@@ -1046,22 +1375,29 @@ mod tests {
             [
                 "add_boxes",
                 "analyze_boxes",
+                "analyze_masks",
                 "app_state",
                 "apply_layout",
                 "approve",
+                "boxes_to_masks",
                 "capture_view",
+                "clean_masks",
                 "compare_labels",
+                "compare_masks",
                 "delete_boxes",
+                "edit_regions",
                 "find_similar",
                 "get_boxes",
                 "get_classes",
                 "get_refine_settings",
+                "get_regions",
                 "go_to_image",
                 "inference_status",
                 "list_images",
                 "list_templates",
                 "load_model",
                 "open_folder",
+                "paint_mask",
                 "read_labels",
                 "reclass_folder",
                 "redo",
@@ -1075,8 +1411,10 @@ mod tests {
                 "run_template_matching",
                 "save",
                 "save_layout",
+                "segment_ai",
                 "select_boxes",
                 "set_review_status",
+                "set_workflow",
                 "undo",
                 "update_boxes"
             ]

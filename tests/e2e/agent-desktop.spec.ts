@@ -123,10 +123,10 @@ test("an MCP agent reads, navigates and captures the open app", async () => {
   const { page, mcp, dataset, errors, close } = await openAgentApp();
   try {
     expect(await mcp.tools()).toEqual([
-      "add_boxes", "analyze_boxes", "app_state", "apply_layout", "approve", "capture_view", "compare_labels", "delete_boxes", "find_similar", "get_boxes", "get_classes",
-      "get_refine_settings", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "read_labels",
+      "add_boxes", "analyze_boxes", "analyze_masks", "app_state", "apply_layout", "approve", "boxes_to_masks", "capture_view", "clean_masks", "compare_labels", "compare_masks", "delete_boxes", "edit_regions", "find_similar", "get_boxes", "get_classes",
+      "get_refine_settings", "get_regions", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "paint_mask", "read_labels",
       "reclass_folder", "redo", "refine_folder", "remap_classes", "review_folder", "review_queue", "run_inference",
-      "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "select_boxes", "set_review_status", "undo", "update_boxes"
+      "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "segment_ai", "select_boxes", "set_review_status", "set_workflow", "undo", "update_boxes"
     ]);
 
     expect(json(await mcp.call("app_state"))).toMatchObject({ folder: null, imageCount: 0, agentPaused: false });
@@ -351,7 +351,7 @@ test("an MCP agent runs Refine, review and folder-wide changes the person allows
     expect(dryRun.summary.shiftPx.median).toBeGreaterThan(2);
     expect(dryRun.summary.byClass["0"].boxes).toBe(6);
     expect(dryRun.summary.outliers.boxes).toHaveLength(3);
-    expect(Object.keys(dryRun.summary.afterRefine.counts).sort()).toEqual(["crowded", "missing", "off-column", "off-row", "size"]);
+    expect(Object.keys(dryRun.summary.afterRefine.counts).sort()).toEqual(["crowded", "missing", "off-column", "off-row", "overlap", "size"]);
     expect(await readFile(path.join(dataset, "label/b.txt"), "utf8")).toBe(remappedText);
     // The TS path (native folder refine off) summarizes the same results.
     await page.evaluate(() => Reflect.set(window, "easyLabelingNativeOff", ["refine-folder"]));
@@ -438,7 +438,7 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     const classOne = json(await mcp.call("get_boxes", { classId: 1 })).boxes as Array<{ x0: number; y0: number; x1: number; y1: number }>;
     const stats = json(await mcp.call("analyze_boxes", { classId: 0 }));
     expect(stats.counts).toMatchObject({ size: 0, "off-row": 0, "off-column": 0, missing: 3 });
-    expect(stats.byClass["0"].rows).toBeGreaterThanOrEqual(7);
+    expect(stats.byClass["0"].groups[0].rows).toBeGreaterThanOrEqual(7);
     for (const hole of stats.missing as Array<{ x: number; y: number }>) {
       expect(classOne.some((box) => Math.abs((box.x0 + box.x1) / 2 - hole.x) < 4 && Math.abs((box.y0 + box.y1) / 2 - hole.y) < 4)).toBe(true);
     }
@@ -466,6 +466,225 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     expect(json(await mcp.call("set_review_status", { status: "reviewed" }))).toMatchObject({ images: ["a.png"], reviewedInFolder: 1, imageCount: 2 });
     const reviewState = JSON.parse(await readFile(path.join(dataset, ".easy-labeling/review-state.json"), "utf8"));
     expect(reviewState.images["a.png"].status).toBe("reviewed");
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent switches to Segmentation and reads the mask as regions", async () => {
+  test.setTimeout(180_000);
+  // The sample's SEM pattern image with its mask: 446,750 px of class 10 (bars, rails and a few specks).
+  const { page, mcp, dataset, errors, close } = await openAgentApp({
+    dataset: async (folder) => {
+      await mkdir(path.join(folder, "mask"), { recursive: true });
+      await copyFile(path.join(root, "assets/sample/sample_metal_pattern.png"), path.join(folder, "sample_metal_pattern.png"));
+      await copyFile(path.join(root, "assets/sample/label/sample_metal_pattern.txt"), path.join(folder, "label/sample_metal_pattern.txt"));
+      await copyFile(path.join(root, "assets/sample/mask/sample_metal_pattern.png"), path.join(folder, "mask/sample_metal_pattern.png"));
+    }
+  });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    expect(textOf(await mcp.call("get_regions"))).toMatch(/^failed: The app is in Detection/);
+    expect(json(await mcp.call("set_workflow", { workflow: "segmentation" }))).toEqual({ workflow: "segmentation", previous: "detection" });
+    await expect.poll(() => page.evaluate(() => (document.getElementById("segmentationWorkflowTab") as HTMLInputElement).checked)).toBe(true);
+
+    const state = json(await mcp.call("app_state"));
+    expect(state).toMatchObject({ workflow: "segmentation", mask: { pixelsByClass: { 10: 446750 } } });
+    const all = json(await mcp.call("get_regions", { limit: 0 }));
+    expect(all).toMatchObject({ width: 1759, height: 1146, units: "pixels", pixelsByClass: { 10: 446750 }, regions: [], truncated: true });
+    expect(all.total).toBe(all.regionsByClass["10"]);
+    // Largest first, every region inside the image, its seed inside its box; specks drop out with minArea.
+    const top = json(await mcp.call("get_regions", { limit: 5 }));
+    const areas = (top.regions as Array<{ area: number }>).map((region) => region.area);
+    expect(areas).toEqual([...areas].sort((a, b) => b - a));
+    for (const region of top.regions as Array<{ classId: string; x0: number; y0: number; x1: number; y1: number; seed: { x: number; y: number } }>) {
+      expect(region.classId).toBe("10");
+      expect(region.seed.x).toBeGreaterThanOrEqual(region.x0);
+      expect(region.seed.x).toBeLessThan(region.x1);
+      expect(region.seed.y).toBeGreaterThanOrEqual(region.y0);
+      expect(region.seed.y).toBeLessThan(region.y1);
+    }
+    const big = json(await mcp.call("get_regions", { minArea: 100, limit: 0 }));
+    expect(big.total).toBeLessThan(all.total);
+    expect(json(await mcp.call("get_regions", { classId: 3, limit: 0 })).total).toBe(0);
+
+    // Paint a 20 x 10 block of class 12 on background: one new region; backgroundOnly leaves class 10 alone.
+    const painted = json(await mcp.call("paint_mask", { classId: 12, shapes: [{ type: "rect", x0: 2, y0: 2, x1: 22, y1: 12 }], backgroundOnly: true }));
+    expect(painted).toMatchObject({ value: 12, bounds: { x0: 2, y0: 2 } });
+    expect(painted.changed).toBeGreaterThan(0);
+    expect(painted.changed).toBeLessThanOrEqual(200);
+    expect(painted.pixelsByClass["10"]).toBe(446750);
+    expect(painted.regionsByClass["12"]).toBe(1);
+    expect(json(await mcp.call("app_state")).unsavedChanges).toBe(true);
+    // Relabel it by a seed, then erase it with a circle; a seed on background is not_found.
+    const block = (json(await mcp.call("get_regions", { classId: 12 })).regions as Array<{ seed: { x: number; y: number } }>)[0]!;
+    expect(json(await mcp.call("edit_regions", { action: "relabel", seeds: [block.seed], toClassId: 11 }))).toMatchObject({ regions: 1, changed: painted.changed, toClassId: "11" });
+    expect(textOf(await mcp.call("edit_regions", { action: "delete", seeds: [{ x: 0, y: 0 }] }))).toMatch(/^not_found: seeds\[0\] \(0, 0\) is background/);
+    // Specks: every class-10 region of 60 px or less (two small regions in this mask) goes in one call (one undo step).
+    const specks = (json(await mcp.call("get_regions", { classId: 10, limit: 500, offset: 0 })).total as number) - (json(await mcp.call("get_regions", { classId: 10, minArea: 61, limit: 0 })).total as number);
+    expect(specks).toBeGreaterThan(0);
+    const cleaned = json(await mcp.call("edit_regions", { action: "delete", classId: 10, maxArea: 60 }));
+    expect(cleaned.regions).toBe(specks);
+    expect(cleaned.regionsByClass["10"]).toBe(all.total - specks);
+    expect(json(await mcp.call("undo"))).toMatchObject({ undone: 1 });
+    expect(json(await mcp.call("app_state")).mask.regionsByClass["10"]).toBe(all.total);
+    expect(json(await mcp.call("undo", { steps: 2 }))).toMatchObject({ undone: 2 });
+    expect(json(await mcp.call("app_state")).mask.pixelsByClass).toEqual({ 10: 446750 });
+    expect(textOf(await mcp.call("paint_mask", { classId: 0, shapes: [{ type: "rect", x0: 0, y0: 0, x1: 5, y1: 5 }] }))).toMatch(/^invalid_args: classId must be 1\.\.65535/);
+    expect(textOf(await mcp.call("paint_mask", { classId: 3, shapes: [{ type: "polygon", points: [[0, 0], [5, 5]] }] }))).toMatch(/^invalid_args: shapes\[0\]/);
+
+    // The workflow-wide tools act on the mask; the capture shows it.
+    expect(json(await mcp.call("redo"))).toMatchObject({ redone: 1 });
+    expect(json(await mcp.call("save"))).toMatchObject({ saved: "sample_metal_pattern.png", unsavedChanges: false });
+    expect((await mcp.call("capture_view")).content.some((part: { type: string }) => part.type === "image")).toBe(true);
+    // Box tools say which workflow they need.
+    expect(textOf(await mcp.call("add_boxes", { boxes: [{ classId: 0, x0: 1, y0: 1, x1: 9, y1: 9 }] }))).toMatch(/^failed: The app is in Segmentation/);
+
+    expect(json(await mcp.call("set_workflow", { workflow: "detection" }))).toEqual({ workflow: "detection", previous: "segmentation" });
+    expect(textOf(await mcp.call("set_workflow", { workflow: "masks" }))).toMatch(/^invalid_args:/);
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent scores masks against reference masks", async () => {
+  test.setTimeout(180_000);
+  // scripts/bench/make-mask-reference-dataset.mjs: mask_gt = the sample's SEM masks (1205 regions of class 10), mask = the
+  // same masks damaged (seed 1: 66 regions deleted, 31 given class 11, every region grown or shrunk by up to 3 px, 24 blobs).
+  const { page, mcp, dataset, errors, close } = await openAgentApp({
+    dataset: async (folder) => { execFileSync(process.execPath, [path.join(root, "scripts/bench/make-mask-reference-dataset.mjs"), folder]); }
+  });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    json(await mcp.call("set_workflow", { workflow: "segmentation" }));
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("sample_metal_cross_section.png");
+
+    const self = json(await mcp.call("compare_masks", { reference: "mask_gt", labels: "mask_gt" }));
+    expect(self).toMatchObject({ images: 2, meanIou: 1, boundaryF1: 1, regions: { reference: 1205, labels: 1205, misses: 0, extras: 0, wrongClass: 0 }, canvas: "saved masks" });
+
+    // The damaged masks; the current image comes from the canvas, which holds the same saved mask.
+    const score = json(await mcp.call("compare_masks", { reference: "mask_gt", outliers: 3 }));
+    expect(score.canvas).toMatch(/^sample_metal_cross_section\.png is scored from the canvas/);
+    expect(score.meanIou).toBeCloseTo(0.757, 2);
+    expect(score.boundaryF1).toBeCloseTo(0.776, 2);
+    expect(score.regions).toEqual({ reference: 1205, labels: 1150, misses: 119, extras: 23, wrongClass: 24 });
+    expect(score.confusions["10->11"]).toBeGreaterThan(30_000);
+    expect(score.worst.misses).toHaveLength(3);
+    expect(score.worst.misses[0]).toMatchObject({ classId: "10", seed: { x: expect.any(Number), y: expect.any(Number) } });
+    expect(score.perImage.map((image: { image: string }) => image.image)).toEqual(["sample_metal_pattern.png", "sample_metal_cross_section.png"]);
+    const before = json(await mcp.call("compare_masks", { reference: "mask_gt", images: ["sample_metal_cross_section.png"], outliers: 1 }));
+    // A looser boundary tolerance can only raise the boundary score.
+    expect(json(await mcp.call("compare_masks", { reference: "mask_gt", tolerance: 5 })).boundaryF1).toBeGreaterThan(score.boundaryF1);
+
+    // AI Select from a box around the largest missed region: a preview with numbers, then applying it by resultId.
+    const missed = before.worst.misses[0] as { x0: number; y0: number; x1: number; y1: number; area: number };
+    const box = { x0: missed.x0 - 3, y0: missed.y0 - 3, x1: missed.x1 + 3, y1: missed.y1 + 3 };
+    const preview = json(await mcp.call("segment_ai", { classId: 10, prompts: [{ box }, { points: [{ x: (missed.x0 + missed.x1) / 2, y: (missed.y0 + missed.y1) / 2 }] }] }));
+    expect(preview).toMatchObject({ resultId: expect.stringMatching(/^ai-\d+$/), applied: 0 });
+    expect(preview.results).toHaveLength(2);
+    const fromBox = preview.results[0];
+    expect(fromBox.pixels).toBeGreaterThan(missed.area * 0.5);
+    expect(fromBox.x0).toBeGreaterThanOrEqual(box.x0);
+    expect(fromBox.x1).toBeLessThanOrEqual(box.x1);
+    expect(fromBox.score).toBeGreaterThan(0);
+    expect(fromBox.edgeFit).toBeGreaterThan(1);
+    expect(preview.timing.encodeMs).toBeGreaterThanOrEqual(0);
+    expect(json(await mcp.call("compare_masks", { reference: "mask_gt", images: ["sample_metal_cross_section.png"] })).regions.misses).toBe(before.regions.misses);
+    const applied = json(await mcp.call("segment_ai", { classId: 10, resultId: preview.resultId, accept: [0] }));
+    expect(applied.applied).toBe(1);
+    expect(applied.changed).toBeGreaterThan(0);
+    const afterAi = json(await mcp.call("compare_masks", { reference: "mask_gt", images: ["sample_metal_cross_section.png"] }));
+    expect(afterAi.regions.misses).toBe(before.regions.misses - 1);
+    expect(afterAi.meanIou).toBeGreaterThan(before.meanIou);
+    json(await mcp.call("undo"));
+    expect(textOf(await mcp.call("segment_ai", { classId: 10, resultId: "ai-999" }))).toMatch(/^not_found:/);
+    expect(textOf(await mcp.call("segment_ai", { classId: 10, prompts: [{}] }))).toMatch(/^invalid_args: prompts\[0\] needs points, a box, or both/);
+
+    // Detection boxes to mask regions: three boxes read in Detection, converted in Segmentation (the box class, 10).
+    json(await mcp.call("set_workflow", { workflow: "detection" }));
+    const three = (json(await mcp.call("get_boxes", { limit: 3 })).boxes as Array<{ annotationId: string; x0: number; y0: number; x1: number; y1: number }>);
+    json(await mcp.call("set_workflow", { workflow: "segmentation" }));
+    const converted = json(await mcp.call("boxes_to_masks", { annotationIds: three.map((box) => box.annotationId), snapPx: 3 }));
+    expect(converted).toMatchObject({ boxes: 3, applied: 0, noClass: 0 });
+    expect(converted.results.map((row: { annotationId: string }) => row.annotationId).sort()).toEqual(three.map((box) => box.annotationId).sort());
+    for (const row of converted.results as Array<{ maskClassId: string; fill: number; x0: number; x1: number; annotationId: string }>) {
+      const box = three.find((entry) => entry.annotationId === row.annotationId)!;
+      expect(row.maskClassId).toBe("10");
+      expect(row.fill).toBeGreaterThan(0.3);
+      expect(row.x0).toBeGreaterThanOrEqual(Math.floor(box.x0) - 2);
+      expect(row.x1).toBeLessThanOrEqual(Math.ceil(box.x1) + 2);
+    }
+    expect(converted.timing.perPromptMs).toBeGreaterThan(0);
+    const convertedApplied = json(await mcp.call("boxes_to_masks", { resultId: converted.resultId }));
+    expect(convertedApplied.applied).toBe(3);
+    json(await mcp.call("undo"));
+    expect(textOf(await mcp.call("segment_ai", { classId: 10, resultId: converted.resultId }))).toMatch(/^not_found: That resultId is not the last segment_ai preview/);
+    expect(textOf(await mcp.call("boxes_to_masks", { annotationIds: ["nope"] }))).toMatch(/^not_found:/);
+
+    // Live view: AI results are drawn on the mask while they are found; a preview puts the mask back at the end.
+    await page.locator("#agentPanelBtn").click();
+    await page.locator("#agentLiveToggle").check();
+    await page.locator("#agentPanelCloseBtn").click();
+    json(await mcp.call("set_workflow", { workflow: "detection" }));
+    const tenBoxes = json(await mcp.call("get_boxes", { limit: 10 })).boxes as Array<{ annotationId: string; x0: number; y0: number; x1: number; y1: number }>;
+    json(await mcp.call("set_workflow", { workflow: "segmentation" }));
+    // Clear the mask under those boxes first, so the live drawing shows on empty pixels.
+    json(await mcp.call("paint_mask", { erase: true, shapes: tenBoxes.map((box) => ({ type: "rect", x0: Math.max(0, box.x0 - 3), y0: Math.max(0, box.y0 - 3), x1: box.x1 + 3, y1: box.y1 + 3 })) }));
+    const pixelsBefore = json(await mcp.call("app_state")).mask.pixelsByClass["10"];
+    const centre = { x: Math.round((tenBoxes[0]!.x0 + tenBoxes[0]!.x1) / 2), y: Math.round((tenBoxes[0]!.y0 + tenBoxes[0]!.y1) / 2) };
+    const classAtCentre = () => testApi<string | null>(page, `api.getSegmentationClassAtPoint(${centre.x}, ${centre.y})`);
+    expect(await classAtCentre()).not.toBe("10");
+    const livePreview = mcp.call("boxes_to_masks", { annotationIds: tenBoxes.map((box) => box.annotationId), snapPx: 3 });
+    await expect.poll(classAtCentre, { timeout: 20_000, intervals: [50] }).toBe("10");
+    await page.screenshot({ path: test.info().outputPath("live-view-segmentation.png") });
+    expect(json(await livePreview).boxes).toBe(10);
+    expect(await classAtCentre()).not.toBe("10");
+    expect(json(await mcp.call("app_state")).mask.pixelsByClass["10"]).toBe(pixelsBefore);
+    json(await mcp.call("undo"));
+    await page.locator("#agentPanelBtn").click();
+    await page.locator("#agentLiveToggle").uncheck();
+    await page.locator("#agentPanelCloseBtn").click();
+
+    // Checks and clean-up: the damaged mask has stray blobs (extras); removing small regions removes them.
+    const checked = json(await mcp.call("analyze_masks", { outliers: 5 }));
+    expect(Object.keys(checked.counts).sort()).toEqual(["holes", "missing", "necked", "offEdges", "offLine", "size", "specks"]);
+    expect(Object.values(checked.byClass as Record<string, { regions: number }>).reduce((sum, entry) => sum + entry.regions, 0)).toBe(checked.regions);
+    const fits = (checked.offEdges as Array<{ edgeFit: number; seed: { x: number; y: number } }>).map((entry) => entry.edgeFit);
+    expect(fits).toEqual([...fits].sort((a, b) => a - b));
+    const cleanPreview = json(await mcp.call("clean_masks", { removeSpecks: 90 }));
+    expect(cleanPreview.applied).toBe(false);
+    expect(cleanPreview.specksRemoved).toBeGreaterThan(0);
+    expect(json(await mcp.call("compare_masks", { reference: "mask_gt", images: ["sample_metal_cross_section.png"] })).regions.extras).toBe(before.regions.extras);
+    const cleaned = json(await mcp.call("clean_masks", { removeSpecks: 90, apply: true }));
+    expect(cleaned).toMatchObject({ applied: true, specksRemoved: cleanPreview.specksRemoved, changed: cleanPreview.changed });
+    expect(json(await mcp.call("compare_masks", { reference: "mask_gt", images: ["sample_metal_cross_section.png"] })).regions.extras).toBeLessThan(before.regions.extras);
+    json(await mcp.call("undo"));
+    expect(textOf(await mcp.call("clean_masks", {}))).toMatch(/^invalid_args: Give at least one of/);
+
+    // Folder runs on the saved masks: counts per image, a preview that writes nothing, then an approved, backed-up write.
+    const folderCheck = json(await mcp.call("analyze_masks", { scope: "folder" }));
+    expect(folderCheck).toMatchObject({ imagesChecked: 2, withoutMask: 0 });
+    expect(folderCheck.images).toHaveLength(2);
+    const maskFile = path.join(dataset, "mask", "sample_metal_pattern.png");
+    const originalBytes = await readFile(maskFile);
+    const folderPreview = json(await mcp.call("clean_masks", { scope: "folder", removeSpecks: 90 }));
+    expect(folderPreview).toMatchObject({ applied: false, imagesChecked: 2 });
+    expect(folderPreview.imagesChanged).toBeGreaterThan(0);
+    expect((await readFile(maskFile)).equals(originalBytes)).toBe(true);
+    const extrasBefore = json(await mcp.call("compare_masks", { reference: "mask_gt", labels: "mask" })).regions.extras;
+    const folderClean = json(await mcp.call("clean_masks", { scope: "folder", removeSpecks: 90, apply: true }));
+    expect(folderClean).toMatchObject({ applied: true, imagesChanged: folderPreview.imagesChanged, specksRemoved: folderPreview.specksRemoved, backup: expect.stringMatching(/^mask\/\.easy-labeling\/clean-masks-/) });
+    const backupFile = path.join(dataset, folderClean.backup, "sample_metal_pattern.png");
+    expect((await readFile(backupFile)).equals(originalBytes)).toBe(true);
+    expect((await readFile(maskFile)).equals(originalBytes)).toBe(false);
+    expect(json(await mcp.call("compare_masks", { reference: "mask_gt", labels: "mask" })).regions.extras).toBeLessThan(extrasBefore);
+    expect(textOf(await mcp.call("clean_masks", { scope: "everything", removeSpecks: 9 }))).toMatch(/^invalid_args: scope must be/);
+
+    expect(textOf(await mcp.call("compare_masks", { reference: "no_such_folder" }))).toMatch(/^not_found:/);
+    expect(textOf(await mcp.call("compare_masks", { reference: "../mask_gt" }))).toMatch(/^invalid_args:/);
+    expect(textOf(await mcp.call("compare_masks", { reference: "mask_gt", tolerance: 50 }))).toMatch(/^invalid_args:/);
     expect(errors).toEqual([]);
   } finally {
     await close();
@@ -570,7 +789,7 @@ test("an MCP agent runs template automation presets and YOLO inference", async (
   }
 });
 
-test("the Agent panel shows the connection, how to register each client, permissions and activity", async () => {
+test("the MCP panel shows the connection, how to register each client, permissions and activity", async () => {
   test.setTimeout(180_000);
   const { page, mcp, dataset, errors, close } = await openAgentApp();
   try {
@@ -579,8 +798,12 @@ test("the Agent panel shows the connection, how to register each client, permiss
     const panel = page.locator("#agentPanel");
     await expect(panel).toBeVisible();
     await expect(page.locator("#agentStatusLine")).toHaveAttribute("data-state", "listening");
-    await expect(page.locator("#agentStatusLine")).toContainText("Waiting for agents");
-    const serverPath = await page.locator("#agentServerPath").inputValue();
+    await expect(page.locator("#agentStatusLine")).toHaveText("Waiting for an MCP client");
+    await expect(page.locator("#agentPanelBtn")).toContainText("MCP");
+    // Docked beside the workspace: the canvas area ends where the panel starts, nothing slides under it.
+    const [canvasArea, panelBox] = await Promise.all([page.locator(".main-container").boundingBox(), panel.boundingBox()]);
+    expect(canvasArea!.x + canvasArea!.width).toBeLessThanOrEqual(panelBox!.x + 1);
+    const serverPath = (await page.locator("#agentStatusLine").getAttribute("title"))!.split("\n").at(-1)!;
     expect(serverPath).toMatch(/easy-labeling-mcp\.exe$/);
     await expect(page.locator("#agentServerWarning")).toBeHidden();
 
@@ -596,7 +819,7 @@ test("the Agent panel shows the connection, how to register each client, permiss
     // A call shows up as the last call (with the client's name) and in the activity list.
     json(await mcp.call("open_folder", { path: dataset }));
     json(await mcp.call("app_state"));
-    await expect(page.locator("#agentLastCall")).toContainText("Last call: app_state from e2e 0");
+    await expect(page.locator("#agentStatusLine")).toContainText(/^e2e 0 · app_state \d+ s ago$/);
     await expect(page.locator("#agentActivityList li").first()).toContainText("app_state");
     await expect(page.locator("#agentActivityList li")).toHaveCount(2);
 
@@ -606,6 +829,16 @@ test("the Agent panel shows the connection, how to register each client, permiss
       await page.screenshot({ path: test.info().outputPath(`agent-panel-window-${theme}.png`) });
     }
     await page.evaluate(() => document.body.classList.remove("dark-mode"));
+
+    // Live view: added boxes appear one by one (30 ms each) before the call answers, then all are shown as usual.
+    await page.locator("#agentLiveToggle").check();
+    const liveStart = Date.now();
+    const liveAdded = json(await mcp.call("add_boxes", { boxes: Array.from({ length: 20 }, (_, index) => ({ classId: 1, x0: 10 + index * 20, y0: 10, x1: 25 + index * 20, y1: 25 })) }));
+    expect(Date.now() - liveStart).toBeGreaterThanOrEqual(450);
+    expect(liveAdded.annotationIds).toHaveLength(20);
+    expect((json(await mcp.call("get_boxes", { ids: liveAdded.annotationIds })).boxes as Array<{ hidden: boolean }>).every((box) => !box.hidden)).toBe(true);
+    json(await mcp.call("undo"));
+    await page.locator("#agentLiveToggle").uncheck();
 
     // Read-only: reading works, changes are declined.
     await page.locator("#agentChangesToggle").uncheck();

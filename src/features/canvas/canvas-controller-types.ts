@@ -229,6 +229,15 @@ export interface CanvasController {
   applySegmentationAiPreview?(): boolean;
   discardSegmentationAiPreview?(): boolean;
   getEdgeSamStatus?(): EdgeSamStatus;
+  /** Agent tools: selects AI Select and resolves once the image is encoded (null without the model). */
+  prepareSegmentationAi?(): Promise<EdgeSamStatus | null>;
+  /**
+   * Agent tools: one EdgeSAM prompt in image pixels -> a 0/1 mask over x0, y0, width, height of the image (the roi
+   * when given, else the whole image) and the model's score; null when not ready.
+   */
+  decodeSegmentationAi?(prompt: { points: readonly { x: number; y: number; label: "positive" | "negative" }[]; box: { left: number; top: number; right: number; bottom: number } | null; roi?: { x0: number; y0: number; x1: number; y1: number } }): Promise<{ mask: Uint8Array; x0: number; y0: number; width: number; height: number; score: number } | null>;
+  /** The original image as 8-bit gray (luma), for agent-side edge checks. */
+  getSegmentationImageGray?(): { width: number; height: number; gray: Uint8Array } | null;
   getSegmentationPreprocessingConfig?(): SegmentationPreprocessingConfig;
   setSegmentationPreprocessingConfig?(config: Partial<SegmentationPreprocessingConfig>): boolean;
   /**
@@ -267,5 +276,11 @@ export interface CanvasController {
   relabelSegmentationRegionAtPoint?(pointer: CanvasPoint, classId: string): boolean;
   getSegmentationSummary?(): SegmentationSummary;
   getSegmentationDocumentSnapshot?(): SegmentationDocumentSnapshot | null;
+  /** Agent live view: remember the mask, draw edits as they come (dirty bounds, inclusive), then put the mask back. No history. */
+  beginSegmentationLiveEdit?(): boolean;
+  liveSegmentationEdit?(mutate: (mask: Uint16Array, width: number, height: number) => { left: number; top: number; right: number; bottom: number } | null): void;
+  endSegmentationLiveEdit?(): void;
+  /** Mutates the live mask in place; true when `mutate` changed it. One undo step. */
+  editSegmentationMask?(mutate: (mask: Uint16Array, width: number, height: number) => boolean): boolean;
   loadSegmentationDocumentSnapshot?(snapshot: SegmentationDocumentSnapshot | null): void;
 }

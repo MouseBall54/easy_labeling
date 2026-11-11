@@ -5,6 +5,7 @@
 import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import { matchBoxes, summarizeComparison, type ImageMatch } from "../domain/annotations/label-compare.js";
+import { maskRegions } from "../domain/annotations/mask-regions.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { analyzeBoxes, type StatBox } from "../domain/refine/box-statistics.js";
 import { evenSample } from "../domain/refine/folder-summary.js";
@@ -70,6 +71,13 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     boxCount: rects(canvasController).length
   });
 
+  const maskSummary = () => {
+    const snapshot = canvasController.raw.getSegmentationDocumentSnapshot?.();
+    if (!snapshot) return {};
+    const { pixelsByClass, regionsByClass } = maskRegions(snapshot.mask, snapshot.width, snapshot.height);
+    return { mask: { pixelsByClass, regionsByClass } };
+  };
+
   const appState: AgentTool = {
     changesApp: false,
     run: async () => ({
@@ -78,6 +86,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
       imageCount: session.imageFiles.length,
       ...currentSummary(),
       workflow: session.workflow,
+      ...(session.workflow === "segmentation" && session.currentImageFile ? maskSummary() : {}),
       selectedIds: selectedIds(canvasController),
       unsavedChanges: hasDirtyDocuments(state),
       autoSave: state.view.isAutoSaveEnabled,
@@ -229,7 +238,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
       }
       // Saved label files of several images: normalized units, findings by row index (as read_labels numbers them).
       if (!session.labelFolderHandle) throw new AgentToolError("no_folder", "The open folder has no label folder.");
-      const totals = { size: 0, "off-row": 0, "off-column": 0, crowded: 0, missing: 0 };
+      const totals = { size: 0, "off-row": 0, "off-column": 0, crowded: 0, overlap: 0, missing: 0 };
       const images: Array<{ image: string; boxes: number; counts: typeof totals; findings: unknown[]; missing: unknown[] }> = [];
       for (const index of indexes) {
         const name = files[index]!.name;
