@@ -1,14 +1,16 @@
 /**
  * Desktop app: answers easy-labeling-mcp.exe calls (docs/AGENT_MCP_PLAN_KO.md). Loaded by main.ts on the
- * first call or when the Agent panel opens. Shows "Agent working" with a Stop button while calls run; Stop
- * pauses the agent until resumed. The Agent panel (agent-panel.ts) holds the person's permissions and the log.
+ * first call or when the MCP panel opens. Shows "Agent working" with a Stop button while calls run; Stop
+ * pauses the agent until resumed. The MCP panel (agent-panel.ts) holds the person's permissions and the log.
  */
 import type { AppState } from "../app/state.js";
-import { AgentToolError, createAgentDispatcher, type AgentHost, type AgentRequest } from "../features/agent/agent-api.js";
+import { AgentToolError, createAgentDispatcher, type AgentHost, type AgentRequest, type AgentTool } from "../features/agent/agent-api.js";
+import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import { createAgentPanel } from "./agent-panel.js";
 import { createAgentAutoTools } from "./agent-tools-auto.js";
 import { createAgentEditTools } from "./agent-tools-edit.js";
 import { createAgentRefineTools } from "./agent-tools-refine.js";
+import { createAgentSegmentationTools } from "./agent-tools-segmentation.js";
 import { createAgentStateTools } from "./agent-tools-state.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
@@ -47,7 +49,7 @@ const INDICATOR_LINGER_MS = 800;
 export function personBusyReason(documentRef: Document, canvasController: RuntimeCanvasController, pointerDown: boolean): string | null {
   if (documentRef.querySelector(".modal.show, dialog[open]")) return "A dialog is open in the app.";
   const active = documentRef.activeElement;
-  // The Agent panel's own controls are not the person working in the app.
+  // The MCP panel's own controls are not the person working in the app.
   if (active instanceof HTMLElement && !active.closest("#agentPanel") && (active.matches("input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, select") || active.isContentEditable)) {
     return "The person is typing in the app.";
   }
@@ -89,9 +91,9 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     paused: () => dispatcher.paused,
     setPaused: (paused) => { dispatcher.setPaused(paused); render(); }
   });
-  /** Folder-wide changes: the person's dialog, unless the Agent panel blocks them. */
+  /** Folder-wide changes: the person's dialog, unless the MCP panel blocks them. */
   const confirm = async (message: string): Promise<boolean> => {
-    if (panel.settings().folderChanges === "block") throw new AgentToolError("declined", "Folder-wide changes are blocked in the Agent panel.");
+    if (panel.settings().folderChanges === "block") throw new AgentToolError("declined", "Folder-wide changes are blocked in the MCP panel.");
     return bridge.confirm(message);
   };
 
@@ -157,7 +159,14 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     confirm,
     afterEdit: () => deps.syncAfterEdit?.()
   });
-  const dispatcher = createAgentDispatcher({ ...stateTools, ...editTools, ...refineTools, ...autoTools }, host);
+  const liveView = () => panel.settings().liveView;
+  const segmentationTools = createAgentSegmentationTools({ state: deps.state, canvasController: deps.canvasController, documentRef, afterEdit: () => deps.syncAfterEdit?.(), liveView, fileSystem: deps.fileSystem, confirm });
+  const dispatcher = createAgentDispatcher(withBoxReveal({ ...stateTools, ...editTools, ...refineTools, ...autoTools, ...segmentationTools }, {
+    enabled: () => liveView() && deps.state.session.workflow === "detection",
+    rects: () => deps.canvasController.raw.getObjects("rect").filter(isRectObject),
+    render: () => deps.canvasController.raw.canvas.requestRenderAll(),
+    frame: () => new Promise<void>((resolve) => (windowRef.requestAnimationFrame ? windowRef.requestAnimationFrame(() => resolve()) : setTimeout(resolve, 16)))
+  }), host);
   toggle?.addEventListener("click", () => {
     dispatcher.setPaused(!dispatcher.paused);
     render();
@@ -168,4 +177,45 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     cancel: (id) => dispatcher.cancel(id),
     togglePanel: (open) => panel.toggle(open)
   };
+}
+
+/**
+ * Live view for Detection: boxes a tool added (found by comparing box ids before and after the call) are hidden and
+ * then shown again one by one in the order they were made, 30 ms each and at most 2 s in all, before the call answers.
+ * Only the drawing changes: the boxes, their undo step and the result are the same as without it.
+ */
+export function withBoxReveal(tools: Record<string, AgentTool>, view: {
+  enabled(): boolean;
+  rects(): FabricRectLike[];
+  render(): void;
+  frame(): Promise<void>;
+}): Record<string, AgentTool> {
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, !tool.changesApp ? tool : {
+    ...tool,
+    async run(args, context) {
+      const before = view.enabled() ? new Set(view.rects().map(ensureAnnotationId)) : null;
+      const result = await tool.run(args, context);
+      if (!before || !view.enabled()) return result;
+      const added = view.rects().filter((rect) => !before.has(ensureAnnotationId(rect)));
+      if (!added.length) return result;
+      const shown = added.map((rect) => rect.visible !== false);
+      // The way the app hides a box: the box and its tag.
+      const setVisible = (rect: FabricRectLike, visible: boolean) => { rect.visible = visible; if (rect._labelText) rect._labelText.visible = visible; };
+      added.forEach((rect) => setVisible(rect, false));
+      view.render();
+      const frames = Math.max(1, Math.round(Math.min(2000, added.length * 30) / 16));
+      const perFrame = Math.ceil(added.length / frames);
+      try {
+        for (let index = 0; index < added.length; index += perFrame) {
+          await view.frame();
+          for (let next = index; next < Math.min(added.length, index + perFrame); next += 1) setVisible(added[next]!, shown[next]!);
+          view.render();
+        }
+      } finally {
+        added.forEach((rect, index) => setVisible(rect, shown[index]!));
+        view.render();
+      }
+      return result;
+    }
+  } satisfies AgentTool]));
 }

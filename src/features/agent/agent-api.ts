@@ -5,9 +5,12 @@
 
 export type AgentErrorCode = "busy" | "cancelled" | "declined" | "failed" | "invalid_args" | "no_folder" | "no_image" | "not_found" | "timeout";
 
+export const STALE_ID_HINT = "annotationIds are assigned anew each time an image loads (go_to_image, open_folder, reloading labels): read them again with get_boxes after switching images.";
+
 export class AgentToolError extends Error {
   constructor(readonly code: AgentErrorCode, message: string) {
-    super(message);
+    // Agents keep ids from earlier calls; the usual cause of an unknown box id is an image (re)load in between.
+    super(code === "not_found" && message.startsWith("No box with annotationId") ? `${message} ${STALE_ID_HINT}` : message);
     this.name = "AgentToolError";
   }
 }
@@ -40,7 +43,7 @@ export type AgentReply =
   | { ok: true; result: unknown; png?: Uint8Array }
   | { ok: false; error: { code: AgentErrorCode; message: string } };
 
-/** One finished call, for the Agent panel's activity list. */
+/** One finished call, for the MCP panel's activity list. */
 export interface AgentActivity {
   tool: string;
   startedAt: number;
@@ -51,7 +54,7 @@ export interface AgentActivity {
   result?: unknown;
 }
 
-/** What the person allows in the Agent panel. */
+/** What the person allows in the MCP panel. */
 export interface AgentAccess {
   /** Off: every call is refused. */
   enabled: boolean;
@@ -89,9 +92,9 @@ export function createAgentDispatcher(tools: Readonly<Record<string, AgentTool>>
     const tool = Object.hasOwn(tools, request.tool) ? tools[request.tool] : undefined;
     if (!tool) throw new AgentToolError("invalid_args", `Unknown tool: ${request.tool}`);
     const access = host.access?.() ?? { enabled: true, allowChanges: true };
-    if (!access.enabled) throw new AgentToolError("declined", "The person turned agent access off in the app (Agent panel).");
+    if (!access.enabled) throw new AgentToolError("declined", "The person turned agent access off in the app (MCP panel).");
     if (tool.changesApp) {
-      if (!access.allowChanges) throw new AgentToolError("declined", "The person allows read-only agent access in the app (Agent panel); this tool changes the app.");
+      if (!access.allowChanges) throw new AgentToolError("declined", "The person allows read-only agent access in the app (MCP panel); this tool changes the app.");
       if (paused) throw new AgentToolError("declined", "The person paused the agent in the app.");
       const busy = host.busyReason();
       if (busy) throw new AgentToolError("busy", busy);

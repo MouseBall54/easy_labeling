@@ -4,11 +4,11 @@ import { activitySummary, ago, readAgentSettings } from "../../../src/bootstrap/
 describe("agent panel helpers", () => {
   it("reads saved permissions, falling back to allow-all-and-ask", () => {
     const store = (value: string | null) => ({ getItem: () => value });
-    expect(readAgentSettings(null)).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask" });
-    expect(readAgentSettings(store(JSON.stringify({ enabled: false, allowChanges: false, folderChanges: "block" })))).toEqual({ enabled: false, allowChanges: false, folderChanges: "block" });
-    expect(readAgentSettings(store("{broken"))).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask" });
-    expect(readAgentSettings(store(JSON.stringify({ enabled: "no", folderChanges: "never" })))).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask" });
-    expect(readAgentSettings({ getItem: () => { throw new Error("blocked"); } })).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask" });
+    expect(readAgentSettings(null)).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask", liveView: false });
+    expect(readAgentSettings(store(JSON.stringify({ enabled: false, allowChanges: false, folderChanges: "block", liveView: true })))).toEqual({ enabled: false, allowChanges: false, folderChanges: "block", liveView: true });
+    expect(readAgentSettings(store("{broken"))).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask", liveView: false });
+    expect(readAgentSettings(store(JSON.stringify({ enabled: "no", folderChanges: "never", liveView: "yes" })))).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask", liveView: false });
+    expect(readAgentSettings({ getItem: () => { throw new Error("blocked"); } })).toEqual({ enabled: true, allowChanges: true, folderChanges: "ask", liveView: false });
   });
 
   it("summarises a call in one line", () => {

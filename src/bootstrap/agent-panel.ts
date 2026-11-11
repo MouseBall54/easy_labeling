@@ -1,5 +1,5 @@
 /**
- * The Agent panel (desktop): connection status, how to register easy-labeling-mcp.exe in each MCP client,
+ * The MCP panel (desktop): connection status, how to register easy-labeling-mcp.exe in each MCP client,
  * the person's permissions, and the activity list. A drawer, not a modal, so the app stays usable while open.
  */
 import type { AgentActivity } from "../features/agent/agent-api.js";
@@ -12,11 +12,13 @@ export interface AgentSettings {
   allowChanges: boolean;
   /** Folder runs, class remap and inference on every image: ask in a dialog, or refuse. */
   folderChanges: "ask" | "block";
+  /** Live view: show each box or region as an agent tool makes it, instead of only the finished result. */
+  liveView: boolean;
 }
 
 const SETTINGS_KEY = "easy-labeling:agent-access";
 const CLIENT_KEY = "easy-labeling:agent-client";
-const DEFAULT_SETTINGS: AgentSettings = { enabled: true, allowChanges: true, folderChanges: "ask" };
+const DEFAULT_SETTINGS: AgentSettings = { enabled: true, allowChanges: true, folderChanges: "ask", liveView: false };
 const ACTIVITY_LIMIT = 200;
 const STATUS_POLL_MS = 2000;
 
@@ -27,7 +29,8 @@ export function readAgentSettings(storage: Pick<Storage, "getItem"> | null | und
     return {
       enabled: typeof saved?.enabled === "boolean" ? saved.enabled : DEFAULT_SETTINGS.enabled,
       allowChanges: typeof saved?.allowChanges === "boolean" ? saved.allowChanges : DEFAULT_SETTINGS.allowChanges,
-      folderChanges: saved?.folderChanges === "block" ? "block" : "ask"
+      folderChanges: saved?.folderChanges === "block" ? "block" : "ask",
+      liveView: saved?.liveView === true
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -77,17 +80,16 @@ export function createAgentPanel(input: {
   const panel = byId<HTMLElement>("agentPanel");
   const railButton = byId<HTMLButtonElement>("agentPanelBtn");
   const statusLine = byId<HTMLElement>("agentStatusLine");
-  const lastCall = byId<HTMLElement>("agentLastCall");
-  const serverPath = byId<HTMLInputElement>("agentServerPath");
   const serverWarning = byId<HTMLElement>("agentServerWarning");
   const clientSelect = byId<HTMLSelectElement>("agentClientSelect");
   const clientWhere = byId<HTMLElement>("agentClientWhere");
   const clientSnippet = byId<HTMLElement>("agentClientSnippet");
-  const clientNote = byId<HTMLElement>("agentClientNote");
   const copyStatus = byId<HTMLElement>("agentCopyStatus");
+  const copyButton = byId<HTMLButtonElement>("agentCopySnippetBtn");
   const enabledToggle = byId<HTMLInputElement>("agentEnabledToggle");
   const changesToggle = byId<HTMLInputElement>("agentChangesToggle");
   const folderSelect = byId<HTMLSelectElement>("agentFolderSelect");
+  const liveToggle = byId<HTMLInputElement>("agentLiveToggle");
   const pauseButton = byId<HTMLButtonElement>("agentPanelPauseBtn");
   const activityList = byId<HTMLOListElement>("agentActivityList");
   const activityEmpty = byId<HTMLElement>("agentActivityEmpty");
@@ -105,22 +107,22 @@ export function createAgentPanel(input: {
     if (enabledToggle) enabledToggle.checked = settings.enabled;
     if (changesToggle) { changesToggle.checked = settings.allowChanges; changesToggle.disabled = !settings.enabled; }
     if (folderSelect) { folderSelect.value = settings.folderChanges; folderSelect.disabled = !settings.enabled || !settings.allowChanges; }
+    if (liveToggle) liveToggle.checked = settings.liveView;
   };
   const renderPause = (): void => {
     if (!pauseButton) return;
     const paused = input.paused();
-    pauseButton.textContent = paused ? "Resume agent" : "Stop agent";
-    pauseButton.className = `btn btn-sm mt-3 ${paused ? "btn-outline-success" : "btn-outline-danger"}`;
+    pauseButton.textContent = paused ? "Resume" : "Stop";
+    pauseButton.className = `btn btn-sm ${paused ? "btn-outline-success" : "btn-outline-danger"}`;
     pauseButton.title = paused ? "Let the agent change the app again" : "Cancel the agent's current call and refuse changes until resumed";
   };
 
   const renderClient = (): void => {
     const id = (clientSelect?.value as McpClientId | undefined) ?? "claude-code";
     const setup = mcpClientSetup(id, server || "<path to easy-labeling-mcp.exe>");
-    if (clientWhere) clientWhere.textContent = `Where: ${setup.where}`;
+    if (clientWhere) { clientWhere.textContent = setup.where; clientWhere.title = setup.note ?? ""; }
     if (clientSnippet) { clientSnippet.textContent = setup.text; clientSnippet.dataset.language = setup.language; }
-    if (clientNote) { clientNote.textContent = setup.note ?? ""; clientNote.hidden = !setup.note; }
-    if (copyStatus) copyStatus.textContent = "";
+    showCopied(false);
   };
   if (clientSelect && !clientSelect.options.length) {
     for (const id of MCP_CLIENT_IDS) clientSelect.add(new Option(mcpClientSetup(id, "").name, id));
@@ -129,12 +131,16 @@ export function createAgentPanel(input: {
     if (saved && (MCP_CLIENT_IDS as readonly string[]).includes(saved)) clientSelect.value = saved;
   }
 
-  const copy = async (text: string, done: string): Promise<void> => {
+  function showCopied(copied: boolean, message = ""): void {
+    if (copyStatus) copyStatus.textContent = message;
+    copyButton?.querySelector("i")?.setAttribute("class", `bi ${copied ? "bi-check2" : "bi-clipboard"}`);
+  }
+  const copy = async (text: string): Promise<void> => {
     try {
       await windowRef.navigator.clipboard.writeText(text);
-      if (copyStatus) copyStatus.textContent = done;
+      showCopied(true, "Copied.");
     } catch {
-      if (copyStatus) copyStatus.textContent = "Copy failed; select the text and copy it.";
+      showCopied(false, "Copy failed; select the text and copy it.");
     }
   };
 
@@ -147,21 +153,17 @@ export function createAgentPanel(input: {
       return;
     }
     const path = typeof status.serverPath === "string" ? status.serverPath : "";
-    if (path !== server) { server = path; if (serverPath) serverPath.value = path; renderClient(); }
+    if (path !== server) { server = path; renderClient(); }
     if (serverWarning) serverWarning.hidden = status.serverFound === true;
     if (statusLine) {
+      // One line: the state and the last call; the details sit in the tooltip.
       const error = typeof status.pipeError === "string" ? status.pipeError : "";
-      statusLine.dataset.state = error ? "error" : status.listening ? "listening" : "checking";
-      statusLine.textContent = error || (status.listening
-        ? `Waiting for agents · app ${String(status.appVersion)} · protocol ${String(status.protocol)}`
-        : "Starting the agent connection…");
-    }
-    if (lastCall) {
       const last = status.lastCall as { tool?: string; client?: { name?: string; version?: string } | null; at?: number } | null;
       const now = typeof status.now === "number" ? status.now : Date.now();
-      lastCall.textContent = last?.at
-        ? `Last call: ${last.tool ?? "?"}${last.client?.name ? ` from ${last.client.name}${last.client.version ? ` ${last.client.version}` : ""}` : ""}, ${ago(now - last.at)} · ${String(status.calls)} call${status.calls === 1 ? "" : "s"} since the app started`
-        : "No agent call yet.";
+      const client = last?.client?.name ? `${last.client.name}${last.client.version ? ` ${last.client.version}` : ""}` : "";
+      statusLine.dataset.state = error ? "error" : status.listening ? "listening" : "checking";
+      statusLine.textContent = error || (!status.listening ? "Starting…" : last?.at ? `${client || "Connected"} · ${last.tool ?? "?"} ${ago(now - last.at)}` : "Waiting for an MCP client");
+      statusLine.title = [`App ${String(status.appVersion)} · protocol ${String(status.protocol)}`, `${String(status.calls)} call${status.calls === 1 ? "" : "s"} since the app started`, path].filter(Boolean).join("\n");
     }
   };
 
@@ -171,21 +173,19 @@ export function createAgentPanel(input: {
       const item = documentRef.createElement("li");
       item.dataset.ok = String(activity.ok);
       const time = documentRef.createElement("span");
-      time.textContent = new Date(activity.startedAt).toLocaleTimeString();
+      time.textContent = new Date(activity.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const tool = documentRef.createElement("span");
       tool.className = "agent-activity-tool";
       tool.textContent = activity.tool;
       const result = documentRef.createElement("span");
       result.className = "agent-activity-result";
       result.textContent = `${activity.ok ? "ok" : activity.code ?? "failed"} · ${activity.ms} ms`;
-      const detail = documentRef.createElement("span");
-      detail.className = "agent-activity-detail";
-      detail.textContent = activitySummary(activity);
-      item.append(time, tool, result, detail);
+      item.title = activitySummary(activity);
+      item.append(time, tool, result);
       return item;
     }));
     if (activityEmpty) activityEmpty.hidden = activities.length > 0;
-    if (activityCount) activityCount.textContent = activities.length ? `(${activities.length})` : "";
+    if (activityCount) activityCount.textContent = activities.length ? String(activities.length) : "";
   };
 
   const toggle = (open = Boolean(panel?.hidden)): void => {
@@ -209,10 +209,10 @@ export function createAgentPanel(input: {
     try { storage?.setItem(CLIENT_KEY, clientSelect.value); } catch { /* not remembered */ }
     renderClient();
   });
-  byId("agentCopySnippetBtn")?.addEventListener("click", () => { void copy(clientSnippet?.textContent ?? "", "Copied. Paste it where shown above."); });
-  byId("agentCopyPathBtn")?.addEventListener("click", () => { void copy(server, "Server path copied."); });
+  copyButton?.addEventListener("click", () => { void copy(clientSnippet?.textContent ?? ""); });
   enabledToggle?.addEventListener("change", () => { settings = { ...settings, enabled: enabledToggle.checked }; saveSettings(); renderSettings(); });
   changesToggle?.addEventListener("change", () => { settings = { ...settings, allowChanges: changesToggle.checked }; saveSettings(); renderSettings(); });
+  liveToggle?.addEventListener("change", () => { settings = { ...settings, liveView: liveToggle.checked }; saveSettings(); });
   folderSelect?.addEventListener("change", () => { settings = { ...settings, folderChanges: folderSelect.value === "block" ? "block" : "ask" }; saveSettings(); });
   pauseButton?.addEventListener("click", () => { input.setPaused(!input.paused()); renderPause(); });
   byId("agentClearActivityBtn")?.addEventListener("click", () => { activities.length = 0; renderActivity(); });

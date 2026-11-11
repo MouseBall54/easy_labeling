@@ -150,6 +150,8 @@ export function createSegmentationCanvasWorkflow(
   let polygonPreviewObjects: FabricObjectLike[] = [];
   let strokeDirtyBounds: SegmentationRegionBounds | null = null;
   let selectedRegion: SegmentationRegionSelection | null = null;
+  // The mask before an agent live view started (beginSegmentationLiveEdit), restored when it ends.
+  let liveEditBefore: Uint16Array | null = null;
   let smartPreview: {
     seedPoint: CanvasPoint;
     mode: "add" | "remove";
@@ -1013,7 +1015,7 @@ export function createSegmentationCanvasWorkflow(
     if (sources.includes(edgeSamInputSource)) void prepareEdgeSamImage();
   };
 
-  const prepareEdgeSamImage = async (): Promise<void> => {
+  const prepareEdgeSamImage = async (quiet = false): Promise<void> => {
     // Encoding runs the EdgeSAM model on the GPU and reads back the whole image, so only
     // AI Select in the active Segmentation workflow pays for it (not every image switch).
     if (!workflowActive || document?.activeTool !== "ai-select") return;
@@ -1030,7 +1032,7 @@ export function createSegmentationCanvasWorkflow(
         height: input.descriptor.height,
         rgba: input.rgba
       });
-      if (workflowActive) deps.notify("AI Select is ready.", 1800);
+      if (workflowActive && !quiet) deps.notify("AI Select is ready.", 1800);
     } catch (error) {
       deps.notify(`AI Select is unavailable: ${error instanceof Error ? error.message : "model initialization failed"}`, 5000);
     }
@@ -1802,6 +1804,43 @@ export function createSegmentationCanvasWorkflow(
       return clearAiPreview();
     },
 
+    async prepareSegmentationAi() {
+      // Agent tools: select AI Select (as the person would) and wait until the image is encoded.
+      controller.setSegmentationTool?.("ai-select");
+      await prepareEdgeSamImage(true); // every agent call would otherwise toast "AI Select is ready"
+      return deps.edgeSamService?.getStatus() ?? null;
+    },
+
+    async decodeSegmentationAi(prompt: { points: readonly { x: number; y: number; label: "positive" | "negative" }[]; box: { left: number; top: number; right: number; bottom: number } | null; roi?: { x0: number; y0: number; x1: number; y1: number } }) {
+      // One prompt straight to the decoder, without the person's prompt overlay or preview; image pixel coordinates.
+      const doc = ensureDocument();
+      const service = deps.edgeSamService;
+      const descriptor = getImageInput(edgeSamInputSource)?.descriptor;
+      if (!doc || !service || !descriptor || service.getStatus().phase !== "ready") return null;
+      // Working images are full-size (an identity mapping), so a roi is restored directly in image pixels.
+      const identity = !descriptor.originalRoi && descriptor.width === descriptor.originalWidth && descriptor.height === descriptor.originalHeight;
+      const toWorking = (x: number, y: number) => originalPointToWorking({ x, y }, descriptor);
+      const box = prompt.box ? (() => {
+        const a = toWorking(prompt.box.left, prompt.box.top);
+        const b = toWorking(prompt.box.right, prompt.box.bottom);
+        return { left: a.x, top: a.y, right: b.x, bottom: b.y };
+      })() : null;
+      const points = prompt.points.map((point) => ({ ...toWorking(point.x, point.y), label: point.label }));
+      const result = await service.decode(identity && prompt.roi ? { points, box, roi: prompt.roi } : { points, box });
+      if (result.width !== descriptor.width || result.height !== descriptor.height) return null;
+      if (result.roi) return { mask: result.mask, x0: result.roi.x0, y0: result.roi.y0, width: result.roi.width, height: result.roi.height, score: result.score };
+      return { mask: workingMaskToOriginal({ mask: result.mask, descriptor }), x0: 0, y0: 0, width: descriptor.originalWidth, height: descriptor.originalHeight, score: result.score };
+    },
+
+    getSegmentationImageGray() {
+      const input = getOriginalImageInput();
+      if (!input) return null;
+      const { rgba, descriptor } = input;
+      const gray = new Uint8Array(descriptor.width * descriptor.height);
+      for (let index = 0; index < gray.length; index += 1) gray[index] = (rgba[index * 4]! * 77 + rgba[index * 4 + 1]! * 150 + rgba[index * 4 + 2]! * 29) >> 8;
+      return { width: descriptor.width, height: descriptor.height, gray };
+    },
+
     getEdgeSamStatus() {
       return deps.edgeSamService?.getStatus() ?? { phase: "error" as const, backend: null, imageCacheKey: null, encoderRuns: 0, message: "AI Select service is unavailable" };
     },
@@ -2266,6 +2305,42 @@ export function createSegmentationCanvasWorkflow(
 
     getSegmentationDocumentSnapshot(): SegmentationDocumentSnapshot | null {
       return ensureDocument()?.cloneSnapshot() ?? null;
+    },
+
+    beginSegmentationLiveEdit(): boolean {
+      // Live view for agent tools: results drawn as they arrive, then put back (endSegmentationLiveEdit) before the
+      // tool writes its final result through editSegmentationMask, so undo and the outcome do not depend on it.
+      const doc = ensureDocument();
+      if (!doc) return false;
+      liveEditBefore = doc.mask.slice();
+      return true;
+    },
+
+    liveSegmentationEdit(mutate: (mask: Uint16Array, width: number, height: number) => { left: number; top: number; right: number; bottom: number } | null): void {
+      const doc = ensureDocument();
+      if (!doc || !liveEditBefore) return;
+      const bounds = mutate(doc.mask, doc.width, doc.height);
+      if (bounds) requestOverlayRender({ maskDirtyBounds: bounds });
+    },
+
+    endSegmentationLiveEdit(): void {
+      const doc = ensureDocument();
+      if (doc && liveEditBefore && liveEditBefore.length === doc.mask.length) doc.mask.set(liveEditBefore);
+      liveEditBefore = null;
+      requestOverlayRender({ forceMaskFull: true, immediate: true });
+    },
+
+    editSegmentationMask(mutate: (mask: Uint16Array, width: number, height: number) => boolean): boolean {
+      // One undo step for a whole programmatic edit (agent tools), the way AI Select's apply records its result.
+      const doc = ensureDocument();
+      if (!doc) return false;
+      const before = doc.cloneSnapshot();
+      if (!mutate(doc.mask, doc.width, doc.height)) return false;
+      selectedRegion = null;
+      const changed = doc.pushHistoryFromSnapshot(before);
+      requestOverlayRender({ forceMaskFull: true, forceSelectionFull: true, immediate: true });
+      if (changed) deps.onDocumentMutation?.();
+      return changed;
     },
 
     loadSegmentationDocumentSnapshot(snapshot: SegmentationDocumentSnapshot | null): void {

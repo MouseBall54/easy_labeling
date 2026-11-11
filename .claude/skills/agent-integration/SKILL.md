@@ -9,7 +9,7 @@ description: >
 
 # Agent bridge (MCP)
 
-User guide: `docs/AGENT_MCP_GUIDE_KO.md`. Plan, decisions (D1-D9) and per-stage results: `docs/AGENT_MCP_PLAN_KO.md`.
+User guide: `docs/AGENT_MCP_GUIDE_KO.md`. Plan, decisions (D1-D9) and per-stage results: `docs/AGENT_MCP_PLAN_KO.md`. The skill agents install to use the tools: `docs/agent-skills/easy-labeling-mcp/` (`SKILL.md` recipes, `MEASUREMENTS.md` numbers); a tool change that alters a recipe, a default or a measured number updates it in the same change.
 
 ## Path of one call
 
@@ -26,7 +26,7 @@ agent --stdio MCP--> easy-labeling-mcp.exe (crates/el-mcp: schema, forward, PNG 
 - Tools call what the app's buttons call. When a button handler holds the logic, move it into a function the button and the agent both call and give it a return value (see `RefineAgentApi`, `AutomationAgentApi`, `InferenceAgentApi`, `EventManager.openImageFolder`); keep the button's behaviour byte-for-byte and prove it with that area's existing e2e.
 - A page call never opens `confirm`/`alert`/`prompt`: WebView2 dialogs stall the page and the call times out. Ask the person through `agent_confirm` (`easyLabelingAgentBridge.confirm`, a native rfd dialog) and pass that function into the code that used `windowRef.confirm`.
 - One tool call is one undo step. Several edits in one call go through `runAsOneHistoryStep`; after an edit call `afterEdit()` (`EventManager.syncAfterEdit`) so the label list and undo buttons follow.
-- The person's controls live in the Agent panel (`src/bootstrap/agent-panel.ts`, `#agentPanel`, opened from the rail's `Agent` button or the status-bar indicator): permissions reach the dispatcher as `host.access()` (agents off / read-only) and the `confirm` wrapper (folder-wide changes blocked); every finished call reaches `host.record()` for the activity list. Connection status comes from `agent_status` (pipe state, last call and the MCP client's `clientInfo`, which `el-mcp` sends in `hello`).
+- The person's controls live in the MCP panel (`src/bootstrap/agent-panel.ts`, `#agentPanel`, a docked third column of `.app-workspace` while open, opened from the rail's `MCP` button or the status-bar indicator): permissions reach the dispatcher as `host.access()` (agents off / read-only) and the `confirm` wrapper (folder-wide changes blocked); every finished call reaches `host.record()` for the activity list. Connection status comes from `agent_status` (pipe state, last call and the MCP client's `clientInfo`, which `el-mcp` sends in `hello`).
 
 ## Every MCP client, not only Claude
 
@@ -39,10 +39,19 @@ agent --stdio MCP--> easy-labeling-mcp.exe (crates/el-mcp: schema, forward, PNG 
 
 ## Adding a tool
 
-1. Page: add it to the matching `src/bootstrap/agent-tools-*.ts` (`state`, `edit`, `refine`, `auto`) as `{ changesApp, run(args, { signal, progress }) }`. `changesApp: true` for anything that changes what the app shows or holds (refused while the person is busy or paused). Read arguments with `optionalArg`, `checkBox`, `checkClassId`; throw `AgentToolError(code, message)` with a code from `AgentErrorCode` (`not_found`, `invalid_args`, `busy`, `declined`, ...). Return plain JSON, or `AgentImageResult` for a PNG.
+1. Page: add it to the matching `src/bootstrap/agent-tools-*.ts` (`state`, `edit`, `refine`, `auto`, `segmentation`; mask tools check `session.workflow` and read the mask through `getSegmentationDocumentSnapshot`, returning regions from `domain/annotations/mask-regions.ts`, never pixels) as `{ changesApp, run(args, { signal, progress }) }`. `changesApp: true` for anything that changes what the app shows or holds (refused while the person is busy or paused). Read arguments with `optionalArg`, `checkBox`, `checkClassId`; throw `AgentToolError(code, message)` with a code from `AgentErrorCode` (`not_found`, `invalid_args`, `busy`, `declined`, ...). Return plain JSON, or `AgentImageResult` for a PNG.
 2. Server: add an args struct (`#[serde(rename_all = "camelCase")]`, `schemars` descriptions written for the model) and a `#[tool]` method that calls `forward("<name>", ...)` to the matching router in `crates/el-mcp/src/main.rs`. Routers are combined in `EasyLabeling::new()`; `#[tool_handler(router = self.tool_router)]` must stay (the default reads only the first router). Add the name to the test list there. An `Option` that must stay "omitted" rather than `null` needs `skip_serializing_if`.
 3. Rust side, only if needed: a path check or approval in `prepare()`, a time limit in `time_limit()` (the default is 30 s; long work there or progress).
 4. Tests: a unit test next to the tool file (fake controller APIs), and a step in `tests/e2e/agent-desktop.spec.ts` that calls it through the real exe and checks the app with `__easyLabelingTestApi` or the files.
+
+## Segmentation tools and live view
+
+- `agent-tools-segmentation.ts` holds the mask tools. Mask math lives in DOM-free `src/domain/annotations/mask-*.ts` (`mask-regions` labelling, `mask-compare` scores, `mask-paint` shapes, `mask-fit` crops/edgeFit/snap, `mask-analysis` checks and clean-up); the tools only read the mask (`getSegmentationDocumentSnapshot`) and write it back through `editSegmentationMask(mutate)`, which records one undo step.
+- AI tools reach EdgeSAM through `prepareSegmentationAi` / `decodeSegmentationAi` (no prompt overlay or preview of the person's AI Select); a box prompt passes `roi` so the worker restores only that rectangle. Results are kept as box-sized `Crop`s, never whole-image masks, and applied by `resultId`.
+- Live view (MCP panel, `settings().liveView`): `withBoxReveal` in `agent-runtime.ts` hides and re-shows boxes a Detection tool added; segmentation AI tools draw each result through `beginSegmentationLiveEdit` / `liveSegmentationEdit` / `endSegmentationLiveEdit`, which restore the mask before the tool applies its result, so results and undo are the same with it on or off.
+- Folder runs on mask files (`clean_masks` with `scope`/`sample`/`images`) compute everything first, ask through `confirm`, back up under `mask/.easy-labeling/clean-masks-<time>`, then write, like the label folder runs.
+- The MCP server sends omitted `Option` arguments as `null`: test optional arguments with `== null`, never `=== undefined`.
+- Measure changes on the reference sets: `scripts/bench/make-reference-dataset.mjs` (boxes, `label_gt`) and `make-mask-reference-dataset.mjs` (masks, `mask_gt`, needs `npm run build`), scored with `compare_labels` / `compare_masks`.
 
 ## Seams and checks
 

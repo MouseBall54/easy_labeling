@@ -43,7 +43,7 @@ export interface EdgeFolderSummary {
     /** Images with the most flagged boxes (share of their boxes). */
     images: Array<{ image: string; boxes: number; moved: number; flagged: number; flaggedPercent: number }>;
   };
-  /** Population checks (box-statistics) on the boxes as Refine would leave them: size outliers, off-row/column, crowded, missing positions. */
+  /** Population checks (box-statistics) on the boxes as Refine would leave them: size outliers, off-row/column, crowded, overlapping duplicates, missing positions. */
   afterRefine: {
     counts: Record<BoxFindingType | "missing", number>;
     images: Array<{ image: string; counts: Record<BoxFindingType | "missing", number> }>;
@@ -97,7 +97,7 @@ export function summarizeEdgeFolder(images: readonly EdgeImageRecord[], options:
   let moved = 0;
   let flagged = 0;
   let withChanges = 0;
-  const afterCounts: Record<BoxFindingType | "missing", number> = { size: 0, "off-row": 0, "off-column": 0, crowded: 0, missing: 0 };
+  const afterCounts: Record<BoxFindingType | "missing", number> = { size: 0, "off-row": 0, "off-column": 0, crowded: 0, overlap: 0, missing: 0 };
   const afterImages: EdgeFolderSummary["afterRefine"]["images"] = [];
   for (const record of images) {
     const after = analyzeBoxes(record.boxes.map((box) => ({ ...box, ...(record.results.get(box.id)?.box ?? {}) })));

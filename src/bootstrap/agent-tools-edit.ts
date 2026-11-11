@@ -62,6 +62,10 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
     if (!state.session.currentImageFile || !image) throw new AgentToolError("no_image", "No image is shown. Use go_to_image first.");
     return { width: image.width, height: image.height };
   };
+  // Undo, redo and save act on whichever workflow is shown (the controller routes them).
+  const requireImage = (): void => {
+    if (!state.session.currentImageFile || !state.session.currentImage) throw new AgentToolError("no_image", "No image is shown. Use go_to_image first.");
+  };
   const rectsById = (): Map<string, FabricRectLike> => new Map(raw().getObjects("rect").filter(isRectObject).map((rect) => [ensureAnnotationId(rect), rect]));
   const findRects = (ids: unknown[]): FabricRectLike[] => {
     const byId = rectsById();
@@ -165,7 +169,7 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
   const history = (direction: "undo" | "redo"): AgentTool => ({
     changesApp: true,
     async run(args) {
-      imageSize();
+      requireImage();
       const steps = Math.min(UNDO_LIMIT, Math.max(1, Math.floor(optionalArg(args, "steps", "number") ?? 1)));
       const controller = raw();
       let done = 0;
@@ -181,7 +185,7 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
   const save: AgentTool = {
     changesApp: true,
     async run() {
-      imageSize();
+      requireImage();
       await deps.fileSystem.saveLabels();
       deps.afterEdit();
       return { saved: state.session.currentImageFile?.name ?? null, unsavedChanges: hasDirtyDocuments(state) };

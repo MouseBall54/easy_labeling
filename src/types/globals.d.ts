@@ -34,7 +34,7 @@ declare global {
       file(entry: { path: string; name: string; directory: boolean }): { getFile(): Promise<File> };
       /** The person's answer, in a native dialog, before an agent call changes label files across the folder. */
       confirm(message: string): Promise<boolean>;
-      /** The bridge's state for the Agent panel (src-tauri/src/agent.rs agent_status). */
+      /** The bridge's state for the MCP panel (src-tauri/src/agent.rs agent_status). */
       status(): Promise<Record<string, unknown>>;
       pathOf(handle: unknown): string | null;
     };
