@@ -117,7 +117,14 @@ test("Save and Auto save preserve outside boxes; explicit cleanup covers all ima
     await cleanup.click();
     expect(await readFile(path.join(comparison, "image.txt"), "utf8")).toBe(beforeCleanup);
     expect(await readFile(path.join(comparison, "second.txt"), "utf8")).toBe(secondBeforeCleanup);
-    const view = await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform());
+    // The canvas re-fits a few hundred ms after the window is resized back to 1280 x 720; take the view once it holds still.
+    let view: unknown = null;
+    await expect.poll(async () => {
+      const now = await page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getCanvasViewportTransform());
+      const settled = JSON.stringify(now) === JSON.stringify(view);
+      view = now;
+      return settled;
+    }, { intervals: [250] }).toBe(true);
     page.once("dialog", (dialog) => dialog.accept());
     await cleanup.click();
     await expect.poll(count).toBe(1);
