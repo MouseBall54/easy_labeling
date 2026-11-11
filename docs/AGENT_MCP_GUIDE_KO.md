@@ -131,7 +131,17 @@ claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.
 
 승인 창에서 허락하면 실행되고, 원본 TXT는 백업됩니다.
 
-> 폴더 전체를 "Tight" 프리셋으로 Refine 해줘.
+폴더 전체 Refine·Reclass는 먼저 dry run(파일을 쓰지 않는 미리보기)으로 숫자 요약을 받고, 괜찮으면 그 결과를 그대로 적용합니다.
+
+> 20장만 골라서 "Tight" 프리셋으로 Refine dry run 해줘. 검토 대상 비율, 이동 거리 분포, 이상치 박스 상위 5개만 알려줘.
+
+> 이상치 박스 3개만 확대 캡처해서 보여줘.
+
+> 괜찮네. 이번엔 폴더 전체로 dry run 해 보고, 요약이 비슷하면 그 결과로 적용해줘.
+
+적용은 dry run이 돌려준 `resultId`로 하므로 미리 본 결과가 그대로 쓰입니다. 그 사이 라벨 파일이 바뀌었으면 거절되니 dry run을 다시 하면 됩니다.
+
+> 지금 이미지의 클래스 0 박스 중에 크기가 튀거나 줄에서 벗어난 것, 빠진 자리가 있는지 숫자로 알려줘.
 
 ### 3.9 YOLO 추론
 
