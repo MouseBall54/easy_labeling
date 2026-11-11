@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AgentImageResult,
   AgentToolError,
+  STALE_ID_HINT,
   createAgentDispatcher,
   optionalArg,
   type AgentHost,
@@ -114,6 +115,11 @@ describe("agent dispatcher", () => {
       { ok: true, result: { width: 2 }, png },
       { ok: false, error: { code: "invalid_args", message: "Unknown tool: toString" } }
     ]);
+  });
+
+  it("an unknown box id says that ids change when an image loads", () => {
+    expect(new AgentToolError("not_found", "No box with annotationId x on the current image.").message).toBe(`No box with annotationId x on the current image. ${STALE_ID_HINT}`);
+    expect(new AgentToolError("invalid_args", "No box with annotationId x").message).toBe("No box with annotationId x");
   });
 
   it("follows the person's access settings and records every finished call", async () => {
