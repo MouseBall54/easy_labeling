@@ -31,7 +31,9 @@ to see what would move, then without dryRun (pass the returned annotationIds as 
 on flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Before run_reclass, read reclassRule from \
 get_refine_settings and try dryRun first. For a whole folder, judge by numbers rather than captures: dry-run refine_folder / \
 reclass_folder on a sample (sample: 20), read the summary (flagged share, shift and confidence spreads, outliers), capture only \
-the outliers, adjust, and write the accepted result with its resultId. Every edit is one undo step; folder-wide writes ask the person first.";
+the outliers, adjust, and write the accepted result with its resultId. When the person has reference labels (a folder of \
+checked label files inside the image folder), compare_labels is the score: measure before and after each change and keep what \
+raises F1 and lowers the edge error. Every edit is one undo step; folder-wide writes ask the person first.";
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 struct OpenFolderArgs {
@@ -90,6 +92,33 @@ struct AnalyzeBoxesArgs {
     #[schemars(description = "Index of the first finding (current image) or image (several images) to list (default 0)")]
     offset: Option<u32>,
     #[schemars(description = "Findings (default 50) or images (default 20) to list")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct CompareLabelsArgs {
+    #[schemars(description = "Folder inside the image folder holding the reference (ground truth) label files, e.g. \"label_gt\"")]
+    reference: String,
+    #[schemars(
+        description = "Folder inside the image folder holding the labels to score (default: the active label folder, and the canvas for the current image)"
+    )]
+    labels: Option<String>,
+    #[schemars(description = "Compare this many images spread evenly over the list (default: every image)")]
+    sample: Option<u32>,
+    #[schemars(description = "Or: compare these images")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Only this class")]
+    class_id: Option<Value>,
+    #[schemars(description = "Smallest IoU that pairs a label box with a reference box (default 0.5)")]
+    iou: Option<f64>,
+    #[schemars(description = "A pair counts as correct only when the classes agree (default true)")]
+    class_aware: Option<bool>,
+    #[schemars(description = "Boxes listed per worst-case list (misses, extras, wrongClass, edges; default 20)")]
+    outliers: Option<u32>,
+    #[schemars(description = "Index of the first image in perImage (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Images listed in perImage, lowest F1 first (default 20)")]
     limit: Option<u32>,
 }
 
@@ -451,6 +480,20 @@ impl EasyLabeling {
         ct: CancellationToken,
     ) -> CallToolResult {
         forward("analyze_boxes", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Score labels against reference (ground truth) labels in another folder of the image folder: boxes paired one-to-one by IoU, then precision, recall, F1, mean IoU, edge error in pixels (mean/median/p90/max), per-side bias (median outward offset; +2 on L means labels sit 2 px left of the reference edge), per class, class confusions, the images with the lowest F1, and the worst misses, extras, wrong classes and edges. Use it as the score when tuning Refine, matching or layouts: compare, change one setting, compare again. The current image uses the canvas (unsaved edits); other images use saved files.",
+        annotations(read_only_hint = true)
+    )]
+    async fn compare_labels(
+        &self,
+        Parameters(args): Parameters<CompareLabelsArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("compare_labels", to_value(&args), (meta, peer, ct)).await
     }
 
     #[tool(
@@ -1007,6 +1050,7 @@ mod tests {
                 "apply_layout",
                 "approve",
                 "capture_view",
+                "compare_labels",
                 "delete_boxes",
                 "find_similar",
                 "get_boxes",

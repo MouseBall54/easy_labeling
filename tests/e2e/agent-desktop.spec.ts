@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -123,7 +123,7 @@ test("an MCP agent reads, navigates and captures the open app", async () => {
   const { page, mcp, dataset, errors, close } = await openAgentApp();
   try {
     expect(await mcp.tools()).toEqual([
-      "add_boxes", "analyze_boxes", "app_state", "apply_layout", "approve", "capture_view", "delete_boxes", "find_similar", "get_boxes", "get_classes",
+      "add_boxes", "analyze_boxes", "app_state", "apply_layout", "approve", "capture_view", "compare_labels", "delete_boxes", "find_similar", "get_boxes", "get_classes",
       "get_refine_settings", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "read_labels",
       "reclass_folder", "redo", "refine_folder", "remap_classes", "review_folder", "review_queue", "run_inference",
       "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "select_boxes", "set_review_status", "undo", "update_boxes"
@@ -466,6 +466,50 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     expect(json(await mcp.call("set_review_status", { status: "reviewed" }))).toMatchObject({ images: ["a.png"], reviewedInFolder: 1, imageCount: 2 });
     const reviewState = JSON.parse(await readFile(path.join(dataset, ".easy-labeling/review-state.json"), "utf8"));
     expect(reviewState.images["a.png"].status).toBe("reviewed");
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent scores labels against reference labels", async () => {
+  test.setTimeout(180_000);
+  // scripts/bench/make-reference-dataset.mjs: label_gt = the sample's edge-tight SEM labels, label = the same labels damaged
+  // (seed 1: 1203 boxes, 56 dropped, 29 given class 11, 22 duplicated half a box away, every edge moved up to 3 px).
+  const { page, mcp, dataset, errors, close } = await openAgentApp({
+    dataset: async (folder) => { execFileSync(process.execPath, [path.join(root, "scripts/bench/make-reference-dataset.mjs"), folder]); }
+  });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    await expect.poll(() => testApi<string>(page, "api.getCurrentImageName()")).toBe("sample_metal_cross_section.png");
+
+    // The reference against itself is perfect.
+    const self = json(await mcp.call("compare_labels", { reference: "label_gt", labels: "label_gt" }));
+    expect(self).toMatchObject({ images: 2, precision: 1, recall: 1, f1: 1, meanIou: 1, edgeErrorPx: { max: 0 } });
+
+    // The damaged labels: every dropped box is missed, every class change is a confusion, edges are off by up to 3 px.
+    const score = json(await mcp.call("compare_labels", { reference: "label_gt", outliers: 3 }));
+    expect(score.boxes.reference).toBe(1203);
+    expect(score.boxes.misses).toBeGreaterThanOrEqual(56);
+    expect(score.confusions["10->11"]).toBeGreaterThan(20);
+    expect(score.edgeErrorPx.max).toBeLessThanOrEqual(3.01);
+    expect(score.recall).toBeGreaterThan(0.8);
+    expect(score.recall).toBeLessThan(0.95);
+    expect(score.worst.misses).toHaveLength(3);
+    expect(score.perImage.map((image: { image: string }) => image.image).sort()).toEqual(["sample_metal_cross_section.png", "sample_metal_pattern.png"]);
+
+    // The current image is scored from the canvas: deleting a matched box costs one correct box before any save.
+    const boxes = json(await mcp.call("get_boxes", { limit: 0 }));
+    const before = json(await mcp.call("compare_labels", { reference: "label_gt", images: ["sample_metal_cross_section.png"] }));
+    const matchedId = (before.worst.edges as Array<{ label: { id: string; classId: string }; reference: { classId: string } }>).find((pair) => pair.label.classId === pair.reference.classId)!.label.id;
+    json(await mcp.call("delete_boxes", { annotationIds: [matchedId] }));
+    const after = json(await mcp.call("compare_labels", { reference: "label_gt", images: ["sample_metal_cross_section.png"] }));
+    expect(after.boxes.labels).toBe(boxes.total - 1);
+    expect(after.boxes.correct).toBe(before.boxes.correct - 1);
+    json(await mcp.call("undo"));
+
+    expect(textOf(await mcp.call("compare_labels", { reference: "no_such_folder" }))).toMatch(/^not_found:/);
+    expect(textOf(await mcp.call("compare_labels", { reference: "../label_gt" }))).toMatch(/^invalid_args:/);
     expect(errors).toEqual([]);
   } finally {
     await close();

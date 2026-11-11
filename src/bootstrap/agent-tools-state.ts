@@ -4,12 +4,16 @@
  */
 import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
+import { matchBoxes, summarizeComparison, type ImageMatch } from "../domain/annotations/label-compare.js";
+import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { analyzeBoxes, type StatBox } from "../domain/refine/box-statistics.js";
 import { evenSample } from "../domain/refine/folder-summary.js";
 import { parseYoloRows } from "../domain/yolo/yolo.js";
 import { AgentImageResult, AgentToolError, LIST_PAGE_MAX, listPage, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
 import { getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { isNotFoundError, readTextFileByName } from "../platform/file-system-access.js";
+import type { DirectoryHandleLike } from "../types/files.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
@@ -30,6 +34,7 @@ const LIST_LIMIT = 1000;
 /** get_boxes without ids: boxes per page by default (SEM images often hold thousands). */
 const BOX_PAGE = 200;
 const CAPTURE_SIDE = { min: 256, max: 4096, default: 1280 };
+const round2 = (value: number): number => Math.round(value * 100) / 100;
 
 /** The current image's size in pixels (the canvas base image), or null when none is shown. */
 function imageSize(canvasController: RuntimeCanvasController): { width: number; height: number } | null {
@@ -241,6 +246,86 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     }
   };
 
+  /** A label folder inside the image folder, by name. */
+  const subfolder = async (name: string): Promise<DirectoryHandleLike> => {
+    if (!name || /[\\/]/.test(name) || name === "." || name === "..") throw new AgentToolError("invalid_args", `${name || "(empty)"}: give the name of a folder inside the image folder, e.g. "label_gt".`);
+    try {
+      return await (session.imageFolderHandle as unknown as DirectoryHandleLike).getDirectoryHandle(name);
+    } catch (error) {
+      if (isNotFoundError(error)) throw new AgentToolError("not_found", `No folder named ${name} in the image folder.`);
+      throw error;
+    }
+  };
+  const readRows = async (folder: DirectoryHandleLike, image: string, width: number, height: number): Promise<StatBox[]> => {
+    let text = "";
+    try { text = await readTextFileByName(folder, `${imageFileNameToBaseName(image)}.txt`); } catch (error) { if (!isNotFoundError(error)) throw error; }
+    return parseYoloRows(text, width, height).map((row, index) => ({ id: String(index), classId: row.labelClass, x0: row.rectLeft, y0: row.rectTop, x1: row.rectLeft + row.rectWidth, y1: row.rectTop + row.rectHeight }));
+  };
+
+  const compareLabels: AgentTool = {
+    changesApp: false,
+    async run(args, context) {
+      requireFolder();
+      const referenceName = optionalArg(args, "reference", "string");
+      if (!referenceName) throw new AgentToolError("invalid_args", "reference is required: the name of the folder inside the image folder that holds the reference (ground truth) label files.");
+      const reference = await subfolder(referenceName);
+      const labelsName = optionalArg(args, "labels", "string");
+      const labels = labelsName ? await subfolder(labelsName) : session.labelFolderHandle as unknown as DirectoryHandleLike | null;
+      if (!labels) throw new AgentToolError("no_folder", "The open folder has no label folder; pass labels.");
+      const minIou = optionalArg(args, "iou", "number") ?? 0.5;
+      if (!(minIou > 0 && minIou <= 1)) throw new AgentToolError("invalid_args", "iou must be above 0 and at most 1.");
+      const classFilter = args.classId === undefined || args.classId === null ? null : String(args.classId);
+      const keep = (boxes: StatBox[]) => classFilter === null ? boxes : boxes.filter((box) => box.classId === classFilter);
+      const files = session.imageFiles;
+      let indexes = files.map((_, index) => index);
+      if (Array.isArray(args.images)) {
+        const names = args.images.map(String);
+        const missingNames = names.filter((name) => !files.some((file) => file.name === name));
+        if (missingNames.length) throw new AgentToolError("not_found", `No image named ${missingNames.slice(0, 5).join(", ")} in the open folder.`);
+        indexes = names.map((name) => files.findIndex((file) => file.name === name));
+      } else {
+        const sample = optionalArg(args, "sample", "number");
+        if (sample !== undefined) {
+          if (!Number.isInteger(sample) || sample < 1) throw new AgentToolError("invalid_args", "sample must be a whole number of images, 1 or more.");
+          indexes = evenSample(files.length, sample);
+        }
+      }
+      const matches: ImageMatch[] = [];
+      // The current image compares the canvas (unsaved edits, annotationIds) unless another label folder was named.
+      const canvasImage = !labelsName && session.labelFolderHandle ? session.currentImageFile?.name ?? null : null;
+      for (const [done, index] of indexes.entries()) {
+        if (context.signal.aborted) throw new AgentToolError("cancelled", "Cancelled.");
+        context.progress(done, indexes.length, files[index]!.name);
+        const file = files[index]!;
+        const shown = file.name === canvasImage ? imageSize(canvasController) : null;
+        // ponytail: decodes each other image only for its size; read sizes from the file headers if folders of large TIFFs make this slow.
+        let size = shown;
+        if (!size) {
+          const image = await fileSystem.decodeImageForAutomation(file);
+          size = { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height };
+        }
+        const labelBoxes = shown ? canvasStatBoxes() : await readRows(labels, file.name, size.width, size.height);
+        matches.push(matchBoxes(file.name, keep(labelBoxes), keep(await readRows(reference, file.name, size.width, size.height)), minIou));
+      }
+      const outliers = Math.min(LIST_PAGE_MAX, Math.max(0, Math.floor(optionalArg(args, "outliers", "number") ?? 20)));
+      const summary = summarizeComparison(matches, { classAware: args.classAware !== false, limit: outliers });
+      const pixels = (box: StatBox) => ({ id: box.id, classId: box.classId, x0: round2(box.x0), y0: round2(box.y0), x1: round2(box.x1), y1: round2(box.y1) });
+      const page = listPage(summary.perImage, args, 20);
+      return {
+        reference: referenceName, labels: labelsName ?? pathOrName(session.labelFolderHandle as { name?: string } | null), iou: minIou, classAware: args.classAware !== false,
+        units: "pixels", ids: canvasImage ? `label ids on ${canvasImage} are annotationIds (the canvas, unsaved edits included); elsewhere ids are label-file row indexes` : "ids are label-file row indexes",
+        ...summary,
+        perImage: page.items, perImageTotal: page.total, truncated: page.truncated,
+        worst: {
+          misses: summary.worst.misses.map((item) => ({ image: item.image, reference: pixels(item.reference) })),
+          extras: summary.worst.extras.map((item) => ({ image: item.image, label: pixels(item.label) })),
+          wrongClass: summary.worst.wrongClass.map((item) => ({ ...item, label: pixels(item.label), reference: pixels(item.reference) })),
+          edges: summary.worst.edges.map((item) => ({ ...item, label: pixels(item.label), reference: pixels(item.reference) }))
+        }
+      };
+    }
+  };
+
   const readLabels: AgentTool = {
     changesApp: false,
     async run(args) {
@@ -284,6 +369,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     get_boxes: getBoxes,
     read_labels: readLabels,
     analyze_boxes: analyzeBoxesTool,
+    compare_labels: compareLabels,
     capture_view: captureView
   };
 }

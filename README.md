@@ -36,7 +36,7 @@ Easy Labeling은 SEM/TEM 같은 이미지에 라벨을 다는 **로컬 이미지
 
 - Claude Code 등록: `claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.exe"`
 - 앱 왼쪽 레일의 **Agent** 버튼: 연결 상태, 에이전트 앱별 등록 내용 복사, 권한, 활동 기록
-- 연결 방법, 도구 34개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
+- 연결 방법, 도구 35개, 안전 장치: [docs/AGENT_MCP_GUIDE_KO.md](docs/AGENT_MCP_GUIDE_KO.md)
 
 ## 데이터 형식
 

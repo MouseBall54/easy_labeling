@@ -28,7 +28,7 @@ Easy Labeling 데스크톱 앱(Windows 설치형)은 Claude Code, Claude Desktop
 | 그 밖의 MCP 클라이언트 | 클라이언트의 MCP 서버 설정 | 이름 `easy-labeling`, stdio, 명령 = 서버 경로 |
 
 - **시간 제한**: 폴더 전체 Refine이나 전체 이미지 추론은 몇 분 걸릴 수 있습니다. Codex(기본 60초)와 Gemini CLI는 설정 예시의 시간 제한 값을 그대로 쓰세요. 서버는 긴 작업 중 15초마다 진행 알림을 보내서, 진행 알림으로 시간 제한을 늘리는 클라이언트에서는 끊기지 않습니다.
-- **로컬 모델**: MCP는 클라이언트 기능이라 모델 회사와 상관없이 씁니다. 도구 호출(tool calling)을 지원하는 모델을 MCP를 지원하는 클라이언트(LM Studio 등)에서 고르면 됩니다. 작은 모델은 도구 34개 중 필요한 것을 고르는 데 서툴 수 있으니, 처음에는 "app_state를 불러서 알려줘"처럼 도구 이름을 짚어 시켜 보세요.
+- **로컬 모델**: MCP는 클라이언트 기능이라 모델 회사와 상관없이 씁니다. 도구 호출(tool calling)을 지원하는 모델을 MCP를 지원하는 클라이언트(LM Studio 등)에서 고르면 됩니다. 작은 모델은 도구 35개 중 필요한 것을 고르는 데 서툴 수 있으니, 처음에는 "app_state를 불러서 알려줘"처럼 도구 이름을 짚어 시켜 보세요.
 - **호환성**: 도구 입력 형식은 Gemini 계열이나 OpenAI 호환 클라이언트도 받아들이는 단순한 JSON Schema로만 내보냅니다. 오래된 MCP 버전(`2024-11-05`)을 쓰는 클라이언트도 연결됩니다.
 
 직접 입력하는 예:
@@ -55,12 +55,12 @@ claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.
 
 사용할 때는 **Easy Labeling 앱을 먼저 실행해 둡니다.** 앱이 꺼져 있으면 모든 도구가 `app_not_running`을 돌려주고, 에이전트가 앱을 대신 띄우지 않습니다. 앱 버전과 MCP 서버 버전이 다르면 `version_mismatch`가 나오니, 같은 설치 파일로 설치된 것을 씁니다.
 
-## 2. 에이전트가 할 수 있는 일 (도구 34개)
+## 2. 에이전트가 할 수 있는 일 (도구 35개)
 
 | 분류 | 도구 | 하는 일 |
 |---|---|---|
 | 상태·탐색 | `app_state`, `open_folder`, `list_images`, `go_to_image`, `get_classes` | 앱 상태 확인, 폴더 열기(**사람 승인**), 이미지 목록과 이동, 클래스 목록 |
-| 박스 읽기 | `get_boxes`, `read_labels`, `capture_view`, `analyze_boxes` | 현재 이미지의 박스(저장 전 편집 포함, 픽셀 좌표, 한 번에 200개씩 나눠 받고 클래스별 개수는 항상 포함), 다른 이미지의 라벨 파일(정규화 좌표), 화면 캡처(PNG) 또는 박스 하나·영역을 확대한 캡처(사람 화면은 그대로), 클래스별 집단 검사(크기 이상치, 행·열에서 벗어난 박스, 너무 촘촘한 박스, 간격이 건너뛴 자리 = 놓친 물체와 그 추정 위치. 현재 이미지 또는 `sample`·`images`로 저장된 라벨 파일) |
+| 박스 읽기 | `get_boxes`, `read_labels`, `capture_view`, `analyze_boxes`, `compare_labels` | 현재 이미지의 박스(저장 전 편집 포함, 픽셀 좌표, 한 번에 200개씩 나눠 받고 클래스별 개수는 항상 포함), 다른 이미지의 라벨 파일(정규화 좌표), 화면 캡처(PNG) 또는 박스 하나·영역을 확대한 캡처(사람 화면은 그대로), 클래스별 집단 검사(크기 이상치, 행·열에서 벗어난 박스, 너무 촘촘한 박스, 간격이 건너뛴 자리 = 놓친 물체와 그 추정 위치. 현재 이미지 또는 `sample`·`images`로 저장된 라벨 파일), 기준 라벨(정답) 비교(이미지 폴더 안의 다른 라벨 폴더와 IoU로 짝지어 정밀도·재현율·F1, 경계 오차 px, 변별 치우침, 클래스 혼동, 놓친·남는 박스. 현재 이미지는 저장 전 편집 포함) |
 | 박스 편집 | `add_boxes`, `update_boxes`, `delete_boxes`, `select_boxes`, `undo`, `redo`, `save` | 추가·이동·크기·클래스 변경·삭제·선택, 되돌리기, 저장 |
 | Refine·검수 | `get_refine_settings`, `run_refine`, `run_reclass`, `review_queue`, `approve`, `review_folder`, `set_review_status` | Refine pane과 같은 동작(`dryRun`이면 바뀔 결과만 보고 적용하지 않음), 검수 대기 목록과 승인, 폴더 전체 라벨 검사, 이미지별 Reviewed / Needs review 표시 |
 | 폴더 전체 변경 | `refine_folder`, `reclass_folder`, `remap_classes` | 모든 이미지의 라벨 파일 변경(**사람 승인**, 원본 백업). 셋 다 기본이 미리보기(dry run)입니다. `refine_folder`·`reclass_folder`의 dry run은 파일을 쓰지 않고 숫자 요약(움직인·검토 대상 박스 수, 이동 거리·면적 변화·신뢰도 분포, 클래스별, 먼저 볼 이상치 박스와 이미지)과 `resultId`를 돌려주며, `sample`(예: 20장)이나 `images`로 일부만 볼 수 있습니다. `resultId`로 적용하면 미리 본 결과를 그대로 쓰고, 그 사이 바뀐 파일이 있으면 거절합니다 |
@@ -142,6 +142,18 @@ claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.
 적용은 dry run이 돌려준 `resultId`로 하므로 미리 본 결과가 그대로 쓰입니다. 그 사이 라벨 파일이 바뀌었으면 거절되니 dry run을 다시 하면 됩니다.
 
 > 지금 이미지의 클래스 0 박스 중에 크기가 튀거나 줄에서 벗어난 것, 빠진 자리가 있는지 숫자로 알려줘.
+
+### 3.8a 정답 라벨과 비교해 설정 맞추기
+
+검수를 끝낸 라벨을 이미지 폴더 안의 다른 폴더(예: `label_gt`)에 두면, 에이전트가 그 폴더를 정답으로 점수를 매깁니다. 설정을 바꿀 때마다 점수가 올랐는지 숫자로 확인할 수 있습니다.
+
+> `label_gt`를 정답으로 지금 라벨 점수 매겨줘. F1, 경계 오차, 어느 변이 치우쳤는지, 놓친 박스 상위 5개 알려줘.
+
+> 20장 표본으로 Refine dry run 결과를 적용한 것과 안 한 것 중 어느 쪽이 `label_gt`에 더 가까운지 비교해줘.
+
+변별 치우침(`edgeBiasPx`)이 +2이면 라벨이 정답보다 그 변에서 2 px 바깥에 있다는 뜻입니다. 현재 이미지는 저장하지 않은 편집까지 점수에 들어가고, 다른 이미지는 저장된 파일로 계산합니다.
+
+연습용 데이터: `node scripts/bench/make-reference-dataset.mjs <폴더>`는 샘플의 SEM 이미지 두 장(박스 1203개)에 정답 `label_gt`와, 같은 라벨을 일부러 망가뜨린 `label`(경계 ±3 px, 5% 삭제, 3% 클래스 오류, 2% 중복)을 만듭니다. 에이전트에게 `label`을 고치게 하고 `compare_labels`로 점수를 확인합니다.
 
 ### 3.9 YOLO 추론
 

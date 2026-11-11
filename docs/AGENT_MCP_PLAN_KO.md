@@ -465,6 +465,15 @@ YOLOE 관련 도구는 이 계획에 넣지 않습니다([13장](#13-나중에-y
 
 검증: unit 648 통과(새 `box-statistics.test.ts` 4개: 고른 격자는 아무것도 걸리지 않음, 빠진 자리 하나를 한 번만 추정 중심과 함께, 큰 박스·행에서 벗어난 박스·촘촘한 추가 박스, 클래스 분리와 4개 미만 미판단). e2e `agent-desktop` 8개: `find_similar`로 8×8 격자를 채운 뒤 클래스 0 검사가 크기·정렬 문제 0, 빠진 자리 정확히 3개를 클래스 1 박스 중심(±4 px)에서 찾음, 두 이미지 라벨 파일 검사, 폴더 dry run 요약의 `afterRefine`.
 
+#### 8.6 결과 (2026-11-11, 완료)
+
+- **비교 모듈** `src/domain/annotations/label-compare.ts`(새 파일, DOM 없음): 라벨과 기준 박스를 IoU 큰 순서로 1:1 짝짓습니다(클래스 무시, 그래서 자리는 맞고 클래스만 틀린 박스는 놓침+남는 박스가 아니라 클래스 혼동으로 셉니다). 정밀도·재현율·F1(`classAware`면 클래스가 같은 짝만 정답), 평균 IoU, 네 변 경계 오차(px, 평균·중앙·p90·최대), 변별 치우침(라벨 − 기준의 바깥쪽 거리 중앙값), 클래스별, 혼동 `"기준->라벨"`, F1 낮은 이미지 순, 놓친·남는·클래스 오류·경계 오차 최악 목록.
+- **도구 `compare_labels`**(읽기 전용, 도구 35개): `reference`는 이미지 폴더 안의 폴더 이름(웹에서도 같은 핸들로 읽힘). `labels`를 주지 않으면 활성 라벨 폴더이고 현재 이미지는 캔버스(저장 전 편집, `annotationId`), 그 밖은 저장된 파일(행 번호). 기본은 모든 이미지, `sample`·`images`·`classId`·`iou`(기본 0.5)·`classAware`. 다른 이미지는 픽셀 환산을 위해 디코드합니다(큰 TIFF 폴더에서 느리면 헤더에서 크기 읽기로).
+- **기준 데이터** `scripts/bench/make-reference-dataset.mjs`: 샘플 중 경계가 맞는 SEM 라벨 두 장(`sample_metal_pattern` 918개, `sample_metal_cross_section` 285개, 겹쳐 그려 확인)을 `label_gt`로, 같은 라벨을 시드 고정으로 망가뜨린 것을 `label`로(경계 ±3 px, 5% 삭제, 3% 클래스 11, 2% 반 칸 옆 중복). `sample_grid_cells`·`sample_particles`의 라벨은 물체와 어긋나 정답에서 뺐습니다.
+- 시드 1의 점수: F1 0.868(정밀도 0.881, 재현율 0.856), 평균 IoU 0.692, 경계 오차 평균 1.46 px·최대 3 px, 치우침 0, 혼동 `10->11` 28개. 놓친 145개 중 삭제한 56개를 뺀 89개는 경계가 ±3 px 움직여 IoU 0.5 아래로 떨어진 박스입니다(작은 박스일수록 잘 떨어짐).
+
+검증: unit 652 통과(새 `label-compare.test.ts` 4개: IoU, 가까운 박스가 이기는 1:1 짝짓기, 정밀도·재현율·혼동·경계 오차, 치우침과 이미지 순서). e2e `agent-desktop` 9개: 기준 대 기준은 F1 1, 망가뜨린 라벨은 놓침 ≥ 56·혼동 > 20·경계 오차 ≤ 3 px, 캔버스에서 박스 하나를 지우면 저장 없이 정답 수가 하나 줄어듦, 없는 폴더 `not_found`, `../` `invalid_args`.
+
 ## 6. 파일 목록 요약
 
 | 새 파일 / 바뀌는 파일 | 단계 |
@@ -525,7 +534,7 @@ Claude Desktop, Cursor, Codex는 각 클라이언트의 MCP 설정 파일에 같
 | 5 배포·문서 | 완료 (2026-11-11) | 미커밋, v3.4.0 | `tauri:dist:win`으로 사이드카 포함 설치 파일 생성(NSIS 스크립트 확인), 사이드카 없이 기본 빌드 통과, release MCP 서버 확인 | 커밋·PR·릴리스 |
 | 6 Agent 패널·여러 클라이언트 | 완료 (2026-11-11) | 미커밋, v3.4.0 | unit 634, Rust 5, e2e 18, 패널 스크린샷, 오래된 프로토콜 초기화 | 실제 다른 클라이언트(Cursor, Gemini CLI, OpenCode 등)로 연결 시험 |
 | 7 주요 기능 활용 보강 | 완료 (2026-11-11) | PR #52, v3.4.0 | unit 639, Rust 5, e2e 8(agent-desktop) + 31(refine·automation·layout), 확대 캡처 확인 | 8단계로 이어짐 |
-| 8 전문가 수준 활용 (숫자 판단, 폴더 단위) | 진행 중 (2026-11-11~), 8.1~8.3 완료 | 8.1·8.2 PR #55, 8.3 미커밋, v3.4.0 | 8.1: unit 644, Rust 31, e2e 50 (agent-desktop 8, tauri-desktop 18, refine-edges 24). 8.2: unit 644, e2e agent-desktop 8. 8.3: unit 648, e2e agent-desktop 8 | 8.4~8.8 |
+| 8 전문가 수준 활용 (숫자 판단, 폴더 단위) | 진행 중 (2026-11-11~), 8.1~8.3·8.6 완료 | 8.1~8.3 PR #55 (v3.4.0), 8.6 미커밋 | 8.1: unit 644, Rust 31, e2e 50 (agent-desktop 8, tauri-desktop 18, refine-edges 24). 8.2: unit 644, e2e agent-desktop 8. 8.3: unit 648, e2e agent-desktop 8 | 8.4~8.8 |
 
 ## 11. 나중에: 헤드리스 대체 경로
 

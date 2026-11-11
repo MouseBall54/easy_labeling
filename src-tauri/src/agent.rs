@@ -90,8 +90,8 @@ fn time_limit(tool: &str) -> Duration {
     Duration::from_secs(match tool {
         // Folder-wide runs wait for the person's approval and then go through every image.
         "refine_folder" | "reclass_folder" | "remap_classes" | "review_folder" | "run_inference" => 4 * 3600,
-        // Several images' label files read in the page.
-        "analyze_boxes" => 300,
+        // Several images' label files (and image sizes) read in the page.
+        "analyze_boxes" | "compare_labels" => 300,
         // The first template match starts OpenCV.js; a model load compiles the ONNX graph.
         "open_folder" | "run_refine" | "run_reclass" | "run_template_matching" | "find_similar" | "load_model" => 300,
         "go_to_image" => 60,
