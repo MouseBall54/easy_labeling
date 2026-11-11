@@ -22,8 +22,9 @@ workflows sharing one canvas and one `AppState`:
 
 No backend: it reads/writes an image folder directly via the File System
 Access API (see **app-shell-and-file-io**). It also ships as a Windows
-desktop app via Tauri (WebView2). Default docs/UI language is Korean
-(`README.md`, `README.ko.md`).
+desktop app via Tauri (WebView2). User docs are Korean (`README.md`,
+`docs/FEATURES_AND_OPTIONS_KO.md`, the user guide to every feature and
+shortcut; keep it in step with UI changes); UI strings are English.
 
 ## Related skills (pick the deeper one for the actual task)
 

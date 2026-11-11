@@ -42,7 +42,8 @@ jobs:
       - name: Prepare static site artifact
         run: |
           mkdir -p _site
-          cp -r index.html privacy.html privacy_ko.html css dist vendor _site/
+          # Everything the page loads at runtime; a folder missing here 404s only on Pages (the local server serves the whole repo).
+          cp -r index.html privacy.html privacy_ko.html css dist vendor workers assets resources _site/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

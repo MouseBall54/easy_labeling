@@ -1,8 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/** Stage-2 evidence screenshots: tracked docs are refreshed only with UPDATE_DOC_SCREENSHOTS=1. */
-const evidence = (name: string): string =>
-  `${process.env.UPDATE_DOC_SCREENSHOTS === "1" ? "docs/ux-improvements" : "test-results/ux-improvements"}/20261006-stage2/${name}`;
+/** Stage-2 evidence screenshots (test-results only). */
+const evidence = (name: string): string => `test-results/ux-improvements/20261006-stage2/${name}`;
 
 async function loadSample(page: Page): Promise<void> {
   await page.goto("/index.html", { waitUntil: "domcontentloaded" });

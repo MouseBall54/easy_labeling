@@ -227,7 +227,7 @@ Processed 보기(B)는 4단계와 같은 테스트로 쟀다(4회). 4단계 값�
 | 2026-10-13 | refine 반복 실행 | 2048×1536, 600박스 | Rust (Tauri) | 33ms | 같음 |
 | 2026-10-13 | refine on Processed | 2048×1536, 600박스 | TS worker | 684ms | 같음 |
 | 2026-10-13 | refine on Processed | 2048×1536, 600박스 | Rust (Tauri) | 141ms | 같음 |
-| 2026-10-07 | 현재 라벨 로딩(파싱) | 5,000박스 | TS | 1.8ms | `docs/LABEL_LOADING_FAST_PATH_KO.md` |
+| 2026-10-07 | 현재 라벨 로딩(파싱) | 5,000박스 | TS | 1.8ms | git 기록 `af322bde`의 `docs/LABEL_LOADING_FAST_PATH_KO.md` |
 | 2026-10-07 | Rect 생성·초기 글자 배치 | 5,000박스 | TS(fabric) | 84.5ms | 같음 |
 | 2026-10-07 | 캔버스 적용·UI 갱신 | 5,000박스 | TS(fabric) | 176.7ms | 같음 |
 | 2026-10-07 | 폴더 전체 Review | 60장 × 5,000박스 | TS worker | 2,964.4ms | 같음 |

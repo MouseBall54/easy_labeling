@@ -91,8 +91,7 @@ stale Vite servers on :4173 after a rebuild break `bootstrap-smoke`, a
 handful of specs fail on main already (listed there), and the full suite
 must run sequentially with nothing else rebuilding `dist/`. Use the
 `verify` skill for per-change checks and `e2e-full` for the whole suite.
-Screenshots go to `test-results/`; `ux-stage2` writes tracked
-`docs/ux-improvements/` images only with `UPDATE_DOC_SCREENSHOTS=1`.
+Screenshots go to `test-results/`; no spec writes into tracked `docs/`.
 
 ## Versioning
 

@@ -2,8 +2,7 @@ import { expect, test } from "@playwright/test";
 
 // Regression guard for a real, measured problem: rendering with 200+ detection
 // boxes on screen was slow because every box previously carried a second,
-// separate Fabric Text object as its label (see docs/PERFORMANCE_IMPROVEMENT_PLAN.md,
-// item 1). tests/unit/performance/detection-bulk-performance.test.ts cannot
+// separate Fabric Text object as its label (measured 2026-09-16). tests/unit/performance/detection-bulk-performance.test.ts cannot
 // catch this class of regression because it renders against a fake Fabric
 // canvas whose renderAll() is a no-op call counter, not real per-object
 // compositing cost. This spec patches the real fabric.Canvas.prototype.renderAll

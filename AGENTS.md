@@ -82,12 +82,13 @@ E2E pitfalls that look like regressions but are not:
 - Never hand-edit generated output: `dist/`, `vendor/`, `node_modules/`, `release/`, `test-results/`, `output/`.
 - Keyboard shortcuts: check every existing binding in `event-manager-adapter.ts` before adding one, match on `event.code` (works with the Korean IME), and add a collision test like `tests/unit/bootstrap/refine-shortcuts.test.ts`. Show shortcuts in `title` tooltips, not inside buttons.
 - Prefer extending `window.__easyLabelingTestApi` (bottom of `src/main.ts`) over DOM scraping in e2e specs.
-- E2E screenshots go to `test-results/`; specs write to tracked `docs/` only when `UPDATE_DOC_SCREENSHOTS=1`.
+- E2E screenshots go to `test-results/`, never into tracked `docs/`.
 - Image filters must keep edge positions (Refine reads processed images); cover new filters with an edge-position test like `tests/unit/features/segmentation/gray-filters.test.ts`. Keep neutral settings producing the old preprocessing cache key.
 - The working tree uses CRLF on Windows (`.gitattributes: * text=auto`); scripts that rewrite files must preserve the existing line endings.
 - Commit by verified unit of work. Keep build outputs, app profiles, copied datasets and local screenshots out of commits.
 
-## UI/UX improvement stages
+## User docs
 
-- Before continuing UI/UX work, read `docs/UI_UX_PROGRESS_KO.md` and the linked audit, and follow the next unfinished stage. Preserve Detection/Segmentation, light/dark themes, source labels and existing preset formats.
-- Record each audit ID's status, verification and remaining work in the progress document; mark an item complete only after its acceptance checks pass. Update README progress links when their location changes.
+- `README.md` is the entry point; `docs/FEATURES_AND_OPTIONS_KO.md` describes every screen, option and shortcut as the app has it now. A change to UI labels, defaults, ranges, shortcuts or saved formats updates that guide in the same change; describe only what the app does today (no notes on removed features or past versions).
+- The MCP tools are described in `docs/AGENT_MCP_GUIDE_KO.md` (people) and in the tool descriptions in `crates/el-mcp` (agents, English).
+- Plans, audits and one-off measurement reports do not go in `docs/` once the work is done; keep numbers in `docs/migration/BENCH.md` and decisions in the commit or PR.

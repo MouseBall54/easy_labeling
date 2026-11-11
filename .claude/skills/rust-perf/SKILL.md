@@ -21,7 +21,7 @@ Correct first, then measure (`perf-baseline`), then optimise only the measured h
 
 ## Boxes
 - Refine and review are independent per box/image: `par_iter`, share params by reference.
-- Review pairs are O(n^2) today; any pruning must keep exact parity on dense overlaps (see docs/LABEL_LOADING_FAST_PATH_KO.md).
+- Review pairs are O(n^2) today; any pruning must keep exact parity on dense overlaps.
 
 ## Allocation
 - Reuse buffers in hot loops (`for_each_init`, `Vec::with_capacity` + `clear`); avoid `clone`/`to_vec`/`format!` per item.
