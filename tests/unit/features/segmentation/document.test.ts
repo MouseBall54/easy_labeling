@@ -138,4 +138,25 @@ describe("features/segmentation/document", () => {
     document.redo();
     expect(document.getClassAtPoint({ x: 4, y: 3 })).toBe("6");
   });
+
+  it("keeps history entries intact across repeated undo/redo and edits after them", () => {
+    const document = createSegmentationDocument({ width: 10, height: 10, activeClassId: "2", brushRadius: 1 });
+    document.applyStroke({ points: [{ x: 2, y: 2 }] });
+    for (let round = 0; round < 3; round += 1) {
+      document.undo();
+      expect(document.getPixel(2, 2)).toBe(0);
+      document.redo();
+      expect(document.getPixel(2, 2)).toBe(2);
+    }
+    document.undo();
+    document.redo();
+    document.setActiveClass("10");
+    document.applyStroke({ points: [{ x: 6, y: 6 }] });
+    expect(document.getSummary().allClassIds).toEqual(["2", "10"]);
+    document.undo();
+    expect(document.getPixel(6, 6)).toBe(0);
+    expect(document.getPixel(2, 2)).toBe(2);
+    document.undo();
+    expect(document.getPixel(2, 2)).toBe(0);
+  });
 });

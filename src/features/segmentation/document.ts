@@ -129,6 +129,22 @@ function cloneSnapshot(snapshot: SegmentationDocumentSnapshot): SegmentationDocu
   };
 }
 
+// One pass over the mask with a presence table; the old per-pixel String() + Set
+// scan ran on every overlay sync and grew with the painted area.
+function collectClassIds(mask: Uint16Array): string[] {
+  const present = new Uint8Array(65536);
+  for (let index = 0; index < mask.length; index += 1) {
+    present[mask[index] as number] = 1;
+  }
+  const classIds: string[] = [];
+  for (let classId = 1; classId < present.length; classId += 1) {
+    if (present[classId] === 1) {
+      classIds.push(String(classId));
+    }
+  }
+  return classIds;
+}
+
 function snapshotsEqual(left: SegmentationDocumentSnapshot, right: SegmentationDocumentSnapshot): boolean {
   if (
     left.width !== right.width ||
@@ -291,10 +307,7 @@ export function createSegmentationDocument(input: {
         return false;
       }
 
-      past.push({
-        before: cloneSnapshot(before),
-        after: cloneSnapshot(after)
-      });
+      past.push({ before: cloneSnapshot(before), after });
       future.length = 0;
       return true;
     },
@@ -343,24 +356,15 @@ export function createSegmentationDocument(input: {
       }
 
       const normalized = normalizeClassId(classId);
-      const allClassIds = doc.getAllClassIds();
-      hiddenClassIds = new Set(allClassIds.filter((value) => value !== normalized));
+      hiddenClassIds = new Set(collectClassIds(mask).filter((value) => value !== normalized));
     },
 
     getVisibleClassIds(): string[] {
-      return doc.getAllClassIds().filter((classId) => !hiddenClassIds.has(classId));
+      return collectClassIds(mask).filter((classId) => !hiddenClassIds.has(classId));
     },
 
     getAllClassIds(): string[] {
-      const classes = new Set<string>();
-      for (let index = 0; index < mask.length; index += 1) {
-        const classId = mask[index];
-        if (classId === 0) {
-          continue;
-        }
-        classes.add(String(classId));
-      }
-      return [...classes].sort((left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10));
+      return collectClassIds(mask);
     },
 
     getHiddenClassIds(): string[] {
@@ -571,10 +575,7 @@ export function createSegmentationDocument(input: {
       if (!entry) {
         return false;
       }
-      future.push({
-        before: cloneSnapshot(entry.before),
-        after: cloneSnapshot(entry.after)
-      });
+      future.push(entry);
       doc.restoreSnapshot(entry.before);
       return true;
     },
@@ -584,15 +585,13 @@ export function createSegmentationDocument(input: {
       if (!entry) {
         return false;
       }
-      past.push({
-        before: cloneSnapshot(entry.before),
-        after: cloneSnapshot(entry.after)
-      });
+      past.push(entry);
       doc.restoreSnapshot(entry.after);
       return true;
     },
 
     getSummary(): SegmentationSummary {
+      const allClassIds = collectClassIds(mask);
       return {
         activeClassId,
         activeTool,
@@ -601,8 +600,8 @@ export function createSegmentationDocument(input: {
         overlayOpacity,
         edgeHighlightVisible,
         edgeHighlightIntensity,
-        visibleClassIds: doc.getVisibleClassIds(),
-        allClassIds: doc.getAllClassIds(),
+        visibleClassIds: allClassIds.filter((classId) => !hiddenClassIds.has(classId)),
+        allClassIds,
         hiddenClassIds: doc.getHiddenClassIds()
       };
     }
