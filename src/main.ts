@@ -16,6 +16,7 @@ import { createUiManagerAdapter, type RuntimeUiManager } from "./bootstrap/ui-ma
 import { ensureAnnotationId, isActiveSelectionObject, isRectObject } from "./features/canvas/fabric-types.js";
 import { normalizeFilterClassKey } from "./ui/filter-state.js";
 import { installModalDragging } from "./ui/modal-drag.js";
+import { attachPresetPickers } from "./ui/preset-picker.js";
 
 export type { CdnRuntimeGlobals };
 
@@ -181,6 +182,7 @@ function bootstrapBrowserRuntime(): void {
   }
 
   appResult.app.init();
+  attachPresetPickers(document, window);
 
   const runtimeUiManager = appResult.app.uiManager as RuntimeUiManager;
   const runtimeCanvasController = appResult.app.canvasController as RuntimeCanvasController;

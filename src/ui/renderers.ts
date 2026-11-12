@@ -4,6 +4,7 @@ import type { FileHandle } from "../types/files.js";
 import { UNLABELED_FILTER_KEY } from "./filter-state.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import type { ClassFileRow } from "../domain/class-files.js";
+import { classFilePath } from "../features/classes/class-file-service.js";
 import type { ReviewFinding, ReviewStateDocument } from "../features/review/types.js";
 import { isThumbnailableFileName, THUMBNAIL_SIZE_PX } from "./image-thumbnails.js";
 
@@ -112,7 +113,7 @@ export function hideLoadingOverlay(loadingOverlayElement: HTMLElement): void {
   loadingOverlayElement.classList.remove("show");
 }
 
-function compareFileNames(a: FileHandle, b: FileHandle): number {
+function compareFileNames(a: { name: string }, b: { name: string }): number {
   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
 }
 
@@ -260,6 +261,7 @@ export function renderClassFileSelect(
   const createNewOption = document.createElement("option");
   createNewOption.value = CREATE_NEW_CLASS_FILE_VALUE;
   createNewOption.textContent = "＋ Create new class file...";
+  createNewOption.dataset.pinned = "true";
   classFileSelectElement.appendChild(createNewOption);
 
   const separator = document.createElement("option");
@@ -267,11 +269,13 @@ export function renderClassFileSelect(
   separator.textContent = "──────────";
   classFileSelectElement.appendChild(separator);
 
-  for (const file of [...classFiles].sort(compareFileNames)) {
+  for (const file of [...classFiles].sort((left, right) => compareFileNames({ name: classFilePath(left) }, { name: classFilePath(right) }))) {
     const option = document.createElement("option");
-    option.value = file.name;
+    const path = classFilePath(file);
+    option.value = path;
     option.textContent = file.name.replace(/\.ya?ml$/i, "");
-    option.title = file.name;
+    option.title = path;
+    if (path.includes("/")) option.dataset.folder = path.slice(0, path.lastIndexOf("/"));
     classFileSelectElement.appendChild(option);
   }
 

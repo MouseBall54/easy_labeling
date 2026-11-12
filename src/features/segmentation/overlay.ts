@@ -389,9 +389,8 @@ function isBoundaryPixel(
 
 function clearPixelsInBounds(pixels: Uint8ClampedArray, width: number, bounds: SegmentationRegionBounds): void {
   for (let y = bounds.top; y <= bounds.bottom; y += 1) {
-    for (let x = bounds.left; x <= bounds.right; x += 1) {
-      clearPixelAtIndex(pixels, (y * width) + x);
-    }
+    const rowStart = (y * width) + bounds.left;
+    pixels.fill(0, rowStart * 4, (rowStart + bounds.right - bounds.left + 1) * 4);
   }
 }
 
@@ -409,6 +408,21 @@ function writeHaloPixel(
   pixels[offset + 1] = color.g;
   pixels[offset + 2] = color.b;
   pixels[offset + 3] = alpha;
+}
+
+// Glow offsets and alphas inside the radius, in the order the old per-pixel loop visited them.
+function createHaloKernel(radius: number, alphaBase: number): Array<{ dx: number; dy: number; alpha: number }> {
+  const taps: Array<{ dx: number; dy: number; alpha: number }> = [];
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      const distance = Math.hypot(dx, dy);
+      if ((dx === 0 && dy === 0) || distance > radius) {
+        continue;
+      }
+      taps.push({ dx, dy, alpha: Math.round(alphaBase * (1 - (distance / (radius + 1)))) });
+    }
+  }
+  return taps;
 }
 
 export function createSegmentationMaskOverlayLayer(fabric: FabricRuntimeLike): SegmentationMaskOverlayLayer {
@@ -434,68 +448,81 @@ export function createSegmentationMaskOverlayLayer(fabric: FabricRuntimeLike): S
           : null;
 
       if (dirtyBounds) {
-        const visibleClassIds = new Set(document.getVisibleClassIds());
-        const edgePixels: Array<{ index: number; x: number; y: number; color: RgbColor }> = [];
-        clearPixelsInBounds(state.pixels, document.width, dirtyBounds);
+        // Per-class lookup tables instead of a String() + Set + Map lookup per pixel,
+        // and the hidden list instead of a whole-mask scan for visible classes.
+        const hiddenClassIds = document.getHiddenClassIds();
+        const classState = new Uint8Array(65536); // 0 unresolved, 1 visible, 2 hidden
+        for (const classKey of hiddenClassIds) {
+          const classNumber = Number(classKey);
+          if (Number.isInteger(classNumber) && classNumber > 0 && classNumber < 65536) {
+            classState[classNumber] = 2;
+          }
+        }
+        const classColors: RgbColor[] = [];
+        const edgeVisible = document.edgeHighlightVisible;
+        const { mask, width, height } = document;
+        const edgeIndices: number[] = [];
+        clearPixelsInBounds(state.pixels, width, dirtyBounds);
 
         for (let y = dirtyBounds.top; y <= dirtyBounds.bottom; y += 1) {
+          const rowStart = y * width;
           for (let x = dirtyBounds.left; x <= dirtyBounds.right; x += 1) {
-            const index = (y * document.width) + x;
-            const classId = document.mask[index] ?? 0;
+            const index = rowStart + x;
+            const classId = mask[index] as number;
             if (classId === 0) {
               continue;
             }
-            const classKey = String(classId);
-            if (!visibleClassIds.has(classKey)) {
+            let visibility = classState[classId];
+            if (visibility === 0) {
+              classColors[classId] = resolveCachedColor(colorCache, String(classId), getColorForClass);
+              classState[classId] = 1;
+              visibility = 1;
+            }
+            if (visibility === 2) {
               continue;
             }
-            const color = resolveCachedColor(colorCache, classKey, getColorForClass);
-            writePixelAtIndex(state.pixels, index, color, 255);
-            if (document.edgeHighlightVisible && isBoundaryPixel(document.mask, document.width, document.height, x, y, classId)) {
-              edgePixels.push({ index, x, y, color });
+            writePixelAtIndex(state.pixels, index, classColors[classId] as RgbColor, 255);
+            if (edgeVisible && isBoundaryPixel(mask, width, height, x, y, classId)) {
+              edgeIndices.push(index);
             }
           }
         }
 
-        if (document.edgeHighlightVisible && edgePixels.length > 0) {
+        if (edgeVisible && edgeIndices.length > 0) {
           const edgeBlend = 0.58 + (edgeIntensity * 0.32);
           const haloAlphaBase = Math.round(48 + (edgeIntensity * 128));
-          for (const edgePixel of edgePixels) {
-            const edgeColor = mixWithWhite(edgePixel.color, edgeBlend);
-            const haloColor = mixWithWhite(edgePixel.color, 0.72);
-            if (glowRadius > 0 && haloAlphaBase > 0) {
-              for (let deltaY = -glowRadius; deltaY <= glowRadius; deltaY += 1) {
-                for (let deltaX = -glowRadius; deltaX <= glowRadius; deltaX += 1) {
-                  if (deltaX === 0 && deltaY === 0) {
-                    continue;
-                  }
-                  const distance = Math.hypot(deltaX, deltaY);
-                  if (distance > glowRadius) {
-                    continue;
-                  }
-                  const haloX = edgePixel.x + deltaX;
-                  const haloY = edgePixel.y + deltaY;
-                  if (haloX < 0 || haloY < 0 || haloX >= document.width || haloY >= document.height) {
-                    continue;
-                  }
-                  if (
-                    haloX < dirtyBounds.left ||
-                    haloX > dirtyBounds.right ||
-                    haloY < dirtyBounds.top ||
-                    haloY > dirtyBounds.bottom
-                  ) {
-                    continue;
-                  }
-                  const haloIndex = (haloY * document.width) + haloX;
-                  if ((document.mask[haloIndex] ?? 0) !== 0) {
-                    continue;
-                  }
-                  const falloff = 1 - (distance / (glowRadius + 1));
-                  writeHaloPixel(state.pixels, haloIndex, haloColor, Math.round(haloAlphaBase * falloff));
-                }
-              }
+          const halo = glowRadius > 0 && haloAlphaBase > 0 ? createHaloKernel(glowRadius, haloAlphaBase) : [];
+          const edgeColors: RgbColor[] = [];
+          const haloColors: RgbColor[] = [];
+          for (const index of edgeIndices) {
+            const classId = mask[index] as number;
+            let edgeColor = edgeColors[classId];
+            let haloColor = haloColors[classId];
+            if (!edgeColor || !haloColor) {
+              const color = classColors[classId] as RgbColor;
+              edgeColor = edgeColors[classId] = mixWithWhite(color, edgeBlend);
+              haloColor = haloColors[classId] = mixWithWhite(color, 0.72);
             }
-            writePixelAtIndex(state.pixels, edgePixel.index, edgeColor, 255);
+            const x = index % width;
+            const y = (index - x) / width;
+            for (const tap of halo) {
+              const haloX = x + tap.dx;
+              const haloY = y + tap.dy;
+              if (
+                haloX < dirtyBounds.left ||
+                haloX > dirtyBounds.right ||
+                haloY < dirtyBounds.top ||
+                haloY > dirtyBounds.bottom
+              ) {
+                continue;
+              }
+              const haloIndex = (haloY * width) + haloX;
+              if (mask[haloIndex] !== 0) {
+                continue;
+              }
+              writeHaloPixel(state.pixels, haloIndex, haloColor, tap.alpha);
+            }
+            writePixelAtIndex(state.pixels, index, edgeColor, 255);
           }
         }
 

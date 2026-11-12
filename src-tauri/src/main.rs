@@ -177,15 +177,25 @@ async fn open_library_file(app: AppHandle, window: WebviewWindow, kind: String, 
 #[tauri::command]
 async fn list_library_files(app: AppHandle, kind: String) -> CommandResult<Vec<LibraryFile>> {
     let directory = ensure_profile_directory(&app, &kind)?;
-    let mut paths: Vec<PathBuf> = fs::read_dir(&directory)
-        .map_err(|error| io_error(error, "Profile folder"))?
-        .filter_map(Result::ok)
-        .filter(|item| item.file_type().map(|kind| kind.is_file()).unwrap_or(false))
-        .map(|item| item.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")))
-        .collect();
-    paths.sort_by_cached_key(|path| natural_key(&path.file_name().unwrap_or_default().to_string_lossy()));
-    paths.into_iter().map(read_library_file).collect()
+    let mut files = Vec::new();
+    collect_preset_files(&directory, "", &mut files)?;
+    files.sort_by_cached_key(|(name, _)| natural_key(name));
+    // `name` is the path inside the kind's folder ("SEM/fine.json"): subfolders group presets.
+    files.into_iter().map(|(name, path)| read_library_file(path).map(|file| LibraryFile { name, ..file })).collect()
+}
+
+/// .json files of `directory` and its subfolders (any depth), skipping folders whose name starts with ".".
+fn collect_preset_files(directory: &Path, prefix: &str, files: &mut Vec<(String, PathBuf)>) -> CommandResult<()> {
+    for item in fs::read_dir(directory).map_err(|error| io_error(error, "Profile folder"))?.filter_map(Result::ok) {
+        let name = item.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = item.file_type() else { continue };
+        if kind.is_dir() && !name.starts_with('.') {
+            collect_preset_files(&item.path(), &format!("{prefix}{name}/"), files)?;
+        } else if kind.is_file() && item.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")) {
+            files.push((format!("{prefix}{name}"), item.path()));
+        }
+    }
+    Ok(())
 }
 
 /// Case-insensitive natural sort key, like localeCompare(..., { numeric: true, sensitivity: "base" }).
@@ -302,6 +312,8 @@ async fn fs_remove(base: String, name: String) -> CommandResult<()> {
     let target = child_path(&base, &name)?;
     match fs::symlink_metadata(&target) {
         Ok(meta) if meta.is_file() => fs::remove_file(&target).map_err(|error| io_error(error, "File")),
+        // Empty folders only (the preset folder manager empties a folder before removing it).
+        Ok(meta) if meta.is_dir() => fs::remove_dir(&target).map_err(|error| io_error(error, "Directory")),
         Ok(_) => Err(format!("TypeMismatchError: Expected file: {name}")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(format!("NotFoundError: File not found: {name}")),
         Err(error) => Err(io_error(error, "File")),
@@ -572,6 +584,22 @@ mod tests {
         let mut names = vec!["b10.json", "B2.json", "a.json"];
         names.sort_by_cached_key(|name| natural_key(name));
         assert_eq!(names, ["a.json", "B2.json", "b10.json"]);
+    }
+
+    #[test]
+    fn preset_files_in_subfolders_are_listed_by_their_path() {
+        let folder = std::env::temp_dir().join(format!("easy-labeling-presets-{}", std::process::id()));
+        fs::create_dir_all(folder.join("SEM/Metal pattern")).unwrap();
+        fs::create_dir_all(folder.join(".trash")).unwrap();
+        for file in ["top.json", "SEM/Metal pattern/fine.json", "SEM/notes.txt", ".trash/old.json"] {
+            fs::write(folder.join(file), "{}").unwrap();
+        }
+        let mut files = Vec::new();
+        collect_preset_files(&folder, "", &mut files).unwrap();
+        let mut names: Vec<String> = files.into_iter().map(|(name, _)| name).collect();
+        names.sort();
+        assert_eq!(names, ["SEM/Metal pattern/fine.json", "top.json"]);
+        fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

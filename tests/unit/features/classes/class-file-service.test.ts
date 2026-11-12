@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classFilePath,
   createNewClassFile,
+  listClassFiles,
+  locateClassFile,
   readClassFileRowsForEditor,
   readClassNamesFromFileHandle,
   validateAndSaveClassRowsToFileHandle
@@ -158,5 +161,33 @@ describe("features/classes/class-file-service", () => {
       fileHandle: null
     });
     expect(folderHandle.getCreatedFile("my-classes.yaml")).toBeUndefined();
+  });
+});
+
+describe("class files in subfolders", () => {
+  /** A folder tree of class files: { "a.yaml": "...", SEM: { "b.yml": "..." } }. */
+  type Tree = { [name: string]: string | Tree };
+  const folder = (name: string, tree: Tree): DirectoryHandleLike => ({
+    kind: "directory",
+    name,
+    async *values() {
+      for (const [child, value] of Object.entries(tree)) yield typeof value === "string" ? new MockFileHandle(child, value) : folder(child, value);
+    },
+    async getDirectoryHandle(child: string) {
+      const value = tree[child];
+      if (!value || typeof value === "string") throw Object.assign(new Error(child), { name: "NotFoundError" });
+      return folder(child, value);
+    },
+    async getFileHandle(child: string) { return new MockFileHandle(child, String(tree[child] ?? "")); }
+  });
+
+  it("lists .yaml/.yml files of every subfolder by path, skipping dot folders and other files", async () => {
+    const root = folder("Class Info", { "top.yaml": "0: a", "notes.txt": "", SEM: { "fins.yml": "0: f", Metal: { "fine.YAML": "0: m" } }, ".trash": { "old.yaml": "0: o" } });
+    const files = await listClassFiles(root);
+    expect(files.map(classFilePath).sort()).toEqual(["SEM/Metal/fine.YAML", "SEM/fins.yml", "top.yaml"]);
+    // A handle not listed from a folder is known by its name.
+    expect(classFilePath({ name: "loose.yaml" })).toBe("loose.yaml");
+    const { parent, name } = await locateClassFile(root, "SEM/Metal/fine.YAML");
+    expect([parent.name, name]).toEqual(["Metal", "fine.YAML"]);
   });
 });

@@ -7,13 +7,15 @@ import {
   type ImageSessionServiceState
 } from "../features/images/image-session-service.js";
 import {
+  classFilePath,
   createNewClassFile,
+  listClassFiles,
+  locateClassFile,
   readClassNamesFromFileHandle,
   readClassFileRowsForEditor,
   validateAndSaveClassRowsToFileHandle,
   type ReadClassNamesResult
 } from "../features/classes/class-file-service.js";
-import { listFileHandles } from "../platform/file-system-access.js";
 import { normalizeClassName, type ClassFileRow } from "../domain/class-files.js";
 import type { DirectoryHandleLike, FileHandle, FileHandleLike } from "../types/files.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
@@ -41,7 +43,7 @@ import {
   markImageDocumentsClean
 } from "../app/document-status.js";
 import { loadSegmentationToolPresetLibrary } from "../features/segmentation/preset-service.js";
-import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { getPresetSaveFolder, openProfilePresetFolder, presetFolderPath } from "../features/presets/profile-presets.js";
 import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
@@ -317,6 +319,11 @@ export interface RuntimeFileSystem extends FileSystem {
   addNewClassRow(): void;
   createNewClassFile(): Promise<boolean>;
   deleteSelectedClassFile(): Promise<boolean>;
+  /**
+   * Rereads the class folder's file list (after files moved in the folder manager), keeping the chosen file;
+   * `moved` (a file or folder path and where it went) lets the choice follow a moved file.
+   */
+  refreshClassFiles(moved?: { from: string; to: string }): Promise<void>;
   readonly imageSessionService: ImageSessionService;
 }
 
@@ -595,12 +602,28 @@ export function createFileSystemAdapter(input: {
     return (session.classInfoFolderHandle ?? annotationFolder) as DirectoryHandleLike | null;
   };
 
+  /** Where a new class file goes: the save folder when `folder` is the profile's Class Info folder, else `folder` itself. */
+  const classSaveFolder = async (folder: DirectoryHandleLike): Promise<{ folder: DirectoryHandleLike; prefix: string }> => {
+    const saveFolder = presetFolderPath(getPresetSaveFolder(input.windowRef, "class-info"));
+    const profile = saveFolder ? await input.windowRef.getEasyLabelingProfileDirectory?.("class-info") : null;
+    const same = (folder as unknown as { isSameEntry?(other: unknown): Promise<boolean> }).isSameEntry;
+    const isProfile = Boolean(profile) && ((profile as unknown) === folder || (same ? await same.call(folder, profile) : false));
+    if (!isProfile) return { folder, prefix: "" };
+    let target = folder;
+    for (const part of saveFolder.split("/")) target = await target.getDirectoryHandle(part, { create: true });
+    return { folder: target, prefix: `${saveFolder}/` };
+  };
+
   const refreshClassFileStateFromAvailableFolder = async (
     operation: RuntimeOperationHandle | null = null,
-    refreshCanvas = true
+    refreshCanvas = true,
+    moved?: { from: string; to: string }
   ): Promise<void> => {
     const classFolder = currentClassFolder();
-    const previousSelectionName = input.state.session.selectedClassFile?.name ?? null;
+    const previousPath = input.state.session.selectedClassFile ? classFilePath(input.state.session.selectedClassFile) : null;
+    const previousSelectionName = previousPath && moved && (previousPath === moved.from || previousPath.startsWith(`${moved.from}/`))
+      ? moved.to + previousPath.slice(moved.from.length)
+      : previousPath;
 
     if (!classFolder) {
       input.state.session.classFiles = [];
@@ -618,12 +641,12 @@ export function createFileSystemAdapter(input: {
     }
 
     operation?.update({ detail: "Reading class information" });
-    const files = (await listFileHandles(classFolder)).filter((file) => /\.(yaml|yml)$/i.test(file.name)) as FileHandle[];
+    const files = await listClassFiles(classFolder) as FileHandle[];
     throwIfOperationCancelled(operation?.signal);
     input.state.session.classFiles = files;
 
     const selectedFile =
-      files.find((file) => file.name === previousSelectionName) ??
+      files.find((file) => classFilePath(file) === previousSelectionName) ??
       files[0] ??
       null;
 
@@ -1220,6 +1243,7 @@ export function createFileSystemAdapter(input: {
     input.state.session.segmentationLabelFolders = [imageFolderHandle as unknown as FileSystemDirectoryHandle];
     const segmentationPresets = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"), imageFolderHandle);
     input.state.session.segmentationToolPresets = segmentationPresets.document;
+    input.state.session.segmentationToolPresetFolders = segmentationPresets.folders;
     if (segmentationPresets.errors.length) {
       (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(`Some Superpixel preset files were skipped:\n${segmentationPresets.errors.join("\n")}`, 8000);
     }
@@ -1998,12 +2022,17 @@ export function createFileSystemAdapter(input: {
         }
 
         const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-        const fileName = await uiManager.promptForClassFileName("classes", input.state.session.classFiles.map((file) => file.name));
+        // In the profile's Class Info folder, new files go to the folder chosen in the folder manager.
+        const target = await classSaveFolder(folderHandle);
+        const inTarget = input.state.session.classFiles.map(classFilePath)
+          .filter((path) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "") === target.prefix)
+          .map((path) => path.slice(target.prefix.length));
+        const fileName = await uiManager.promptForClassFileName("classes", inTarget);
         if (!fileName) {
           uiManager.renderClassFileSelect();
           return false;
         }
-        const result = await createNewClassFile(folderHandle, fileName);
+        const result = await createNewClassFile(target.folder, fileName, target.prefix);
         if (!result.created) {
           uiManager.notify("A class file with this name already exists.");
           uiManager.renderClassFileSelect();
@@ -2026,12 +2055,17 @@ export function createFileSystemAdapter(input: {
         const folder = currentClassFolder() as (DirectoryHandleLike & { removeEntry?(name: string): Promise<void> }) | null;
         if (!file || !folder) { uiManager?.notify("Choose a class file to delete."); return false; }
         if (!folder.removeEntry) { uiManager?.notify("This folder does not allow deleting files."); return false; }
-        if (!input.windowRef.confirm?.(`Delete class file "${file.name}"?\n\nLabel files are not changed.`)) return false;
-        await folder.removeEntry(file.name);
+        if (!input.windowRef.confirm?.(`Delete class file "${classFilePath(file)}"?\n\nLabel files are not changed.`)) return false;
+        const { parent, name } = await locateClassFile(folder, classFilePath(file));
+        await (parent as DirectoryHandleLike & { removeEntry(name: string): Promise<void> }).removeEntry(name);
         input.state.session.selectedClassFile = null;
         await refreshClassFileStateFromAvailableFolder();
         uiManager?.notify(`Deleted class file "${file.name}".`);
         return true;
+      },
+
+      async refreshClassFiles(moved?: { from: string; to: string }): Promise<void> {
+        await refreshClassFileStateFromAvailableFolder(null, true, moved);
       }
     };
 

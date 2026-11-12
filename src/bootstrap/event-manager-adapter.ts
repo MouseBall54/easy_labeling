@@ -1,7 +1,8 @@
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import { loadPreprocessingPresetLibrary, savePreprocessingPresets, serializePreprocessingPresets, upsertPreprocessingPreset, type StoredPreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
-import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
+import { classFilePath } from "../features/classes/class-file-service.js";
 import { emptyLastSelections, parseLastSelections, recallSelection, rememberSelection, type LastSelections } from "../domain/last-selections.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
@@ -15,7 +16,7 @@ import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-sy
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
 import { createRefineController, resolveRefineShortcut, type RefineAgentApi } from "./refine-controller.js";
 import { createAutomationController, type AutomationAgentApi, type AutomationWindow } from "./automation-controller.js";
-import { saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { loadSegmentationToolPresetLibrary, saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { bindInferenceControls, type InferenceAgentApi } from "./inference-controller.js";
 import { getDefaultColorForClass } from "../features/canvas/colors.js";
@@ -256,6 +257,8 @@ export function createEventManagerAdapter(input: {
         }
       };
       applyLabelOnlyView();
+      /** Rescans the preprocessing presets; set where that panel is wired below. */
+      let refreshPreprocessPresetsLater: (() => void) | null = null;
       const automationController = input.documentRef
         ? createAutomationController({
           state: input.state,
@@ -268,6 +271,22 @@ export function createEventManagerAdapter(input: {
         : null;
       automationController?.bind();
       automationAgent = automationController?.agent ?? null;
+      // Presets moved in the folder manager (src/ui/preset-manager.ts): each panel rereads its presets' file names.
+      input.windowRef.addEventListener?.("easy-labeling:presets-changed", (event) => {
+        const kind = (event as CustomEvent<{ kind?: string }>).detail?.kind;
+        if (kind === "preset" || kind === "layout") runAsync(() => automationController?.refreshLibrary() ?? Promise.resolve());
+        if (kind === "preprocessing") refreshPreprocessPresetsLater?.();
+        if (kind === "class-info") runAsync(() => input.fileSystem.refreshClassFiles((event as CustomEvent<{ moved?: { from: string; to: string } }>).detail?.moved));
+        if (kind === "segmentation") {
+          runAsync(async () => {
+            const loaded = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"),
+              (input.state.session.imageFolderHandle ?? null) as unknown as import("../types/files.js").DirectoryHandleLike | null);
+            input.state.session.segmentationToolPresets = loaded.document;
+            input.state.session.segmentationToolPresetFolders = loaded.folders;
+            input.uiManager.syncWorkspaceState?.();
+          });
+        }
+      });
       const refineController = input.documentRef
         ? createRefineController({
           state: input.state,
@@ -1166,7 +1185,7 @@ export function createEventManagerAdapter(input: {
         if (!selectedFileName) {
           return;
         }
-        const selectedFile = input.state.session.classFiles.find((file) => file.name === selectedFileName);
+        const selectedFile = input.state.session.classFiles.find((file) => classFilePath(file) === selectedFileName);
         if (selectedFile) {
           runAsync(() => input.fileSystem.loadClassNamesFromFile(selectedFile));
         }
@@ -1546,7 +1565,12 @@ export function createEventManagerAdapter(input: {
       let preprocessPresets: StoredPreprocessingPreset[] = [];
       const renderPreprocessPresets = (selected = preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : ""): void => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
-        preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => new Option(preset.name, preset.name)));
+        preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => {
+          const option = new Option(preset.name, preset.name);
+          const folder = presetFolderOf(preset.fileName ?? "");
+          if (folder) option.dataset.folder = folder;
+          return option;
+        }));
         preprocessPresetSelect.value = preprocessPresets.some((preset) => preset.name === selected) ? selected : "";
       };
       const datasetFolder = () => input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
@@ -1568,6 +1592,7 @@ export function createEventManagerAdapter(input: {
         return true;
       };
       preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
+      refreshPreprocessPresetsLater = refreshPreprocessPresets;
 
       // Last choices per dataset folder (domain/last-selections.ts), kept in this browser or app profile: a folder
       // opened before gets its own back, a new one the latest choice. Restoring fires the select's own change handler.
@@ -1810,6 +1835,7 @@ export function createEventManagerAdapter(input: {
         if (profile) {
           const saved = await saveSegmentationToolPresetFile(profile, preset);
           if (!saved) return false;
+          (input.state.session.segmentationToolPresetFolders ??= new Map()).set(preset.id, presetFolderOf(saved));
           input.uiManager.notify(`Saved Superpixel preset "${preset.name}" to ${profile.name} / ${saved}.`, 3000);
         }
         const index = presets.findIndex((item) => item.id === preset.id);

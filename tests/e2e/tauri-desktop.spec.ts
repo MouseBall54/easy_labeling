@@ -1127,7 +1127,8 @@ test("Tauri presets save into their profile folders without a dialog and list fr
       document.getElementById("segmentationPreprocessPresetSaveBtn")!.click();
     });
     const file = path.join(profiles, "Preprocessing Presets", "SEM fins.json");
-    await expect.poll(() => existsSync(file)).toBe(true);
+    // The file appears empty first (created, then written): wait for its contents.
+    await expect.poll(async () => existsSync(file) ? (await readFile(file, "utf8")).length : 0).toBeGreaterThan(0);
     expect(JSON.parse(await readFile(file, "utf8")).presets.map((preset: { name: string }) => preset.name)).toEqual(["SEM fins"]);
     await expect.poll(options).toEqual(["SEM fins", "Old dataset"]);
     expect(await readFile(legacyPath, "utf8")).toBe(legacy);

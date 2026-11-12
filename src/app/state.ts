@@ -44,6 +44,8 @@ export interface AppSessionState {
   segmentationSourceFormat: SegmentationExternalFormat;
   segmentationExportFormat: SegmentationExternalFormat;
   segmentationToolPresets: SegmentationToolPresetDocument;
+  /** Profile subfolder of each Superpixel preset by id (desktop), for the preset picker. */
+  segmentationToolPresetFolders?: Map<string, string>;
   documentStatusByImage?: Map<string, ImageDocumentStatus>;
 }
 

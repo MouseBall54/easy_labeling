@@ -51,7 +51,7 @@ import {
   type TemplateMatchResult,
 } from "../features/automation/types.js";
 import type { DirectoryHandleLike } from "../types/files.js";
-import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
 import { createAutomationBatchController } from "./automation-batch-controller.js";
 import { createAutomationLayoutPreview } from "./automation-layout-preview.js";
 import { createAutomationPresetForm } from "./automation-preset-form.js";
@@ -102,6 +102,8 @@ export interface SimilarOutcome {
   /** Matches over the minimum score, best first, minus the overlapping ones when skipOverlapping. */
   candidates: Array<{ score: number; x0: number; y0: number; x1: number; y1: number }>;
   overlappingExisting: number;
+  /** True when more matches passed than maximumDetections allowed: raise it to see them. */
+  hitLimit: boolean;
   annotationIds?: string[];
   discardedOutOfBounds?: number;
 }
@@ -112,6 +114,8 @@ const SIMILAR_PREPROCESSING: TemplatePreprocessingSettings = {
 };
 /** Overlap with an existing box at which find_similar treats a match as already labelled. */
 const SIMILAR_OVERLAP_IOU = 0.3;
+// Same upper bound as the panel's Maximum detections.
+const MAX_SIMILAR_MATCHES = 10000;
 
 export interface AutomationController {
   readonly agent: AutomationAgentApi;
@@ -160,7 +164,8 @@ function setSelectOptions(
   select: HTMLSelectElement,
   items: readonly { id: string; name: string }[],
   placeholder: string,
-  selectedId = ""
+  selectedId = "",
+  fileNames?: ReadonlyMap<string, string>
 ): void {
   select.replaceChildren();
   const placeholderOption = documentRef.createElement("option");
@@ -172,6 +177,8 @@ function setSelectOptions(
     option.value = item.id;
     option.textContent = item.name;
     option.selected = item.id === selectedId;
+    const folder = presetFolderOf(fileNames?.get(item.id) ?? "");
+    if (folder) option.dataset.folder = folder;
     select.appendChild(option);
   });
 }
@@ -542,11 +549,11 @@ export function createAutomationController(input: {
   const refreshSelects = (selection?: { layoutId?: string; presetId?: string }): void => {
     const layoutId = selection?.layoutId ?? elements.boxLayoutSelect.value;
     const presetId = selection?.presetId ?? elements.automationPresetSelect.value;
-    setSelectOptions(input.documentRef, elements.boxLayoutSelect, library.layouts, "Choose layout...", layoutId);
+    setSelectOptions(input.documentRef, elements.boxLayoutSelect, library.layouts, "Choose layout...", layoutId, profileFileNames.layouts);
     setSelectOptions(input.documentRef, elements.layoutSetupSelect, library.layouts, "Choose layout...", layoutId);
-    setSelectOptions(input.documentRef, elements.templateLayoutSelect, library.layouts, "Choose layout...", layoutId);
-    setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId);
-    setSelectOptions(input.documentRef, elements.templatePresetSelect, library.presets, "New preset...", presetId);
+    setSelectOptions(input.documentRef, elements.templateLayoutSelect, library.layouts, "Choose layout...", layoutId, profileFileNames.layouts);
+    setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId, profileFileNames.presets);
+    setSelectOptions(input.documentRef, elements.templatePresetSelect, library.presets, "New preset...", presetId, profileFileNames.presets);
     elements.applyBoxLayoutBtn.disabled = !library.layouts.some((layout) => layout.id === layoutId);
     elements.applyBoxLayoutFromSetupBtn.disabled = elements.applyBoxLayoutBtn.disabled;
     elements.exportAutomationPresetBtn.disabled = !library.presets.some((preset) => preset.id === presetId);
@@ -1492,6 +1499,13 @@ export function createAutomationController(input: {
         detail: "Preparing template",
         stoppedMessage: "Template matching stopped."
       }, async (operation) => {
+        const existing = input.canvasController.raw.getObjects("rect").filter(isRectObject).map((rect) => {
+          const bounds = getRectBounds(rect);
+          return { score: 1, x: bounds.left, y: bounds.top, width: bounds.right - bounds.left, height: bounds.bottom - bounds.top };
+        });
+        // Leave room for the matches that land on existing boxes and get dropped below.
+        // ponytail: assumes about one NMS-kept match per existing box; raise the headroom if dense overlaps still cut new boxes short.
+        const matchLimit = Math.min(MAX_SIMILAR_MATCHES, search.maximumDetections + (search.skipOverlapping ? existing.length : 0));
         setMatchingEngineStatus("loading", "Matching engine: Running");
         let result: TemplateMatchResult;
         try {
@@ -1504,21 +1518,20 @@ export function createAutomationController(input: {
             preprocessing: SIMILAR_PREPROCESSING,
             matching: { minimumScore: search.minimumScore, searchRoi: null, mode: "accurate" },
             outputMode: "multiple-detection-boxes",
-            multipleDetection: { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: search.maximumDetections }
+            multipleDetection: { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: matchLimit }
           });
           throwIfOperationCancelled(operation.signal);
         } finally {
           setMatchingEngineStatus("ready", "Matching engine: Ready");
         }
-        const existing = input.canvasController.raw.getObjects("rect").filter(isRectObject).map((rect) => {
-          const bounds = getRectBounds(rect);
-          return { score: 1, x: bounds.left, y: bounds.top, width: bounds.right - bounds.left, height: bounds.bottom - bounds.top };
-        });
         const overlapping = (match: TemplateMatchCandidate) => existing.some((box) => intersectionOverUnion(match, box) >= SIMILAR_OVERLAP_IOU);
         const kept = search.skipOverlapping ? result.matches.filter((match) => !overlapping(match)) : result.matches;
-        const candidates = [...kept].sort((a, b) => b.score - a.score);
+        // The limit counts new boxes only, so it applies after matches on existing boxes are dropped.
+        const candidates = [...kept].sort((a, b) => b.score - a.score).slice(0, search.maximumDetections);
         outcome = {
           applied: false,
+          // The matcher stopping at its own limit may also have left matches out.
+          hitLimit: kept.length > search.maximumDetections || result.matches.length >= matchLimit,
           candidates: candidates.map(({ score, x, y, width, height }) => ({ score, x0: x, y0: y, x1: x + width, y1: y + height })),
           overlappingExisting: result.matches.length - kept.length
         };

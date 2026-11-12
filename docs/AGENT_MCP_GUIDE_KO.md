@@ -53,7 +53,7 @@ claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.
 }
 ```
 
-사용할 때는 **Easy Labeling 앱을 먼저 실행해 둡니다.** 앱이 꺼져 있으면 모든 도구가 `app_not_running`을 돌려주고, 에이전트가 앱을 대신 띄우지 않습니다. 앱 버전과 MCP 서버 버전이 다르면 `version_mismatch`가 나오니, 같은 설치 파일로 설치된 것을 씁니다.
+사용할 때는 **Easy Labeling 앱을 먼저 실행해 둡니다.** 앱이 꺼져 있으면 모든 도구가 `app_not_running`을 돌려주고, 에이전트가 앱을 대신 띄우지 않습니다. `app_state`는 앱 버전(`appVersion`)과 MCP 서버 버전(`mcpVersion`)을 함께 돌려주고, 둘이 다르면 `versionWarning`을 붙입니다(오류 메시지에도 같은 안내가 붙습니다). 연결 방식 자체가 다르면 `version_mismatch`가 나옵니다. 둘 다 같은 설치 파일로 설치된 것을 쓰면 사라집니다.
 
 ### 1.1 에이전트 스킬 설치 (권장)
 
@@ -80,7 +80,7 @@ Copy-Item -Recurse -Force "<저장소>\docs\agent-skills\easy-labeling-mcp" "$en
 | 분류 | 도구 | 하는 일 |
 |---|---|---|
 | 상태·탐색 | `app_state`, `open_folder`, `list_images`, `go_to_image`, `get_classes` | 앱 상태 확인, 폴더 열기(**사람 승인**), 이미지 목록과 이동, 클래스 목록 |
-| 박스 읽기 | `get_boxes`, `read_labels`, `capture_view`, `analyze_boxes`, `compare_labels` | 현재 이미지의 박스(저장 전 편집 포함, 픽셀 좌표, 한 번에 200개씩 나눠 받고 클래스별 개수는 항상 포함), 다른 이미지의 라벨 파일(정규화 좌표), 화면 캡처(PNG) 또는 박스 하나·영역을 확대한 캡처(사람 화면은 그대로), 집단 검사(클래스마다 크기가 비슷한 박스끼리 묶어 크기 이상치, 행·열에서 벗어난 박스, 너무 촘촘한 박스, 간격이 건너뛴 빈자리 = 놓친 물체와 그 추정 위치·크기. 클래스와 상관없이 크기가 비슷하면서 겹치는 박스 = 중복 의심. 현재 이미지 또는 `sample`·`images`로 저장된 라벨 파일), 기준 라벨(정답) 비교(이미지 폴더 안의 다른 라벨 폴더와 IoU로 짝지어 정밀도·재현율·F1, 경계 오차 px, 변별 치우침, 클래스 혼동, 놓친·남는 박스. 현재 이미지는 저장 전 편집 포함) |
+| 박스 읽기 | `get_boxes`, `read_labels`, `capture_view`, `analyze_boxes`, `compare_labels` | 현재 이미지의 박스(저장 전 편집 포함, 픽셀 좌표, 한 번에 200개씩 나눠 받고 클래스별 개수는 항상 포함), 다른 이미지의 라벨 파일(정규화 좌표), 화면 캡처(PNG) 또는 박스 하나·영역을 확대한 캡처, 박스 여러 개(최대 36개)를 번호 붙은 칸으로 모은 한 장(사람 화면은 그대로. 같은 인자로 다시 캡처했는데 화면이 그대로면 이미지 대신 `unchanged`를 돌려주고, `force`로 다시 받을 수 있음), 집단 검사(클래스마다 크기가 비슷한 박스끼리 묶어 크기 이상치, 행·열에서 벗어난 박스, 너무 촘촘한 박스, 간격이 건너뛴 빈자리 = 놓친 물체와 그 추정 위치·크기. 클래스와 상관없이 크기가 비슷하면서 겹치는 박스 = 중복 의심. 현재 이미지 또는 `sample`·`images`로 저장된 라벨 파일), 기준 라벨(정답) 비교(이미지 폴더 안의 다른 라벨 폴더와 IoU로 짝지어 정밀도·재현율·F1, 경계 오차 px, 변별 치우침, 클래스 혼동, 놓친·남는 박스. 현재 이미지는 저장 전 편집 포함) |
 | 박스 편집 | `add_boxes`, `update_boxes`, `delete_boxes`, `select_boxes`, `undo`, `redo`, `save` | 추가·이동·크기·클래스 변경·삭제·선택, 되돌리기, 저장(`undo`·`redo`·`save`는 Segmentation에서도 마스크에 동작) |
 | 세그멘테이션 | `set_workflow`, `get_regions`, `compare_masks`, `paint_mask`, `edit_regions`, `segment_ai`, `boxes_to_masks`, `analyze_masks`, `clean_masks` | Detection·Segmentation 전환(툴바 탭과 같음), 현재 이미지 마스크를 숫자로 읽기(클래스별 픽셀 수, 연결 영역의 면적·경계 상자·중심·영역 안의 한 점. 저장 전 편집 포함), 정답 마스크와 비교(이미지 폴더 안의 다른 마스크 폴더: 클래스별 IoU·Dice, 경계 F1(허용 2 px), 경계가 평균 몇 px 바깥/안쪽인지, 놓친·남는·클래스 오류 영역), 모양으로 칠하기·지우기(사각형·원·다각형·굵은 선 여러 개를 한 번에, 배경에만 칠하기 선택), 영역 통째로 지우기·클래스 바꾸기(영역 안의 점으로, 또는 클래스와 면적 범위로: 예를 들어 30 px 이하 잡티 한 번에). 편집은 호출마다 실행 취소 한 단계. AI Select(EdgeSAM)를 점·박스 프롬프트 여러 개로 한 번에(박스 안으로 자르기, 가장 큰 조각만, 경계를 이미지 밝기 경계로 몇 px 다듬기 `snapPx`; 결과마다 모델 점수·픽셀 수·경계가 실제 엣지 위에 있는 정도 `edgeFit`. 기본은 미리보기, 고른 결과만 적용), Detection 박스를 마스크로(박스마다 AI Select를 박스 안으로 제한해 실행, 박스 클래스 그대로 또는 지정 클래스, 박스를 얼마나 채웠는지 `fill`, 점수 낮은 박스 목록), 마스크 검사(잡티, 한 영역 안의 구멍, 가는 다리로 붙은 두 영역, 경계가 이미지 엣지에서 벗어난 영역, 영역 경계 상자로 본 크기 이상치·줄 이탈·빠진 자리), 정리(잡티 제거, 구멍 채우기, 가는 다리 끊기, AI 없이 경계를 밝기 경계로 다듬기; 기본은 미리보기). 검사·정리는 `scope: "folder"`·`sample`·`images`로 저장된 마스크 파일에도(정리는 **사람 승인**, 바뀌는 마스크 PNG를 `mask/.easy-labeling/clean-masks-…`에 백업) |
 | Refine·검수 | `get_refine_settings`, `run_refine`, `run_reclass`, `review_queue`, `approve`, `review_folder`, `set_review_status` | Refine pane과 같은 동작(`dryRun`이면 바뀔 결과만 보고 적용하지 않음), 검수 대기 목록과 승인, 폴더 전체 라벨 검사, 이미지별 Reviewed / Needs review 표시 |
@@ -88,7 +88,7 @@ Copy-Item -Recurse -Force "<저장소>\docs\agent-skills\easy-labeling-mcp" "$en
 | 템플릿 매칭·레이아웃 | `find_similar`, `list_templates`, `run_template_matching`, `apply_layout`, `save_layout` | 박스 하나(또는 영역)와 비슷한 것을 현재 이미지에서 찾기(기본은 미리보기, 이미 박스가 있는 곳은 건너뜀), 저장된 자동화 프리셋 실행, 레이아웃을 지정한 위치에 적용, 박스를 레이아웃으로 저장 |
 | 추론 | `inference_status`, `load_model`, `run_inference` | ONNX 모델 로드와 YOLO 추론(모든 이미지는 **사람 승인**) |
 
-**아직 할 수 없는 일**: Refine Lab·Preprocess 설정 편집, Segmentation 마스크 작업, 템플릿 프리셋 만들기와 매칭 세부 설정(`find_similar`는 Template Matching Setup의 기본값을 씀), 라벨 폴더 탭 전환, 파일 삭제. 이런 일은 앱에서 직접 합니다.
+**아직 할 수 없는 일**: Refine Lab·Preprocess 설정 편집, 템플릿 프리셋 만들기와 매칭 세부 설정(`find_similar`는 Template Matching Setup의 기본값을 씀), 라벨 폴더 탭 전환, 파일 삭제. 이런 일은 앱에서 직접 합니다.
 
 ## 3. 작업별 명령 예시
 
@@ -240,7 +240,7 @@ MCP 패널의 **Permissions**에서 바로 바꿀 수 있습니다(이 PC에 저
 ## 6. 알아 둘 점
 
 - **긴 결과**: 박스가 수천 개인 이미지에서 결과가 에이전트의 대화창을 채우지 않도록 `get_boxes`, `run_refine`, `run_reclass`, `review_queue`, `find_similar`, `apply_layout`은 목록을 나눠서 돌려줍니다(`offset`/`limit`). 개수(전체, 클래스별, 검수 대상)는 항상 전체 기준입니다. Refine 결과는 검수 대상 박스를 앞에 둡니다.
-- **find_similar 설정**: Template Matching Setup의 기본값(회색조, 블러 13, 정확 모드, 최소 점수 0.8)으로 찾습니다. 세부 설정을 바꾸려면 앱에서 프리셋을 저장하고 `run_template_matching`을 씁니다.
+- **find_similar 설정**: Template Matching Setup의 기본값(회색조, 블러 13, 정확 모드, 최소 점수 0.8)으로 찾고, 기본으로 최대 2000개까지 남깁니다(`maxMatches`로 최대 5000까지). 개수 제한은 이미 박스가 있는 자리를 뺀 새 후보에만 적용되고, 제한에 걸려 빠진 후보가 있으면 결과에 `hitLimit: true`가 붙습니다. 세부 설정을 바꾸려면 앱에서 프리셋을 저장하고 `run_template_matching`을 씁니다.
 - **좌표**: 박스 좌표는 이미지 픽셀 `{x0, y0, x1, y1}`(테두리 포함, 라벨 파일에 저장되는 값)입니다. `read_labels`만 정규화 좌표(0~1)입니다.
 - **추론 결과 위치**: `run_inference`는 결과를 모델 전용 라벨 폴더(`inference-<모델 이름>`)에 쓰고 그 폴더를 활성 라벨 세트로 바꿉니다. 원래 라벨은 바뀌지 않습니다.
 - **Reclass 규칙**: 새 폴더의 기본 규칙에도 검사가 켜져 있어서 `run_reclass`가 실제로 클래스를 바꿀 수 있습니다. 에이전트가 `get_refine_settings`로 규칙을 먼저 확인하도록 안내되어 있습니다.
@@ -252,7 +252,8 @@ MCP 패널의 **Permissions**에서 바로 바꿀 수 있습니다(이 PC에 저
 | 메시지 | 원인과 조치 |
 |---|---|
 | `app_not_running` | 앱이 꺼져 있거나 에이전트 기능이 없는 이전 버전입니다. 앱을 실행하거나 업데이트합니다. MCP 패널 제목 아래 줄이 "Waiting for an MCP client"(초록 점)인지 확인합니다. |
-| `version_mismatch` | 앱과 `easy-labeling-mcp.exe`의 버전이 다릅니다. 등록한 경로가 지금 설치된 앱 폴더인지 확인합니다. |
+| `version_mismatch` | 앱과 `easy-labeling-mcp.exe`의 연결 방식(프로토콜)이 다릅니다. 등록한 경로가 지금 설치된 앱 폴더인지 확인합니다. |
+| `versionWarning` (`app_state`) | 앱과 `easy-labeling-mcp.exe`가 다른 릴리스입니다. 도구가 빠져 있거나 다르게 동작할 수 있으니, 등록한 경로를 지금 설치된 앱 폴더의 것으로 바꿉니다. |
 | `busy` | 사람이 앱에서 작업 중입니다. 잠시 뒤 다시 시도합니다. |
 | `declined` | 승인 대화상자에서 거절했거나, Stop으로 멈췄거나, MCP 패널의 Permissions에서 막았습니다. 메시지에 어느 것인지 나옵니다. |
 | `timeout` | 앱에 대화상자가 떠 있을 가능성이 큽니다. 창을 확인합니다. |
