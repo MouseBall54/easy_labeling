@@ -14,7 +14,8 @@ export const PRESET_PICKER_SELECTS = [
   ["boxLayoutSelect", "layout"],
   ["templateLayoutSelect", "layout"],
   ["automationPresetSelect", "preset"],
-  ["templatePresetSelect", "preset"]
+  ["templatePresetSelect", "preset"],
+  ["class-file-select", "class-info"]
 ] as const;
 
 const STORAGE_PREFIX = "easyLabeling.presetPicker.";
@@ -61,12 +62,15 @@ function attachPresetPicker(select: HTMLSelectElement, key: ProfilePresetKind, d
   let query = "";
   const expanded = new Set(memory.expanded);
 
-  const entries = (): PresetEntry[] => [...select.options].map((option) => ({
+  // Disabled options are separators; data-pinned marks an action such as "Create new class file".
+  const entries = (): PresetEntry[] => [...select.options].filter((option) => !option.disabled).map((option) => ({
     value: option.value,
     label: option.text,
     folder: option.dataset.folder ?? "",
-    title: option.title || undefined
+    title: option.title || undefined,
+    pinned: option.dataset.pinned === "true" || undefined
   }));
+  const isPinned = (value: string): boolean => [...select.options].some((option) => option.value === value && option.dataset.pinned === "true");
 
   const syncButton = (): void => {
     const option = select.selectedOptions[0];
@@ -78,7 +82,7 @@ function attachPresetPicker(select: HTMLSelectElement, key: ProfilePresetKind, d
   };
 
   const choose = (value: string): void => {
-    if (value) {
+    if (value && !isPinned(value)) {
       memory.recent = pushRecent(memory.recent, value);
       writeMemory(windowRef, key, memory);
     }
@@ -134,7 +138,7 @@ function attachPresetPicker(select: HTMLSelectElement, key: ProfilePresetKind, d
       where.textContent = row.entry.folder.replace(/\//g, " / ");
       item.append(where);
     }
-    if (row.entry.value) {
+    if (row.entry.value && !row.entry.pinned) {
       const star = documentRef.createElement("button");
       star.type = "button";
       star.tabIndex = -1;
@@ -206,8 +210,13 @@ function attachPresetPicker(select: HTMLSelectElement, key: ProfilePresetKind, d
   const onOutside = (event: Event): void => {
     if (menu && !menu.contains(event.target as Node) && !button.contains(event.target as Node)) close();
   };
+  // A panel scrolling (also the browser bringing the button into view as it is clicked) moves the menu along;
+  // it closes only once the button has left the window.
   const onViewportChange = (event: Event): void => {
-    if (menu && !menu.contains(event.target as Node)) close();
+    if (!menu || menu.contains(event.target as Node)) return;
+    const rect = button.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > windowRef.innerHeight || rect.width === 0) close();
+    else position();
   };
 
   const open = (): void => {

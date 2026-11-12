@@ -13,6 +13,7 @@ import { parseYoloRows } from "../domain/yolo/yolo.js";
 import { AgentImageResult, AgentToolError, LIST_PAGE_MAX, listPage, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
 import { getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { classFilePath } from "../features/classes/class-file-service.js";
 import { isNotFoundError, readTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
@@ -164,7 +165,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
   const getClasses: AgentTool = {
     changesApp: false,
     run: async () => ({
-      classFile: session.selectedClassFile?.name ?? null,
+      classFile: session.selectedClassFile ? classFilePath(session.selectedClassFile) : null,
       classes: [...session.classNames].map(([id, name]) => ({ id, name, color: getColorForClass(id) }))
     })
   };

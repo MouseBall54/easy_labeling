@@ -6,8 +6,8 @@ import { expect, test, type Page } from "@playwright/test";
 const sample = JSON.parse(readFileSync("assets/sample/.easy-labeling/automation-library.json", "utf8")) as { layouts: Array<Record<string, unknown>> };
 const layout = { ...sample.layouts[0], id: "profile-grid", name: "Profile grid" };
 
-async function installMemoryProfile(page: Page): Promise<void> {
-  await page.addInitScript((layoutJson: string) => {
+async function installMemoryProfile(page: Page, withClassFiles = false): Promise<void> {
+  await page.addInitScript(({ layoutJson, withClassFiles }: { layoutJson: string; withClassFiles: boolean }) => {
     interface MemoryDir { kind: "directory"; name: string; files: Map<string, string>; dirs: Map<string, MemoryDir> }
     const notFound = (name: string) => Object.assign(new Error(`${name} not found`), { name: "NotFoundError" });
     const fileHandle = (dir: MemoryDir, name: string) => ({
@@ -59,6 +59,12 @@ async function installMemoryProfile(page: Page): Promise<void> {
     const grid = makeDir("Grid");
     grid.files.set("grid copy.json", layoutJson);
     root("layout").dirs.set("Grid", grid);
+    if (withClassFiles) {
+      root("class-info").files.set("default.yaml", "0: car\n");
+      const sem = makeDir("SEM");
+      sem.files.set("fins.yaml", "0: fin\n1: gap\n");
+      root("class-info").dirs.set("SEM", sem);
+    }
     const walk = (dir: MemoryDir, prefix: string): Array<{ name: string; filePath: string; contents: string }> => [
       ...[...dir.files].filter(([name]) => name.endsWith(".json")).map(([name, contents]) => ({ name: prefix + name, filePath: prefix + name, contents })),
       ...[...dir.dirs.values()].filter((child) => !child.name.startsWith("."))
@@ -68,9 +74,10 @@ async function installMemoryProfile(page: Page): Promise<void> {
       getEasyLabelingProfileDirectory: async (kind: string) => root(kind),
       listEasyLabelingLibraryFiles: async (kind: string) => walk(root(kind), ""),
       profilePaths: (kind: string) => walk(root(kind), "").map((file) => file.name),
+      classPaths: () => walk(root("class-info"), "").map((file) => file.name).concat(...[...root("class-info").dirs.values()].flatMap((dir) => [...dir.files.keys()].filter((name) => name.endsWith(".yaml")).map((name) => `${dir.name}/${name}`))),
       trashPaths: (kind: string) => walk(root(kind).dirs.get(".trash") ?? makeDir(".trash"), "").map((file) => file.name.replace(/^[^/]+\//, ""))
     });
-  }, JSON.stringify(layout));
+  }, { layoutJson: JSON.stringify(layout), withClassFiles });
 }
 
 test("preset manager moves presets between folders, creates folders and picks where new presets are saved", async ({ page }) => {
@@ -155,4 +162,48 @@ test("preset manager moves presets between folders, creates folders and picks wh
   await page.screenshot({ path: "test-results/preset-manager-dark.png" });
   await manager.locator(".modal-footer [data-action='close']").click();
   await expect(manager).toBeHidden();
+});
+
+test("class files: subfolders in the picker, moved in the manager with the choice following, new files in the save folder", async ({ page }) => {
+  test.setTimeout(90_000);
+  await installMemoryProfile(page, true);
+  await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+  await page.locator("#emptyLoadSampleBtn").click();
+  await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 45_000 });
+  const select = page.locator("#class-file-select");
+  const button = page.locator("#class-file-select + .preset-picker-button");
+  await expect(select.locator('option[value="SEM/fins.yaml"]')).toHaveAttribute("data-folder", "SEM");
+
+  // Pick a class file inside a folder.
+  await button.click();
+  const menu = page.locator(".preset-picker-menu");
+  const rows = menu.locator(".preset-picker-row");
+  await expect(rows.first()).toHaveText("＋ Create new class file...");
+  await rows.filter({ hasText: "SEM" }).click();
+  await rows.filter({ hasText: "fins" }).click();
+  await expect(select).toHaveValue("SEM/fins.yaml");
+  await expect(button.locator(".preset-picker-folder")).toHaveText("SEM");
+
+  // Move the chosen file to the top: the choice follows it.
+  await button.click();
+  await page.locator(".preset-picker-manage").click();
+  const manager = page.locator(".preset-manager");
+  await expect(manager.locator(".modal-title")).toHaveText("Class files");
+  const managerRows = manager.locator(".preset-manager-row");
+  await expect(managerRows).toHaveText([" Top folder", " SEM", " fins", " default"]);
+  await managerRows.filter({ hasText: "fins" }).dragTo(managerRows.filter({ hasText: "Top folder" }));
+  await expect(manager.locator(".preset-manager-status")).toHaveText("Moved fins.yaml to the top folder.");
+  await expect(select).toHaveValue("fins.yaml");
+
+  // New class files go to the chosen save folder.
+  await manager.locator("#presetManagerSaveFolder").selectOption("SEM");
+  await page.keyboard.press("Escape");
+  await expect(manager).toBeHidden();
+  await button.click();
+  await rows.filter({ hasText: "Create new class file" }).click();
+  await expect(page.locator("#createClassFileModal")).toBeVisible();
+  await page.locator("#newClassFileNameInput").fill("wafer");
+  await page.locator("#confirmCreateClassFileBtn").click();
+  await expect(select).toHaveValue("SEM/wafer.yaml");
+  expect((await page.evaluate(() => (window as unknown as { classPaths(): string[] }).classPaths())).sort()).toContain("SEM/wafer.yaml");
 });

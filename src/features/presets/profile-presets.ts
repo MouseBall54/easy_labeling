@@ -6,7 +6,13 @@
 import { isFileHandleLike, isNotFoundError, readFileText, writeTextFileByName } from "../../platform/file-system-access.js";
 import type { DirectoryHandleLike, FileHandleLike } from "../../types/files.js";
 
-export type ProfilePresetKind = EasyLabelingLibraryFileKind;
+/** Every profile folder kind; "class-info" holds class files (.yaml), the others JSON presets. */
+export type ProfilePresetKind = EasyLabelingProfileDirectoryKind;
+
+/** Whether a file name is one of this kind's files. */
+export function isProfilePresetFileName(kind: ProfilePresetKind, name: string): boolean {
+  return kind === "class-info" ? /\.ya?ml$/i.test(name) : name.toLowerCase().endsWith(".json");
+}
 
 export interface ProfilePresetFile {
   /** Path inside the kind's folder, "/"-separated ("SEM/Metal pattern/fine.json"). */
@@ -122,13 +128,13 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
     }
     const { parent, name } = await locate(from, false);
     await parent.removeEntry?.(name);
-    return files.filter((file) => file.path.toLowerCase().endsWith(".json")).length;
+    return files.filter((file) => isProfilePresetFileName(kind, file.path)).length;
   };
   return {
     name: directory.name,
     exists,
     async list() {
-      const files = (await listPresetFiles(directory, ""))
+      const files = (await listPresetFiles(directory, "", kind))
         .sort((left, right) => left.fileName.localeCompare(right.fileName, undefined, { numeric: true, sensitivity: "base" }));
       return Promise.all(files.map(async ({ fileName, handle }) => ({ fileName, contents: await readFileText(handle) })));
     },
@@ -196,13 +202,13 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
 
 type RemovableDirectory = DirectoryHandleLike & { removeEntry?(name: string): Promise<void> };
 
-async function listPresetFiles(directory: DirectoryHandleLike, prefix: string): Promise<Array<{ fileName: string; handle: FileHandleLike }>> {
+async function listPresetFiles(directory: DirectoryHandleLike, prefix: string, kind: ProfilePresetKind): Promise<Array<{ fileName: string; handle: FileHandleLike }>> {
   const found: Array<{ fileName: string; handle: FileHandleLike }> = [];
   for await (const entry of directory.values()) {
     if (isFileHandleLike(entry)) {
-      if (entry.name.toLowerCase().endsWith(".json")) found.push({ fileName: prefix + entry.name, handle: entry });
+      if (isProfilePresetFileName(kind, entry.name)) found.push({ fileName: prefix + entry.name, handle: entry });
     } else if (entry.kind === "directory" && !entry.name.startsWith(".") && "values" in entry) {
-      found.push(...await listPresetFiles(entry, `${prefix}${entry.name}/`));
+      found.push(...await listPresetFiles(entry, `${prefix}${entry.name}/`, kind));
     }
   }
   return found;

@@ -144,6 +144,15 @@ describe("profile preset folders", () => {
     await expect(presets.removeFolder("TEM")).resolves.toBe(0);
   });
 
+  it("manages the Class Info folder's .yaml/.yml class files", async () => {
+    const folder = memoryFolder("Class Info", { "classes.yaml": "0: a", "preset.json": "{}" });
+    const classes = (await openProfilePresetFolder(desktop({ "class-info": folder }).windowRef, "class-info"))!;
+    (await folder.getDirectoryHandle("SEM", { create: true })).files["fins.yml"] = "0: f";
+    expect((await classes.list()).map((file) => file.fileName)).toEqual(["classes.yaml", "SEM/fins.yml"]);
+    await expect(classes.move("classes.yaml", "SEM")).resolves.toBe("SEM/classes.yaml");
+    await expect(classes.removeFolder("SEM")).resolves.toBe(2);
+  });
+
   it("is absent in the web build", async () => {
     await expect(openProfilePresetFolder({}, "preprocessing")).resolves.toBeNull();
   });

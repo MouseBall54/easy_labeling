@@ -2,6 +2,7 @@ import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessi
 import type { DirectoryHandleLike } from "../types/files.js";
 import { loadPreprocessingPresetLibrary, savePreprocessingPresets, serializePreprocessingPresets, upsertPreprocessingPreset, type StoredPreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
 import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
+import { classFilePath } from "../features/classes/class-file-service.js";
 import { emptyLastSelections, parseLastSelections, recallSelection, rememberSelection, type LastSelections } from "../domain/last-selections.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
@@ -275,6 +276,7 @@ export function createEventManagerAdapter(input: {
         const kind = (event as CustomEvent<{ kind?: string }>).detail?.kind;
         if (kind === "preset" || kind === "layout") runAsync(() => automationController?.refreshLibrary() ?? Promise.resolve());
         if (kind === "preprocessing") refreshPreprocessPresetsLater?.();
+        if (kind === "class-info") runAsync(() => input.fileSystem.refreshClassFiles((event as CustomEvent<{ moved?: { from: string; to: string } }>).detail?.moved));
         if (kind === "segmentation") {
           runAsync(async () => {
             const loaded = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"),
@@ -1183,7 +1185,7 @@ export function createEventManagerAdapter(input: {
         if (!selectedFileName) {
           return;
         }
-        const selectedFile = input.state.session.classFiles.find((file) => file.name === selectedFileName);
+        const selectedFile = input.state.session.classFiles.find((file) => classFilePath(file) === selectedFileName);
         if (selectedFile) {
           runAsync(() => input.fileSystem.loadClassNamesFromFile(selectedFile));
         }

@@ -7,6 +7,8 @@ export interface PresetEntry {
   /** "/"-separated subfolder path; "" at the top. */
   folder: string;
   title?: string;
+  /** An action or built-in choice kept first in every view, like value "". */
+  pinned?: boolean;
 }
 
 export type PresetRow =
@@ -26,15 +28,16 @@ const naturalCompare = (left: string, right: string): number =>
   left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
 
 /**
- * `special` entries (value "": the placeholder or the built-in choice) stay first in every view. Presets
+ * `special` entries (value "" or pinned: the placeholder, the built-in choice or an action) stay first in every view. Presets
  * whose value repeats keep the first one.
  */
 export function buildPresetRows(entries: readonly PresetEntry[], state: PresetTreeState): PresetRow[] {
-  const special = entries.filter((entry) => entry.value === "");
-  const presets = dedupe(entries.filter((entry) => entry.value !== ""));
+  const isSpecial = (entry: PresetEntry): boolean => entry.value === "" || entry.pinned === true;
+  const special = entries.filter(isSpecial);
+  const presets = dedupe(entries.filter((entry) => !isSpecial(entry)));
   const favorites = new Set(state.favorites);
   const presetRow = (entry: PresetEntry, depth: number, showFolder: boolean): PresetRow =>
-    ({ kind: "preset", entry, depth, favorite: favorites.has(entry.value), showFolder });
+    ({ kind: "preset", entry, depth, favorite: !isSpecial(entry) && favorites.has(entry.value), showFolder });
   const rows: PresetRow[] = special.map((entry) => presetRow(entry, 0, false));
 
   const query = state.query.trim().toLowerCase();

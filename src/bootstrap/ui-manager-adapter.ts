@@ -4,6 +4,7 @@ import type { AppState } from "../app/state.js";
 import { getCurrentDocumentStatus } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
 import { validateNewClassFileName } from "../domain/class-files.js";
+import { classFilePath } from "../features/classes/class-file-service.js";
 import type { LabelDisplayMode, WorkflowType } from "../types/labels.js";
 import {
   getDOMElements,
@@ -1400,7 +1401,7 @@ export function createUiManagerAdapter(input: {
       renderClassFileSelect(
         elements.classFileSelect,
         input.state.session.classFiles,
-        input.state.session.selectedClassFile?.name ?? null
+        input.state.session.selectedClassFile ? classFilePath(input.state.session.selectedClassFile) : null
       );
     },
 

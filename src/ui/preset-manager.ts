@@ -18,7 +18,8 @@ export const PRESET_KIND_LABELS: Record<ProfilePresetKind, string> = {
   refine: "Refine presets",
   reclass: "Reclass presets",
   preprocessing: "Preprocessing presets",
-  segmentation: "Superpixel presets"
+  segmentation: "Superpixel presets",
+  "class-info": "Class files"
 };
 
 const TOP = "";
@@ -111,10 +112,11 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
   };
   const failed = (error: unknown): void => report(error instanceof Error ? error.message : String(error), true);
 
-  const changed = async (message: string): Promise<void> => {
+  /** `moved`: a file or folder path that now lives elsewhere, so a panel holding it by path can follow it. */
+  const changed = async (message: string, moved?: { from: string; to: string }): Promise<void> => {
     report(message);
     await render();
-    windowRef.dispatchEvent(new CustomEvent(PRESETS_CHANGED_EVENT, { detail: { kind } }));
+    windowRef.dispatchEvent(new CustomEvent(PRESETS_CHANGED_EVENT, { detail: { kind, moved } }));
   };
 
   const move = async (fileName: string, target: string): Promise<void> => {
@@ -122,7 +124,7 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
       const moved = await folder.move(fileName, target);
       if (moved === fileName) return;
       selectedFile = moved;
-      await changed(`Moved ${baseName(fileName)} to ${target || "the top folder"}.`);
+      await changed(`Moved ${baseName(fileName)} to ${target || "the top folder"}.`, { from: fileName, to: moved });
     } catch (error: unknown) {
       report(error instanceof Error ? error.message : String(error), true);
     }
@@ -149,7 +151,7 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
           if (renamed === from) return;
           followSaveFolder(from, renamed);
           selectedFolder = renamed;
-          return changed(`Renamed ${from} to ${renamed}.`);
+          return changed(`Renamed ${from} to ${renamed}.`, { from, to: renamed });
         })
         .catch(failed);
       return;
@@ -244,7 +246,7 @@ function treeRows(documentRef: Document, folders: readonly string[], files: read
       walk(child, depth + 1);
     }
     for (const file of files.filter((candidate) => folderOf(candidate) === path)) {
-      const item = row(baseName(file).replace(/\.json$/i, ""), depth, "bi-file-earmark-text");
+      const item = row(baseName(file).replace(/\.(json|ya?ml)$/i, ""), depth, "bi-file-earmark-text");
       item.dataset.file = file;
       item.draggable = true;
       item.title = file;

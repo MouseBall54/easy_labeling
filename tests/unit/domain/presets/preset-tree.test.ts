@@ -26,6 +26,13 @@ describe("preset picker rows", () => {
     expect(show(buildPresetRows(entries, { ...state, query: " P1 " }))).toEqual(["(none)", "p10 [TEM]"]);
   });
 
+  it("keeps pinned actions first in every view, out of favourites and search filtering", () => {
+    const withAction = [{ value: "new", label: "Create new", folder: "", pinned: true }, entry("top"), entry("fine", "SEM")];
+    const state = { query: "", expanded: new Set<string>(), favorites: ["new", "top"], recent: ["new"] };
+    expect(show(buildPresetRows(withAction, state))).toEqual(["Create new", "# Favorites", "top *", "# All", "> SEM", "top *"]);
+    expect(show(buildPresetRows(withAction, { ...state, query: "fine" }))).toEqual(["Create new", "fine [SEM]"]);
+  });
+
   it("opens the folders on the way to a preset and keeps recent choices short and unique", () => {
     expect(folderAncestors("a/b/c")).toEqual(["a", "a/b", "a/b/c"]);
     expect(folderAncestors("")).toEqual([]);
