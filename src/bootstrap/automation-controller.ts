@@ -112,6 +112,8 @@ const SIMILAR_PREPROCESSING: TemplatePreprocessingSettings = {
 };
 /** Overlap with an existing box at which find_similar treats a match as already labelled. */
 const SIMILAR_OVERLAP_IOU = 0.3;
+// Same upper bound as the panel's Maximum detections.
+const MAX_SIMILAR_MATCHES = 10000;
 
 export interface AutomationController {
   readonly agent: AutomationAgentApi;
@@ -1492,6 +1494,13 @@ export function createAutomationController(input: {
         detail: "Preparing template",
         stoppedMessage: "Template matching stopped."
       }, async (operation) => {
+        const existing = input.canvasController.raw.getObjects("rect").filter(isRectObject).map((rect) => {
+          const bounds = getRectBounds(rect);
+          return { score: 1, x: bounds.left, y: bounds.top, width: bounds.right - bounds.left, height: bounds.bottom - bounds.top };
+        });
+        // Leave room for the matches that land on existing boxes and get dropped below.
+        // ponytail: assumes about one NMS-kept match per existing box; raise the headroom if dense overlaps still cut new boxes short.
+        const matchLimit = Math.min(MAX_SIMILAR_MATCHES, search.maximumDetections + (search.skipOverlapping ? existing.length : 0));
         setMatchingEngineStatus("loading", "Matching engine: Running");
         let result: TemplateMatchResult;
         try {
@@ -1504,19 +1513,16 @@ export function createAutomationController(input: {
             preprocessing: SIMILAR_PREPROCESSING,
             matching: { minimumScore: search.minimumScore, searchRoi: null, mode: "accurate" },
             outputMode: "multiple-detection-boxes",
-            multipleDetection: { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: search.maximumDetections }
+            multipleDetection: { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: matchLimit }
           });
           throwIfOperationCancelled(operation.signal);
         } finally {
           setMatchingEngineStatus("ready", "Matching engine: Ready");
         }
-        const existing = input.canvasController.raw.getObjects("rect").filter(isRectObject).map((rect) => {
-          const bounds = getRectBounds(rect);
-          return { score: 1, x: bounds.left, y: bounds.top, width: bounds.right - bounds.left, height: bounds.bottom - bounds.top };
-        });
         const overlapping = (match: TemplateMatchCandidate) => existing.some((box) => intersectionOverUnion(match, box) >= SIMILAR_OVERLAP_IOU);
         const kept = search.skipOverlapping ? result.matches.filter((match) => !overlapping(match)) : result.matches;
-        const candidates = [...kept].sort((a, b) => b.score - a.score);
+        // The limit counts new boxes only, so it applies after matches on existing boxes are dropped.
+        const candidates = [...kept].sort((a, b) => b.score - a.score).slice(0, search.maximumDetections);
         outcome = {
           applied: false,
           candidates: candidates.map(({ score, x, y, width, height }) => ({ score, x0: x, y0: y, x1: x + width, y1: y + height })),

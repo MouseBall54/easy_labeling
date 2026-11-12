@@ -68,7 +68,7 @@ describe("agent automation and inference tools", () => {
     const candidates = Array.from({ length: 120 }, (_, index) => ({ score: 0.9, x0: index, y0: 0, x1: index + 30, y1: 40 }));
     const set = tools({ automation: { findSimilar: async (search) => { searches.push(search); return { applied: false, candidates, overlappingExisting: 1 }; } } });
     const result = await set.find_similar.run({ annotationId: "t" }, context) as { found: number; candidates: unknown[]; truncated: boolean };
-    expect(searches[0]).toEqual({ roi: { x: 10, y: 20, width: 30, height: 40 }, classId: "2", minimumScore: 0.8, maximumDetections: 300, skipOverlapping: true, apply: false });
+    expect(searches[0]).toEqual({ roi: { x: 10, y: 20, width: 30, height: 40 }, classId: "2", minimumScore: 0.8, maximumDetections: 2000, skipOverlapping: true, apply: false });
     expect([result.found, result.candidates.length, result.truncated]).toEqual([120, 100, true]);
     await set.find_similar.run({ region: { x0: 0, y0: 0, x1: 20, y1: 20 }, classId: 5, minScore: 0.6 }, context);
     expect(searches[1]).toMatchObject({ roi: { x: 0, y: 0, width: 20, height: 20 }, classId: "5", minimumScore: 0.6 });

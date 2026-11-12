@@ -240,7 +240,7 @@ MCP 패널의 **Permissions**에서 바로 바꿀 수 있습니다(이 PC에 저
 ## 6. 알아 둘 점
 
 - **긴 결과**: 박스가 수천 개인 이미지에서 결과가 에이전트의 대화창을 채우지 않도록 `get_boxes`, `run_refine`, `run_reclass`, `review_queue`, `find_similar`, `apply_layout`은 목록을 나눠서 돌려줍니다(`offset`/`limit`). 개수(전체, 클래스별, 검수 대상)는 항상 전체 기준입니다. Refine 결과는 검수 대상 박스를 앞에 둡니다.
-- **find_similar 설정**: Template Matching Setup의 기본값(회색조, 블러 13, 정확 모드, 최소 점수 0.8)으로 찾습니다. 세부 설정을 바꾸려면 앱에서 프리셋을 저장하고 `run_template_matching`을 씁니다.
+- **find_similar 설정**: Template Matching Setup의 기본값(회색조, 블러 13, 정확 모드, 최소 점수 0.8)으로 찾고, 기본으로 최대 2000개까지 남깁니다(`maxMatches`로 최대 5000까지). 세부 설정을 바꾸려면 앱에서 프리셋을 저장하고 `run_template_matching`을 씁니다.
 - **좌표**: 박스 좌표는 이미지 픽셀 `{x0, y0, x1, y1}`(테두리 포함, 라벨 파일에 저장되는 값)입니다. `read_labels`만 정규화 좌표(0~1)입니다.
 - **추론 결과 위치**: `run_inference`는 결과를 모델 전용 라벨 폴더(`inference-<모델 이름>`)에 쓰고 그 폴더를 활성 라벨 세트로 바꿉니다. 원래 라벨은 바뀌지 않습니다.
 - **Reclass 규칙**: 새 폴더의 기본 규칙에도 검사가 켜져 있어서 `run_reclass`가 실제로 클래스를 바꿀 수 있습니다. 에이전트가 `get_refine_settings`로 규칙을 먼저 확인하도록 안내되어 있습니다.

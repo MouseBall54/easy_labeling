@@ -517,7 +517,7 @@ struct FindSimilarArgs {
     class_id: Option<Value>,
     #[schemars(description = "Minimum match score 0..1 (default 0.8; lower finds more, with more false matches)")]
     min_score: Option<f64>,
-    #[schemars(description = "Most matches to keep (default 300, at most 5000)")]
+    #[schemars(description = "Most matches to keep (default 2000, at most 5000)")]
     max_matches: Option<u32>,
     #[schemars(description = "Drop matches that overlap an existing box, such as the template itself (default true)")]
     skip_overlapping: Option<bool>,

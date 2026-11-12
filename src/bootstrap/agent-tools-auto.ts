@@ -98,7 +98,7 @@ export function createAgentAutoTools(deps: AgentAutoToolDeps): Record<string, Ag
         const classArg = args.classId ?? source.classId;
         if (classArg === undefined || classArg === null) throw new AgentToolError("invalid_args", "classId is required with region.");
         const minimumScore = unitArg(args, "minScore") ?? 0.8;
-        const maximumDetections = Math.min(5000, Math.max(1, Math.floor(optionalArg(args, "maxMatches", "number") ?? 300)));
+        const maximumDetections = Math.min(5000, Math.max(1, Math.floor(optionalArg(args, "maxMatches", "number") ?? 2000)));
         const apply = optionalArg(args, "apply", "boolean") ?? false;
         const api = automation();
         const outcome = await panelErrors(() => api.findSimilar({
