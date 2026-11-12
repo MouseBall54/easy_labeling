@@ -102,6 +102,8 @@ export interface SimilarOutcome {
   /** Matches over the minimum score, best first, minus the overlapping ones when skipOverlapping. */
   candidates: Array<{ score: number; x0: number; y0: number; x1: number; y1: number }>;
   overlappingExisting: number;
+  /** True when more matches passed than maximumDetections allowed: raise it to see them. */
+  hitLimit: boolean;
   annotationIds?: string[];
   discardedOutOfBounds?: number;
 }
@@ -1525,6 +1527,8 @@ export function createAutomationController(input: {
         const candidates = [...kept].sort((a, b) => b.score - a.score).slice(0, search.maximumDetections);
         outcome = {
           applied: false,
+          // The matcher stopping at its own limit may also have left matches out.
+          hitLimit: kept.length > search.maximumDetections || result.matches.length >= matchLimit,
           candidates: candidates.map(({ score, x, y, width, height }) => ({ score, x0: x, y0: y, x1: x + width, y1: y + height })),
           overlappingExisting: result.matches.length - kept.length
         };

@@ -19,10 +19,13 @@ const ERROR_PIPE_BUSY: i32 = 231;
 /// How often a long call tells the client it is still running (see exchange).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
+/// The app version this server was built with (package.json, read by build.rs).
+const MCP_VERSION: &str = env!("EL_APP_VERSION");
+
 const INSTRUCTIONS: &str = "Easy Labeling is a desktop image annotation app for grayscale SEM/TEM images: YOLO detection boxes \
 (Detection workflow) and class masks (Segmentation workflow, one class id per pixel). \
 These tools drive the app window the person has open, so they see every change. Coordinates are image pixels {x0, y0, x1, y1} \
-(x0 < x1, y0 < y1) unless a result says \"normalized\". Start with app_state. If a tool answers app_not_running, ask the person \
+(x0 < x1, y0 < y1) unless a result says \"normalized\". Start with app_state (it reports appVersion and mcpVersion; versionWarning means the app and this server come from different releases, so tell the person). If a tool answers app_not_running, ask the person \
 to start Easy Labeling; on busy, wait a moment and retry; on timeout, ask the person to check the window (a dialog may be open).\n\n\
 Images often hold thousands of boxes, so long lists come in pages: get_boxes, run_refine, run_reclass, review_queue, find_similar \
 and apply_layout take offset/limit and always return the totals (limit 0 returns counts only). Prefer counts and capture_view \
@@ -517,7 +520,7 @@ struct FindSimilarArgs {
     class_id: Option<Value>,
     #[schemars(description = "Minimum match score 0..1 (default 0.8; lower finds more, with more false matches)")]
     min_score: Option<f64>,
-    #[schemars(description = "Most matches to keep (default 2000, at most 5000)")]
+    #[schemars(description = "Most matches to keep (default 2000, at most 5000); hitLimit in the result says more were left out")]
     max_matches: Option<u32>,
     #[schemars(description = "Drop matches that overlap an existing box, such as the template itself (default true)")]
     skip_overlapping: Option<bool>,
@@ -1220,7 +1223,7 @@ fn simplify(node: &mut Value, defs: &Value, nested: bool) {
 impl ServerHandler for EasyLabeling {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("easy-labeling", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new("easy-labeling", MCP_VERSION))
             .with_instructions(INSTRUCTIONS)
     }
 }
@@ -1279,6 +1282,7 @@ async fn exchange(tool: &str, args: Value, (meta, peer, ct): Context) -> Result<
             format!("The app speaks agent protocol {}, this server {PROTOCOL}; install matching versions.", hello["protocol"]),
         ));
     }
+    let app_version = hello["appVersion"].as_str().unwrap_or("unknown").to_string();
     write_frame(&mut write, &json!({ "type": "call", "id": "1", "tool": tool, "args": args }), &[]).await.map_err(io_failure)?;
     let token = meta.get_progress_token();
     // Progress values must grow; heartbeats and the app's own progress share this counter.
@@ -1317,12 +1321,38 @@ async fn exchange(tool: &str, args: Value, (meta, peer, ct): Context) -> Result<
                     let _ = peer.notify_progress(update).await;
                 }
             }
-            Some("result") if header["ok"] == true => return Ok((header["result"].clone(), body)),
+            Some("result") if header["ok"] == true => {
+                let mut result = header["result"].clone();
+                if tool == "app_state" {
+                    add_versions(&mut result, &app_version);
+                }
+                return Ok((result, body));
+            }
             Some("result") => {
                 let error = &header["error"];
-                return Err(failure(error["code"].as_str().unwrap_or("failed"), error["message"].as_str().unwrap_or("The app reported an error.")));
+                let mut message = error["message"].as_str().unwrap_or("The app reported an error.").to_string();
+                if let Some(warning) = version_warning(&app_version) {
+                    message = format!("{message} ({warning})");
+                }
+                return Err(failure(error["code"].as_str().unwrap_or("failed"), message));
             }
             _ => {}
+        }
+    }
+}
+
+/// Set when the app and this server come from different releases: tools can be missing or behave differently.
+fn version_warning(app_version: &str) -> Option<String> {
+    (app_version != MCP_VERSION)
+        .then(|| format!("Easy Labeling is {app_version} but easy-labeling-mcp.exe is {MCP_VERSION}; ask the person to use the server installed with the app"))
+}
+
+fn add_versions(result: &mut Value, app_version: &str) {
+    if let Some(fields) = result.as_object_mut() {
+        fields.insert("appVersion".into(), json!(app_version));
+        fields.insert("mcpVersion".into(), json!(MCP_VERSION));
+        if let Some(warning) = version_warning(app_version) {
+            fields.insert("versionWarning".into(), json!(warning));
         }
     }
 }
@@ -1337,6 +1367,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_state_carries_both_versions_and_warns_on_a_mismatch() {
+        let mut matching = json!({ "folder": null });
+        add_versions(&mut matching, MCP_VERSION);
+        assert_eq!(matching["appVersion"], MCP_VERSION);
+        assert_eq!(matching["mcpVersion"], MCP_VERSION);
+        assert!(matching.get("versionWarning").is_none());
+
+        let mut older = json!({});
+        add_versions(&mut older, "1.0.0");
+        assert!(older["versionWarning"].as_str().expect("warning").contains("1.0.0"));
+        assert!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../package.json"))
+            .expect("package.json")
+            .contains(&format!("\"version\": \"{MCP_VERSION}\"")));
+    }
 
     #[test]
     fn schemas_are_plain_enough_for_every_client() {

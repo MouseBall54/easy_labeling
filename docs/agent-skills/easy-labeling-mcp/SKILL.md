@@ -10,6 +10,10 @@ description: >
 The tools act on the app window the person has open; they watch every change. Coordinates are image pixels
 `{x0, y0, x1, y1}` (pixel edges, x0 < x1) unless a result says "normalized". Start every session with `app_state`.
 
+Written for Easy Labeling 3.6.0 (the Segmentation tools need 3.5.0 or later). `app_state` reports `appVersion` and
+`mcpVersion`; if it carries `versionWarning`, or a tool this skill names is missing, tell the person the app and its
+MCP server come from different releases before working around it.
+
 ## Habits that hold for every branch
 
 - **Numbers first, captures second.** Read counts, scores and lists (`get_boxes`, `get_regions`, `analyze_*`,
@@ -32,6 +36,7 @@ The tools act on the app window the person has open; they watch every change. Co
 
 1. `set_workflow` "detection" if `app_state` says otherwise; `get_classes` for class ids.
 2. Add boxes: `find_similar` from one good box (or `run_template_matching`, `apply_layout`); preview, then apply.
+   `hitLimit: true` means more matches passed than `maxMatches` (default 2000) kept: raise it and run again.
 3. `analyze_boxes`: size outliers, off-row/column, `overlap` (similar-size boxes overlapping: likely duplicates),
    `missing` spots with centre and size per size group.
 4. Fill missing spots: `add_boxes` at each spot's centre and size → `run_refine` on the new ids → `delete_boxes` the
