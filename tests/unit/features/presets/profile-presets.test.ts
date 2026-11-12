@@ -52,6 +52,13 @@ function memoryFolder(name: string, files: Record<string, string> = {}): MemoryF
       return (folders[child] ??= memoryFolder(child));
     },
     async removeEntry(fileName: string) {
+      // Like the desktop fs_remove: files, and folders only when empty.
+      const child = folders[fileName];
+      if (child) {
+        if (Object.keys(child.files).length || Object.keys(child.folders).length) throw new Error(`${fileName} is not empty`);
+        delete folders[fileName];
+        return;
+      }
       if (!(fileName in files)) throw notFound(fileName);
       delete files[fileName];
     }
@@ -104,6 +111,37 @@ describe("profile preset folders", () => {
     await expect(presets.move("TEM/b.json", "")).rejects.toThrow('"b.json" already exists in the top folder');
     expect(folder.folders.TEM!.files["b.json"]).toBe("B");
     await expect(presets.move("a.json", "")).resolves.toBe("a.json");
+  });
+
+  it("renames folders with their content and removes folders into .trash", async () => {
+    const folder = memoryFolder("Refine Presets", { "top.json": "T" });
+    const presets = (await openProfilePresetFolder(desktop({ refine: folder }).windowRef, "refine"))!;
+    await presets.createFolder("SEM/Metal/Empty");
+    await presets.save("fine", "F", "SEM/Metal/fine.json");
+    await presets.save("cross", "C", "SEM/cross.json");
+    await presets.createFolder("TEM");
+    await presets.save("tem", "X", "TEM.json");
+
+    await expect(presets.renameFolder("SEM", "TEM")).rejects.toThrow('"TEM" already exists there');
+    await expect(presets.renameFolder("SEM", "tem")).rejects.toThrow("already exists");
+    await expect(presets.renameFolder("SEM", "a/b")).rejects.toThrow('without "/"');
+    await expect(presets.renameFolder("", "x")).rejects.toThrow("top folder cannot be renamed");
+    await expect(presets.renameFolder("SEM", "Scanning")).resolves.toBe("Scanning");
+    expect(await presets.folders()).toEqual(["Scanning", "Scanning/Metal", "Scanning/Metal/Empty", "TEM"]);
+    expect((await presets.list()).map((file) => [file.fileName, file.contents])).toEqual([
+      ["Scanning/cross.json", "C"], ["Scanning/Metal/fine.json", "F"], ["TEM.json", "X"], ["top.json", "T"]
+    ]);
+    await expect(presets.renameFolder("Scanning/Metal", "Metals")).resolves.toBe("Scanning/Metals");
+
+    await expect(presets.removeFolder("")).rejects.toThrow("top folder cannot be removed");
+    await expect(presets.removeFolder("Scanning")).resolves.toBe(2);
+    expect(await presets.folders()).toEqual(["TEM"]);
+    expect((await presets.list()).map((file) => file.fileName)).toEqual(["TEM.json", "top.json"]);
+    const trash = folder.folders[".trash"]!;
+    const stamp = Object.values(trash.folders)[0]!;
+    expect(stamp.folders.Scanning!.files["cross.json"]).toBe("C");
+    expect(stamp.folders.Scanning!.folders.Metals!.files["fine.json"]).toBe("F");
+    await expect(presets.removeFolder("TEM")).resolves.toBe(0);
   });
 
   it("is absent in the web build", async () => {

@@ -49,6 +49,8 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
           <div class="d-flex align-items-center gap-2 mb-2">
             <span class="small text-muted flex-grow-1">Drag a preset onto a folder to move it.</span>
             <button type="button" class="btn btn-sm btn-outline-secondary" data-action="new-folder" title="Create a folder inside the selected one (a/b nests)"><i class="bi bi-folder-plus" aria-hidden="true"></i> New folder</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="rename-folder" title="Rename the selected folder"><i class="bi bi-pencil" aria-hidden="true"></i> Rename</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-folder" title="Remove the selected folder; its presets go to .trash in the profile folder"><i class="bi bi-trash" aria-hidden="true"></i> Delete</button>
           </div>
           <div class="preset-manager-tree" role="tree" aria-label="Preset folders"></div>
           <div class="input-group input-group-sm mt-2">
@@ -77,6 +79,7 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
   let selectedFolder = TOP;
 
   const close = (): void => {
+    documentRef.removeEventListener("keydown", onKey, true);
     modal.remove();
     backdrop.remove();
     opener?.focus?.();
@@ -95,7 +98,18 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
     fillFolderOptions(saveSelect, folders, folders.includes(saveFolder) ? saveFolder : TOP);
     fillFolderOptions(moveSelect, folders, moveSelect.value && folders.includes(moveSelect.value) ? moveSelect.value : TOP);
     tree.replaceChildren(...treeRows(documentRef, folders, fileNames, selectedFile, selectedFolder));
+    const folderChosen = !selectedFile && selectedFolder !== TOP;
+    query<HTMLButtonElement>("[data-action='rename-folder']").disabled = !folderChosen;
+    query<HTMLButtonElement>("[data-action='delete-folder']").disabled = !folderChosen;
   };
+
+  /** Keeps the save folder pointing at the same place after `from` is renamed to `to` (null: removed). */
+  const followSaveFolder = (from: string, to: string | null): void => {
+    const current = getPresetSaveFolder(windowRef, kind);
+    if (current !== from && !current.startsWith(`${from}/`)) return;
+    setPresetSaveFolder(windowRef, kind, to === null ? TOP : to + current.slice(from.length));
+  };
+  const failed = (error: unknown): void => report(error instanceof Error ? error.message : String(error), true);
 
   const changed = async (message: string): Promise<void> => {
     report(message);
@@ -126,6 +140,32 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
         .catch((error: unknown) => report(error instanceof Error ? error.message : String(error), true));
       return;
     }
+    if (action === "rename-folder" && selectedFolder) {
+      const from = selectedFolder;
+      const name = windowRef.prompt?.(`Rename folder "${from}" to:`, from.slice(from.lastIndexOf("/") + 1))?.trim();
+      if (!name) return;
+      void folder.renameFolder(from, name)
+        .then((renamed) => {
+          if (renamed === from) return;
+          followSaveFolder(from, renamed);
+          selectedFolder = renamed;
+          return changed(`Renamed ${from} to ${renamed}.`);
+        })
+        .catch(failed);
+      return;
+    }
+    if (action === "delete-folder" && selectedFolder) {
+      const from = selectedFolder;
+      if (!(windowRef.confirm?.(`Delete folder "${from}"? Its presets are moved to .trash in ${folder.name}.`) ?? false)) return;
+      void folder.removeFolder(from)
+        .then((count) => {
+          followSaveFolder(from, null);
+          selectedFolder = folderOf(from);
+          return changed(count ? `Deleted ${from}; ${count} preset${count === 1 ? "" : "s"} moved to .trash.` : `Deleted ${from}.`);
+        })
+        .catch(failed);
+      return;
+    }
     if (action === "move") {
       if (!selectedFile) return report("Select a preset first.", true);
       void move(selectedFile, moveSelect.value);
@@ -142,12 +182,13 @@ export async function openPresetManager(documentRef: Document, windowRef: Window
     }
     void render();
   });
-  modal.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      close();
-    }
-  });
+  // On the document: a button that turns disabled after an action drops the focus out of the dialog.
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    close();
+  };
+  documentRef.addEventListener("keydown", onKey, true);
   saveSelect.addEventListener("change", () => {
     setPresetSaveFolder(windowRef, kind, saveSelect.value);
     report(`New presets go to ${saveSelect.value || "the top folder"}.`);

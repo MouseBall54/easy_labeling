@@ -312,6 +312,8 @@ async fn fs_remove(base: String, name: String) -> CommandResult<()> {
     let target = child_path(&base, &name)?;
     match fs::symlink_metadata(&target) {
         Ok(meta) if meta.is_file() => fs::remove_file(&target).map_err(|error| io_error(error, "File")),
+        // Empty folders only (the preset folder manager empties a folder before removing it).
+        Ok(meta) if meta.is_dir() => fs::remove_dir(&target).map_err(|error| io_error(error, "Directory")),
         Ok(_) => Err(format!("TypeMismatchError: Expected file: {name}")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(format!("NotFoundError: File not found: {name}")),
         Err(error) => Err(io_error(error, "File")),

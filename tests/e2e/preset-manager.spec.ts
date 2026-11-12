@@ -41,6 +41,12 @@ async function installMemoryProfile(page: Page): Promise<void> {
           return fileHandle(dir, file);
         },
         async removeEntry(file: string) {
+          const child = dir.dirs.get(file);
+          if (child) {
+            if (child.files.size || child.dirs.size) throw new Error(`${file} is not empty`);
+            dir.dirs.delete(file);
+            return;
+          }
           if (!dir.files.delete(file)) throw notFound(file);
         }
       });
@@ -55,12 +61,14 @@ async function installMemoryProfile(page: Page): Promise<void> {
     root("layout").dirs.set("Grid", grid);
     const walk = (dir: MemoryDir, prefix: string): Array<{ name: string; filePath: string; contents: string }> => [
       ...[...dir.files].filter(([name]) => name.endsWith(".json")).map(([name, contents]) => ({ name: prefix + name, filePath: prefix + name, contents })),
-      ...[...dir.dirs.values()].flatMap((child) => walk(child, `${prefix}${child.name}/`))
+      ...[...dir.dirs.values()].filter((child) => !child.name.startsWith("."))
+        .flatMap((child) => walk(child, `${prefix}${child.name}/`))
     ];
     Object.assign(window, {
       getEasyLabelingProfileDirectory: async (kind: string) => root(kind),
       listEasyLabelingLibraryFiles: async (kind: string) => walk(root(kind), ""),
-      profilePaths: (kind: string) => walk(root(kind), "").map((file) => file.name)
+      profilePaths: (kind: string) => walk(root(kind), "").map((file) => file.name),
+      trashPaths: (kind: string) => walk(root(kind).dirs.get(".trash") ?? makeDir(".trash"), "").map((file) => file.name.replace(/^[^/]+\//, ""))
     });
   }, JSON.stringify(layout));
 }
@@ -108,6 +116,34 @@ test("preset manager moves presets between folders, creates folders and picks wh
   expect(await page.evaluate(() => localStorage.getItem("easyLabeling.presetSaveFolder.layout"))).toBe("SEM");
   await rows.filter({ hasText: "Metal" }).click();
   await page.screenshot({ path: "test-results/preset-manager-light.png" });
+
+  // Rename a folder: its content goes along and the save folder follows it.
+  const rename = manager.locator("[data-action='rename-folder']");
+  const remove = manager.locator("[data-action='delete-folder']");
+  await rows.filter({ hasText: "Top folder" }).click();
+  await expect(rename).toBeDisabled();
+  await rows.filter({ hasText: "SEM" }).click();
+  await expect(rename).toBeEnabled();
+  page.once("dialog", (dialog) => void dialog.accept("Grid"));
+  await rename.click();
+  await expect(manager.locator(".preset-manager-status")).toHaveText('"Grid" already exists there.');
+  page.once("dialog", (dialog) => void dialog.accept("Scanning"));
+  await rename.click();
+  await expect(rows).toHaveText([" Top folder", " Grid", " Scanning", " Metal", " grid copy"]);
+  await expect(manager.locator("#presetManagerSaveFolder")).toHaveValue("Scanning");
+
+  // Delete a folder holding a preset: it goes to .trash, the panel drops it, the save folder falls back to the top.
+  await rows.filter({ hasText: "grid copy" }).dragTo(rows.filter({ hasText: "Metal" }));
+  await expect.poll(profilePaths).toEqual(["Scanning/Metal/grid copy.json"]);
+  await rows.filter({ hasText: "Scanning" }).click();
+  page.once("dialog", (dialog) => { expect(dialog.type()).toBe("confirm"); void dialog.accept(); });
+  await remove.click();
+  await expect(manager.locator(".preset-manager-status")).toHaveText("Deleted Scanning; 1 preset moved to .trash.");
+  await expect(rows).toHaveText([" Top folder", " Grid"]);
+  expect(await profilePaths()).toEqual([]);
+  expect(await page.evaluate(() => (window as unknown as { trashPaths(kind: string): string[] }).trashPaths("layout"))).toEqual(["Scanning/Metal/grid copy.json"]);
+  await expect(option).toHaveCount(0);
+  await expect(manager.locator("#presetManagerSaveFolder")).toHaveValue("");
   await page.keyboard.press("Escape");
   await expect(manager).toBeHidden();
 
@@ -115,7 +151,7 @@ test("preset manager moves presets between folders, creates folders and picks wh
   await page.locator("#boxLayoutSelect + .preset-picker-button").click();
   await page.locator(".preset-picker-manage").click();
   await expect(manager).toBeVisible();
-  await expect(manager.locator("#presetManagerSaveFolder")).toHaveValue("SEM");
+  await rows.filter({ hasText: "Grid" }).click();
   await page.screenshot({ path: "test-results/preset-manager-dark.png" });
   await manager.locator(".modal-footer [data-action='close']").click();
   await expect(manager).toBeHidden();

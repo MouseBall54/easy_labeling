@@ -33,6 +33,13 @@ export interface ProfilePresetFolder {
   createFolder(path: string): Promise<string>;
   /** Moves a preset file into `folder` ("" = the top). Refuses to replace a file there. Returns the new fileName. */
   move(fileName: string, folder: string): Promise<string>;
+  /** Renames a subfolder in place (its presets and subfolders go along). Refuses a name already used there. Returns the new path. */
+  renameFolder(path: string, name: string): Promise<string>;
+  /**
+   * Removes a subfolder. Its presets are moved to `.trash/<time>/<path>` in the kind's folder (not listed, kept
+   * for recovery). Returns how many presets were moved there.
+   */
+  removeFolder(path: string): Promise<number>;
 }
 
 export interface ProfilePresetWindow {
@@ -93,6 +100,30 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
       throw error;
     }
   };
+  /** Moves every file and subfolder of `from` to `to` (written first, then removed), then removes `from`. */
+  const moveTree = async (from: string, to: string): Promise<number> => {
+    const source = await walkDirectory(directory, from);
+    const files = await listAllFiles(source, "");
+    const folders = await listAllFolders(source, "");
+    await locate(`${to}/x`, true);
+    for (const folder of folders) await locate(`${to}/${folder}/x`, true);
+    for (const file of files) {
+      const destination = await locate(`${to}/${file.path}`, true);
+      await writeTextFileByName(destination.parent, destination.name, await readFileText(file.handle));
+    }
+    for (const file of files) {
+      const { parent, name } = await locate(`${from}/${file.path}`, false);
+      await parent.removeEntry?.(name);
+    }
+    // Deepest first, so each folder is empty when it goes.
+    for (const folder of [...folders].sort((left, right) => right.split("/").length - left.split("/").length)) {
+      const { parent, name } = await locate(`${from}/${folder}`, false);
+      await parent.removeEntry?.(name);
+    }
+    const { parent, name } = await locate(from, false);
+    await parent.removeEntry?.(name);
+    return files.filter((file) => file.path.toLowerCase().endsWith(".json")).length;
+  };
   return {
     name: directory.name,
     exists,
@@ -127,6 +158,25 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
       if (!folder) throw new Error("Enter a folder name.");
       await locate(`${folder}/x`, true);
       return folder;
+    },
+    async renameFolder(path, name) {
+      const from = presetFolderPath(path);
+      const leaf = presetFolderPath(name);
+      if (!from) throw new Error("The top folder cannot be renamed.");
+      if (!leaf || leaf.includes("/")) throw new Error("Enter a folder name without \"/\".");
+      const parentPath = presetFolderOf(from);
+      const to = parentPath ? `${parentPath}/${leaf}` : leaf;
+      if (to === from) return from;
+      const siblings = await locate(to, false);
+      if (await hasEntry(siblings.parent, siblings.name) || await exists(`${to}.json`)) throw new Error(`"${leaf}" already exists there.`);
+      await moveTree(from, to);
+      return to;
+    },
+    async removeFolder(path) {
+      const from = presetFolderPath(path);
+      if (!from) throw new Error("The top folder cannot be removed.");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      return moveTree(from, `.trash/${stamp}/${from}`);
     },
     async move(fileName, folder) {
       const base = fileName.slice(fileName.lastIndexOf("/") + 1);
@@ -164,6 +214,35 @@ async function listPresetFolders(directory: DirectoryHandleLike, prefix: string)
     if (entry.kind === "directory" && !entry.name.startsWith(".") && "values" in entry) {
       found.push(prefix + entry.name, ...await listPresetFolders(entry, `${prefix}${entry.name}/`));
     }
+  }
+  return found;
+}
+
+async function walkDirectory(directory: DirectoryHandleLike, path: string): Promise<DirectoryHandleLike> {
+  let current = directory;
+  for (const part of path.split("/")) current = await current.getDirectoryHandle(part);
+  return current;
+}
+
+async function hasEntry(directory: DirectoryHandleLike, name: string): Promise<boolean> {
+  for await (const entry of directory.values()) if (entry.name.toLowerCase() === name.toLowerCase()) return true;
+  return false;
+}
+
+/** Every file (any type, dot folders included) under `directory`, by relative path. */
+async function listAllFiles(directory: DirectoryHandleLike, prefix: string): Promise<Array<{ path: string; handle: FileHandleLike }>> {
+  const found: Array<{ path: string; handle: FileHandleLike }> = [];
+  for await (const entry of directory.values()) {
+    if (isFileHandleLike(entry)) found.push({ path: prefix + entry.name, handle: entry });
+    else if (entry.kind === "directory" && "values" in entry) found.push(...await listAllFiles(entry, `${prefix}${entry.name}/`));
+  }
+  return found;
+}
+
+async function listAllFolders(directory: DirectoryHandleLike, prefix: string): Promise<string[]> {
+  const found: string[] = [];
+  for await (const entry of directory.values()) {
+    if (entry.kind === "directory" && "values" in entry) found.push(prefix + entry.name, ...await listAllFolders(entry, `${prefix}${entry.name}/`));
   }
   return found;
 }
