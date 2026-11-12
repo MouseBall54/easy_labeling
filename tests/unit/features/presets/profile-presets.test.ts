@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { openProfilePresetFolder, presetFileName, type ProfilePresetWindow } from "../../../../src/features/presets/profile-presets.js";
+import { openProfilePresetFolder, presetFileName, presetFolderOf, type ProfilePresetWindow } from "../../../../src/features/presets/profile-presets.js";
 import { loadPreprocessingPresetLibrary, serializePreprocessingPresets } from "../../../../src/features/segmentation/preprocessing-presets.js";
 import { loadSegmentationToolPresetLibrary, saveSegmentationToolPresetFile } from "../../../../src/features/segmentation/preset-service.js";
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG } from "../../../../src/features/segmentation/preprocessing.js";
@@ -8,8 +8,19 @@ import type { SegmentationToolPreset } from "../../../../src/features/segmentati
 
 const notFound = (name: string) => Object.assign(new Error(`${name} not found`), { name: "NotFoundError" });
 
+interface MemoryFolder {
+  kind: "directory";
+  name: string;
+  files: Record<string, string>;
+  folders: Record<string, MemoryFolder>;
+  values(): AsyncGenerator<unknown>;
+  getFileHandle(fileName: string, options?: { create?: boolean }): Promise<unknown>;
+  getDirectoryHandle(child: string, options?: { create?: boolean }): Promise<MemoryFolder>;
+  removeEntry(fileName: string): Promise<void>;
+}
+
 /** In-memory folder with the File System Access subset the app uses. */
-function memoryFolder(name: string, files: Record<string, string> = {}) {
+function memoryFolder(name: string, files: Record<string, string> = {}): MemoryFolder {
   const fileHandle = (fileName: string) => ({
     kind: "file" as const,
     name: fileName,
@@ -19,12 +30,16 @@ function memoryFolder(name: string, files: Record<string, string> = {}) {
       return { async write(data: string) { text += data; }, async close() { files[fileName] = text; } };
     }
   });
-  const folders: Record<string, ReturnType<typeof memoryFolder>> = {};
+  const folders: Record<string, MemoryFolder> = {};
   const folder = {
     kind: "directory" as const,
     name,
     files,
-    async *values() { for (const fileName of Object.keys(files)) yield fileHandle(fileName); },
+    folders,
+    async *values() {
+      for (const fileName of Object.keys(files)) yield fileHandle(fileName);
+      for (const child of Object.values(folders)) yield child;
+    },
     async getFileHandle(fileName: string, options?: { create?: boolean }) {
       if (!(fileName in files)) {
         if (!options?.create) throw notFound(fileName);
@@ -44,7 +59,7 @@ function memoryFolder(name: string, files: Record<string, string> = {}) {
   return folder;
 }
 
-function desktop(folders: Record<string, ReturnType<typeof memoryFolder>>, confirm = vi.fn(() => true)) {
+function desktop(folders: Record<string, MemoryFolder>, confirm = vi.fn(() => true)) {
   const windowRef: ProfilePresetWindow = {
     getEasyLabelingProfileDirectory: async (kind) => folders[kind] as unknown as FileSystemDirectoryHandle,
     confirm
@@ -87,6 +102,26 @@ describe("profile preset folders", () => {
     await presets.remove("Fins 2.json");
     await presets.remove("Fins 2.json");
     expect(Object.keys(folder.files).sort()).toEqual(["Fins 10.json", "Other.json", "notes.txt"]);
+  });
+
+  it("lists, saves and removes presets in subfolders by their path, skipping the app's dot folders", async () => {
+    const folder = memoryFolder("Refine Presets", { "top.json": "t" });
+    const sem = await folder.getDirectoryHandle("SEM", { create: true });
+    (await sem.getDirectoryHandle("Metal pattern", { create: true })).files["fine.json"] = "f";
+    (await folder.getDirectoryHandle(".trash", { create: true })).files["old.json"] = "o";
+    const presets = (await openProfilePresetFolder(desktop({ refine: folder }).windowRef, "refine"))!;
+
+    expect((await presets.list()).map((file) => [file.fileName, file.contents])).toEqual([["SEM/Metal pattern/fine.json", "f"], ["top.json", "t"]]);
+    expect(presetFolderOf("SEM/Metal pattern/fine.json")).toBe("SEM/Metal pattern");
+    expect(presetFolderOf("top.json")).toBe("");
+    await expect(presets.exists("SEM/Metal pattern/fine.json")).resolves.toBe(true);
+    await expect(presets.exists("TEM/none.json")).resolves.toBe(false);
+    await expect(presets.save("fine", "edited", "SEM/Metal pattern/fine.json")).resolves.toBe("SEM/Metal pattern/fine.json");
+    expect(sem.folders["Metal pattern"]!.files["fine.json"]).toBe("edited");
+    await presets.remove("SEM/Metal pattern/fine.json");
+    expect(sem.folders["Metal pattern"]!.files).toEqual({});
+    await expect(presets.save("x", "x", "../escape.json")).rejects.toThrow("Not a preset path");
+    await expect(presets.save("x", "x", "SEM//x.json")).rejects.toThrow("Not a preset path");
   });
 
   it("lists profile preprocessing presets first, then the dataset's under other names", async () => {

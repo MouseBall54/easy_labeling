@@ -1,6 +1,6 @@
 import { getSubdirectoryHandle, isNotFoundError, readTextFileByName, writeTextFileByName } from "../../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../../types/files.js";
-import type { ProfilePresetFolder } from "../presets/profile-presets.js";
+import { presetFolderOf, type ProfilePresetFolder } from "../presets/profile-presets.js";
 import type { SegmentationToolPreset } from "./types.js";
 import { createEmptySegmentationToolPresetDocument, parseSegmentationToolPresetDocument, serializeSegmentationToolPresetDocument, type SegmentationToolPresetDocument } from "./preset-codec.js";
 
@@ -29,15 +29,18 @@ export async function saveSegmentationToolPresets(folder: DirectoryHandleLike, d
 export async function loadSegmentationToolPresetLibrary(
   profile: ProfilePresetFolder | null,
   folder: DirectoryHandleLike | null
-): Promise<{ document: SegmentationToolPresetDocument; errors: string[] }> {
+): Promise<{ document: SegmentationToolPresetDocument; errors: string[]; folders: Map<string, string> }> {
   const dataset = folder ? await loadSegmentationToolPresets(folder) : createEmptySegmentationToolPresetDocument();
-  if (!profile) return { document: dataset, errors: [] };
+  const folders = new Map<string, string>();
+  if (!profile) return { document: dataset, errors: [], folders };
   const document = createEmptySegmentationToolPresetDocument();
   const errors: string[] = [];
   for (const file of await profile.list()) {
     try {
       parseSegmentationToolPresetDocument(file.contents).presets.forEach((preset) => {
-        if (!document.presets.some((existing) => existing.id === preset.id)) document.presets.push(preset);
+        if (document.presets.some((existing) => existing.id === preset.id)) return;
+        document.presets.push(preset);
+        folders.set(preset.id, presetFolderOf(file.fileName));
       });
     } catch (error: unknown) {
       errors.push(`${file.fileName}: ${error instanceof Error ? error.message : String(error)}`);
@@ -46,7 +49,7 @@ export async function loadSegmentationToolPresetLibrary(
   dataset.presets.forEach((preset) => {
     if (!document.presets.some((existing) => existing.id === preset.id || existing.name === preset.name)) document.presets.push(preset);
   });
-  return { document, errors };
+  return { document, errors, folders };
 }
 
 /**

@@ -5160,3 +5160,91 @@ body.dark-mode .rh-text a[data-topic] {
         grid-template-columns: 1fr;
     }
 }
+
+/* Preset picker (src/ui/preset-picker.ts): the select stays in the page for the app's code, the button replaces it. */
+.preset-picker-native {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+.preset-picker-button {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 0;
+    text-align: left;
+}
+.input-group > .preset-picker-button { flex: 1 1 auto; width: 1%; }
+.preset-picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-picker-folder {
+    margin-left: auto;
+    padding-left: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--workbench-text-muted);
+    font-size: 0.85em;
+    max-width: 45%;
+}
+.preset-picker-folder:empty { display: none; }
+.preset-picker-menu {
+    position: fixed;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    padding: 0.35rem;
+    color: var(--workbench-text);
+    background: var(--workbench-surface);
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    font-size: var(--fs-body, 0.875rem);
+}
+.preset-picker-search { margin-bottom: 0.3rem; }
+.preset-picker-list { overflow-y: auto; min-height: 0; }
+.preset-picker-heading {
+    padding: 0.35rem 0.6rem 0.15rem;
+    color: var(--workbench-text-muted);
+    font-size: var(--fs-caption, 0.75rem);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.preset-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 1.9rem;
+    padding-right: 0.3rem;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.preset-picker-row:hover,
+.preset-picker-row.active { background: var(--workbench-surface-muted); }
+.preset-picker-row.active { box-shadow: inset 0 0 0 1px var(--workbench-border-strong); }
+.preset-picker-row.chosen .preset-picker-name { color: var(--workbench-primary); font-weight: 600; }
+.preset-picker-folder-row { color: var(--workbench-text-muted); }
+.preset-picker-name { overflow: hidden; text-overflow: ellipsis; }
+.preset-picker-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--workbench-text-muted);
+    font-size: 0.85em;
+}
+.preset-picker-star {
+    margin-left: auto;
+    padding: 0 0.2rem;
+    border: 0;
+    background: none;
+    color: var(--workbench-text-muted);
+    opacity: 0;
+}
+.preset-picker-row:hover .preset-picker-star,
+.preset-picker-row.active .preset-picker-star,
+.preset-picker-star.on { opacity: 1; }
+.preset-picker-star.on { color: #e0a800; }

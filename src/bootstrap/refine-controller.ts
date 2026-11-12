@@ -32,7 +32,7 @@ import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RefineLab, RefineLabCaseSource } from "./refine-lab.js";
 import { AREA_COLOR, areaText, DIM_OPACITY, drawMarks, layoutMarks, REVIEW_COLOR as WARN_COLOR, type MarkTarget } from "./refine-marks.js";
 import { loadPreprocessingPresetLibrary } from "../features/segmentation/preprocessing-presets.js";
-import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
 import type { SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 import type { DetectionLabelRewrite, LabelFilePlan, RuntimeFileSystem } from "./file-system-adapter.js";
@@ -140,6 +140,8 @@ export function createRefineController(input: {
     refresh(): Promise<void>;
     save(presets: readonly T[]): Promise<void>;
     remove(name: string): Promise<void>;
+    /** Profile subfolder of the file holding the preset ("" at the top or when not in the profile). */
+    folderOf(name: string): string;
   }
   const presetLibrary = <T extends { name: string }>(
     kind: "refine" | "reclass",
@@ -183,6 +185,7 @@ export function createRefineController(input: {
         await library.refresh();
         renderPane();
       },
+      folderOf: (name) => presetFolderOf(files.get(name)?.fileName ?? ""),
       async remove(name) {
         const file = files.get(name);
         const folder = await openProfilePresetFolder(windowRef, kind);
@@ -371,8 +374,12 @@ export function createRefineController(input: {
     const reclassPresets = allReclassPresets();
     const reclassDatasetNames = new Set(settings.reclassPresets.map((preset) => preset.name));
     const reclassSelect = byId<HTMLSelectElement>("refineReclassPresetSelect");
-    reclassSelect.replaceChildren(new Option("Lab rule", ""), ...reclassPresets.map((preset) =>
-      new Option(`${refinePresetLabel(preset)}${reclassDatasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name)));
+    reclassSelect.replaceChildren(new Option("Lab rule", ""), ...reclassPresets.map((preset) => {
+      const option = new Option(`${refinePresetLabel(preset)}${reclassDatasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name);
+      const folder = reclassDatasetNames.has(preset.name) ? "" : reclassLibrary.folderOf(preset.name);
+      if (folder) option.dataset.folder = folder;
+      return option;
+    }));
     const config = reclassConfig();
     reclassSelect.value = config.preset?.name ?? "";
     byId("refineReclassSummary").textContent = describeReclassRule(config.rule, className)
@@ -385,6 +392,8 @@ export function createRefineController(input: {
     runSelect.replaceChildren(new Option("Class settings", ""), ...presets.map((preset) => {
       const option = new Option(`${refinePresetLabel(preset)}${datasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name);
       option.title = describePreset(preset);
+      const folder = datasetNames.has(preset.name) ? "" : edgeLibrary.folderOf(preset.name);
+      if (folder) option.dataset.folder = folder;
       return option;
     }));
     runSelect.value = active?.name ?? "";

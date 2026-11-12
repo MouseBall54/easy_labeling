@@ -390,7 +390,12 @@ export function createUiManagerAdapter(input: {
     if (isSelect(presetSelect)) {
       const selected = presetSelect.value;
       presetSelect.replaceChildren(new Option("Superpixel preset", ""));
-      input.state.session.segmentationToolPresets.presets.forEach((preset) => presetSelect.add(new Option(preset.name, preset.id)));
+      input.state.session.segmentationToolPresets.presets.forEach((preset) => {
+        const option = new Option(preset.name, preset.id);
+        const folder = input.state.session.segmentationToolPresetFolders?.get(preset.id);
+        if (folder) option.dataset.folder = folder;
+        presetSelect.add(option);
+      });
       presetSelect.value = input.state.session.segmentationToolPresets.presets.some((preset) => preset.id === selected) ? selected : "";
     }
     elements.segmentationToolSizeLabel.textContent = activeTool === "erase" ? "Erase Size" : "Brush Size";

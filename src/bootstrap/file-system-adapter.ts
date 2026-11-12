@@ -1220,6 +1220,7 @@ export function createFileSystemAdapter(input: {
     input.state.session.segmentationLabelFolders = [imageFolderHandle as unknown as FileSystemDirectoryHandle];
     const segmentationPresets = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"), imageFolderHandle);
     input.state.session.segmentationToolPresets = segmentationPresets.document;
+    input.state.session.segmentationToolPresetFolders = segmentationPresets.folders;
     if (segmentationPresets.errors.length) {
       (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(`Some Superpixel preset files were skipped:\n${segmentationPresets.errors.join("\n")}`, 8000);
     }

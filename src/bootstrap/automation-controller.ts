@@ -51,7 +51,7 @@ import {
   type TemplateMatchResult,
 } from "../features/automation/types.js";
 import type { DirectoryHandleLike } from "../types/files.js";
-import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
 import { createAutomationBatchController } from "./automation-batch-controller.js";
 import { createAutomationLayoutPreview } from "./automation-layout-preview.js";
 import { createAutomationPresetForm } from "./automation-preset-form.js";
@@ -164,7 +164,8 @@ function setSelectOptions(
   select: HTMLSelectElement,
   items: readonly { id: string; name: string }[],
   placeholder: string,
-  selectedId = ""
+  selectedId = "",
+  fileNames?: ReadonlyMap<string, string>
 ): void {
   select.replaceChildren();
   const placeholderOption = documentRef.createElement("option");
@@ -176,6 +177,8 @@ function setSelectOptions(
     option.value = item.id;
     option.textContent = item.name;
     option.selected = item.id === selectedId;
+    const folder = presetFolderOf(fileNames?.get(item.id) ?? "");
+    if (folder) option.dataset.folder = folder;
     select.appendChild(option);
   });
 }
@@ -546,11 +549,11 @@ export function createAutomationController(input: {
   const refreshSelects = (selection?: { layoutId?: string; presetId?: string }): void => {
     const layoutId = selection?.layoutId ?? elements.boxLayoutSelect.value;
     const presetId = selection?.presetId ?? elements.automationPresetSelect.value;
-    setSelectOptions(input.documentRef, elements.boxLayoutSelect, library.layouts, "Choose layout...", layoutId);
+    setSelectOptions(input.documentRef, elements.boxLayoutSelect, library.layouts, "Choose layout...", layoutId, profileFileNames.layouts);
     setSelectOptions(input.documentRef, elements.layoutSetupSelect, library.layouts, "Choose layout...", layoutId);
-    setSelectOptions(input.documentRef, elements.templateLayoutSelect, library.layouts, "Choose layout...", layoutId);
-    setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId);
-    setSelectOptions(input.documentRef, elements.templatePresetSelect, library.presets, "New preset...", presetId);
+    setSelectOptions(input.documentRef, elements.templateLayoutSelect, library.layouts, "Choose layout...", layoutId, profileFileNames.layouts);
+    setSelectOptions(input.documentRef, elements.automationPresetSelect, library.presets, "Choose preset...", presetId, profileFileNames.presets);
+    setSelectOptions(input.documentRef, elements.templatePresetSelect, library.presets, "New preset...", presetId, profileFileNames.presets);
     elements.applyBoxLayoutBtn.disabled = !library.layouts.some((layout) => layout.id === layoutId);
     elements.applyBoxLayoutFromSetupBtn.disabled = elements.applyBoxLayoutBtn.disabled;
     elements.exportAutomationPresetBtn.disabled = !library.presets.some((preset) => preset.id === presetId);

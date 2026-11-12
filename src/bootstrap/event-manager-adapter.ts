@@ -1,7 +1,7 @@
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import type { DirectoryHandleLike } from "../types/files.js";
 import { loadPreprocessingPresetLibrary, savePreprocessingPresets, serializePreprocessingPresets, upsertPreprocessingPreset, type StoredPreprocessingPreset } from "../features/segmentation/preprocessing-presets.js";
-import { openProfilePresetFolder } from "../features/presets/profile-presets.js";
+import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
 import { emptyLastSelections, parseLastSelections, recallSelection, rememberSelection, type LastSelections } from "../domain/last-selections.js";
 import type { EventManager } from "../app/contracts.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
@@ -1546,7 +1546,12 @@ export function createEventManagerAdapter(input: {
       let preprocessPresets: StoredPreprocessingPreset[] = [];
       const renderPreprocessPresets = (selected = preprocessPresetSelect instanceof HTMLSelectElement ? preprocessPresetSelect.value : ""): void => {
         if (!(preprocessPresetSelect instanceof HTMLSelectElement)) return;
-        preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => new Option(preset.name, preset.name)));
+        preprocessPresetSelect.replaceChildren(new Option(preprocessPresets.length ? "Custom (current settings)" : "No presets yet", ""), ...preprocessPresets.map((preset) => {
+          const option = new Option(preset.name, preset.name);
+          const folder = presetFolderOf(preset.fileName ?? "");
+          if (folder) option.dataset.folder = folder;
+          return option;
+        }));
         preprocessPresetSelect.value = preprocessPresets.some((preset) => preset.name === selected) ? selected : "";
       };
       const datasetFolder = () => input.state.session.imageFolderHandle as unknown as DirectoryHandleLike | null;
@@ -1810,6 +1815,7 @@ export function createEventManagerAdapter(input: {
         if (profile) {
           const saved = await saveSegmentationToolPresetFile(profile, preset);
           if (!saved) return false;
+          (input.state.session.segmentationToolPresetFolders ??= new Map()).set(preset.id, presetFolderOf(saved));
           input.uiManager.notify(`Saved Superpixel preset "${preset.name}" to ${profile.name} / ${saved}.`, 3000);
         }
         const index = presets.findIndex((item) => item.id === preset.id);

@@ -7,7 +7,7 @@ test("Ctrl+Q switches tools from automation selects without intercepting text or
   await expect(page.locator("#loading-overlay")).toBeHidden({ timeout: 45_000 });
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__easyLabelingTestApi").getRectCount())).toBe(207);
   await page.locator("#taskAutomateBtn").click();
-  await expect(page.locator("#automationPresetSelect")).toBeFocused();
+  await expect(page.locator("#automationPresetSelect + .preset-picker-button")).toBeFocused();
   await expect(page.locator("#editMode")).toBeChecked();
   await page.keyboard.press("Control+q");
   await expect(page.locator("#drawMode")).toBeChecked();
@@ -18,7 +18,7 @@ test("Ctrl+Q switches tools from automation selects without intercepting text or
   await expect(page.locator("#editMode")).toBeChecked();
   await page.locator("#taskAutomateBtn").click();
   await expect(page.locator("#openLayoutSetupBtn")).toHaveText("Layout setup");
-  const buttons = await page.locator(".layout-panel-section button").allTextContents();
+  const buttons = await page.locator(".layout-panel-section button:not(.preset-picker-button)").allTextContents();
   expect(buttons.map((text) => text.trim())).toEqual(["Layout setup", "Apply layout"]);
   await page.screenshot({ path: "output/layout-setup-button.png" });
   await page.locator("#openLayoutSetupBtn").click();
