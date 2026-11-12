@@ -21,17 +21,41 @@ export interface ProfilePresetFolder {
   exists(fileName: string): Promise<boolean>;
   /**
    * Writes the preset called `name`. `fileName` is the file it was loaded from: that file is overwritten.
-   * Otherwise it goes to `<name>.json`, asking first when that file already exists. Returns the file name,
-   * or null when the user declined.
+   * Otherwise it goes to `<name>.json` in the kind's save folder (getPresetSaveFolder), asking first when that
+   * file already exists. Returns the file name, or null when the user declined.
    */
   save(name: string, contents: string, fileName?: string | null): Promise<string | null>;
   /** Deletes a preset file; a file already gone is fine. */
   remove(fileName: string): Promise<void>;
+  /** Every subfolder path, empty ones included, in natural order. */
+  folders(): Promise<string[]>;
+  /** Creates a subfolder ("a/b" nests); names are cleaned like file names. Returns its path. */
+  createFolder(path: string): Promise<string>;
+  /** Moves a preset file into `folder` ("" = the top). Refuses to replace a file there. Returns the new fileName. */
+  move(fileName: string, folder: string): Promise<string>;
 }
 
 export interface ProfilePresetWindow {
   getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
   confirm?: (message?: string) => boolean;
+  localStorage?: Pick<Storage, "getItem" | "setItem">;
+}
+
+const SAVE_FOLDER_KEY = "easyLabeling.presetSaveFolder.";
+
+/** Subfolder new presets of this kind are saved in ("" = the top), kept in this app's storage. */
+export function getPresetSaveFolder(windowRef: ProfilePresetWindow, kind: ProfilePresetKind): string {
+  try { return windowRef.localStorage?.getItem(SAVE_FOLDER_KEY + kind) ?? ""; } catch { return ""; }
+}
+
+export function setPresetSaveFolder(windowRef: ProfilePresetWindow, kind: ProfilePresetKind, folder: string): void {
+  try { windowRef.localStorage?.setItem(SAVE_FOLDER_KEY + kind, folder); } catch { /* storage unavailable: new presets go to the top */ }
+}
+
+/** A folder path with each name cleaned like a file name; "" for the top. */
+export function presetFolderPath(path: string): string {
+  return path.split(/[\\/]+/).map((part) => part.trim().replace(/[<>:"|?*\u0000-\u001f]/g, "-").replace(/^\.+|[. ]+$/g, ""))
+    .filter(Boolean).join("/");
 }
 
 /** The subfolder part of a preset's fileName ("" at the top). */
@@ -78,7 +102,8 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
       return Promise.all(files.map(async ({ fileName, handle }) => ({ fileName, contents: await readFileText(handle) })));
     },
     async save(name, contents, fileName) {
-      const target = fileName ?? presetFileName(name);
+      const saveFolder = presetFolderPath(getPresetSaveFolder(windowRef, kind));
+      const target = fileName ?? (saveFolder ? `${saveFolder}/${presetFileName(name)}` : presetFileName(name));
       if (!fileName && await exists(target)
         && !(windowRef.confirm?.(`"${target}" already exists in ${directory.name}. Replace it?`) ?? true)) return null;
       const { parent, name: targetName } = await locate(target, true);
@@ -92,6 +117,29 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
       } catch (error) {
         if (!isNotFoundError(error)) throw error;
       }
+    },
+    async folders() {
+      return (await listPresetFolders(directory, ""))
+        .sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" }));
+    },
+    async createFolder(path) {
+      const folder = presetFolderPath(path);
+      if (!folder) throw new Error("Enter a folder name.");
+      await locate(`${folder}/x`, true);
+      return folder;
+    },
+    async move(fileName, folder) {
+      const base = fileName.slice(fileName.lastIndexOf("/") + 1);
+      const target = folder ? `${presetFolderPath(folder)}/${base}` : base;
+      if (target === fileName) return fileName;
+      if (await exists(target)) throw new Error(`"${base}" already exists in ${folder || "the top folder"}.`);
+      const { parent, name } = await locate(fileName, false);
+      const contents = await readFileText(await parent.getFileHandle(name));
+      const destination = await locate(target, true);
+      // Written before the old file goes, so a failure leaves the preset where it was.
+      await writeTextFileByName(destination.parent, destination.name, contents);
+      await parent.removeEntry?.(name);
+      return target;
     }
   };
 }
@@ -105,6 +153,16 @@ async function listPresetFiles(directory: DirectoryHandleLike, prefix: string): 
       if (entry.name.toLowerCase().endsWith(".json")) found.push({ fileName: prefix + entry.name, handle: entry });
     } else if (entry.kind === "directory" && !entry.name.startsWith(".") && "values" in entry) {
       found.push(...await listPresetFiles(entry, `${prefix}${entry.name}/`));
+    }
+  }
+  return found;
+}
+
+async function listPresetFolders(directory: DirectoryHandleLike, prefix: string): Promise<string[]> {
+  const found: string[] = [];
+  for await (const entry of directory.values()) {
+    if (entry.kind === "directory" && !entry.name.startsWith(".") && "values" in entry) {
+      found.push(prefix + entry.name, ...await listPresetFolders(entry, `${prefix}${entry.name}/`));
     }
   }
   return found;

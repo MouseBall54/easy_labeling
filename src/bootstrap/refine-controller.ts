@@ -1185,6 +1185,11 @@ export function createRefineController(input: {
   return {
     bind(): void {
       renderPane();
+      // Presets moved in the folder manager: reread their file names before the next save.
+      windowRef.addEventListener?.("easy-labeling:presets-changed", (event) => {
+        const kind = (event as CustomEvent<{ kind?: string }>).detail?.kind;
+        if (kind === "refine" || kind === "reclass") void refreshProfilePresets().then(renderPane);
+      });
       byId("refineRunPresetSelect").addEventListener("change", (event) => {
         const name = (event.target as HTMLSelectElement).value;
         void changeLoadedSettings((current) => ({ ...current, activePreset: name || null }));

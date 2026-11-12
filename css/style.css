@@ -5248,3 +5248,41 @@ body.dark-mode .rh-text a[data-topic] {
 .preset-picker-row.active .preset-picker-star,
 .preset-picker-star.on { opacity: 1; }
 .preset-picker-star.on { color: #e0a800; }
+.preset-picker-manage {
+    align-self: flex-start;
+    margin-top: 0.25rem;
+    padding: 0.2rem 0.4rem;
+    font-size: inherit;
+    text-decoration: none;
+}
+.preset-manager .modal-dialog { max-width: 520px; }
+.preset-manager-tree {
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 0.25rem;
+    border: 1px solid var(--workbench-border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--workbench-surface);
+}
+.preset-manager-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.8rem;
+    padding-right: 0.4rem;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+}
+.preset-manager-row[data-folder] { color: var(--workbench-text-muted); }
+.preset-manager-row:hover { background: var(--workbench-surface-muted); }
+.preset-manager-row.selected { background: var(--workbench-primary-soft); color: var(--workbench-text); }
+.preset-manager-row.drop-target { box-shadow: inset 0 0 0 2px var(--workbench-primary); }
+body.dark-mode .preset-manager .input-group-text {
+    color: var(--workbench-text-muted);
+    background: var(--workbench-surface-muted);
+    border-color: var(--workbench-border);
+}

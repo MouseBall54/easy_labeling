@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { openProfilePresetFolder, presetFileName, presetFolderOf, type ProfilePresetWindow } from "../../../../src/features/presets/profile-presets.js";
+import { getPresetSaveFolder, openProfilePresetFolder, presetFileName, presetFolderOf, presetFolderPath, setPresetSaveFolder, type ProfilePresetWindow } from "../../../../src/features/presets/profile-presets.js";
 import { loadPreprocessingPresetLibrary, serializePreprocessingPresets } from "../../../../src/features/segmentation/preprocessing-presets.js";
 import { loadSegmentationToolPresetLibrary, saveSegmentationToolPresetFile } from "../../../../src/features/segmentation/preset-service.js";
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG } from "../../../../src/features/segmentation/preprocessing.js";
@@ -74,6 +74,36 @@ describe("profile preset folders", () => {
     expect(presetFileName("ends with dots..")).toBe("ends with dots.json");
     expect(presetFileName("already.json")).toBe("already.json");
     expect(presetFileName("   ")).toBe("preset.json");
+  });
+
+  it("saves new presets in the chosen folder, creates folders, and moves files without replacing others", async () => {
+    const folder = memoryFolder("Layouts", { "a.json": "A", "b.json": "B" });
+    const store = new Map<string, string>();
+    const { windowRef } = desktop({ layout: folder });
+    windowRef.localStorage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => void store.set(key, value) };
+    const presets = (await openProfilePresetFolder(windowRef, "layout"))!;
+
+    expect(presetFolderPath(' SEM\\ Metal: pattern / /..x. ')).toBe("SEM/Metal- pattern/x");
+    await expect(presets.createFolder("SEM / Metal")).resolves.toBe("SEM/Metal");
+    await expect(presets.createFolder(" / ")).rejects.toThrow("Enter a folder name");
+    await presets.createFolder("TEM");
+    expect(await presets.folders()).toEqual(["SEM", "SEM/Metal", "TEM"]);
+
+    setPresetSaveFolder(windowRef, "layout", "SEM/Metal");
+    expect(getPresetSaveFolder(windowRef, "layout")).toBe("SEM/Metal");
+    await expect(presets.save("fine", "F")).resolves.toBe("SEM/Metal/fine.json");
+    // A preset loaded from a file stays in it.
+    await expect(presets.save("a", "A2", "a.json")).resolves.toBe("a.json");
+
+    await expect(presets.move("a.json", "TEM")).resolves.toBe("TEM/a.json");
+    expect(folder.files["a.json"]).toBeUndefined();
+    expect(folder.folders.TEM!.files["a.json"]).toBe("A2");
+    await expect(presets.move("TEM/a.json", "")).resolves.toBe("a.json");
+    await presets.move("b.json", "TEM");
+    folder.files["b.json"] = "other B";
+    await expect(presets.move("TEM/b.json", "")).rejects.toThrow('"b.json" already exists in the top folder');
+    expect(folder.folders.TEM!.files["b.json"]).toBe("B");
+    await expect(presets.move("a.json", "")).resolves.toBe("a.json");
   });
 
   it("is absent in the web build", async () => {

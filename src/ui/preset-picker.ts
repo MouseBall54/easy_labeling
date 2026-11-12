@@ -3,6 +3,7 @@
 // source of truth: the picker sets its value and fires "change", and redraws when the app changes its options or
 // value, so the code that fills and reads the select is unchanged. The select stays in the page, visually hidden.
 import { buildPresetRows, folderAncestors, pushRecent, type PresetEntry, type PresetRow } from "../domain/presets/preset-tree.js";
+import type { ProfilePresetKind } from "../features/presets/profile-presets.js";
 
 /** The preset selects that get a picker, with the key their favourites and recent choices are kept under. */
 export const PRESET_PICKER_SELECTS = [
@@ -31,7 +32,7 @@ export function attachPresetPickers(documentRef: Document, windowRef: Window): v
   }
 }
 
-function attachPresetPicker(select: HTMLSelectElement, key: string, documentRef: Document, windowRef: Window): void {
+function attachPresetPicker(select: HTMLSelectElement, key: ProfilePresetKind, documentRef: Document, windowRef: Window): void {
   select.dataset.presetPicker = key;
   select.classList.add("preset-picker-native");
   select.tabIndex = -1;
@@ -231,6 +232,20 @@ function attachPresetPicker(select: HTMLSelectElement, key: string, documentRef:
     list.className = "preset-picker-list";
     list.setAttribute("role", "tree");
     menu.append(search, list);
+    // Desktop: the profile folder can be organised (move presets, folders, where new ones are saved).
+    if (typeof (windowRef as { getEasyLabelingProfileDirectory?: unknown }).getEasyLabelingProfileDirectory === "function") {
+      const manage = documentRef.createElement("button");
+      manage.type = "button";
+      manage.className = "btn btn-sm btn-link preset-picker-manage";
+      manage.innerHTML = `<i class="bi bi-folder2" aria-hidden="true"></i> Manage folders…`;
+      manage.title = "Move presets between folders, create folders and choose where new presets are saved";
+      manage.addEventListener("click", () => {
+        close();
+        // Loaded on first use, like the Refine Lab.
+        void import("./preset-manager.js").then(({ openPresetManager }) => openPresetManager(documentRef, windowRef, key));
+      });
+      menu.append(manage);
+    }
     documentRef.body.append(menu);
     position();
     render();

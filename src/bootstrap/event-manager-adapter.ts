@@ -15,7 +15,7 @@ import type { RuntimeFileSystem, WorkspaceLoadProgressReporter } from "./file-sy
 import type { RuntimeUiManager, WorkspaceStandbyStep } from "./ui-manager-adapter.js";
 import { createRefineController, resolveRefineShortcut, type RefineAgentApi } from "./refine-controller.js";
 import { createAutomationController, type AutomationAgentApi, type AutomationWindow } from "./automation-controller.js";
-import { saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
+import { loadSegmentationToolPresetLibrary, saveSegmentationToolPresetFile, saveSegmentationToolPresets } from "../features/segmentation/preset-service.js";
 import type { SegmentationToolPreset } from "../features/segmentation/types.js";
 import { bindInferenceControls, type InferenceAgentApi } from "./inference-controller.js";
 import { getDefaultColorForClass } from "../features/canvas/colors.js";
@@ -256,6 +256,8 @@ export function createEventManagerAdapter(input: {
         }
       };
       applyLabelOnlyView();
+      /** Rescans the preprocessing presets; set where that panel is wired below. */
+      let refreshPreprocessPresetsLater: (() => void) | null = null;
       const automationController = input.documentRef
         ? createAutomationController({
           state: input.state,
@@ -268,6 +270,21 @@ export function createEventManagerAdapter(input: {
         : null;
       automationController?.bind();
       automationAgent = automationController?.agent ?? null;
+      // Presets moved in the folder manager (src/ui/preset-manager.ts): each panel rereads its presets' file names.
+      input.windowRef.addEventListener?.("easy-labeling:presets-changed", (event) => {
+        const kind = (event as CustomEvent<{ kind?: string }>).detail?.kind;
+        if (kind === "preset" || kind === "layout") runAsync(() => automationController?.refreshLibrary() ?? Promise.resolve());
+        if (kind === "preprocessing") refreshPreprocessPresetsLater?.();
+        if (kind === "segmentation") {
+          runAsync(async () => {
+            const loaded = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"),
+              (input.state.session.imageFolderHandle ?? null) as unknown as import("../types/files.js").DirectoryHandleLike | null);
+            input.state.session.segmentationToolPresets = loaded.document;
+            input.state.session.segmentationToolPresetFolders = loaded.folders;
+            input.uiManager.syncWorkspaceState?.();
+          });
+        }
+      });
       const refineController = input.documentRef
         ? createRefineController({
           state: input.state,
@@ -1573,6 +1590,7 @@ export function createEventManagerAdapter(input: {
         return true;
       };
       preprocessPresetSelect?.addEventListener("pointerdown", refreshPreprocessPresets, { once: false });
+      refreshPreprocessPresetsLater = refreshPreprocessPresets;
 
       // Last choices per dataset folder (domain/last-selections.ts), kept in this browser or app profile: a folder
       // opened before gets its own back, a new one the latest choice. Restoring fires the select's own change handler.
