@@ -421,6 +421,28 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     expect(Math.max(cropInfo.width, cropInfo.height)).toBeLessThanOrEqual(512);
     expect(cropInfo.imageFromCapture.offsetX).toBeCloseTo(Math.max(0, classZero[0].x0 - (classZero[0].x1 - classZero[0].x0) / 2), 6);
     expect(textOf(await mcp.call("capture_view", { region: { x0: 600, y0: 0, x1: 700, y1: 10 } }))).toMatch(/^invalid_args:/);
+    // The same crop again with nothing changed: no image, the earlier mapping repeated; force sends it again.
+    const again = await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512 });
+    expect(again.content.some((part) => part.type === "image")).toBe(false);
+    expect(JSON.parse(textOf(again))).toMatchObject({ unchanged: true, imageFromCapture: cropInfo.imageFromCapture });
+    expect((await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512, force: true })).content.some((part) => part.type === "image")).toBe(true);
+
+    // Several boxes in one sheet: numbered cells in the order given.
+    const sheetIds = classZero.map((box) => box.annotationId);
+    const sheet = await mcp.call("capture_view", { annotationIds: sheetIds, maxSide: 512 });
+    const sheetInfo = JSON.parse(textOf(sheet)) as { width: number; height: number; cells: Array<{ n: number; annotationId: string; classId: string; cell: { x: number; y: number; width: number; height: number } }> };
+    const sheetImage = sheet.content.find((part) => part.type === "image");
+    expect(sheetImage).toBeTruthy();
+    if (sheetImage?.type === "image") await writeFile(path.join(root, "test-results/agent-capture-sheet.png"), Buffer.from(sheetImage.data, "base64"));
+    expect(sheetInfo.cells.map((cell) => [cell.n, cell.annotationId, cell.classId])).toEqual(sheetIds.map((id, index) => [index + 1, id, "0"]));
+    expect(sheetInfo.cells.every((cell) => cell.cell.x + cell.cell.width <= sheetInfo.width && cell.cell.y + cell.cell.height <= sheetInfo.height)).toBe(true);
+    expect(Math.max(sheetInfo.width, sheetInfo.height)).toBeLessThanOrEqual(512);
+    // A change inside the sheet sends a new image.
+    json(await mcp.call("update_boxes", { updates: [{ annotationId: sheetIds[0], x1: classZero[0].x1 - 2 }] }));
+    expect((await mcp.call("capture_view", { annotationIds: sheetIds, maxSide: 512 })).content.some((part) => part.type === "image")).toBe(true);
+    json(await mcp.call("undo"));
+    expect(textOf(await mcp.call("capture_view", { annotationIds: ["missing"] }))).toMatch(/^not_found:/);
+    expect(textOf(await mcp.call("capture_view", { annotationIds: Array.from({ length: 37 }, () => sheetIds[0]) }))).toMatch(/^invalid_args: At most 36/);
 
     // find_similar: every block in the 8 x 8 grid matches the labelled one; the 6 labelled blocks are skipped.
     const start = await rectCount();

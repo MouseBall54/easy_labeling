@@ -28,11 +28,12 @@ These tools drive the app window the person has open, so they see every change. 
 (x0 < x1, y0 < y1) unless a result says \"normalized\". Start with app_state (it reports appVersion and mcpVersion; versionWarning means the app and this server come from different releases, so tell the person). If a tool answers app_not_running, ask the person \
 to start Easy Labeling; on busy, wait a moment and retry; on timeout, ask the person to check the window (a dialog may be open).\n\n\
 Images often hold thousands of boxes, so long lists come in pages: get_boxes, run_refine, run_reclass, review_queue, find_similar \
-and apply_layout take offset/limit and always return the totals (limit 0 returns counts only). Prefer counts and capture_view \
-with annotationId or region (a zoomed crop) over listing every box.\n\n\
+and apply_layout take offset/limit and always return the totals (limit 0 returns counts only). Prefer counts over listing every box, and \
+numbers over images: capture_view only the boxes the numbers flag, in one annotationIds sheet (about one or two captures per image), \
+never to confirm an edit.\n\n\
 Typical flow: find_similar from one good box (or run_template_matching / apply_layout) to add boxes -> run_refine with dryRun \
-to see what would move, then without dryRun (pass the returned annotationIds as the scope) -> review_queue and capture_view \
-on flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Before run_reclass, read reclassRule from \
+to see what would move, then without dryRun (pass the returned annotationIds as the scope) -> review_queue, then one capture_view \
+sheet (annotationIds) of the flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Before run_reclass, read reclassRule from \
 get_refine_settings and try dryRun first. For a whole folder, judge by numbers rather than captures: dry-run refine_folder / \
 reclass_folder on a sample (sample: 20), read the summary (flagged share, shift and confidence spreads, outliers), capture only \
 the outliers, adjust, and write the accepted result with its resultId. When the person has reference labels (a folder of \
@@ -343,6 +344,10 @@ struct CaptureViewArgs {
     annotation_id: Option<String>,
     #[schemars(description = "Or: zoom in on this image region in pixels (up to 8x enlargement)")]
     region: Option<PixelRegion>,
+    #[schemars(description = "Or: several boxes (up to 36) in one sheet, a numbered zoomed cell per box in this order; use this rather than one call per box")]
+    annotation_ids: Option<Vec<String>>,
+    #[schemars(description = "Return the image even when it is unchanged since your last capture with the same arguments (default false)")]
+    force: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -829,7 +834,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "A PNG of the canvas as the person sees it (image, boxes, tags and review marks at the current zoom), or a zoomed crop around one box (annotationId) or an image region, plus how its pixels map to image pixels. The crop does not change the person's view.",
+        description = "A PNG of the canvas as the person sees it (image, boxes, tags and review marks at the current zoom), a zoomed crop around one box (annotationId) or an image region, or a sheet of many boxes (annotationIds), plus how its pixels map to image pixels. The crop does not change the person's view. Each image costs far more context than numbers: capture only boxes the numbers flag (review_queue, analyze_boxes, low Refine confidence), all of them in one annotationIds sheet, and do not capture to confirm an edit (the edit result, get_boxes and analyze_boxes already show it). Asking again for a capture whose pixels have not changed returns unchanged: true instead of the image.",
         annotations(read_only_hint = true)
     )]
     async fn capture_view(

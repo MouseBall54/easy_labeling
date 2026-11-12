@@ -17,7 +17,10 @@ MCP server come from different releases before working around it.
 ## Habits that hold for every branch
 
 - **Numbers first, captures second.** Read counts, scores and lists (`get_boxes`, `get_regions`, `analyze_*`,
-  `compare_*`); call `capture_view` with `annotationId` or `region` only on the items the numbers flag.
+  `compare_*`); capture only the items the numbers flag. Put all flagged boxes in one `capture_view`
+  `annotationIds` sheet (up to 36 numbered cells) instead of one call per box: about one or two captures per image.
+- **Do not capture to confirm an edit.** The edit result, `get_boxes` and `analyze_boxes` already show what changed.
+  A repeated capture whose pixels did not change answers `unchanged: true` without the image; reuse the earlier one.
 - **Preview, then apply.** Tools that can be wrong (`find_similar`, `run_refine`, `run_reclass`, `segment_ai`,
   `boxes_to_masks`, `clean_masks`, folder runs) preview by default or take `dryRun`. Apply the accepted result with its
   `resultId` (and `accept: [indexes]`), or rerun with `apply: true` and thresholds.
@@ -41,7 +44,7 @@ MCP server come from different releases before working around it.
    `missing` spots with centre and size per size group.
 4. Fill missing spots: `add_boxes` at each spot's centre and size → `run_refine` on the new ids → `delete_boxes` the
    ones Refine leaves with confidence under 0.3 (no edge there).
-5. Edges: `run_refine` with `dryRun` → `review_queue` / captures on flagged boxes → apply → `approve`.
+5. Edges: `run_refine` with `dryRun` → `review_queue` → one `annotationIds` sheet of the flagged boxes → apply → `approve`.
 6. `save`, then `set_review_status`.
 
 ## Segmentation (masks)
