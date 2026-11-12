@@ -203,12 +203,15 @@ export function withBoxReveal(tools: Record<string, AgentTool>, view: {
       const setVisible = (rect: FabricRectLike, visible: boolean) => { rect.visible = visible; if (rect._labelText) rect._labelText.visible = visible; };
       added.forEach((rect) => setVisible(rect, false));
       view.render();
+      // About 30 ms a box (2 s at most): every frame shows its share, so few boxes still take their time.
       const frames = Math.max(1, Math.round(Math.min(2000, added.length * 30) / 16));
-      const perFrame = Math.ceil(added.length / frames);
       try {
-        for (let index = 0; index < added.length; index += perFrame) {
+        let visible = 0;
+        for (let frame = 1; frame <= frames; frame += 1) {
           await view.frame();
-          for (let next = index; next < Math.min(added.length, index + perFrame); next += 1) setVisible(added[next]!, shown[next]!);
+          const target = Math.round((added.length * frame) / frames);
+          if (target === visible) continue;
+          for (; visible < target; visible += 1) setVisible(added[visible]!, shown[visible]!);
           view.render();
         }
       } finally {
