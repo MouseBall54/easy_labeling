@@ -24,6 +24,7 @@ interface ToolResult {
 /** A minimal MCP client over the server's stdio. */
 function startMcp(pipe: string) {
   const child: ChildProcessWithoutNullStreams = spawn(mcpExe, [], { env: { ...process.env, EASY_LABELING_AGENT_PIPE: pipe } });
+  const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
   const waiting = new Map<number, (message: { result?: unknown; error?: unknown }) => void>();
   let buffer = "";
   let next = 1;
@@ -54,6 +55,8 @@ function startMcp(pipe: string) {
     async call(name: string, args: Record<string, unknown> = {}) {
       return (await request("tools/call", { name, arguments: args })).result as ToolResult;
     },
+    /** Resolves with the exit code once the server process ends. */
+    exited,
     close: () => child.kill()
   };
 }
@@ -102,6 +105,7 @@ async function openAgentApp(options: { dataset?: (folder: string) => Promise<voi
   const pipe = `\\\\.\\pipe\\easy-labeling-agent-e2e-${process.pid}-${Date.now()}`;
   const app = await launchDesktop(exe, sandbox, [], { env: { EASY_LABELING_AGENT_PIPE: pipe, EASY_LABELING_TEST_AGENT_APPROVE: options.approve ?? "accept" } });
   const mcp = startMcp(pipe);
+  let appClosed = false;
   const errors: string[] = [];
   app.page.on("pageerror", (error) => errors.push(error.message));
   expect((await mcp.initialize()).serverInfo.name).toBe("easy-labeling");
@@ -110,9 +114,13 @@ async function openAgentApp(options: { dataset?: (folder: string) => Promise<voi
     mcp,
     dataset,
     errors,
+    async closeApp() {
+      appClosed = true;
+      await app.close();
+    },
     async close() {
       mcp.close();
-      await app.close();
+      if (!appClosed) await app.close();
       await rm(sandbox, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
     }
   };
@@ -907,6 +915,19 @@ test("the person can decline what the agent asks for", async () => {
   }
 });
 
+test("the MCP server exits when the app closes, so no server outlives the window", async () => {
+  test.setTimeout(120_000);
+  const { mcp, closeApp, close } = await openAgentApp();
+  try {
+    json(await mcp.call("app_state"));
+    await closeApp();
+    const outcome = await Promise.race([mcp.exited, new Promise((resolve) => setTimeout(() => resolve("still running"), 15_000))]);
+    expect(outcome).toBe(0);
+  } finally {
+    await close();
+  }
+});
+
 test("the MCP server answers app_not_running when no app listens", async () => {
   const mcp = startMcp(`\\\\.\\pipe\\easy-labeling-agent-nobody-${process.pid}`);
   try {
@@ -914,6 +935,8 @@ test("the MCP server answers app_not_running when no app listens", async () => {
     const result = await mcp.call("app_state");
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(/^app_not_running:/);
+    // It keeps waiting for the app instead of exiting.
+    expect(await Promise.race([mcp.exited, new Promise((resolve) => setTimeout(() => resolve("running"), 3_000))])).toBe("running");
   } finally {
     mcp.close();
   }

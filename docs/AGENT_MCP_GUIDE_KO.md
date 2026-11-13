@@ -53,7 +53,7 @@ claude mcp add easy-labeling -- "%LOCALAPPDATA%\Easy Labeling\easy-labeling-mcp.
 }
 ```
 
-사용할 때는 **Easy Labeling 앱을 먼저 실행해 둡니다.** 앱이 꺼져 있으면 모든 도구가 `app_not_running`을 돌려주고, 에이전트가 앱을 대신 띄우지 않습니다. `app_state`는 앱 버전(`appVersion`)과 MCP 서버 버전(`mcpVersion`)을 함께 돌려주고, 둘이 다르면 `versionWarning`을 붙입니다(오류 메시지에도 같은 안내가 붙습니다). 연결 방식 자체가 다르면 `version_mismatch`가 나옵니다. 둘 다 같은 설치 파일로 설치된 것을 쓰면 사라집니다.
+사용할 때는 **Easy Labeling 앱을 먼저 실행해 둡니다.** 앱이 꺼져 있으면 모든 도구가 `app_not_running`을 돌려주고, 에이전트가 앱을 대신 띄우지 않습니다(MCP 서버는 앱이 켜질 때까지 기다립니다). 연결된 앱을 닫으면 `easy-labeling-mcp.exe`도 함께 종료됩니다. 앱이 비정상 종료돼도 같습니다. 앱을 다시 켠 뒤에는 에이전트에서 MCP를 다시 연결합니다(Claude Code는 `/mcp`, 다른 앱은 그 앱의 MCP 다시 연결 또는 새 대화). `app_state`는 앱 버전(`appVersion`)과 MCP 서버 버전(`mcpVersion`)을 함께 돌려주고, 둘이 다르면 `versionWarning`을 붙입니다(오류 메시지에도 같은 안내가 붙습니다). 연결 방식 자체가 다르면 `version_mismatch`가 나옵니다. 둘 다 같은 설치 파일로 설치된 것을 쓰면 사라집니다.
 
 ### 1.1 에이전트 스킬 설치 (권장)
 
@@ -251,6 +251,7 @@ MCP 패널의 **Permissions**에서 바로 바꿀 수 있습니다(이 PC에 저
 
 | 메시지 | 원인과 조치 |
 |---|---|
+| MCP 서버 연결이 끊김 | 앱을 닫으면 MCP 서버도 종료됩니다. 앱을 켜고 에이전트에서 MCP를 다시 연결합니다. |
 | `app_not_running` | 앱이 꺼져 있거나 에이전트 기능이 없는 이전 버전입니다. 앱을 실행하거나 업데이트합니다. MCP 패널 제목 아래 줄이 "Waiting for an MCP client"(초록 점)인지 확인합니다. |
 | `version_mismatch` | 앱과 `easy-labeling-mcp.exe`의 연결 방식(프로토콜)이 다릅니다. 등록한 경로가 지금 설치된 앱 폴더인지 확인합니다. |
 | `versionWarning` (`app_state`) | 앱과 `easy-labeling-mcp.exe`가 다른 릴리스입니다. 도구가 빠져 있거나 다르게 동작할 수 있으니, 등록한 경로를 지금 설치된 앱 폴더의 것으로 바꿉니다. |
