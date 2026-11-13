@@ -18,6 +18,8 @@ use tokio_util::sync::CancellationToken;
 const ERROR_PIPE_BUSY: i32 = 231;
 /// How often a long call tells the client it is still running (see exchange).
 const HEARTBEAT: Duration = Duration::from_secs(15);
+/** How often the server looks for the app until it finds it (see exit_with_app). */
+const APP_POLL: Duration = Duration::from_secs(2);
 
 /// The app version this server was built with (package.json, read by build.rs).
 const MCP_VERSION: &str = env!("EL_APP_VERSION");
@@ -1362,8 +1364,28 @@ fn add_versions(result: &mut Value, app_version: &str) {
     }
 }
 
+/// Ends this server when the Easy Labeling window it found closes, so no server is left running after the app
+/// (agent clients keep their servers until they quit). It holds one idle connection open: the app's end of the pipe
+/// closes with its process, crash included. Until the app is found it looks every APP_POLL and tools answer
+/// app_not_running as before.
+async fn exit_with_app() {
+    loop {
+        if let Ok(pipe) = ClientOptions::new().open(pipe_name()) {
+            let (mut read, mut write) = tokio::io::split(pipe);
+            if write_frame(&mut write, &json!({ "type": "hello", "protocol": PROTOCOL, "client": null }), &[]).await.is_ok() {
+                // The app answers hello and then sends nothing on this connection until it closes.
+                while let Ok(Some(_)) = read_frame(&mut read).await {}
+                eprintln!("Easy Labeling closed; easy-labeling-mcp exits with it.");
+                std::process::exit(0);
+            }
+        }
+        tokio::time::sleep(APP_POLL).await;
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tokio::spawn(exit_with_app());
     let service = EasyLabeling::new().serve(rmcp::transport::stdio()).await?;
     service.waiting().await?;
     Ok(())

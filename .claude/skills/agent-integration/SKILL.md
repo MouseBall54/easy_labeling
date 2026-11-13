@@ -28,6 +28,7 @@ agent --stdio MCP--> easy-labeling-mcp.exe (crates/el-mcp: schema, forward, PNG 
 - One tool call is one undo step. Several edits in one call go through `runAsOneHistoryStep`; after an edit call `afterEdit()` (`EventManager.syncAfterEdit`) so the label list and undo buttons follow.
 - The person's controls live in the MCP panel (`src/bootstrap/agent-panel.ts`, `#agentPanel`, a docked third column of `.app-workspace` while open, opened from the rail's `MCP` button or the status-bar indicator): permissions reach the dispatcher as `host.access()` (agents off / read-only) and the `confirm` wrapper (folder-wide changes blocked); every finished call reaches `host.record()` for the activity list. Connection status comes from `agent_status` (pipe state, last call and the MCP client's `clientInfo`, which `el-mcp` sends in `hello`).
 - Versions: `crates/el-mcp/build.rs` bakes package.json's version into the server (`MCP_VERSION`, also its MCP `serverInfo`). `el-mcp` adds `appVersion`/`mcpVersion` (and `versionWarning` when they differ) to `app_state` from the app's `hello`, and appends the warning to error messages. A changed frame format still bumps `PROTOCOL` (`version_mismatch`).
+- Lifetime: `el-mcp`'s `exit_with_app` looks for the app every 2 s, then holds one idle pipe connection (hello only); when the app's end closes (exit or crash) the server exits, so no server outlives the window. Without an app it keeps waiting (tools answer `app_not_running`). `agent-desktop.spec.ts` covers both.
 
 ## Every MCP client, not only Claude
 
