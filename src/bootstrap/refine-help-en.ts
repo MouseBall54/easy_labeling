@@ -153,8 +153,10 @@ ${tip("Leave out bright rims and labels' slack: a small inset on clean sides, a 
     "reclass-checks": {
       title: "Checks: mean, bright pixels, area shrink",
       html: `<dl class="rh-defs">
-${def("Mean ≥", "Mean brightness (0–255) of the centre crop at or above which the box matches.", R.mean.min)}
-${def("Bright pixels ≥ %", `Share of crop pixels at or above <em>Bright level</em> (default ${R.bright.level}). Catches mottled, partly bright centres the mean misses. The Lab paints those pixels pink.`, pct(R.bright.minRatio))}
+${def("Mean side", "Bright: the box matches when the mean is at or above the value (Mean ≥). Dark: at or below it (Mean ≤). Use Dark for centres that should be bright but are not.", "Bright")}
+${def("Mean ≥ / ≤", "Mean brightness (0–255) of the centre crop the box is judged against.", R.mean.min)}
+${def("Pixel side", "Bright: count pixels at or above the <em>level</em>. Dark: count pixels at or below it.", "Bright")}
+${def("Bright / Dark pixels ≥ %", `Share of crop pixels counted against <em>Bright / Dark level</em> (default ${R.bright.level}). Catches mottled, partly bright or dark centres the mean misses. The Lab paints those pixels pink.`, pct(R.bright.minRatio))}
 ${def("Area shrinks ≥ %", "Refines the box with the Edge settings (without moving it) and matches when the area is this much smaller than the box as loaded from the label file.", pct(R.shrink.minRatio))}
 ${def("Combine", "OR: any check that is on is enough. AND: every check must pass.", "OR")}
 </dl>${tip("Too many matches: raise the threshold, shrink the crop away from rims, or switch to AND. Too few: lower thresholds one at a time and watch the pins in the cases.")}`

@@ -41,6 +41,14 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     return label;
   };
   const label = (field: string, text: string): HTMLLabelElement => element("label", { htmlFor: id(field), textContent: text });
+  /** Bright (>=) or dark (<=) side of a check. */
+  const side = (field: string, title: string, bright: string, dark: string, onDark: (dark: boolean) => void): HTMLSelectElement => {
+    const control = element("select", { className: "form-select form-select-sm", id: id(field), title });
+    control.add(new Option(bright, "bright"));
+    control.add(new Option(dark, "dark"));
+    control.addEventListener("change", () => onDark(control.value === "dark"));
+    return control;
+  };
   const classOption = (classId: string): HTMLOptionElement => {
     const name = store.className(classId);
     return new Option(name ? `${classId} ${name}` : classId, classId);
@@ -62,11 +70,15 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
     row(label("combine", "Combine"), combine),
     ...INSETS.map(([field, text, span]) => row(label(field, text),
       number(field, 0, 90, 1, `Share of the box ${span} left out of the centre on this side (opposite sides together at most 90%)`, (v) => update((r) => ({ ...r, [field]: v / 100 }))))),
+    row(label("meanSide", "Mean side"), side("meanSide", "Bright: the box matches when the centre mean is at or above the value. Dark: at or below it.",
+      "Bright (mean ≥)", "Dark (mean ≤)", (dark) => update((r) => ({ ...r, mean: { ...r.mean, dark } })))),
     row(check("meanOn", "Mean ≥", (on) => update((r) => ({ ...r, mean: { ...r.mean, enabled: on } }))),
-      number("meanMin", 0, 255, 1, "Centre mean brightness (0-255) at or above which the box matches", (v) => update((r) => ({ ...r, mean: { ...r.mean, min: v } })))),
+      number("meanMin", 0, 255, 1, "Centre mean brightness (0-255) the box matches at or beyond, on the mean side", (v) => update((r) => ({ ...r, mean: { ...r.mean, min: v } })))),
+    row(label("brightSide", "Pixel side"), side("brightSide", "Bright: count pixels at or above the level. Dark: count pixels at or below it.",
+      "Bright (≥ level)", "Dark (≤ level)", (dark) => update((r) => ({ ...r, bright: { ...r.bright, dark } })))),
     row(check("brightOn", "Bright pixels ≥ %", (on) => update((r) => ({ ...r, bright: { ...r.bright, enabled: on } }))),
-      number("brightRatio", 0, 100, 1, "Share of centre pixels at or above the bright level", (v) => update((r) => ({ ...r, bright: { ...r.bright, minRatio: v / 100 } })))),
-    row(label("brightLevel", "Bright level"), number("brightLevel", 0, 255, 1, "A pixel this bright (0-255) or brighter counts as bright", (v) => update((r) => ({ ...r, bright: { ...r.bright, level: v } })))),
+      number("brightRatio", 0, 100, 1, "Share of centre pixels on the pixel side of the level", (v) => update((r) => ({ ...r, bright: { ...r.bright, minRatio: v / 100 } })))),
+    row(label("brightLevel", "Bright level"), number("brightLevel", 0, 255, 1, "Gray level (0-255): with the bright side a pixel at or above it counts, with the dark side one at or below it", (v) => update((r) => ({ ...r, bright: { ...r.bright, level: v } })))),
     row(check("shrinkOn", "Area shrinks ≥ %", (on) => update((r) => ({ ...r, shrink: { ...r.shrink, enabled: on } }))),
       number("shrinkRatio", 0, 99, 1, "Refined area (Edge settings) at least this much smaller than the box as loaded from the label file", (v) => update((r) => ({ ...r, shrink: { ...r.shrink, minRatio: v / 100 } }))))
   );
@@ -88,6 +100,12 @@ export function createReclassEditor(input: { root: HTMLElement; prefix: string; 
       setValue(to, r.toClass);
       setValue(combine, r.combine);
       for (const [field] of INSETS) setValue(get(field), String(Math.round(r[field] * 100)));
+      setValue(get("meanSide"), r.mean.dark ? "dark" : "bright");
+      setValue(get("brightSide"), r.bright.dark ? "dark" : "bright");
+      // The checkbox stays the label's first child; the text after it names the side.
+      get("meanOn").nextSibling!.textContent = r.mean.dark ? "Mean ≤" : "Mean ≥";
+      get("brightOn").nextSibling!.textContent = r.bright.dark ? "Dark pixels ≥ %" : "Bright pixels ≥ %";
+      block.querySelector(`label[for="${id("brightLevel")}"]`)!.textContent = r.bright.dark ? "Dark level" : "Bright level";
       get<HTMLInputElement>("meanOn").checked = r.mean.enabled;
       setValue(get("meanMin"), String(r.mean.min));
       get<HTMLInputElement>("brightOn").checked = r.bright.enabled;

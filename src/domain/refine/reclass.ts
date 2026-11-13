@@ -1,7 +1,8 @@
 import type { GrayImage, RefineRect } from "./edge-refine.js";
 
 /**
- * Reclass: flag boxes whose content looks defective (a bright, mottled centre where it should be dark, or a box
+ * Reclass: flag boxes whose content looks defective (a bright, mottled centre where it should be dark, a dark one
+ * where it should be bright, or a box
  * whose refined area shrank well below the size it was loaded with) as candidates for another class.
  * Boxes never move; the user confirms each change. The rule is always on (Reclass mode is the switch); an
  * `enabled` flag older files hold is ignored.
@@ -20,14 +21,19 @@ export interface ReclassRule {
   insetBottom: number;
   insetLeft: number;
   insetRight: number;
-  mean: { enabled: boolean; min: number };
-  /** Bright pixels are >= level; the check passes when their share of the crop is >= minRatio. */
-  bright: { enabled: boolean; level: number; minRatio: number };
+  /** Passes when the crop mean is >= min, or <= min when dark (older files: bright). */
+  mean: { enabled: boolean; min: number; dark: boolean };
+  /**
+   * Counted pixels are >= level, or <= level when dark (older files: bright); the check passes when their share
+   * of the crop is >= minRatio. The key keeps its old name for the files.
+   */
+  bright: { enabled: boolean; level: number; minRatio: number; dark: boolean };
   /** Passes when the refined area is at least minRatio smaller than the loaded box. */
   shrink: { enabled: boolean; minRatio: number };
 }
 
 export interface ReclassBox { id: string; classId: string; box: RefineRect }
+/** brightRatio: share of the pixels the bright check counts (dark ones when it is set to dark). */
 export interface ReclassStats { mean: number; brightRatio: number; areaChange: number | null }
 export interface ReclassMatch extends ReclassStats { id: string; ruleIndex: number; toClass: string }
 
@@ -40,8 +46,8 @@ export function createReclassRule(): ReclassRule {
     insetBottom: 0.25,
     insetLeft: 0.25,
     insetRight: 0.25,
-    mean: { enabled: true, min: 128 },
-    bright: { enabled: false, level: 160, minRatio: 0.2 },
+    mean: { enabled: true, min: 128, dark: false },
+    bright: { enabled: false, level: 160, minRatio: 0.2, dark: false },
     shrink: { enabled: false, minRatio: 0.3 }
   };
 }
@@ -82,11 +88,12 @@ export function normalizeReclassRule(value: unknown): ReclassRule {
     insetBottom,
     insetLeft,
     insetRight,
-    mean: { enabled: flag(mean.enabled, d.mean.enabled), min: bounded(mean.min, d.mean.min, 0, 255) },
+    mean: { enabled: flag(mean.enabled, d.mean.enabled), min: bounded(mean.min, d.mean.min, 0, 255), dark: flag(mean.dark, false) },
     bright: {
       enabled: flag(bright.enabled, d.bright.enabled),
       level: bounded(bright.level, d.bright.level, 0, 255),
-      minRatio: bounded(bright.minRatio, d.bright.minRatio, 0, 1)
+      minRatio: bounded(bright.minRatio, d.bright.minRatio, 0, 1),
+      dark: flag(bright.dark, false)
     },
     shrink: { enabled: flag(shrink.enabled, d.shrink.enabled), minRatio: bounded(shrink.minRatio, d.shrink.minRatio, 0, 0.99) }
   };
@@ -120,16 +127,17 @@ export function centreCrop(box: RefineRect, crop: ReclassInsets, bounds: { width
 export function measureReclass(img: GrayImage, box: RefineRect, rule: ReclassInsets & Pick<ReclassRule, "bright">): { mean: number; brightRatio: number } {
   const { x0, y0, x1, y1 } = centreCrop(box, rule, img);
   let sum = 0;
-  let bright = 0;
+  let counted = 0;
+  const { level, dark } = rule.bright;
   for (let y = y0; y < y1; y += 1) {
     for (let x = x0; x < x1; x += 1) {
       const v = img.gray[y * img.width + x];
       sum += v;
-      if (v >= rule.bright.level) bright += 1;
+      if (dark ? v <= level : v >= level) counted += 1;
     }
   }
   const count = (x1 - x0) * (y1 - y0);
-  return { mean: sum / count, brightRatio: bright / count };
+  return { mean: sum / count, brightRatio: counted / count };
 }
 
 /** Checks this class (from classes, empty = all) and has at least one check on; the box may already be of toClass. */
@@ -145,7 +153,7 @@ export function ruleApplies(rule: ReclassRule, boxClass: string): boolean {
 
 export function judgeReclass(rule: ReclassRule, stats: ReclassStats): boolean {
   const checks: boolean[] = [];
-  if (rule.mean.enabled) checks.push(stats.mean >= rule.mean.min);
+  if (rule.mean.enabled) checks.push(rule.mean.dark ? stats.mean <= rule.mean.min : stats.mean >= rule.mean.min);
   if (rule.bright.enabled) checks.push(stats.brightRatio >= rule.bright.minRatio);
   if (rule.shrink.enabled) checks.push(stats.areaChange !== null && -stats.areaChange >= rule.shrink.minRatio);
   if (!checks.length) return false;
@@ -180,8 +188,8 @@ export function describeReclassRule(rule: ReclassRule, className: (id: string) =
   const from = rule.fromClasses.length ? `class ${rule.fromClasses.join(", ")}` : "all classes";
   const name = className(rule.toClass);
   const checks = [
-    rule.mean.enabled ? `mean ≥ ${rule.mean.min}` : "",
-    rule.bright.enabled ? `bright ≥ ${percent(rule.bright.minRatio)}` : "",
+    rule.mean.enabled ? `mean ${rule.mean.dark ? "≤" : "≥"} ${rule.mean.min}` : "",
+    rule.bright.enabled ? `${rule.bright.dark ? "dark" : "bright"} ≥ ${percent(rule.bright.minRatio)}` : "",
     rule.shrink.enabled ? `area −${percent(rule.shrink.minRatio)}` : ""
   ].filter(Boolean);
   return `${from} → ${rule.toClass}${name ? ` ${name}` : ""} · ${checks.length ? checks.join(` ${rule.combine.toUpperCase()} `) : "no checks"}`;

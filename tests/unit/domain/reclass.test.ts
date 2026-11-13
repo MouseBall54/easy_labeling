@@ -37,8 +37,8 @@ describe("domain/refine/reclass", () => {
       insetBottom: 0.25,
       insetLeft: 0.25,
       insetRight: 0.25,
-      mean: { enabled: true, min: 128 },
-      bright: { enabled: false, level: 160, minRatio: 0.2 },
+      mean: { enabled: true, min: 128, dark: false },
+      bright: { enabled: false, level: 160, minRatio: 0.2, dark: false },
       shrink: { enabled: false, minRatio: 0.3 }
     });
   });
@@ -52,7 +52,7 @@ describe("domain/refine/reclass", () => {
     // Each side reads on its own, clamped to 0-90%, and opposite sides together keep at least 10% of the box.
     expect(normalizeReclassRule({ insetTop: 0.1, insetBottom: "0.4", insetLeft: -1, insetRight: 2 })).toMatchObject({ insetTop: 0.1, insetBottom: 0.4, insetLeft: 0, insetRight: 0.9 });
     expect(normalizeReclassRule({ insetTop: 0.9, insetBottom: 0.9 })).toMatchObject({ insetTop: 0.45, insetBottom: 0.45 });
-    expect(parsed.mean).toEqual({ enabled: true, min: 255 });
+    expect(parsed.mean).toEqual({ enabled: true, min: 255, dark: false });
     expect(parsed.bright.minRatio).toBe(0);
     expect(parsed.combine).toBe("or");
     expect(parsed.toClass).toBe("3");
@@ -80,23 +80,23 @@ describe("domain/refine/reclass", () => {
 
   it("measures the mean and the share of bright pixels in the crop", () => {
     const img = square(4, 200, 50);
-    expect(measureReclass(img, FULL, { ...{ insetTop: 0.3, insetBottom: 0.3, insetLeft: 0.3, insetRight: 0.3 }, bright: { enabled: true, level: 160, minRatio: 0 } })).toEqual({ mean: 200, brightRatio: 1 });
-    const whole = measureReclass(img, FULL, { ...{ insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 }, bright: { enabled: true, level: 160, minRatio: 0 } });
+    expect(measureReclass(img, FULL, { ...{ insetTop: 0.3, insetBottom: 0.3, insetLeft: 0.3, insetRight: 0.3 }, bright: { enabled: true, level: 160, minRatio: 0, dark: false } })).toEqual({ mean: 200, brightRatio: 1 });
+    const whole = measureReclass(img, FULL, { ...{ insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 }, bright: { enabled: true, level: 160, minRatio: 0, dark: false } });
     expect(whole.mean).toBeCloseTo(74);
     expect(whole.brightRatio).toBeCloseTo(0.16);
-    const outside = measureReclass(img, { x0: -20, y0: -20, x1: -10, y1: -10 }, { ...{ insetTop: 0.25, insetBottom: 0.25, insetLeft: 0.25, insetRight: 0.25 }, bright: { enabled: true, level: 160, minRatio: 0 } });
+    const outside = measureReclass(img, { x0: -20, y0: -20, x1: -10, y1: -10 }, { ...{ insetTop: 0.25, insetBottom: 0.25, insetLeft: 0.25, insetRight: 0.25 }, bright: { enabled: true, level: 160, minRatio: 0, dark: false } });
     expect(Number.isFinite(outside.mean)).toBe(true);
   });
 
   it("judges each check and combines them with AND or OR", () => {
     const stats = { mean: 140, brightRatio: 0.1, areaChange: -0.31 };
-    expect(judgeReclass(rule({ mean: { enabled: true, min: 140 } }), stats)).toBe(true);
-    expect(judgeReclass(rule({ mean: { enabled: true, min: 141 } }), stats)).toBe(false);
-    const both = { mean: { enabled: true, min: 100 }, bright: { enabled: true, level: 160, minRatio: 0.5 } };
+    expect(judgeReclass(rule({ mean: { enabled: true, min: 140, dark: false } }), stats)).toBe(true);
+    expect(judgeReclass(rule({ mean: { enabled: true, min: 141, dark: false } }), stats)).toBe(false);
+    const both = { mean: { enabled: true, min: 100, dark: false }, bright: { enabled: true, level: 160, minRatio: 0.5, dark: false } };
     expect(judgeReclass(rule({ ...both, combine: "and" }), stats)).toBe(false);
     expect(judgeReclass(rule({ ...both, combine: "or" }), stats)).toBe(true);
-    expect(judgeReclass(rule({ mean: { enabled: false, min: 0 } }), stats)).toBe(false);
-    const shrink = rule({ mean: { enabled: false, min: 0 }, shrink: { enabled: true, minRatio: 0.3 } });
+    expect(judgeReclass(rule({ mean: { enabled: false, min: 0, dark: false } }), stats)).toBe(false);
+    const shrink = rule({ mean: { enabled: false, min: 0, dark: false }, shrink: { enabled: true, minRatio: 0.3 } });
     expect(judgeReclass(shrink, stats)).toBe(true);
     expect(judgeReclass(shrink, { ...stats, areaChange: null })).toBe(false);
   });
@@ -109,7 +109,7 @@ describe("domain/refine/reclass", () => {
     expect(matches.map((m) => [m.id, m.ruleIndex, m.toClass])).toEqual([["a", 1, "3"], ["b", 0, "2"]]);
     expect(matches[0]).toMatchObject({ mean: 200, areaChange: null });
     expect(evaluateReclass(img, [{ id: "c", classId: "0", box: FULL }], [rule({ toClass: "0" })], new Map())).toEqual([]);
-    expect(evaluateReclass(img, boxes, [rule({ mean: { enabled: false, min: 0 } })], new Map())).toEqual([]);
+    expect(evaluateReclass(img, boxes, [rule({ mean: { enabled: false, min: 0, dark: false } })], new Map())).toEqual([]);
   });
 
   it("checks boxes already of the target class but only changes the others", () => {
@@ -118,7 +118,7 @@ describe("domain/refine/reclass", () => {
     expect(ruleApplies(r, "1")).toBe(false);
     expect(ruleApplies(r, "0")).toBe(true);
     expect(ruleChecks(r, "2")).toBe(false);
-    expect(ruleChecks(rule({ mean: { enabled: false, min: 128 } }), "0")).toBe(false);
+    expect(ruleChecks(rule({ mean: { enabled: false, min: 128, dark: false } }), "0")).toBe(false);
   });
 
   it("summarises a rule in one line", () => {
@@ -127,8 +127,26 @@ describe("domain/refine/reclass", () => {
     expect(describeReclassRule(rule({
       combine: "and",
       fromClasses: ["1", "2"],
-      bright: { enabled: true, level: 160, minRatio: 0.2 },
+      bright: { enabled: true, level: 160, minRatio: 0.2, dark: false },
       shrink: { enabled: true, minRatio: 0.3 }
     }), name)).toBe("class 1, 2 → 0 unfilled · mean ≥ 128 AND bright ≥ 20% AND area −30%");
+  });
+
+  it("checks the dark side when a check is set to dark; older files read as bright", () => {
+    expect(normalizeReclassRule({ mean: { enabled: true, min: 100 }, bright: { enabled: true } })).toMatchObject({ mean: { dark: false }, bright: { dark: false } });
+    expect(normalizeReclassRule({ mean: { dark: true }, bright: { dark: true } })).toMatchObject({ mean: { dark: true }, bright: { dark: true } });
+    // 16 of 100 pixels are 200, the rest 50: the dark side counts the pixels at or below the level.
+    const img = square(4, 200, 50);
+    const insets = { insetTop: 0, insetBottom: 0, insetLeft: 0, insetRight: 0 };
+    expect(measureReclass(img, FULL, { ...insets, bright: { enabled: true, level: 50, minRatio: 0, dark: true } }).brightRatio).toBeCloseTo(0.84);
+    expect(measureReclass(img, FULL, { ...insets, bright: { enabled: true, level: 49, minRatio: 0, dark: true } }).brightRatio).toBe(0);
+    const stats = { mean: 60, brightRatio: 0.84, areaChange: null };
+    expect(judgeReclass(rule({ mean: { enabled: true, min: 60, dark: true } }), stats)).toBe(true);
+    expect(judgeReclass(rule({ mean: { enabled: true, min: 59, dark: true } }), stats)).toBe(false);
+    expect(judgeReclass(rule({ mean: { enabled: true, min: 60, dark: false } }), stats)).toBe(true);
+    expect(judgeReclass(rule({ mean: { enabled: true, min: 61, dark: false } }), stats)).toBe(false);
+    const name = (): undefined => undefined;
+    expect(describeReclassRule(rule({ mean: { enabled: true, min: 90, dark: true }, bright: { enabled: true, level: 40, minRatio: 0.5, dark: true } }), name))
+      .toBe("all classes → 0 · mean ≤ 90 OR dark ≥ 50%");
   });
 });

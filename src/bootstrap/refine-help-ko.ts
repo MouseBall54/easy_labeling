@@ -157,8 +157,10 @@ ${tip("밝은 테두리와 라벨 여유 부분은 빼세요: 깨끗한 변은 i
     "reclass-checks": {
       title: "검사: Mean, Bright pixels, Area shrinks",
       html: `<dl class="rh-defs">
-${def("Mean ≥", "가운데 crop의 평균 밝기(0–255)가 이 값 이상이면 일치.", R.mean.min)}
-${def("Bright pixels ≥ %", `crop에서 <em>Bright level</em>(기본값 ${R.bright.level}) 이상인 픽셀의 비율. 평균으로는 놓치는, 얼룩덜룩하게 일부만 밝은 가운데를 잡습니다. Lab은 그 픽셀을 분홍색으로 칠합니다.`, pct(R.bright.minRatio))}
+${def("Mean side", "Bright: 평균이 기준 이상이면 일치(Mean ≥). Dark: 기준 이하이면 일치(Mean ≤). 밝아야 할 가운데가 어두운 박스는 Dark로 잡습니다.", "Bright")}
+${def("Mean ≥ / ≤", "가운데 crop의 평균 밝기(0–255) 기준.", R.mean.min)}
+${def("Pixel side", "Bright: <em>level</em> 이상인 픽셀을 셉니다. Dark: level 이하인 픽셀을 셉니다.", "Bright")}
+${def("Bright / Dark pixels ≥ %", `crop에서 세는 픽셀(<em>Bright / Dark level</em>, 기본값 ${R.bright.level})의 비율. 평균으로는 놓치는, 얼룩덜룩하게 일부만 밝거나 어두운 가운데를 잡습니다. Lab은 그 픽셀을 분홍색으로 칠합니다.`, pct(R.bright.minRatio))}
 ${def("Area shrinks ≥ %", "Edge 설정으로 박스를 맞춰 본 면적(박스는 움직이지 않음)이 라벨 파일에서 불러온 크기보다 이만큼 이상 작으면 일치.", pct(R.shrink.minRatio))}
 ${def("Combine", "OR: 켜진 검사 중 하나만 맞아도 됨. AND: 모두 맞아야 함.", "OR")}
 </dl>${tip("일치가 너무 많으면: 기준을 올리거나, crop을 테두리에서 떼거나, AND로 바꾸세요. 너무 적으면: 기준을 하나씩 낮추며 케이스의 핀을 보세요.")}`
