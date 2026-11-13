@@ -1157,6 +1157,27 @@ test("refine lab: tunes a reclass rule and shows which cases match", async ({ pa
   await page.locator("#refineLabReclass0-meanMin").fill("200");
   await expect(page.locator("#refineLabStatus")).toContainText("reclass 0 of 2 match");
 
+  // The dark side flips each check: box 0 (dark centre) matches instead, by mean and by its share of dark pixels.
+  await page.locator("#refineLabReclass0-meanMin").fill("120");
+  await page.locator("#refineLabReclass0-meanSide").selectOption("dark");
+  await expect(page.locator("label[for='refineLabReclass0-meanOn']")).toHaveText("Mean ≤");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 1 of 2 match");
+  await expect(page.locator(".refine-lab-case[data-reclass='match'] span")).toContainText("mean 53");
+  await page.locator("#refineLabReclass0-meanOn").uncheck();
+  await page.locator("#refineLabReclass0-brightOn").check();
+  await page.locator("#refineLabReclass0-brightSide").selectOption("dark");
+  await page.locator("#refineLabReclass0-brightLevel").fill("60");
+  await page.locator("#refineLabReclass0-brightRatio").fill("50");
+  await expect(page.locator("label[for='refineLabReclass0-brightLevel']")).toHaveText("Dark level");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 1 of 2 match");
+  await expect(page.locator(".refine-lab-case[data-reclass='match'] span")).toContainText(/· dark \d+%/);
+  await page.locator("#refineLabReclass0-brightSide").selectOption("bright");
+  await page.locator("#refineLabReclass0-brightOn").uncheck();
+  await page.locator("#refineLabReclass0-meanOn").check();
+  await page.locator("#refineLabReclass0-meanSide").selectOption("bright");
+  await page.locator("#refineLabReclass0-meanMin").fill("200");
+  await expect(page.locator("#refineLabStatus")).toContainText("reclass 0 of 2 match");
+
   // Change to the class the boxes already have: they are still judged with the settings, marked as already that class.
   await page.locator("#refineLabReclass0-to").fill("0");
   await page.locator("#refineLabReclass0-meanMin").fill("120");

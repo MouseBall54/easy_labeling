@@ -418,11 +418,11 @@ export function createRefineLab(input: {
   };
   const reclassText = (r: NonNullable<LabResult["reclass"]>): string => {
     const { stats, rule } = r;
-    const parts = [`mean ${Math.round(stats.mean)}`, `bright ${Math.round(stats.brightRatio * 100)}%`];
+    const parts = [`mean ${Math.round(stats.mean)}`, `${rule.bright.dark ? "dark" : "bright"} ${Math.round(stats.brightRatio * 100)}%`];
     if (rule.shrink.enabled) parts.push(stats.areaChange === null ? "area: refine off" : `area ${stats.areaChange >= 0 ? "+" : "−"}${Math.abs(stats.areaChange * 100).toFixed(0)}%`);
     return parts.join(" · ");
   };
-  /** Centre crop (dashed), its bright pixels when that check is on (detail view), and a pin on a match. */
+  /** Centre crop (dashed), the pixels the bright/dark check counts when it is on (detail view), and a pin on a match. */
   const drawReclass = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, X: (x: number) => number, Y: (y: number) => number, detail: boolean): void => {
     if (!r.reclass) return;
     const { rule } = r.reclass;
@@ -431,8 +431,12 @@ export function createRefineLab(input: {
     if (detail && rule.bright.enabled) {
       context.fillStyle = "rgba(230, 73, 128, 0.35)";
       const cell = Math.max(1, X(1) - X(0));
+      const { level, dark } = rule.bright;
       for (let y = crop.y0; y < crop.y1; y += 1) {
-        for (let x = crop.x0; x < crop.x1; x += 1) if (c.reclassImg.gray[y * c.reclassImg.width + x] >= rule.bright.level) context.fillRect(X(x), Y(y), cell, cell);
+        for (let x = crop.x0; x < crop.x1; x += 1) {
+          const v = c.reclassImg.gray[y * c.reclassImg.width + x];
+          if (dark ? v <= level : v >= level) context.fillRect(X(x), Y(y), cell, cell);
+        }
       }
     }
     context.setLineDash([4, 3]);

@@ -112,7 +112,7 @@ Inspector의 `Refine`(`R`)은 박스 변을 이미지의 실제 경계에 맞추
 
 ### 4.2 Reclass 모드
 
-박스 위치는 그대로 두고, 규칙에 맞는 박스의 클래스를 바꾼다. 예를 들어 가운데가 어두워야 할 구조물에 밝은 얼룩이 있으면 `unfilled` 클래스로 바꾼다.
+박스 위치는 그대로 두고, 규칙에 맞는 박스의 클래스를 바꾼다. 예를 들어 가운데가 어두워야 할 구조물에 밝은 얼룩이 있으면 `unfilled` 클래스로 바꾼다. 반대로 밝아야 할 가운데가 어두운 박스도 Dark 쪽 검사로 잡을 수 있다.
 
 - **Reclass with**: Refine Lab의 규칙(Lab rule) 또는 Reclass 프리셋.
 - **Apply**: `Selected`(`E`), `All boxes`(`Shift+E`), 클래스 드롭다운 + `Reclass class`. 맞는 박스의 클래스를 바로 바꾸고(Undo 한 단계), 바뀐 박스는 검토 대상이 된다. 규칙이 검사하지 않는 클래스와 바꿀 대상 클래스는 드롭다운에서 고를 수 없다.
@@ -120,8 +120,8 @@ Inspector의 `Refine`(`R`)은 박스 변을 이미지의 실제 경계에 맞추
 - **Reclass all images in folder**: 폴더 전체에 규칙을 적용한다(면적 줄어듦 검사는 라벨 파일에 저장된 크기와 비교).
 - 규칙(Lab의 Reclass 모드 **Rule**): 검사할 클래스(Classes 칩, All은 전체), 바꿀 클래스(Change to), 가운데 crop을 위·아래·왼쪽·오른쪽에서 뺄 비율(Centre inset %, 0-90%, 마주 보는 두 변의 합은 최대 90%), 판정 조합(OR / AND).
 - 판정 세 가지:
-  - **Mean ≥**: 가운데 crop의 평균 밝기(0~255)가 기준 이상
-  - **Bright pixels ≥ %**: Bright level 이상인 픽셀 비율이 기준 이상
+  - **Mean ≥ / ≤**: 가운데 crop의 평균 밝기(0~255)가 기준 이상(**Mean side** Bright, 기본값) 또는 이하(Dark)
+  - **Bright / Dark pixels ≥ %**: 세는 픽셀의 비율이 기준 이상. **Pixel side**가 Bright(기본값)면 level 이상인 픽셀, Dark면 level 이하인 픽셀을 센다
   - **Area shrinks ≥ %**: 현재 Edge 설정으로 경계를 다시 계산한 면적이 불러온 크기보다 기준 이상 줄어듦
 - 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)을 쓴다. **기본 규칙도 실제로 클래스를 바꾸므로** 처음 쓸 때는 규칙을 먼저 확인한다.
 
