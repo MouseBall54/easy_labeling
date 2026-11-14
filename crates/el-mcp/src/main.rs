@@ -31,8 +31,8 @@ These tools drive the app window the person has open, so they see every change. 
 to start Easy Labeling; on busy, wait a moment and retry; on timeout, ask the person to check the window (a dialog may be open).\n\n\
 Images often hold thousands of boxes, so long lists come in pages: get_boxes, run_refine, run_reclass, review_queue, find_similar \
 and apply_layout take offset/limit and always return the totals (limit 0 returns counts only). Prefer counts over listing every box, and \
-numbers over images: capture_view only the boxes the numbers flag, in one annotationIds sheet (about one or two captures per image), \
-never to confirm an edit.\n\n\
+numbers over images for review. Use one annotationIds sheet for flagged boxes. For new visual labels without known coordinates, \
+capture the needed view or region even if there are no boxes yet. Verify edits through numeric results.\n\n\
 Typical flow: find_similar from one good box (or run_template_matching / apply_layout) to add boxes -> run_refine with dryRun \
 to see what would move, then without dryRun (pass the returned annotationIds as the scope) -> review_queue, then one capture_view \
 sheet (annotationIds) of the flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Before run_reclass, read reclassRule from \
@@ -368,7 +368,9 @@ struct CaptureViewArgs {
     region: Option<PixelRegion>,
     #[schemars(description = "Or: several boxes (up to 36) in one sheet, a numbered zoomed cell per box in this order; use this rather than one call per box")]
     annotation_ids: Option<Vec<String>>,
-    #[schemars(description = "Return the image even when it is unchanged since your last capture with the same arguments (default false)")]
+    #[schemars(
+        description = "Resend the PNG if it matches a prior app capture (default false). Use once if the image is needed and the earlier PNG is unavailable."
+    )]
     force: Option<bool>,
 }
 
@@ -870,7 +872,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "A PNG of the canvas as the person sees it (image, boxes, tags and review marks at the current zoom), a zoomed crop around one box (annotationId) or an image region, or a sheet of many boxes (annotationIds), plus how its pixels map to image pixels. The crop does not change the person's view. Each image costs far more context than numbers: capture only boxes the numbers flag (review_queue, analyze_boxes, low Refine confidence), all of them in one annotationIds sheet, and do not capture to confirm an edit (the edit result, get_boxes and analyze_boxes already show it). Asking again for a capture whose pixels have not changed returns unchanged: true instead of the image.",
+        description = "Returns an MCP PNG image block plus JSON for the viewport, an image-pixel region, a crop around annotationId, or a sheet (annotationIds). Use for new visual labels and review decisions that need pixels. Convert PNG pixel edges to original image pixel edges before editing: x = pngX * imageFromCapture.scaleX + imageFromCapture.offsetX, likewise for y. On a sheet, subtract the tile's cell.x/y first and use its imageFromCell scale and offsets. unchanged: true means the app omitted a duplicate PNG. Reuse an available PNG with the same captureId and the current mapping, or repeat once with force: true if the image is still needed. Use numeric results to verify edits.",
         annotations(read_only_hint = true)
     )]
     async fn capture_view(
@@ -887,7 +889,7 @@ impl EasyLabeling {
 #[tool_router(router = edit_router)]
 impl EasyLabeling {
     #[tool(
-        description = "Add boxes to the current image (one undo step). Returns their annotationIds; the new boxes become the selection.",
+        description = "Add boxes to the current image using original image pixel edges (one undo step). Valid bounds are 0 <= x0 < x1 <= image width and 0 <= y0 < y1 <= image height. Convert capture PNG coordinates first. Returns annotationIds; the new boxes become the selection.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn add_boxes(
@@ -901,7 +903,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Move/resize boxes (any of x0, y0, x1, y1) and/or change their class, by annotationId. All updates of one call are one undo step.",
+        description = "Move/resize boxes (x0, y0, x1, y1 in original image pixel edges) and/or change their class, by annotationId. All updates of one call are one undo step.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn update_boxes(

@@ -82,6 +82,7 @@ interface TestApi {
   /** The superpixels the Segmentation superpixel tool uses now (labels, boundaries, regions). */
   getSegmentationSuperpixels(): import("./features/segmentation/superpixels.js").SuperpixelResult | null;
   getCanvasViewportTransform(): [number, number, number, number, number, number];
+  setCanvasViewportTransform(transform: [number, number, number, number, number, number]): void;
   getSegmentationMaskBounds(): {
     left: number;
     top: number;
@@ -361,6 +362,11 @@ function bootstrapBrowserRuntime(): void {
     getSegmentationSuperpixelInputSource: () => runtimeCanvasController.raw.getSegmentationSuperpixelInputSource?.() ?? null,
     getSegmentationSuperpixels: () => runtimeCanvasController.raw.getSegmentationSuperpixelResult?.() ?? null,
     getCanvasViewportTransform: () => [...runtimeCanvasController.raw.canvas.viewportTransform] as [number, number, number, number, number, number],
+    setCanvasViewportTransform: (transform: [number, number, number, number, number, number]) => {
+      const canvas = runtimeCanvasController.raw.canvas;
+      canvas.setViewportTransform(transform);
+      canvas.renderAll();
+    },
     getSegmentationMaskBounds: () => {
       const snapshot = runtimeCanvasController.raw.getSegmentationDocumentSnapshot?.();
       if (!snapshot) {
