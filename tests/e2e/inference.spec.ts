@@ -172,12 +172,13 @@ test("YOLO automatic GPU/CPU inference: 1ch/3ch NCHW/NHWC, batch results, safe s
   expect(errors).toEqual([]);
 });
 
-test("batch inference rejects duplicate label filenames and model loading recovers after an invalid file", async ({ page }) => {
+test("batch inference skips shared outputs and model loading recovers after an invalid file", async ({ page }) => {
   test.setTimeout(90_000);
   // This intentionally invalid fixture stays independent of the bundled samples' unique names.
   await page.route("**/assets/sample/manifest.json", async (route) => {
     const response = await route.fetch();
     const manifest = await response.json();
+    manifest.files = manifest.files.filter((name: string) => name.includes("/") || name === "sample_1.jpg" || name === "sample_2.jpg");
     manifest.files.push("sample_1.jpeg");
     await route.fulfill({ json: manifest });
   });
@@ -194,8 +195,10 @@ test("batch inference rejects duplicate label filenames and model loading recove
   await page.locator("#inferenceModelInput").setInputFiles({ name: "valid.onnx", mimeType: "application/octet-stream", buffer: inferenceModel(3, "nchw") });
   await expect(page.locator("#runInferenceAllBtn")).toBeEnabled({ timeout: 30_000 });
   await page.locator("#runInferenceAllBtn").click();
-  await expect(page.locator("#inferenceRunStatus")).toContainText("same base name");
-  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(1);
+  await expect(page.locator("#inferenceRunStatus")).toContainText("1 image(s)");
+  await expect(page.locator("#inferenceRunStatus")).toContainText("Skipped 2 with output collisions");
+  await expect(page.locator("#labelSourceTabs .label-source-tab")).toHaveCount(2);
+  await expect(page.locator("#inferenceRunStatus")).toContainText("Active: inference-valid");
   await page.locator('label[for="segmentationWorkflowTab"]').click();
   await expect(page.locator("#taskInferenceBtn")).toBeHidden();
   await page.locator('label[for="detectionWorkflowTab"]').click();

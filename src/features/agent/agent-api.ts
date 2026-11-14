@@ -8,7 +8,7 @@ export type AgentErrorCode = "busy" | "cancelled" | "declined" | "failed" | "inv
 export const STALE_ID_HINT = "annotationIds are assigned anew each time an image loads (go_to_image, open_folder, reloading labels): read them again with get_boxes after switching images.";
 
 export class AgentToolError extends Error {
-  constructor(readonly code: AgentErrorCode, message: string) {
+  constructor(readonly code: AgentErrorCode, message: string, readonly details?: Record<string, unknown>) {
     // Agents keep ids from earlier calls; the usual cause of an unknown box id is an image (re)load in between.
     super(code === "not_found" && message.startsWith("No box with annotationId") ? `${message} ${STALE_ID_HINT}` : message);
     this.name = "AgentToolError";
@@ -41,7 +41,7 @@ export interface AgentTool {
 
 export type AgentReply =
   | { ok: true; result: unknown; png?: Uint8Array }
-  | { ok: false; error: { code: AgentErrorCode; message: string } };
+  | { ok: false; error: { code: AgentErrorCode; message: string; details?: Record<string, unknown> } };
 
 /** One finished call, for the MCP panel's activity list. */
 export interface AgentActivity {
@@ -119,7 +119,7 @@ export function createAgentDispatcher(tools: Readonly<Record<string, AgentTool>>
       reply = await execute(request, controller);
     } catch (error) {
       reply = error instanceof AgentToolError
-        ? { ok: false, error: { code: error.code, message: error.message } }
+        ? { ok: false, error: { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) } }
         : { ok: false, error: { code: "failed", message: error instanceof Error ? error.message : String(error) } };
     } finally {
       running.delete(request.id);

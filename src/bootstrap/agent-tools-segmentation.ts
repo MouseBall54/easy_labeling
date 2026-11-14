@@ -6,12 +6,13 @@ import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import { analyzeMask, cleanMask } from "../domain/annotations/mask-analysis.js";
 import { matchMasks, summarizeMaskComparison, type ImageMaskMatch } from "../domain/annotations/mask-compare.js";
+import { annotationConflicts, annotationOutputPaths, annotationPathKey } from "../domain/annotations/paths.js";
+import { annotationOutput, maskOutputCounts, outputInfo } from "../features/images/annotation-storage.js";
 import { maskRegions, type MaskRegionSummary } from "../domain/annotations/mask-regions.js";
 import { cropMask, cropStats, largestPiece, snapToIntensity, type Crop, type CropStats } from "../domain/annotations/mask-fit.js";
 import { checkMaskShape, paintShapes, type MaskShape } from "../domain/annotations/mask-paint.js";
 import { decodeSegmentationMaskPng, encodeSegmentationMaskPng } from "../domain/annotations/segmentation-codec.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
-import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { evenSample } from "../domain/refine/folder-summary.js";
 import { AgentToolError, LIST_PAGE_MAX, listPage, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
 import { isNotFoundError, readBinaryFileByName, writeBinaryFileByName } from "../platform/file-system-access.js";
@@ -31,6 +32,7 @@ export interface AgentSegmentationToolDeps {
   liveView?(): boolean;
   /** Saving, reading and decoding other images, for folder runs. */
   fileSystem?: RuntimeFileSystem;
+  pathOf?(handle: unknown): string | null;
   /** Folder-wide writes: the person's native dialog (or the panel's Block). */
   confirm?(message: string): Promise<boolean>;
 }
@@ -61,6 +63,8 @@ export function currentMaskRegions(state: AppState, canvasController: RuntimeCan
 
 export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): Record<string, AgentTool> {
   const { state, canvasController, documentRef } = deps;
+  const pathOf = deps.pathOf ?? (() => null);
+  const maskName = (image: string) => annotationOutputPaths("segmentation", image)[0]!.slice("mask/".length);
 
   const setWorkflow: AgentTool = {
     changesApp: true,
@@ -113,7 +117,7 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
   };
   const readMask = async (directory: DirectoryHandleLike, image: string): Promise<{ width: number; height: number; mask: Uint16Array } | null> => {
     try {
-      return await decodeSegmentationMaskPng(await readBinaryFileByName(directory, `${imageFileNameToBaseName(image)}.png`));
+      return await decodeSegmentationMaskPng(await readBinaryFileByName(directory, maskName(image)));
     } catch (error) {
       if (isNotFoundError(error)) return null;
       throw error;
@@ -491,11 +495,11 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
     return null;
   };
   /** The folder the app saves masks to (inside the segmentation folder, or the image folder). */
-  const maskFolder = async (create: boolean): Promise<DirectoryHandleLike | null> => {
+  const maskFolder = async (): Promise<DirectoryHandleLike | null> => {
     const root = (state.session.segmentationLabelFolderHandle ?? state.session.imageFolderHandle) as unknown as DirectoryHandleLike | null;
     if (!root) throw new AgentToolError("no_folder", "No folder is open. Use open_folder first.");
     try {
-      return await root.getDirectoryHandle("mask", create ? { create: true } : undefined);
+      return await root.getDirectoryHandle("mask");
     } catch (error) {
       if (isNotFoundError(error)) return null;
       throw error;
@@ -535,7 +539,7 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
       const indexes = folderImages(args);
       if (indexes) {
         // Saved masks of several images: counts per image, worst first (no edgeFit: that needs each image's pixels).
-        const directory = await maskFolder(false);
+        const directory = await maskFolder();
         const totals = { specks: 0, holes: 0, necked: 0, offEdges: 0, size: 0, offLine: 0, missing: 0 };
         const images: Array<{ image: string; regions: number; counts: typeof totals }> = [];
         let withoutMask = 0;
@@ -582,7 +586,7 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
       };
       if (!options.removeSpecks && !options.fillHoles && !options.splitNecks && !options.snapPx) throw new AgentToolError("invalid_args", "Give at least one of removeSpecks, fillHoles (pixel areas), splitNecks, snapPx (pixels).");
       const indexes = folderImages(args);
-      if (indexes) return cleanFolder(indexes, options, args, context);
+      if (indexes) return cleanFolder([...new Set(indexes)], options, args, context);
       currentMaskRegions(state, canvasController);
       const gray = options.snapPx ? canvasController.raw.getSegmentationImageGray?.() ?? null : null;
       if (options.snapPx && !gray) throw new AgentToolError("failed", "snapPx needs the image pixels, which are not ready.");
@@ -607,9 +611,18 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
    */
   const cleanFolder = async (indexes: number[], options: Parameters<typeof cleanMask>[4], args: Record<string, unknown>, context: Parameters<AgentTool["run"]>[1]) => {
     if (!deps.fileSystem) throw new AgentToolError("failed", "Folder clean-up is not available here.");
+    const session = state.session;
+    const files = session.imageFiles;
+    const root = session.segmentationLabelFolderHandle ?? session.imageFolderHandle;
+    const conflicts = annotationConflicts(files, "segmentation");
+    const skipped = indexes.flatMap((index) => {
+      const image = files[index]!.name;
+      const output = annotationOutput(session, image, "segmentation", conflicts);
+      if (!output.conflictingImages.length) return [];
+      return [{ ...outputInfo({ ...output, paths: output.paths.slice(0, 1) }, pathOf), success: false, reason: "output_collision" }];
+    });
     if (hasDirtyDocuments(state)) await deps.fileSystem.saveLabels();
-    const directory = await maskFolder(false);
-    const files = state.session.imageFiles;
+    const directory = await maskFolder();
     const changed: Array<{ image: string; file: string; original: ArrayBuffer; mask: Uint16Array; width: number; height: number; result: ReturnType<typeof cleanMask> }> = [];
     const totals = { specksRemoved: 0, holesFilled: 0, necksCut: 0, regionsSnapped: 0, changed: 0 };
     let withoutMask = 0;
@@ -617,7 +630,8 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
       if (context.signal.aborted) throw new AgentToolError("cancelled", "Stopped; no mask file was changed.");
       const image = files[index]!.name;
       context.progress(done, indexes.length, image);
-      const file = `${imageFileNameToBaseName(image)}.png`;
+      const file = maskName(image);
+      if (conflicts.has(annotationPathKey(`mask/${file}`))) continue;
       let original: ArrayBuffer | null = null;
       try {
         original = directory ? await readBinaryFileByName(directory, file) : null;
@@ -635,18 +649,41 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
     }
     const perImage = changed.map((entry) => ({ image: entry.image, ...entry.result })).sort((a, b) => b.changed - a.changed);
     const page = listPage(perImage, args, 20);
-    const summary = { imagesChecked: indexes.length, imagesChanged: changed.length, withoutMask, ...totals, images: page.items, imagesTotal: page.total, truncated: page.truncated };
+    const summary = { imagesChecked: indexes.length, imagesChanged: changed.length, withoutMask, ...totals, skipped, images: page.items, imagesTotal: page.total, truncated: page.truncated };
     if (args.apply !== true || !changed.length) return { applied: false, ...summary, ...(changed.length ? { note: "Nothing changed yet; rerun with apply: true (the person is asked first, originals are backed up)." } : {}) };
     const allowed = await deps.confirm?.(`Clean ${changed.length.toLocaleString()} mask files (${totals.changed.toLocaleString()} pixels change)?\n\nThe original mask PNGs will be backed up.`);
     if (!allowed) throw new AgentToolError("declined", "The person declined the folder clean-up; nothing was changed.");
-    const target = (await maskFolder(true))!;
+    if (files !== session.imageFiles || root !== (session.segmentationLabelFolderHandle ?? session.imageFolderHandle)) {
+      throw new AgentToolError("failed", "The image or mask folder changed. Preview again.");
+    }
+    const checkStop = (): void => {
+      if (context.signal.aborted) throw new AgentToolError("cancelled", "Stopped; original masks restored.");
+    };
+    checkStop();
+    const target = directory!;
     const metadata = await target.getDirectoryHandle(".easy-labeling", { create: true });
     const backupName = `clean-masks-${new Date().toISOString().replace(/[:.]/g, "-")}`;
     const backup = await metadata.getDirectoryHandle(backupName, { create: true });
-    for (const entry of changed) await writeBinaryFileByName(backup, entry.file, entry.original);
     for (const entry of changed) {
-      const png = await encodeSegmentationMaskPng({ width: entry.width, height: entry.height, mask: entry.mask } as Parameters<typeof encodeSegmentationMaskPng>[0]);
-      await writeBinaryFileByName(target, entry.file, png.slice().buffer as ArrayBuffer);
+      checkStop();
+      await writeBinaryFileByName(backup, entry.file, entry.original);
+    }
+    const written: typeof changed = [];
+    try {
+      for (const entry of changed) {
+        checkStop();
+        const png = await encodeSegmentationMaskPng(entry);
+        checkStop();
+        written.push(entry);
+        await writeBinaryFileByName(target, entry.file, png.slice().buffer as ArrayBuffer);
+      }
+      checkStop();
+    } catch (error) {
+      const restored = await Promise.allSettled(written.map((entry) => writeBinaryFileByName(target, entry.file, entry.original)));
+      if (restored.some((entry) => entry.status === "rejected")) {
+        throw new AgentToolError("failed", `Could not restore every mask. Originals are in mask/.easy-labeling/${backupName}.`);
+      }
+      throw error;
     }
     // The current image shows the new mask.
     const current = state.session.currentImageFile?.name;
@@ -656,7 +693,14 @@ export function createAgentSegmentationTools(deps: AgentSegmentationToolDeps): R
       canvasController.raw.loadSegmentationDocumentSnapshot?.(snapshot);
       deps.afterEdit?.();
     }
-    return { applied: true, backup: `mask/.easy-labeling/${backupName}`, ...summary };
+    const byImage = new Map(changed.map((entry) => [entry.image, entry]));
+    const saves = page.items.map(({ image }) => {
+      const entry = byImage.get(image)!;
+      const output = annotationOutput(session, image, "segmentation", conflicts);
+      return { ...outputInfo({ ...output, paths: output.paths.slice(0, 1) }, pathOf),
+        success: true, action: entry.mask.some((pixel) => pixel !== 0) ? "written" : "written_empty", ...maskOutputCounts(entry) };
+    });
+    return { applied: true, backup: `mask/.easy-labeling/${backupName}`, ...summary, saves };
   };
 
   return {

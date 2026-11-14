@@ -1,7 +1,7 @@
 import type { AppState } from "../app/state.js";
 import { createInferenceService, type InferenceBackendStatus } from "../features/inference/service.js";
 import type { OutputFormat } from "../features/inference/yolo.js";
-import type { RuntimeFileSystem } from "./file-system-adapter.js";
+import type { InferenceSaveResult, RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
 export interface InferenceRunSettings { confidence: number; iou: number; maxDetections: number; outputFormat: string; inputSize: number }
@@ -11,7 +11,7 @@ export interface InferenceAgentApi {
   status(): { model: string | null; ready: boolean; busy: boolean; backend: string | null; settings: InferenceRunSettings };
   loadModel(file: File): Promise<{ model: string; description: string; backend: string | null }>;
   /** The panel's settings unless given; results go to the model's own label folder, which becomes active. */
-  run(options: { allImages: boolean; confidence?: number; iou?: number; maxDetections?: number }): Promise<{ imageCount: number; detectionCount: number; folderName: string }>;
+  run(options: { allImages: boolean; confidence?: number; iou?: number; maxDetections?: number }): Promise<InferenceSaveResult>;
 }
 
 export function bindInferenceControls(input: {
@@ -147,7 +147,7 @@ export function bindInferenceControls(input: {
       });
       if (!result) stop();
       runStatus.textContent = result
-        ? `${result.imageCount} image(s) · ${result.detectionCount} detection(s). Active: ${result.folderName}`
+        ? `${result.imageCount} image(s) · ${result.detectionCount} detection(s).${result.imageCount ? ` Active: ${result.folderName}.` : ""}${result.skipped.length ? ` Skipped ${result.skipped.length} with output collisions.` : ""}`
         : "Inference stopped. Partial results remain on disk. Reload the model to continue.";
       if (!ready) modelStatus.textContent = "Model stopped. Reload the ONNX model to continue.";
       return result;
@@ -182,7 +182,7 @@ export function bindInferenceControls(input: {
     async run(options) {
       const result = await run(options.allImages, options);
       if (!result) throw new Error("Inference stopped. Partial results remain on disk.");
-      return { imageCount: result.imageCount, detectionCount: result.detectionCount, folderName: result.folderName };
+      return result;
     }
   };
   return { dispose: stop, agent };

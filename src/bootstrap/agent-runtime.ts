@@ -140,6 +140,7 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     state: deps.state,
     canvasController: deps.canvasController,
     fileSystem: deps.fileSystem,
+    pathOf: (handle) => bridge.pathOf(handle),
     afterEdit: () => deps.syncAfterEdit?.()
   });
   const refineTools = createAgentRefineTools({
@@ -160,7 +161,7 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     afterEdit: () => deps.syncAfterEdit?.()
   });
   const liveView = () => panel.settings().liveView;
-  const segmentationTools = createAgentSegmentationTools({ state: deps.state, canvasController: deps.canvasController, documentRef, afterEdit: () => deps.syncAfterEdit?.(), liveView, fileSystem: deps.fileSystem, confirm });
+  const segmentationTools = createAgentSegmentationTools({ state: deps.state, canvasController: deps.canvasController, documentRef, afterEdit: () => deps.syncAfterEdit?.(), liveView, fileSystem: deps.fileSystem, confirm, pathOf: (handle) => bridge.pathOf(handle) });
   const dispatcher = createAgentDispatcher(withBoxReveal({ ...stateTools, ...editTools, ...refineTools, ...autoTools, ...segmentationTools }, {
     enabled: () => liveView() && deps.state.session.workflow === "detection",
     rects: () => deps.canvasController.raw.getObjects("rect").filter(isRectObject),

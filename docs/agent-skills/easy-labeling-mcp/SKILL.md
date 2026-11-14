@@ -45,7 +45,11 @@ MCP server come from different releases before working around it.
 4. Fill missing spots: `add_boxes` at each spot's centre and size → `run_refine` on the new ids → `delete_boxes` the
    ones Refine leaves with confidence under 0.3 (no edge there).
 5. Edges: `run_refine` with `dryRun` → `review_queue` → one `annotationIds` sheet of the flagged boxes → apply → `approve`.
-6. `save`, then `set_review_status`.
+6. Check `list_images {"storage":true,"images":["<filename>"]}` for output paths, disk state and collisions.
+   Call `save`, check `success` and `writtenPaths`, then `set_review_status` after review.
+
+If `get_classes` shows no suitable definitions, use `create_class_file` with the agreed filename and class IDs
+and names. The app selects the newly created file.
 
 ## Segmentation (masks)
 
@@ -64,7 +68,8 @@ MCP server come from different releases before working around it.
    TEM particles score 1.1-1.3, so lower `minEdgeFit` there.
 4. Fix single regions with `edit_regions` (delete or relabel by seed, or a class's regions by `maxArea`) and
    `paint_mask` (rect, circle, polygon, line shapes; `erase`; `backgroundOnly`).
-5. `save`. For a folder: `go_to_image` → the steps above → `save` per image, then `analyze_masks` / `clean_masks`
+5. Check storage and call `save`. The reply gives written paths, class pixel counts and connected region counts;
+   use the same `list_images` request to verify them on disk. For a folder: `go_to_image` → the steps above → `save` per image, then `analyze_masks` / `clean_masks`
    with `scope: "folder"` over the saved masks.
 
 ## Pitfalls

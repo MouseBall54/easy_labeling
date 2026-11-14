@@ -60,6 +60,26 @@ struct ListImagesArgs {
     limit: Option<u32>,
     #[schemars(description = "\"all\" (default), \"labeled\", \"unlabeled\" or \"issues\" (images with review findings)")]
     filter: Option<String>,
+    #[schemars(description = "Read Detection and Segmentation output paths, collisions and disk status for this page (default false)")]
+    storage: Option<bool>,
+    #[schemars(description = "Restrict to these exact image filenames including extensions. With storage, include detailed counts for these images.")]
+    images: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct CreateClassFileArgs {
+    #[schemars(description = "New class filename in the app's class folder; .yaml is added if absent")]
+    name: String,
+    #[schemars(description = "1 to 1000 class definitions. IDs are unique non-negative integers.")]
+    classes: Vec<NewClassRow>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct NewClassRow {
+    #[schemars(description = "Class ID, e.g. \"0\" for a Detection class. Mask foreground IDs are positive.")]
+    id: Value,
+    #[schemars(description = "Single-line human-friendly class name")]
+    name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -621,7 +641,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Images of the open folder in list order: name, box count when known, whether it has labels, and review findings.",
+        description = "Images of the open folder in list order: name, box count when known, whether it has labels, and review findings. Pass storage: true for actual output paths and disk state; images selects filenames and enables detailed counts.",
         annotations(read_only_hint = true)
     )]
     async fn list_images(
@@ -651,6 +671,20 @@ impl EasyLabeling {
     #[tool(description = "Class ids, names and colours of the loaded class file.", annotations(read_only_hint = true))]
     async fn get_classes(&self, meta: RequestMetaObject, peer: Peer<RoleServer>, ct: CancellationToken) -> CallToolResult {
         forward("get_classes", json!({}), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Create and select a new class YAML file when the existing classes do not fit. Existing files are protected. Returns the path and the classes as get_classes sees them.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn create_class_file(
+        &self,
+        Parameters(args): Parameters<CreateClassFileArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("create_class_file", to_value(&args), (meta, peer, ct)).await
     }
 
     #[tool(
@@ -919,7 +953,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Save the current image's labels (label file in Detection, mask files in Segmentation), as the Save button does.",
+        description = "Save the current image's labels (label file in Detection, mask files in Segmentation), as the Save button does. Returns the target, written paths and box or mask counts. Shared outputs are protected.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn save(&self, meta: RequestMetaObject, peer: Peer<RoleServer>, ct: CancellationToken) -> CallToolResult {
@@ -1248,14 +1282,18 @@ async fn forward(tool: &str, args: Value, context: Context) -> CallToolResult {
             }
             CallToolResult::success(content)
         }
-        Err((code, message)) => CallToolResult::error(vec![ContentBlock::text(format!("{code}: {message}"))]),
+        Err((code, message, details)) => {
+            let mut result = CallToolResult::error(vec![ContentBlock::text(format!("{code}: {message}"))]);
+            result.structured_content = details;
+            result
+        }
     }
 }
 
-type Failure = (String, String);
+type Failure = (String, String, Option<Value>);
 
 fn failure(code: &str, message: impl Into<String>) -> Failure {
-    (code.to_string(), message.into())
+    (code.to_string(), message.into(), None)
 }
 
 fn io_failure(error: std::io::Error) -> Failure {
@@ -1341,7 +1379,8 @@ async fn exchange(tool: &str, args: Value, (meta, peer, ct): Context) -> Result<
                 if let Some(warning) = version_warning(&app_version) {
                     message = format!("{message} ({warning})");
                 }
-                return Err(failure(error["code"].as_str().unwrap_or("failed"), message));
+                let (code, message, _) = failure(error["code"].as_str().unwrap_or("failed"), message);
+                return Err((code, message, error.get("details").cloned()));
             }
             _ => {}
         }
@@ -1457,6 +1496,7 @@ mod tests {
                 "clean_masks",
                 "compare_labels",
                 "compare_masks",
+                "create_class_file",
                 "delete_boxes",
                 "edit_regions",
                 "find_similar",

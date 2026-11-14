@@ -28,7 +28,7 @@ Easy Labeling 데스크톱 앱(Windows 설치형)은 Claude Code, Claude Desktop
 | 그 밖의 MCP 클라이언트 | 클라이언트의 MCP 서버 설정 | 이름 `easy-labeling`, stdio, 명령 = 서버 경로 |
 
 - **시간 제한**: 폴더 전체 Refine이나 전체 이미지 추론은 몇 분 걸릴 수 있습니다. Codex(기본 60초)와 Gemini CLI는 설정 예시의 시간 제한 값을 그대로 쓰세요. 서버는 긴 작업 중 15초마다 진행 알림을 보내서, 진행 알림으로 시간 제한을 늘리는 클라이언트에서는 끊기지 않습니다.
-- **로컬 모델**: MCP는 클라이언트 기능이라 모델 회사와 상관없이 씁니다. 도구 호출(tool calling)을 지원하는 모델을 MCP를 지원하는 클라이언트(LM Studio 등)에서 고르면 됩니다. 작은 모델은 도구 44개 중 필요한 것을 고르는 데 서툴 수 있으니, 처음에는 "app_state를 불러서 알려줘"처럼 도구 이름을 짚어 시켜 보세요.
+- **로컬 모델**: MCP는 클라이언트 기능이라 모델 회사와 상관없이 씁니다. 도구 호출(tool calling)을 지원하는 모델을 MCP를 지원하는 클라이언트(LM Studio 등)에서 고르면 됩니다. 작은 모델은 도구 45개 중 필요한 것을 고르는 데 서툴 수 있으니, 처음에는 "app_state를 불러서 알려줘"처럼 도구 이름을 짚어 시켜 보세요.
 - **호환성**: 도구 입력 형식은 Gemini 계열이나 OpenAI 호환 클라이언트도 받아들이는 단순한 JSON Schema로만 내보냅니다. 오래된 MCP 버전(`2024-11-05`)을 쓰는 클라이언트도 연결됩니다.
 
 직접 입력하는 예:
@@ -75,11 +75,11 @@ Copy-Item -Recurse -Force "<저장소>\docs\agent-skills\easy-labeling-mcp" "$en
 
 앱을 업데이트해 도구가 바뀌면 스킬도 같은 버전의 폴더로 다시 복사합니다.
 
-## 2. 에이전트가 할 수 있는 일 (도구 44개)
+## 2. 에이전트가 할 수 있는 일 (도구 45개)
 
 | 분류 | 도구 | 하는 일 |
 |---|---|---|
-| 상태·탐색 | `app_state`, `open_folder`, `list_images`, `go_to_image`, `get_classes` | 앱 상태 확인, 폴더 열기(**사람 승인**), 이미지 목록과 이동, 클래스 목록 |
+| 상태·탐색 | `app_state`, `open_folder`, `list_images`, `go_to_image`, `get_classes`, `create_class_file` | 앱 상태 확인, 폴더 열기(**사람 승인**), 이미지 목록과 이동, 클래스 목록, 새 클래스 파일 생성과 선택 |
 | 박스 읽기 | `get_boxes`, `read_labels`, `capture_view`, `analyze_boxes`, `compare_labels` | 현재 이미지의 박스(저장 전 편집 포함, 픽셀 좌표, 한 번에 200개씩 나눠 받고 클래스별 개수는 항상 포함), 다른 이미지의 라벨 파일(정규화 좌표), 화면 캡처(PNG) 또는 박스 하나·영역을 확대한 캡처, 박스 여러 개(최대 36개)를 번호 붙은 칸으로 모은 한 장(사람 화면은 그대로. 같은 인자로 다시 캡처했는데 화면이 그대로면 이미지 대신 `unchanged`를 돌려주고, `force`로 다시 받을 수 있음), 집단 검사(클래스마다 크기가 비슷한 박스끼리 묶어 크기 이상치, 행·열에서 벗어난 박스, 너무 촘촘한 박스, 간격이 건너뛴 빈자리 = 놓친 물체와 그 추정 위치·크기. 클래스와 상관없이 크기가 비슷하면서 겹치는 박스 = 중복 의심. 현재 이미지 또는 `sample`·`images`로 저장된 라벨 파일), 기준 라벨(정답) 비교(이미지 폴더 안의 다른 라벨 폴더와 IoU로 짝지어 정밀도·재현율·F1, 경계 오차 px, 변별 치우침, 클래스 혼동, 놓친·남는 박스. 현재 이미지는 저장 전 편집 포함) |
 | 박스 편집 | `add_boxes`, `update_boxes`, `delete_boxes`, `select_boxes`, `undo`, `redo`, `save` | 추가·이동·크기·클래스 변경·삭제·선택, 되돌리기, 저장(`undo`·`redo`·`save`는 Segmentation에서도 마스크에 동작) |
 | 세그멘테이션 | `set_workflow`, `get_regions`, `compare_masks`, `paint_mask`, `edit_regions`, `segment_ai`, `boxes_to_masks`, `analyze_masks`, `clean_masks` | Detection·Segmentation 전환(툴바 탭과 같음), 현재 이미지 마스크를 숫자로 읽기(클래스별 픽셀 수, 연결 영역의 면적·경계 상자·중심·영역 안의 한 점. 저장 전 편집 포함), 정답 마스크와 비교(이미지 폴더 안의 다른 마스크 폴더: 클래스별 IoU·Dice, 경계 F1(허용 2 px), 경계가 평균 몇 px 바깥/안쪽인지, 놓친·남는·클래스 오류 영역), 모양으로 칠하기·지우기(사각형·원·다각형·굵은 선 여러 개를 한 번에, 배경에만 칠하기 선택), 영역 통째로 지우기·클래스 바꾸기(영역 안의 점으로, 또는 클래스와 면적 범위로: 예를 들어 30 px 이하 잡티 한 번에). 편집은 호출마다 실행 취소 한 단계. AI Select(EdgeSAM)를 점·박스 프롬프트 여러 개로 한 번에(박스 안으로 자르기, 가장 큰 조각만, 경계를 이미지 밝기 경계로 몇 px 다듬기 `snapPx`; 결과마다 모델 점수·픽셀 수·경계가 실제 엣지 위에 있는 정도 `edgeFit`. 기본은 미리보기, 고른 결과만 적용), Detection 박스를 마스크로(박스마다 AI Select를 박스 안으로 제한해 실행, 박스 클래스 그대로 또는 지정 클래스, 박스를 얼마나 채웠는지 `fill`, 점수 낮은 박스 목록), 마스크 검사(잡티, 한 영역 안의 구멍, 가는 다리로 붙은 두 영역, 경계가 이미지 엣지에서 벗어난 영역, 영역 경계 상자로 본 크기 이상치·줄 이탈·빠진 자리), 정리(잡티 제거, 구멍 채우기, 가는 다리 끊기, AI 없이 경계를 밝기 경계로 다듬기; 기본은 미리보기). 검사·정리는 `scope: "folder"`·`sample`·`images`로 저장된 마스크 파일에도(정리는 **사람 승인**, 바뀌는 마스크 PNG를 `mask/.easy-labeling/clean-masks-…`에 백업) |
@@ -101,6 +101,70 @@ Copy-Item -Recurse -Force "<저장소>\docs\agent-skills\easy-labeling-mcp" "$en
 > 라벨 없는 이미지가 몇 장인지, 앞에서 10개만 이름 알려줘.
 
 > 지금 이미지에 클래스별로 박스가 몇 개인지만 알려줘. 목록은 필요 없어.
+
+#### 새 클래스 파일 만들기
+
+`get_classes`에서 확인한 클래스가 작업에 맞지 않으면 이름과 클래스 정의를 주어 `create_class_file`을 호출합니다.
+
+```json
+{"name":"specimen","classes":[{"id":"0","name":"Cell"},{"id":"1","name":"Boundary"}]}
+```
+
+앱에서 지정한 클래스 저장 폴더에 새 YAML 파일을 만들고 선택합니다. `.yaml` 또는 `.yml`을 생략하면 `.yaml`이 붙습니다. 같은 이름이 있으면 대소문자에 관계없이 `invalid_args`가 반환되며 기존 파일은 보존됩니다. 성공 응답의 `path`는 저장 위치이고 `classFile`과 `classes`는 `get_classes`로 재확인할 수 있습니다. Detection은 클래스 ID 0부터 쓸 수 있고 Segmentation의 전경 마스크에는 양수 ID를 사용합니다.
+
+#### 이미지별 저장 경로와 디스크 상태
+
+`list_images {"storage":true,"offset":0,"limit":20}`은 반환 페이지의 이미지마다 Detection, Segmentation 순으로 `storage` 항목 두 개를 제공합니다. 항목에는 확장자를 포함한 `image`, `workflow`, 활성 저장 폴더 `labelFolder`, 실제 출력 `paths`, 충돌하는 이미지 전체 `conflictingImages`가 있습니다. 충돌 목록에는 다른 페이지나 필터 밖의 이미지도 포함됩니다. Detection 폴더가 연결되지 않았으면 `labelFolder`는 `null`이고 `paths`와 `files`는 비어 있습니다. Segmentation 경로에는 편집용 PNG와 선택한 추가 내보내기 파일이 포함됩니다.
+
+`list_images {"storage":true,"images":["chip_12.tif"]}`처럼 정확한 파일명을 배열로 주면 해당 이미지의 결과를 조회합니다. 이때 Detection의 `boxCount`와 Segmentation PNG의 `pixelsByClass`, `regionsByClass`도 읽습니다. `files[].status`로 파일별 디스크 상태를 확인합니다.
+
+- `missing`은 파일이 없습니다.
+- `empty`는 읽을 수 있는 빈 라벨, 전부 배경인 마스크, 또는 주석 없는 내보내기 파일입니다.
+- `present`는 내용이 있는 파일입니다.
+- `read_error`는 읽거나 해석할 수 없는 파일입니다. `error`에 원인이 표시됩니다.
+
+`canvas`, `unsavedChanges`, `documentPhase`는 캔버스 쪽 상태입니다. `scope.total`은 파일명으로 제한한 범위, `total`은 기존 `filter`까지 적용한 전체 건수, `returned`는 해당 페이지의 반환 건수, `imageCount`는 열린 폴더 전체 건수입니다. 기존 `labeled`·`unlabeled`·`issues` 필터는 이미지 목록의 Detection 상태를 기준으로 합니다. 저장 상태만 확인하려면 `filter`를 생략하고 페이지의 `files[].status`를 확인하세요. 검수 상태는 별도로 조회·설정합니다.
+
+#### 저장 응답 확인
+
+`save {}`의 성공 응답은 디스크 쓰기를 마친 뒤 반환됩니다. 기존 `saved` 필드에 이미지 이름이 담기며, `image`, `workflow`, `success`, `paths`, `writtenPaths`, `action`도 확인할 수 있습니다. 아래는 Detection 예시입니다.
+
+```json
+{
+  "saved": "chip_12.tif",
+  "image": "chip_12.tif",
+  "workflow": "detection",
+  "labelFolder": "D:/data/label",
+  "paths": ["D:/data/label/chip_12.txt"],
+  "conflictingImages": [],
+  "writtenPaths": ["D:/data/label/chip_12.txt"],
+  "success": true,
+  "action": "written",
+  "boxCount": 3,
+  "unsavedChanges": false
+}
+```
+
+Segmentation은 `boxCount` 대신 편집용 PNG의 `pixelsByClass`와 4방향 연결 기준 `regionsByClass`를 제공합니다. 빈 라벨과 전체 배경 마스크는 파일로 기록되며 `action`은 `written_empty`입니다. 같은 이미지로 `list_images`를 다시 호출해 경로와 수치를 대조할 수 있습니다.
+
+예를 들어 `chip_12.jpg`와 `chip_12.tif`가 같은 파일을 쓰는 경우 `save`는 MCP 오류를 반환합니다. 오류 텍스트에서 경로와 이미지 목록을 볼 수 있고, JSON `structuredContent`에도 상세 정보가 담깁니다.
+
+```json
+{
+  "saved": null,
+  "image": "chip_12.tif",
+  "workflow": "detection",
+  "labelFolder": "D:/data/label",
+  "success": false,
+  "action": "not_written",
+  "paths": ["D:/data/label/chip_12.txt"],
+  "writtenPaths": [],
+  "conflictingImages": ["chip_12.jpg", "chip_12.tif"],
+  "error": "chip_12.tif (detection, chip_12.txt): Output collision at chip_12.txt: chip_12.jpg, chip_12.tif share this file."
+}
+```
+
+Segmentation의 여러 출력 중 일부를 완료한 뒤 후속 쓰기에 실패하면 `action`은 `partially_written`이고 `writtenPaths`는 완료된 경로를 나타냅니다. 실패 응답 뒤에는 `list_images`로 디스크 상태를 다시 확인할 수 있습니다. `refine_folder`·`reclass_folder`·`remap_classes`·`clean_masks`·`run_inference`는 공유 출력이 있는 이미지를 `skipped`로 보고합니다. 정상적으로 완료한 쓰기는 `saves`에 이미지, 경로, 결과 수치를 담습니다. `run_inference`의 경로는 결과를 쓰는 모델별 폴더를 가리킵니다. `clean_masks`의 `saves`는 같은 응답의 `images` 페이지 범위를 따릅니다. 폴더 쓰기에 앞서 현재 열린 이미지의 편집을 저장해야 하는 경우에도 충돌 검사가 적용됩니다.
 
 ### 3.2 박스 하나로 새 이미지 라벨링
 

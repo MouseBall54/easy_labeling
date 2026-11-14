@@ -74,11 +74,11 @@ export function markDocumentSaved(
   state: AppState,
   imageName: string,
   workflow: WorkflowType,
-  options: { wasAutoSaved: boolean; savedAt?: string }
+  options: { wasAutoSaved: boolean; savedAt?: string; revision?: number }
 ): WorkflowDocumentStatus {
   const status = ensureDocumentStatus(state, imageName, workflow);
-  status.savedRevision = status.revision;
-  status.phase = "saved";
+  status.savedRevision = options.revision ?? status.revision;
+  status.phase = status.savedRevision === status.revision ? "saved" : "dirty";
   status.lastSavedAt = options.savedAt ?? new Date().toISOString();
   status.errorMessage = null;
   status.wasAutoSaved = options.wasAutoSaved;
@@ -105,6 +105,7 @@ export function markImageDocumentsClean(state: AppState, imageName: string): Ima
 
 export function hasDirtyDocuments(state: AppState): boolean {
   return [...(state.session.documentStatusByImage?.values() ?? [])].some((imageStatus) => {
-    return imageStatus.detection.phase === "dirty" || imageStatus.segmentation.phase === "dirty";
+    return imageStatus.detection.revision !== imageStatus.detection.savedRevision
+      || imageStatus.segmentation.revision !== imageStatus.segmentation.savedRevision;
   });
 }

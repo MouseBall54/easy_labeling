@@ -230,14 +230,14 @@ export function createAgentRefineTools(deps: AgentRefineToolDeps): Record<string
         const dryRun = optionalArg(args, "dryRun", "boolean") ?? true;
         const plan = await deps.fileSystem.previewClassRemap(folder as unknown as FileSystemDirectoryHandle, rule, context.signal);
         if (!plan || context.signal.aborted) throw new AgentToolError("cancelled", "Cancelled.");
-        const summary = { changedBoxes: plan.changedCount, changes: plan.changes, imagesChanged: plan.edits.length, imagesChecked: plan.fileNames.length };
+        const summary = { changedBoxes: plan.changedCount, changes: plan.changes, imagesChanged: plan.edits.length, imagesChecked: plan.fileNames.length, skipped: plan.skipped };
         if (dryRun || !plan.changedCount) return { ...summary, applied: false };
         const allowed = await deps.confirm(`Change ${plan.changedCount.toLocaleString()} box class IDs in ${plan.edits.length} images of "${plan.folder.name}"?\n\nOriginal TXT files will be backed up. Current edits will be saved.`);
         if (!allowed) throw new AgentToolError("declined", "The person declined the class remap.");
         const backup = await deps.fileSystem.applyClassRemap(plan, context.signal);
         if (!backup) throw new AgentToolError("cancelled", "Stopped; no files changed.");
         deps.afterEdit();
-        return { ...summary, applied: true, backupFolder: `${plan.folder.name}/${backup}` };
+        return { ...summary, applied: true, backupFolder: `${plan.folder.name}/${backup}`, saves: deps.fileSystem.detectionBatchSaves(plan.folder, plan.edits) };
       }
     }
   };

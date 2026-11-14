@@ -104,7 +104,7 @@ export function createRefineController(input: {
   uiManager: RuntimeUiManager;
   documentRef: Document;
   /** Folder runs (every image's label file); without it the folder buttons report that they are unavailable. */
-  fileSystem?: Pick<RuntimeFileSystem, "rewriteDetectionLabels" | "decodeImageForAutomation" | "commitLabelFilePlan">;
+  fileSystem?: Pick<RuntimeFileSystem, "rewriteDetectionLabels" | "decodeImageForAutomation" | "commitLabelFilePlan" | "detectionBatchSaves">;
 }): RefineController {
   const doc = input.documentRef;
   const windowRef = doc.defaultView!;
@@ -837,7 +837,7 @@ export function createRefineController(input: {
       + `${mode === "edge" ? "refine" : "reclass"} ${s(timings.runMs)}, backup ${s(timings.backupMs)}, write ${s(timings.writeMs)}, reload ${s(timings.reloadMs)}`);
     return {
       ok: true, message: status.textContent ?? "", boxesChanged, imagesChanged: outcome.changed, images: outcome.total,
-      backupPath: outcome.backupPath, skipped: outcome.failures
+      backupPath: outcome.backupPath, skipped: outcome.failures, saves: outcome.saves ?? []
     };
   };
 
@@ -892,7 +892,7 @@ export function createRefineController(input: {
     renderReviewCounter();
     raw.canvas.requestRenderAll?.();
     setStatus(`${entry.boxesChanged} boxes ${entry.mode === "edge" ? "refined" : "reclassed"} in ${plan.edits.length} images as previewed · originals in ${backupPath}`);
-    return { ok: true, message: status.textContent ?? "", boxesChanged: entry.boxesChanged, imagesChanged: plan.edits.length, backupPath };
+    return { ok: true, message: status.textContent ?? "", boxesChanged: entry.boxesChanged, imagesChanged: plan.edits.length, backupPath, saves: files.detectionBatchSaves(plan.folder, plan.edits) };
   };
 
   // ---------------------------------------------------------------- canvas preview (selected boxes, not applied)
