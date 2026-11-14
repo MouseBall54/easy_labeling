@@ -368,7 +368,9 @@ struct CaptureViewArgs {
     region: Option<PixelRegion>,
     #[schemars(description = "Or: several boxes (up to 36) in one sheet, a numbered zoomed cell per box in this order; use this rather than one call per box")]
     annotation_ids: Option<Vec<String>>,
-    #[schemars(description = "Resend the PNG if it matches a prior app capture (default false). Use once if the image is needed and the earlier PNG is unavailable.")]
+    #[schemars(
+        description = "Resend the PNG if it matches a prior app capture (default false). Use once if the image is needed and the earlier PNG is unavailable."
+    )]
     force: Option<bool>,
 }
 
