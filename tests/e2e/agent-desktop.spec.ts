@@ -18,6 +18,7 @@ test.skip(!existsSync(exe) || !existsSync(mcpExe), `Desktop or MCP executable no
 
 interface ToolResult {
   isError?: boolean;
+  structuredContent?: unknown;
   content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
 }
 
@@ -126,12 +127,161 @@ async function openAgentApp(options: { dataset?: (folder: string) => Promise<voi
   };
 }
 
+test("MCP reports disk state and protects shared outputs in both workflows", async () => {
+  test.setTimeout(180_000);
+  const row = "0 0.5 0.5 0.3 0.3";
+  const { page, mcp, dataset, close } = await openAgentApp({
+    dataset: async (folder) => {
+      const png = grayPng(48, 48, 3);
+      const masks = path.join(folder, "mask");
+      await mkdir(masks);
+      await writeFile(path.join(folder, "shared.png"), png);
+      await copyFile(path.join(root, "assets/sample/sample_1.jpg"), path.join(folder, "shared.jpg"));
+      for (const stem of ["00-empty", "01-unique", "02-error", "03-missing"]) {
+        await writeFile(path.join(folder, `${stem}.png`), png);
+      }
+      await writeFile(path.join(folder, "label", "00-empty.txt"), " \n");
+      await writeFile(path.join(folder, "label", "shared.txt"), row);
+    }
+  });
+  try {
+    const call = async (name: string, args?: Record<string, unknown>) => json(await mcp.call(name, args));
+    const storage = async (names: string[]) => {
+      const result = await call("list_images", { storage: true, images: names });
+      return Object.fromEntries(result.images.map((image: { name: string; storage: unknown }) => [image.name, image.storage]));
+    };
+    const label = (stem: string) => path.join(dataset, "label", `${stem}.txt`);
+    const mask = (stem: string) => path.join(dataset, "mask", `${stem}.png`);
+    const shared = ["shared.jpg", "shared.png"];
+    await call("open_folder", { path: dataset });
+    await expect.poll(async () => (await call("list_images", { filter: "labeled" })).total).toBe(2);
+    const listedPage = await call("list_images", { storage: true, images: shared, filter: "labeled", offset: 1, limit: 1 });
+    expect(listedPage).toMatchObject({ total: 2, offset: 1, returned: 1, imageCount: 6, scope: { total: 2 }, images: [
+      { name: "shared.png", storage: [{ conflictingImages: shared }, { conflictingImages: shared }] }
+    ] });
+
+    // Create invalid outputs after opening so the first canvas and review reads are independent of the test.
+    await mkdir(label("02-error"));
+    await writeFile(mask("02-error"), Buffer.from("invalid PNG"));
+    const names = ["00-empty.png", "01-unique.png", "02-error.png", "03-missing.png", ...shared];
+    const initial = await storage(names);
+    expect(initial["00-empty.png"][0].files[0]).toMatchObject({ status: "empty", boxCount: 0 });
+    expect(initial["01-unique.png"][0].files[0]).toMatchObject({ status: "missing" });
+    expect(initial["02-error.png"].map((entry: { files: { status: string }[] }) => entry.files[0].status)).toEqual(["read_error", "read_error"]);
+    expect(initial["shared.jpg"][0]).toMatchObject({ labelFolder: path.dirname(label("shared")), paths: [label("shared")], conflictingImages: shared,
+      files: [{ status: "present", boxCount: 1 }] });
+    expect(initial["shared.jpg"][1]).toMatchObject({ paths: [mask("shared")], conflictingImages: shared });
+    await call("go_to_image", { image: "01-unique.png" });
+    await call("add_boxes", { boxes: [{ classId: 0, x0: 2, y0: 2, x1: 14, y1: 16 }] });
+    expect((await storage(["01-unique.png"]))["01-unique.png"][0]).toMatchObject({ unsavedChanges: true, files: [{ status: "missing" }] });
+    const saved = await call("save");
+    expect(saved).toMatchObject({ saved: "01-unique.png", image: "01-unique.png", workflow: "detection", success: true, boxCount: 1,
+      action: "written", writtenPaths: [label("01-unique")], unsavedChanges: false });
+    expect((await storage(["01-unique.png"]))["01-unique.png"][0]).toMatchObject({ unsavedChanges: false,
+      files: [{ path: saved.writtenPaths[0], status: "present", boxCount: saved.boxCount }] });
+    await call("go_to_image", { image: "shared.png" });
+    await page.locator("#autoSaveToggle").check();
+    await call("go_to_image", { image: "shared.jpg" });
+    expect(await readFile(label("shared"), "utf8")).toBe(row);
+    await page.locator("#autoSaveToggle").uncheck();
+    await call("go_to_image", { image: "shared.png" });
+    const refused = await mcp.call("save");
+    expect(refused.isError).toBe(true);
+    expect(refused.structuredContent).toMatchObject({ image: "shared.png", workflow: "detection", success: false, paths: [label("shared")], conflictingImages: shared, action: "not_written", writtenPaths: [] });
+    expect(await readFile(label("shared"), "utf8")).toBe(row);
+
+    // Seed a mask the app already uses, then confirm both shared names are blocked even with one selected.
+    await call("go_to_image", { image: "01-unique.png" });
+    await call("set_workflow", { workflow: "segmentation" });
+    const shapes = [{ type: "rect", x0: 2, y0: 2, x1: 5, y1: 4 }, { type: "rect", x0: 9, y0: 9, x1: 10, y1: 10 }];
+    await call("paint_mask", { classId: 1, shapes });
+    const setExport = async (format: string) => {
+      await page.locator("#openSegmentationFormatBtn").click({ timeout: 5000 });
+      await expect(page.locator("#segmentationFormatModal")).toBeVisible();
+      await page.locator("#segmentationAnnotationTypeSelect").selectOption(format === "png-semantic-mask" ? "semantic" : "instance");
+      // The dialog updates enabled formats on Apply, so choose the new type and export together.
+      await page.locator("#segmentationExportFormatSelect").evaluate((select: HTMLSelectElement, value) => { select.value = value; }, format);
+      await page.locator("#applySegmentationFormatBtn").click({ timeout: 5000 });
+      await expect(page.locator("#segmentationFormatModal")).toBeHidden();
+    };
+    await setExport("coco-segmentation");
+    const coco = path.join(dataset, "segmentation", "coco", "01-unique.json");
+    expect((await storage(["01-unique.png"]))["01-unique.png"][1].paths).toEqual([mask("01-unique"), coco]);
+    await mkdir(coco, { recursive: true });
+    const partial = await mcp.call("save");
+    expect(partial.isError).toBe(true);
+    expect(partial.structuredContent).toMatchObject({ image: "01-unique.png", success: false, action: "partially_written",
+      paths: [mask("01-unique"), coco], writtenPaths: [mask("01-unique")] });
+    expect((await storage(["01-unique.png"]))["01-unique.png"][1]).toMatchObject({ unsavedChanges: true,
+      files: [{ status: "present", pixelsByClass: { "1": 7 } }, { status: "read_error" }] });
+    await rm(coco, { recursive: true });
+    const maskSaved = await call("save");
+    expect(maskSaved).toMatchObject({ image: "01-unique.png", workflow: "segmentation", success: true, writtenPaths: [mask("01-unique"), coco],
+      pixelsByClass: { "1": 7 }, regionsByClass: { "1": 2 } });
+    expect((await storage(["01-unique.png"]))["01-unique.png"][1].files[0]).toMatchObject({
+      path: maskSaved.writtenPaths[0], status: "present", pixelsByClass: maskSaved.pixelsByClass, regionsByClass: maskSaved.regionsByClass
+    });
+    expect((await storage(["01-unique.png"]))["01-unique.png"][1].files[1]).toMatchObject({ path: coco, status: "present" });
+    await setExport("png-semantic-mask");
+    await copyFile(mask("01-unique"), mask("shared"));
+    const originalMask = await readFile(mask("shared"));
+    await call("go_to_image", { image: "shared.png" });
+    const maskRefused = await mcp.call("save");
+    expect(maskRefused.isError).toBe(true);
+    expect(maskRefused.structuredContent).toMatchObject({ image: "shared.png", workflow: "segmentation", success: false, paths: [mask("shared")], conflictingImages: shared });
+    const cleanup = await call("clean_masks", { images: ["shared.png", "01-unique.png"], removeSpecks: 10, apply: true });
+    expect(cleanup).toMatchObject({ applied: true, skipped: [{ image: "shared.png", conflictingImages: shared }],
+      saves: [{ image: "01-unique.png", success: true, action: "written_empty", paths: [mask("01-unique")], pixelsByClass: {}, regionsByClass: {} }] });
+    expect(await readFile(mask("shared"))).toEqual(originalMask);
+    expect((await storage(["01-unique.png"]))["01-unique.png"][1].files[0]).toMatchObject({ status: "empty", pixelsByClass: {}, regionsByClass: {} });
+
+    await call("set_workflow", { workflow: "detection" });
+    // Remove the deliberately unreadable target before the folder remap, which requires readable inputs.
+    await rm(label("02-error"), { force: true, recursive: true });
+    const remap = await call("remap_classes", { offset: 1, dryRun: false });
+    expect(remap).toMatchObject({ applied: true, skipped: [{ image: "shared.jpg" }, { image: "shared.png" }],
+      saves: [{ image: "01-unique.png", success: true, boxCount: 1, paths: [label("01-unique")] }] });
+    expect(await readFile(label("shared"), "utf8")).toBe(row);
+    expect(await readFile(label("01-unique"), "utf8")).toMatch(/^1 /);
+    await call("go_to_image", { image: "03-missing.png" });
+    expect(await call("save")).toMatchObject({ image: "03-missing.png", action: "written_empty", success: true, boxCount: 0 });
+    expect((await storage(["03-missing.png"]))["03-missing.png"][0].files[0]).toMatchObject({ status: "empty", boxCount: 0 });
+  } finally {
+    await close();
+  }
+});
+
+test("MCP creates and selects a class file without overwriting existing files", async () => {
+  const { mcp, dataset, close } = await openAgentApp();
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    const classes = [{ id: "0", name: "Cell" }, { id: 2, name: "Boundary" }];
+    const file = path.join(path.dirname(dataset), "profiles", "Class Info", "specimen.yaml");
+    const create = (name: string, definitions = classes) => mcp.call("create_class_file", { name, classes: definitions });
+    expect(textOf(await create("../specimen"))).toMatch(/^invalid_args:/);
+    expect(textOf(await create("specimen", [{ id: "0", name: "A" }, { id: 0, name: "B" }]))).toMatch(/^invalid_args:/);
+    expect(textOf(await create("specimen", [{ id: "0", name: "A\n2: B" }]))).toMatch(/^invalid_args:/);
+    expect(existsSync(file)).toBe(false);
+
+    const result = json(await create("specimen"));
+    expect(result).toMatchObject({ created: true, path: file, classFile: "specimen.yaml",
+      classes: [{ id: "0", name: "Cell" }, { id: "2", name: "Boundary" }] });
+    expect(json(await mcp.call("get_classes"))).toEqual({ classFile: result.classFile, classes: result.classes });
+    const original = await readFile(file, "utf8");
+    expect(original).toBe("0: Cell\n2: Boundary");
+    expect(textOf(await create("SPECIMEN.YAML", [{ id: "0", name: "Overwrite" }]))).toMatch(/^invalid_args:.*already exists/);
+    expect(await readFile(file, "utf8")).toBe(original);
+  } finally {
+    await close();
+  }
+});
+
 test("an MCP agent reads, navigates and captures the open app", async () => {
   test.setTimeout(180_000);
   const { page, mcp, dataset, errors, close } = await openAgentApp();
   try {
     expect(await mcp.tools()).toEqual([
-      "add_boxes", "analyze_boxes", "analyze_masks", "app_state", "apply_layout", "approve", "boxes_to_masks", "capture_view", "clean_masks", "compare_labels", "compare_masks", "delete_boxes", "edit_regions", "find_similar", "get_boxes", "get_classes",
+      "add_boxes", "analyze_boxes", "analyze_masks", "app_state", "apply_layout", "approve", "boxes_to_masks", "capture_view", "clean_masks", "compare_labels", "compare_masks", "create_class_file", "delete_boxes", "edit_regions", "find_similar", "get_boxes", "get_classes",
       "get_refine_settings", "get_regions", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "paint_mask", "read_labels",
       "reclass_folder", "redo", "refine_folder", "remap_classes", "review_folder", "review_queue", "run_inference",
       "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "segment_ai", "select_boxes", "set_review_status", "set_workflow", "undo", "update_boxes"
@@ -810,7 +960,8 @@ test("an MCP agent runs template automation presets and YOLO inference", async (
     expect(json(await mcp.call("load_model", { path: path.join(path.dirname(dataset), "local.onnx") })).model).toBe("local.onnx");
     expect(json(await mcp.call("inference_status"))).toMatchObject({ ready: true, model: "local.onnx" });
     const current = json(await mcp.call("run_inference"));
-    expect(current).toEqual({ imageCount: 1, detectionCount: 1, folderName: "inference-local" });
+    expect(current).toMatchObject({ imageCount: 1, detectionCount: 1, folderName: "inference-local", skipped: [],
+      saves: [{ image: "sample_1.jpg", workflow: "detection", success: true, paths: [path.join(dataset, "inference-local", "sample_1.txt")], boxCount: 1 }] });
     expect((await readFile(path.join(dataset, "inference-local/sample_1.txt"), "utf8")).trim().split(/\s+/)).toHaveLength(5);
     expect(json(await mcp.call("run_inference", { allImages: true, confidence: 0.1 }))).toMatchObject({ imageCount: 2, folderName: "inference-local" });
     expect(errors).toEqual([]);

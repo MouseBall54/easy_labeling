@@ -118,7 +118,9 @@ async function deflateDecompress(data: Uint8Array<ArrayBuffer>): Promise<Uint8Ar
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-function encodeSemanticMaskPixels16(snapshot: SegmentationDocumentSnapshot): Uint8Array<ArrayBuffer> {
+type MaskPixels = Pick<SegmentationDocumentSnapshot, "mask" | "width" | "height">;
+
+function encodeSemanticMaskPixels16(snapshot: MaskPixels): Uint8Array<ArrayBuffer> {
   const rowStride = (snapshot.width * 2) + 1;
   const bytes = new Uint8Array(rowStride * snapshot.height);
   let offset = 0;
@@ -230,7 +232,7 @@ function normalizeMetadata(input: string | null | undefined): SegmentationAnnota
   }
 }
 
-export async function encodeSegmentationMaskPng(snapshot: SegmentationDocumentSnapshot): Promise<Uint8Array> {
+export async function encodeSegmentationMaskPng(snapshot: MaskPixels): Promise<Uint8Array> {
   const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   const ihdr = new Uint8Array(13);
   ihdr.set(writeUint32(snapshot.width), 0);

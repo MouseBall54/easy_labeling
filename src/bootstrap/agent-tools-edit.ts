@@ -6,6 +6,8 @@ import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
 import { AgentToolError, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
+import { outputInfo, outputPath } from "../features/images/annotation-storage.js";
+import { AnnotationSaveError } from "../features/images/image-session-service.js";
 import { getRectBounds } from "../features/canvas/arrange.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
@@ -15,6 +17,7 @@ export interface AgentEditToolDeps {
   state: AppState;
   canvasController: RuntimeCanvasController;
   fileSystem: RuntimeFileSystem;
+  pathOf?(handle: unknown): string | null;
   /** Refreshes the label list, toolbar and inspector (EventManager.syncAfterEdit). */
   afterEdit(): void;
 }
@@ -182,13 +185,33 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
     }
   });
 
+  const pathOf = deps.pathOf ?? (() => null);
   const save: AgentTool = {
     changesApp: true,
     async run() {
       requireImage();
-      await deps.fileSystem.saveLabels();
-      deps.afterEdit();
-      return { saved: state.session.currentImageFile?.name ?? null, unsavedChanges: hasDirtyDocuments(state) };
+      try {
+        const result = await deps.fileSystem.saveLabelsWithResult();
+        if (!result?.saved || !result.output) throw new AgentToolError("no_image", "No image was available when the save started.");
+        const info = outputInfo(result.output, pathOf);
+        deps.afterEdit();
+        return {
+          ...info, saved: info.image, success: true, writtenPaths: info.paths,
+          action: result.hasLabels ? "written" : "written_empty",
+          ...(result.boxCount !== undefined ? { boxCount: result.boxCount } : {}),
+          ...(result.mask ?? {}),
+          unsavedChanges: hasDirtyDocuments(state)
+        };
+      } catch (error) {
+        if (!(error instanceof AnnotationSaveError)) throw error;
+        const { output, writtenPaths } = error;
+        throw new AgentToolError("failed", error.message, {
+          ...outputInfo(output, pathOf), saved: null, success: false,
+          action: writtenPaths.length ? "partially_written" : "not_written",
+          writtenPaths: writtenPaths.map((path) => outputPath(output.folder!, path, pathOf)),
+          error: error.message
+        });
+      }
     }
   };
 

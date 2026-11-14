@@ -58,6 +58,19 @@ describe("app/document-status", () => {
     });
   });
 
+  it("keeps edits made during a save pending", () => {
+    const state = createInitialAppState();
+    state.session.currentImageFile = fileHandle("one.jpg");
+    markCurrentDocumentDirty(state);
+    const { revision } = markDocumentSaving(state, "one.jpg", "detection", false);
+    markCurrentDocumentDirty(state);
+
+    expect(markDocumentSaved(state, "one.jpg", "detection", { wasAutoSaved: false, revision })).toMatchObject({
+      phase: "dirty", revision: 2, savedRevision: 1
+    });
+    expect(hasDirtyDocuments(state)).toBe(true);
+  });
+
   it("resets both workflow statuses when a new image session is loaded", () => {
     const state = createInitialAppState();
     ensureDocumentStatus(state, "one.jpg", "detection").phase = "dirty";

@@ -5,6 +5,8 @@
 import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import { matchBoxes, summarizeComparison, type ImageMatch } from "../domain/annotations/label-compare.js";
+import { annotationConflicts } from "../domain/annotations/paths.js";
+import { annotationOutput, inspectAnnotationFiles, outputInfo } from "../features/images/annotation-storage.js";
 import { maskRegions } from "../domain/annotations/mask-regions.js";
 import { imageFileNameToBaseName } from "../domain/files/image-names.js";
 import { analyzeBoxes, type StatBox } from "../domain/refine/box-statistics.js";
@@ -13,6 +15,8 @@ import { parseYoloRows } from "../domain/yolo/yolo.js";
 import { AgentImageResult, AgentToolError, LIST_PAGE_MAX, listPage, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
 import { getRectBounds } from "../features/canvas/arrange.js";
 import { getColorForClass } from "../features/canvas/colors.js";
+import { parseNonNegativeClassId } from "../domain/class-id.js";
+import { validateAndSerializeClassRows, validateNewClassFileName } from "../domain/class-files.js";
 import { classFilePath } from "../features/classes/class-file-service.js";
 import { isNotFoundError, readTextFileByName } from "../platform/file-system-access.js";
 import type { DirectoryHandleLike } from "../types/files.js";
@@ -117,13 +121,23 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
 
   const listImages: AgentTool = {
     changesApp: false,
-    async run(args) {
+    async run(args, context) {
       requireFolder();
       const offset = Math.max(0, Math.floor(optionalArg(args, "offset", "number") ?? 0));
       const limit = Math.min(LIST_LIMIT, Math.max(1, Math.floor(optionalArg(args, "limit", "number") ?? 100)));
       const filter = optionalArg(args, "filter", "string") ?? "all";
       if (!["all", "labeled", "unlabeled", "issues"].includes(filter)) throw new AgentToolError("invalid_args", "filter must be all, labeled, unlabeled or issues");
-      const images = session.imageFiles.map((file) => {
+      const includeStorage = optionalArg(args, "storage", "boolean") === true;
+      if (args.images != null && !Array.isArray(args.images)) throw new AgentToolError("invalid_args", "images must be a list of image filenames.");
+      const requested = Array.isArray(args.images) ? new Set(args.images.map(String)) : null;
+      const files = session.imageFiles;
+      if (requested) {
+        const names = new Set(files.map((file) => file.name));
+        const unknown = [...requested].filter((name) => !names.has(name));
+        if (unknown.length) throw new AgentToolError("not_found", `No image named ${unknown.slice(0, 5).join(", ")} in the open folder.`);
+      }
+      const scoped = requested ? files.filter((file) => requested.has(file.name)) : files;
+      const images = scoped.map((file) => {
         const detection = session.imageWorkflowStatus.get(file.name)?.detection;
         const issues = session.reviewFindings.get(file.name)?.issues ?? [];
         return {
@@ -136,7 +150,47 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
         || (filter === "labeled" && image.labeled === true)
         || (filter === "unlabeled" && image.labeled === false)
         || (filter === "issues" && image.reviewIssues.length > 0));
-      return { total: images.length, offset, images: images.slice(offset, offset + limit), currentImage: session.currentImageFile?.name ?? null };
+      const page = images.slice(offset, offset + limit);
+      const result = { total: images.length, offset, images: page, currentImage: session.currentImageFile?.name ?? null };
+      if (!includeStorage) return result;
+      const target = {
+        imageFiles: files,
+        imageFolderHandle: session.imageFolderHandle,
+        labelFolderHandle: session.labelFolderHandle,
+        segmentationLabelFolderHandle: session.segmentationLabelFolderHandle,
+        segmentationExportFormat: session.segmentationExportFormat
+      };
+      const conflicts = {
+        detection: annotationConflicts(files, "detection"),
+        segmentation: annotationConflicts(files, "segmentation")
+      };
+      const rows = page.map((image) => ({
+        ...image,
+        storage: (["detection", "segmentation"] as const).map((workflow) => {
+          const output = annotationOutput(target, image.name, workflow, conflicts[workflow]);
+          const document = session.documentStatusByImage?.get(image.name)?.[workflow];
+          return {
+            output,
+            info: outputInfo(output, deps.pathOf),
+            canvas: result.currentImage === image.name, unsavedChanges: Boolean(document && document.revision !== document.savedRevision),
+            documentPhase: document?.phase ?? null
+          };
+        })
+      }));
+      const stored = [];
+      for (const [done, row] of rows.entries()) {
+        if (context.signal.aborted) throw new AgentToolError("cancelled", "Cancelled.");
+        if (done % 10 === 0) context.progress(done, page.length, row.name);
+        const storage = await Promise.all(row.storage.map(async ({ output, info, ...document }) => ({
+          ...info, ...document, files: await inspectAnnotationFiles(output, deps.pathOf, requested?.has(row.name) === true)
+        })));
+        stored.push({ ...row, storage });
+      }
+      return {
+        ...result, images: stored, imageCount: files.length,
+        scope: { filter, images: requested ? [...requested] : null, total: scoped.length },
+        limit, returned: stored.length, truncated: offset + stored.length < images.length
+      };
     }
   };
 
@@ -162,12 +216,46 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     }
   };
 
+  const classSummary = () => ({
+    classFile: session.selectedClassFile ? classFilePath(session.selectedClassFile) : null,
+    classes: [...session.classNames].map(([id, name]) => ({ id, name, color: getColorForClass(id) }))
+  });
+
   const getClasses: AgentTool = {
     changesApp: false,
-    run: async () => ({
-      classFile: session.selectedClassFile ? classFilePath(session.selectedClassFile) : null,
-      classes: [...session.classNames].map(([id, name]) => ({ id, name, color: getColorForClass(id) }))
-    })
+    run: async () => classSummary()
+  };
+
+  const createClassFile: AgentTool = {
+    changesApp: true,
+    async run(args, context) {
+      let fileName: string;
+      try {
+        fileName = validateNewClassFileName(optionalArg(args, "name", "string") ?? "");
+      } catch (error) {
+        throw new AgentToolError("invalid_args", error instanceof Error ? error.message : String(error));
+      }
+      if (!Array.isArray(args.classes) || args.classes.length < 1 || args.classes.length > 1000) {
+        throw new AgentToolError("invalid_args", "classes must contain 1 to 1000 entries with id and name.");
+      }
+      const rows = args.classes.map((value, index) => {
+        const row = (value ?? {}) as Record<string, unknown>;
+        const name = typeof row.name === "string" ? row.name.trim() : "";
+        if (!name || /[\x00-\x1f\x7f]/.test(name)) throw new AgentToolError("invalid_args", `classes[${index}].name must be a single-line name.`);
+        try {
+          const id = typeof row.id === "number" || typeof row.id === "string" ? String(row.id) : "";
+          return { id: parseNonNegativeClassId(id, `classes[${index}].id`), name };
+        } catch (error) {
+          throw new AgentToolError("invalid_args", error instanceof Error ? error.message : String(error));
+        }
+      });
+      const validation = validateAndSerializeClassRows(rows);
+      if (!validation.isValid) throw new AgentToolError("invalid_args", "Class IDs must be unique whole numbers and names must be non-empty.");
+      if (context.signal.aborted) throw new AgentToolError("cancelled", "Cancelled.");
+      const created = await fileSystem.createClassFile(fileName, validation.newContent);
+      if (!created) throw new AgentToolError("invalid_args", `A class file named ${fileName} already exists.`);
+      return { created: true, path: deps.pathOf(created) ?? classFilePath(created), ...classSummary() };
+    }
   };
 
   const getBoxes: AgentTool = {
@@ -401,6 +489,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     list_images: listImages,
     go_to_image: goToImage,
     get_classes: getClasses,
+    create_class_file: createClassFile,
     get_boxes: getBoxes,
     read_labels: readLabels,
     analyze_boxes: analyzeBoxesTool,

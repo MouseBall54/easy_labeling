@@ -93,7 +93,8 @@ export async function validateAndSaveClassRowsToFileHandle(
 export async function createNewClassFile(
   folderHandle: DirectoryHandleLike,
   inputName: string,
-  pathPrefix = ""
+  pathPrefix = "",
+  content = NEW_CLASS_FILE_SEED_CONTENT
 ): Promise<CreateClassFileResult> {
   const fileName = normalizeNewClassFileName(inputName);
   const existingNames: string[] = [];
@@ -112,7 +113,7 @@ export async function createNewClassFile(
 
   const fileHandle = await folderHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
-  await writable.write(NEW_CLASS_FILE_SEED_CONTENT);
+  await writable.write(content);
   await writable.close();
   if (pathPrefix) classFilePaths.set(fileHandle, pathPrefix + fileName);
 

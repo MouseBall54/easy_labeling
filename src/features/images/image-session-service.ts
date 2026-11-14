@@ -8,11 +8,11 @@ import {
   type AnnotationAssetPathSet,
   type ImageWorkflowStatus
 } from "../../domain/annotations/contracts.js";
-import { resolveAnnotationAssetPaths } from "../../domain/annotations/paths.js";
+import { assertAnnotationOutputUnshared, resolveAnnotationAssetPaths } from "../../domain/annotations/paths.js";
 import { createSegmentationAnnotationCodec } from "../../domain/annotations/segmentation-codec.js";
 import { exportSegmentationAnnotations, importSegmentationAnnotations } from "../../domain/annotations/segmentation-adapters.js";
 import { createEditableSnapshotFromAnnotationModel, createInstanceAnnotationModelFromSnapshot, createSemanticAnnotationModel } from "../../domain/annotations/segmentation-model.js";
-import { resolveSegmentationExportPath } from "../../domain/annotations/paths.js";
+import { annotationOutput, maskOutputCounts, resolveOutputDirectory, type AnnotationOutput } from "./annotation-storage.js";
 import { detectSegmentationFormat, type SegmentationFormatDetectionResult } from "../../domain/annotations/segmentation-format.js";
 import { parseYoloRows } from "../../domain/yolo/yolo.js";
 import { throwIfOperationCancelled } from "../../app/operation.js";
@@ -66,6 +66,7 @@ export interface ImageSessionServiceDeps {
   applyLoadedYolo(yoloData: string): Promise<void> | void;
   applyLoadedSegmentationSnapshot(snapshot: SegmentationDocumentSnapshot | null): Promise<void> | void;
   clearPendingSaveTimeout(timeout: ReturnType<typeof setTimeout> | null): void;
+  hasUnsavedChanges?(): boolean;
   shouldCreateMissingLabelFolder?(): Promise<boolean> | boolean;
 }
 
@@ -79,6 +80,15 @@ export interface SaveLabelsResult {
   primaryFilePath: string | null;
   hasLabels: boolean;
   removedOutOfBoundsCount: number;
+  output?: AnnotationOutput;
+  boxCount?: number;
+  mask?: ReturnType<typeof maskOutputCounts>;
+}
+
+export class AnnotationSaveError extends Error {
+  constructor(readonly output: AnnotationOutput, readonly writtenPaths: string[], message: string, cause?: unknown) {
+    super(message, { cause });
+  }
 }
 
 export interface ImageSessionService {
@@ -88,7 +98,7 @@ export interface ImageSessionService {
   refreshImageWorkflowStatus(signal?: AbortSignal, knownCounts?: ReadonlyMap<string, number>): Promise<void>;
   loadImageAndLabels(imageFileHandle: FileHandleLike): Promise<void>;
   loadLabels(imageName: string, loadToken: number): Promise<void>;
-  saveLabels(isAuto?: boolean): Promise<SaveLabelsResult>;
+  saveLabels(isAuto?: boolean, details?: boolean): Promise<SaveLabelsResult>;
 }
 
 async function resolveLabelFolder(
@@ -145,12 +155,6 @@ async function getNestedDirectoryHandle(
       throw error;
     }
   }
-  return current;
-}
-
-async function getOrCreateNestedDirectoryHandle(directoryHandle: DirectoryHandleLike, pathSegments: string[]): Promise<DirectoryHandleLike> {
-  let current = directoryHandle;
-  for (const segment of pathSegments) current = await getSubdirectoryHandle(current, segment, { create: true });
   return current;
 }
 
@@ -482,112 +486,61 @@ export function createImageSessionService(
       }
     },
 
-    async saveLabels(isAuto = false): Promise<SaveLabelsResult> {
-      void isAuto;
-      if (!state.currentImageFile) {
-        return {
-          saved: false,
-          primaryFilePath: null,
-          hasLabels: false,
-          removedOutOfBoundsCount: 0
-        };
-      }
+    async saveLabels(isAuto = false, details = false): Promise<SaveLabelsResult> {
+      const image = state.currentImageFile?.name;
+      const workflow = state.workflow;
+      const unavailable = { saved: false, primaryFilePath: null, hasLabels: false, removedOutOfBoundsCount: 0 };
+      if (!image) return unavailable;
+      const output = annotationOutput(state, image, workflow);
+      const { folder, paths, conflictingImages } = output;
+      if (!folder) return { ...unavailable, output };
+      const writtenPaths: string[] = [];
+      try {
+        if (isAuto && conflictingImages.length && deps.hasUnsavedChanges?.() === false) return { ...unavailable, output };
+        assertAnnotationOutputUnshared(paths[0]!, conflictingImages);
 
-      if (state.workflow === "detection") {
-        if (!state.labelFolderHandle) {
-          return {
-            saved: false,
-            primaryFilePath: null,
-            hasLabels: false,
-            removedOutOfBoundsCount: 0
-          };
+        if (workflow === "detection") {
+          const text = deps.readCurrentLabelsAsYolo().trim();
+          const boxCount = parseYoloRows(text, 1, 1).length;
+          await writeTextFileByName(folder, paths[0]!, text);
+          const hasLabels = text.length > 0;
+          ensureImageWorkflowStatus(state, image).detection = { hasAnnotation: hasLabels, boxCount };
+          return { saved: true, primaryFilePath: `label/${paths[0]}`, hasLabels, removedOutOfBoundsCount: 0, output, boxCount };
         }
 
-        const yoloString = deps.readCurrentLabelsAsYolo();
-        const trimmedYolo = yoloString.trim();
-        const primaryFilePath = resolveAnnotationAssetPaths("detection", imageFileNameToBaseName(state.currentImageFile.name)).primaryFilePath;
-        const labelFileName = primaryFilePath.split("/").pop() ?? `${imageFileNameToBaseName(state.currentImageFile.name)}.txt`;
-
-        await writeTextFileByName(state.labelFolderHandle, labelFileName, trimmedYolo);
-
-        const hasLabels = trimmedYolo.length > 0;
-        const imageStatus = ensureImageWorkflowStatus(state, state.currentImageFile.name);
-        imageStatus.detection.hasAnnotation = hasLabels;
-        imageStatus.detection.boxCount = parseYoloRows(trimmedYolo, 1, 1).length;
-        state.imageWorkflowStatus.set(state.currentImageFile.name, imageStatus);
-
-        return {
-          saved: true,
-          primaryFilePath,
-          hasLabels,
-          removedOutOfBoundsCount: 0
-        };
-      }
-
-      if (state.workflow !== "segmentation" || !state.imageFolderHandle) {
-        return {
-          saved: false,
-          primaryFilePath: null,
-          hasLabels: false,
-          removedOutOfBoundsCount: 0
-        };
-      }
-
-      const snapshot = deps.readCurrentSegmentationSnapshot();
-      if (!snapshot) {
-        return {
-          saved: false,
-          primaryFilePath: null,
-          hasLabels: false,
-          removedOutOfBoundsCount: 0
-        };
-      }
-
-      const codec = createSegmentationAnnotationCodec();
-      const imageBaseName = imageFileNameToBaseName(state.currentImageFile.name);
-      const assets = await codec.encode({ imageBaseName, snapshot });
-      const segmentationRoot = state.segmentationLabelFolderHandle ?? state.imageFolderHandle;
-      const maskDirectory = await getSubdirectoryHandle(segmentationRoot, "mask", { create: true });
-      for (const asset of assets) {
-        const fileName = asset.path.split("/").pop() ?? asset.path;
-        if (typeof asset.content === "string") {
-          await writeTextFileByName(maskDirectory, fileName, asset.content);
-        } else {
-          const binaryContent = asset.content instanceof Uint8Array
-            ? (() => { const copy = new Uint8Array(asset.content.byteLength); copy.set(asset.content); return copy.buffer; })()
-            : asset.content;
-          await writeBinaryFileByName(maskDirectory, fileName, binaryContent);
-        }
-      }
-
-      const selectedFormat = state.segmentationExportFormat;
-      let primaryFilePath = assets[0]?.path ?? null;
-      if (selectedFormat !== "png-semantic-mask") {
+        const snapshot = deps.readCurrentSegmentationSnapshot();
+        if (!snapshot || !state.imageFolderHandle) return { ...unavailable, output };
+        const selectedFormat = state.segmentationExportFormat;
         if (selectedFormat === "auto") throw new Error("Choose a Segmentation export format before saving.");
-        const model = state.segmentationAnnotationType === "instance"
-          ? createInstanceAnnotationModelFromSnapshot({ imageId: imageBaseName, imagePath: state.currentImageFile.name, snapshot })
-          : createSemanticAnnotationModel({ imageId: imageBaseName, imagePath: state.currentImageFile.name, snapshot });
-        const exported = await exportSegmentationAnnotations({ format: selectedFormat, model, fileName: state.currentImageFile.name });
-        if (!exported.text) throw new Error(`${selectedFormat} did not produce a text annotation file.`);
-        const exportPath = resolveSegmentationExportPath(selectedFormat, imageBaseName);
-        const pathSegments = exportPath.split("/");
-        const exportFileName = pathSegments.pop()!;
-        const exportDirectory = await getOrCreateNestedDirectoryHandle(segmentationRoot, pathSegments);
-        await writeTextFileByName(exportDirectory, exportFileName, exported.text);
-        primaryFilePath = exportPath;
+        const imageBaseName = imageFileNameToBaseName(image);
+        const assets = await createSegmentationAnnotationCodec().encode({ imageBaseName, snapshot });
+        if (selectedFormat !== "png-semantic-mask") {
+          const model = state.segmentationAnnotationType === "instance"
+            ? createInstanceAnnotationModelFromSnapshot({ imageId: imageBaseName, imagePath: image, snapshot })
+            : createSemanticAnnotationModel({ imageId: imageBaseName, imagePath: image, snapshot });
+          const exported = await exportSegmentationAnnotations({ format: selectedFormat, model, fileName: image });
+          if (exported.text === undefined) throw new Error(`${selectedFormat} did not produce a text annotation file.`);
+          assets.push({ path: paths[1]!, content: exported.text });
+        }
+        const mask = details ? maskOutputCounts(snapshot) : undefined;
+        for (const asset of assets) {
+          const parts = asset.path.split("/");
+          const fileName = parts.pop()!;
+          const directory = await resolveOutputDirectory(folder, parts, true);
+          if (typeof asset.content === "string") await writeTextFileByName(directory, fileName, asset.content);
+          else await writeBinaryFileByName(directory, fileName, asset.content instanceof Uint8Array ? asset.content.slice().buffer as ArrayBuffer : asset.content);
+          writtenPaths.push(asset.path);
+        }
+        const hasLabels = snapshot.mask.some((value) => value !== 0);
+        ensureImageWorkflowStatus(state, image).segmentation.hasAnnotation = hasLabels;
+        return {
+          saved: true, primaryFilePath: paths.at(-1)!, hasLabels, removedOutOfBoundsCount: 0, output,
+          ...(mask ? { mask } : {})
+        };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new AnnotationSaveError(output, writtenPaths, `${image} (${workflow}, ${paths.join(", ")}): ${reason}`, error);
       }
-
-      const hasMask = snapshot.mask.some((value) => value !== 0);
-      const imageStatus = ensureImageWorkflowStatus(state, state.currentImageFile.name);
-      imageStatus.segmentation.hasAnnotation = hasMask;
-      state.imageWorkflowStatus.set(state.currentImageFile.name, imageStatus);
-
-      return {
-        saved: true,
-        primaryFilePath,
-        hasLabels: hasMask,
-        removedOutOfBoundsCount: 0
-      };
     }
   };
 }

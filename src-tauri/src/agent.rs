@@ -91,13 +91,13 @@ fn time_limit(tool: &str) -> Duration {
         // Folder-wide runs wait for the person's approval and then go through every image.
         "refine_folder" | "reclass_folder" | "remap_classes" | "review_folder" | "run_inference" | "clean_masks" => 4 * 3600,
         // Several images' label files (and image sizes) read in the page.
-        "analyze_boxes" | "compare_labels" | "compare_masks" | "analyze_masks" => 300,
+        "analyze_boxes" | "compare_labels" | "compare_masks" | "analyze_masks" | "list_images" => 300,
         // The first AI Select loads the EdgeSAM model and encodes the image; then up to 500 prompts are decoded.
         "segment_ai" | "boxes_to_masks" => 600,
         // The first template match starts OpenCV.js; a model load compiles the ONNX graph.
         "open_folder" | "run_refine" | "run_reclass" | "run_template_matching" | "find_similar" | "load_model" => 300,
         "go_to_image" => 60,
-        "app_state" | "list_images" | "get_classes" | "get_boxes" => 10,
+        "app_state" | "get_classes" | "get_boxes" => 10,
         _ => 30,
     })
 }

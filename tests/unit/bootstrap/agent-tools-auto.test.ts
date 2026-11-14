@@ -52,7 +52,7 @@ describe("agent automation and inference tools", () => {
     const runs: unknown[] = [];
     const inference: Partial<InferenceAgentApi> = {
       status: () => ({ model: "m.onnx", ready: true, busy: false, backend: "wasm", settings: { confidence: 0.25, iou: 0.45, maxDetections: 300, outputFormat: "auto", inputSize: 640 } }),
-      run: async (options) => { runs.push(options); return { imageCount: options.allImages ? 2 : 1, detectionCount: 3, folderName: "inference-m" }; }
+      run: async (options) => { runs.push(options); return { imageCount: options.allImages ? 2 : 1, detectionCount: 3, folderName: "inference-m", saves: [], skipped: [] }; }
     };
     expect(await codeOf(tools({ inference, allow: false }).run_inference.run({ allImages: true }, context))).toBe("declined");
     expect(runs).toEqual([]);

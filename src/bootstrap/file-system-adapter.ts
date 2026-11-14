@@ -2,7 +2,9 @@ import type { FileSystem, FileSystemDeps } from "../app/contracts.js";
 import { isOperationCancelledError, throwIfOperationCancelled } from "../app/operation.js";
 import type { AppState } from "../app/state.js";
 import {
+  AnnotationSaveError,
   createImageSessionService,
+  type SaveLabelsResult,
   type ImageSessionService,
   type ImageSessionServiceState
 } from "../features/images/image-session-service.js";
@@ -26,7 +28,8 @@ import { deriveHiddenLabelClassesForResetScope } from "../ui/filter-state.js";
 import { createImageDecoder } from "../features/images/image-decoder.js";
 import { detectionsToYolo, type Detection } from "../features/inference/yolo.js";
 import { getCurrentDocumentStatus } from "../app/document-status.js";
-import { imageFileNameToBaseName } from "../domain/files/image-names.js";
+import { annotationConflicts, annotationOutputPaths, annotationPathKey, assertAnnotationOutputUnshared } from "../domain/annotations/paths.js";
+import { annotationOutput, outputPath } from "../features/images/annotation-storage.js";
 import { createEmptyImageWorkflowStatus } from "../domain/annotations/contracts.js";
 import { isNotFoundError, readFileText, readTextFileByName, writeTextFileByName } from "../platform/file-system-access.js";
 import { getSubdirectoryHandle } from "../platform/file-system-access.js";
@@ -48,6 +51,13 @@ import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
 export interface LabelFileEdit { name: string; original: string | null; text: string }
+
+const detectionFileName = (image: string): string => annotationOutputPaths("detection", image)[0]!;
+
+function assertLabelEditsUnshared(files: readonly { name: string }[], edits: readonly LabelFileEdit[]): void {
+  const conflicts = annotationConflicts(files, "detection");
+  for (const edit of edits) assertAnnotationOutputUnshared(edit.name, conflicts.get(annotationPathKey(edit.name)) ?? []);
+}
 
 /**
  * Label files written at once in batch edits: on a NAS each file costs round trips, not bandwidth.
@@ -99,8 +109,9 @@ export interface DetectionLabelRewrite {
   total: number;
   changed: number;
   backupPath: string | null;
-  failures: { fileName: string; reason: string }[];
+  failures: { fileName: string; reason: string; paths?: string[]; conflictingImages?: string[]; workflow?: "detection"; success?: false }[];
   timings: LabelRewriteTimings;
+  saves?: DetectionBatchSave[];
   /** A dry run's edits (nothing was written); commitLabelFilePlan writes them after checking the files did not change. */
   plan?: LabelFilePlan;
 }
@@ -109,11 +120,28 @@ export interface DetectionLabelRewrite {
 export interface LabelFilePlan {
   folder: FileSystemDirectoryHandle;
   imageFolder: FileSystemDirectoryHandle | null;
-  /** The image list's label file names when computed: a changed list means a stale plan. */
+  /** The full image filenames when computed: a changed list means a stale plan. */
   fileNames: string[];
   edits: LabelFileEdit[];
   backupPrefix: string;
 }
+export interface DetectionBatchSave {
+  image: string;
+  workflow: "detection";
+  paths: string[];
+  success: true;
+  action: "written" | "written_empty";
+  boxCount: number;
+}
+
+export interface InferenceSaveResult {
+  folderName: string;
+  imageCount: number;
+  detectionCount: number;
+  saves: DetectionBatchSave[];
+  skipped: { image: string; workflow: "detection"; success: false; paths: string[]; conflictingImages: string[] }[];
+}
+
 export interface ClassRemapPlan extends ClassRemapSummary {
   folder: FileSystemDirectoryHandle;
   imageFolder: FileSystemDirectoryHandle | null;
@@ -121,6 +149,7 @@ export interface ClassRemapPlan extends ClassRemapSummary {
   documentRevision: number | undefined;
   fileNames: string[];
   originals: { name: string; original: string | null }[];
+  skipped: { image: string; workflow: "detection"; success: false; paths: string[]; conflictingImages: string[] }[];
   edits: LabelFileEdit[];
 }
 
@@ -269,7 +298,7 @@ export interface RuntimeFileSystem extends FileSystem {
     metadata?: Record<string, unknown>;
     infer(image: HTMLImageElement, signal?: AbortSignal): Promise<Detection[]>;
     onProgress?(current: number, total: number, imageName: string): void;
-  }): Promise<{ folderName: string; imageCount: number; detectionCount: number } | null>;
+  }): Promise<InferenceSaveResult | null>;
   selectClassInfoFolder(selectedFolder?: Promise<FileSystemDirectoryHandle>): Promise<void>;
   loadDefaultClassInfo(): Promise<void>;
   /** Checks images never checked or changed since their check (every image with `all`); false when stopped. */
@@ -277,6 +306,8 @@ export interface RuntimeFileSystem extends FileSystem {
   setReviewImageStatus(imagePath: string, status: ReviewImageStatus): Promise<void>;
   updateReviewSettings(settings: ReviewSettings): Promise<void>;
   saveLabels(isAuto?: boolean): Promise<void>;
+  saveLabelsWithResult(): Promise<SaveLabelsResult | undefined>;
+  detectionBatchSaves(folder: FileSystemDirectoryHandle, edits: readonly LabelFileEdit[]): DetectionBatchSave[];
   removeOutOfBoundsLabels(folder: FileSystemDirectoryHandle): Promise<void>;
   /**
    * Rewrites every image's Detection label file in the active label folder: current edits are saved first,
@@ -318,6 +349,7 @@ export interface RuntimeFileSystem extends FileSystem {
   saveClassFileContent(): Promise<void>;
   addNewClassRow(): void;
   createNewClassFile(): Promise<boolean>;
+  createClassFile(name: string, content: string): Promise<FileHandleLike | null>;
   deleteSelectedClassFile(): Promise<boolean>;
   /**
    * Rereads the class folder's file list (after files moved in the folder manager), keeping the chosen file;
@@ -614,6 +646,22 @@ export function createFileSystemAdapter(input: {
     return { folder: target, prefix: `${saveFolder}/` };
   };
 
+  const createAndSelectClassFile = async (
+    target: { folder: DirectoryHandleLike; prefix: string }, name: string, content?: string
+  ): Promise<FileHandleLike | null> => {
+    const { fileHandle } = await createNewClassFile(target.folder, name, target.prefix, content);
+    if (!fileHandle) return null;
+    input.state.session.classFiles = [...input.state.session.classFiles, fileHandle as FileHandle];
+    await loadClassNamesIntoState(fileHandle as FileHandle, input.state);
+    if (connectedDeps) {
+      const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+      (connectedDeps.canvasController as RuntimeCanvasController).refreshClassColors?.();
+      uiManager.renderClassFileSelect();
+      uiManager.updateLabelList();
+    }
+    return fileHandle;
+  };
+
   const refreshClassFileStateFromAvailableFolder = async (
     operation: RuntimeOperationHandle | null = null,
     refreshCanvas = true,
@@ -699,6 +747,10 @@ export function createFileSystemAdapter(input: {
         input.windowRef.clearTimeout(timeout);
       }
     },
+    hasUnsavedChanges: () => {
+      const status = getCurrentDocumentStatus(input.state);
+      return status !== null && status.revision !== status.savedRevision;
+    },
     shouldCreateMissingLabelFolder: async () => {
       if (!connectedDeps) {
         throw new Error("The UI is not ready to confirm label folder creation.");
@@ -750,6 +802,7 @@ export function createFileSystemAdapter(input: {
     folder: FileSystemDirectoryHandle, edits: LabelFileEdit[], prefix: string, operation: RuntimeOperationHandle | null,
     { timings, steps = { first: 1, total: 3 } }: { timings?: CommitTimings; steps?: { first: number; total: number } } = {}
   ): Promise<string> => {
+    assertLabelEditsUnshared(input.state.session.imageFiles, edits);
     const lanes = labelWriteLanes(input.windowRef);
     const step = (offset: number) => operation && stepOperation(operation, steps.first + offset, steps.total);
     const backupStep = step(0);
@@ -807,7 +860,7 @@ export function createFileSystemAdapter(input: {
       lap("reloadMs");
       throwIfOperationCancelled(operation?.signal);
       const edited = new Set(edits.map((edit) => edit.name));
-      queueReview(input.state.session.imageFiles.filter((file) => edited.has(`${imageFileNameToBaseName(file.name)}.txt`)).map((file) => file.name), true);
+      queueReview(input.state.session.imageFiles.filter((file) => edited.has(detectionFileName(file.name))).map((file) => file.name), true);
     } catch (error) {
       const failures: unknown[] = [];
       for (const edit of written) {
@@ -825,14 +878,67 @@ export function createFileSystemAdapter(input: {
     return backupPath;
   };
 
+  let automationFiles: readonly { name: string }[] | undefined;
+  let automationConflicts = new Map<string, string[]>();
+  const pathOf = (handle: unknown): string | null => globalThis.window?.easyLabelingNative?.pathOf?.(handle) ?? null;
+  const detectionSave = (folder: FileSystemDirectoryHandle, image: string, text: string): DetectionBatchSave => ({
+    image, workflow: "detection", paths: [outputPath(folder, detectionFileName(image), pathOf)], success: true,
+    action: text.trim() ? "written" : "written_empty", boxCount: parseYoloRows(text, 1, 1).length
+  });
+  const detectionBatchSaves = (folder: FileSystemDirectoryHandle, edits: readonly LabelFileEdit[]): DetectionBatchSave[] => {
+    const images = new Map(input.state.session.imageFiles.map(({ name }) => [detectionFileName(name), name]));
+    return edits.map(({ name, text }) => detectionSave(folder, images.get(name)!, text));
+  };
+
+  const saveCurrentLabels = async (isAuto: boolean, details: boolean): Promise<SaveLabelsResult | undefined> => {
+    let outcome: SaveLabelsResult | undefined;
+    await enqueueOperation(async () => {
+      const imageName = input.state.session.currentImageFile?.name;
+      const workflow = input.state.session.workflow;
+      if (!imageName) {
+        return;
+      }
+      const revision = markDocumentSaving(input.state, imageName, workflow, isAuto).revision;
+      input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
+      try {
+        const result = await imageSessionService.saveLabels(isAuto, details);
+        if (!result.saved) {
+          const message = workflow === "detection"
+            ? "Connect a label folder before saving Detection labels."
+            : "Load an image before saving a Segmentation mask.";
+          if (result.output) throw new AnnotationSaveError(result.output, [], message);
+          throw new Error(message);
+        }
+        outcome = result;
+        markDocumentSaved(input.state, imageName, workflow, { wasAutoSaved: isAuto, revision });
+        if (workflow === "detection") {
+          await refreshCurrentReviewFinding().catch((error: unknown) => console.warn("Review refresh after save failed", error));
+        }
+        if (connectedDeps) {
+          const uiManager = connectedDeps.uiManager as RuntimeUiManager;
+          uiManager.renderImageList();
+        }
+      } catch (error: unknown) {
+        markDocumentSaveError(input.state, imageName, workflow, error);
+        throw error;
+      } finally {
+        input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
+      }
+    });
+    return outcome;
+  };
+
   const saveBeforeLabelSwitch = async (): Promise<void> => {
     if (input.state.runtime.saveTimeout) input.windowRef.clearTimeout(input.state.runtime.saveTimeout);
     input.state.runtime.saveTimeout = null;
     const status = getCurrentDocumentStatus(input.state);
-    if (!input.state.session.currentImageFile || !status || !["dirty", "error"].includes(status.phase)) return;
+    if (!input.state.session.currentImageFile || !status || status.revision === status.savedRevision) return;
+    const revision = status.revision;
     const saved = await imageSessionService.saveLabels(false);
-    if (!saved.saved) throw new Error("Save the current labels to a label folder before switching sources.");
-    markDocumentSaved(input.state, input.state.session.currentImageFile.name, input.state.session.workflow, { wasAutoSaved: false });
+    if (!saved.saved || !saved.output) throw new Error("Save the current labels to a label folder before switching sources.");
+    const { image, workflow } = saved.output;
+    markDocumentSaved(input.state, image, workflow, { wasAutoSaved: false, revision });
+    if (status.revision !== revision) throw new Error("The current annotation changed while saving. Retry the folder operation.");
   };
 
   const activateLabelFolder = async (folder: FileSystemDirectoryHandle, operation: RuntimeOperationHandle | null): Promise<void> => {
@@ -956,7 +1062,7 @@ export function createFileSystemAdapter(input: {
     const editedText = currentEditedReviewText();
     let yoloText = editedText ?? loadedYolo ?? "";
     if (editedText === null && loadedYolo === undefined && input.state.session.labelFolderHandle) {
-      try { yoloText = await readTextFileByName(input.state.session.labelFolderHandle as unknown as DirectoryHandleLike, `${imageFileNameToBaseName(file.name)}.txt`); }
+      try { yoloText = await readTextFileByName(input.state.session.labelFolderHandle as unknown as DirectoryHandleLike, detectionFileName(file.name)); }
       catch (error) { if (!isNotFoundError(error)) throw error; }
     }
     const { width, height } = yoloText.trim() ? await readImageDimensions(file as unknown as FileHandleLike) : { width: 1, height: 1 };
@@ -964,7 +1070,7 @@ export function createFileSystemAdapter(input: {
     reviewEpoch += 1;
     reviewUpdatedAt.set(file.name, reviewEpoch);
     reviewStamps.delete(file.name);
-    reviewRowCounts.delete(`${imageFileNameToBaseName(file.name)}.txt`);
+    reviewRowCounts.delete(detectionFileName(file.name));
   };
 
   /** Label and image file stamps per image (review_stamps in src-tauri/src/review.rs), compared as strings. */
@@ -995,7 +1101,7 @@ export function createFileSystemAdapter(input: {
       }
     };
     return Promise.all(files.map(async (file) => format([
-      labelFolder ? await stampOf(() => labelFolder.getFileHandle(`${imageFileNameToBaseName(file.name)}.txt`)) : null,
+      labelFolder ? await stampOf(() => labelFolder.getFileHandle(detectionFileName(file.name))) : null,
       await stampOf(async () => file as unknown as FileHandleLike)
     ])));
   };
@@ -1005,7 +1111,7 @@ export function createFileSystemAdapter(input: {
     const { reviewState } = input.state.session;
     for (const name of imageNames) {
       reviewQueue.add(name);
-      reviewRowCounts.delete(`${imageFileNameToBaseName(name)}.txt`); // its file changed or is unchecked
+      reviewRowCounts.delete(detectionFileName(name)); // its file changed or is unchecked
       if (reopenReviewed && reviewState.images[name]?.status === "reviewed") {
         reviewState.images[name] = { status: "needs-review", reviewedAt: null };
         reviewStateChanged = true;
@@ -1186,7 +1292,7 @@ export function createFileSystemAdapter(input: {
         let yoloText = editedText ?? "";
         if (editedText === null && labelFolder) {
           try {
-            const labelFileName = `${imageFileNameToBaseName(imageFile.name)}.txt`;
+            const labelFileName = detectionFileName(imageFile.name);
             const labelFile = await labelFolder.getFileHandle(labelFileName);
             if (yieldToOperation(index)) return true; // the lookup is a round trip on the desktop app
             yoloText = await readFileText(labelFile);
@@ -1463,14 +1569,23 @@ export function createFileSystemAdapter(input: {
       },
 
       async runDetectionInference(options) {
-        let result: { folderName: string; imageCount: number; detectionCount: number } | null = null;
+        let result: InferenceSaveResult | null = null;
         await enqueueOperation(async () => {
           const session = input.state.session;
           if (session.workflow !== "detection" || !session.imageFolderHandle || !session.currentImageFile) throw new Error("Open a Detection dataset first.");
-          const files = options.allImages ? [...session.imageFiles] : [session.currentImageFile];
-          const bases = files.map((file) => imageFileNameToBaseName(file.name).toLowerCase());
-          if (new Set(bases).size !== bases.length) throw new Error("Images with the same base name would share a label file. Rename them before inference.");
+          const requested = options.allImages ? [...session.imageFiles] : [session.currentImageFile];
+          const conflicts = annotationConflicts(session.imageFiles, "detection");
+          const files = requested.filter((file) => !conflicts.has(annotationPathKey(detectionFileName(file.name))));
           const folderName = `inference-${options.modelName.replace(/\.onnx$/i, "")}`;
+          const skipped = requested.flatMap(({ name }) => {
+            const filename = detectionFileName(name);
+            const conflictingImages = conflicts.get(annotationPathKey(filename));
+            return conflictingImages ? [{ image: name, workflow: "detection" as const, success: false as const, paths: [outputPath(session.imageFolderHandle!, `${folderName}/${filename}`, pathOf)], conflictingImages }] : [];
+          });
+          if (!files.length && skipped.length) {
+            result = { folderName, imageCount: 0, detectionCount: 0, saves: [], skipped };
+            return;
+          }
           await runTrackedOperation({ title: "YOLO inference", detail: `Results: ${folderName}`, stoppedMessage: `Inference stopped. Partial results remain in ${folderName}; reload the model to retry.` }, async (operation) => {
             await saveBeforeLabelSwitch();
             throwIfOperationCancelled(operation?.signal);
@@ -1479,6 +1594,7 @@ export function createFileSystemAdapter(input: {
             options.classNames?.forEach((name, id) => classNames.set(id, normalizeClassName(name)));
             let detectionCount = 0;
             const completed: string[] = [];
+            const saves: DetectionBatchSave[] = [];
             for (const file of files) {
               throwIfOperationCancelled(operation?.signal);
               operation?.update({ detail: `${file.name} → ${folderName}`, current: completed.length, total: files.length });
@@ -1487,7 +1603,9 @@ export function createFileSystemAdapter(input: {
               throwIfOperationCancelled(operation?.signal);
               const boxes = await options.infer(image, operation?.signal);
               throwIfOperationCancelled(operation?.signal);
-              await writeTextFileByName(folder as unknown as DirectoryHandleLike, `${imageFileNameToBaseName(file.name)}.txt`, detectionsToYolo(boxes, image.naturalWidth || image.width, image.naturalHeight || image.height));
+              const text = detectionsToYolo(boxes, image.naturalWidth || image.width, image.naturalHeight || image.height);
+              await writeTextFileByName(folder as unknown as DirectoryHandleLike, detectionFileName(file.name), text);
+              saves.push(detectionSave(folder, file.name, text));
               for (const box of boxes) if (!classNames.has(String(box.classId))) classNames.set(String(box.classId), `class ${box.classId}`);
               detectionCount += boxes.length;
               completed.push(file.name);
@@ -1498,7 +1616,7 @@ export function createFileSystemAdapter(input: {
             await writeTextFileByName(folder as unknown as DirectoryHandleLike, "inference.json", JSON.stringify({ ...options.metadata, model: options.modelName, images: completed, detections: detectionCount, createdAt: new Date().toISOString() }, null, 2));
             throwIfOperationCancelled(operation?.signal);
             await activateLabelFolder(folder, operation);
-            result = { folderName, imageCount: completed.length, detectionCount };
+            result = { folderName, imageCount: completed.length, detectionCount, saves, skipped };
           });
         });
         return result;
@@ -1569,37 +1687,11 @@ export function createFileSystemAdapter(input: {
       },
 
       async saveLabels(isAuto = false): Promise<void> {
-        await enqueueOperation(async () => {
-          const imageName = input.state.session.currentImageFile?.name;
-          const workflow = input.state.session.workflow;
-          if (!imageName) {
-            return;
-          }
-          markDocumentSaving(input.state, imageName, workflow, isAuto);
-          input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
-          try {
-            const result = await imageSessionService.saveLabels(isAuto);
-            if (!result.saved) {
-              throw new Error(workflow === "detection"
-                ? "Connect a label folder before saving Detection labels."
-                : "Load an image before saving a Segmentation mask.");
-            }
-            markDocumentSaved(input.state, imageName, workflow, { wasAutoSaved: isAuto });
-            if (workflow === "detection") {
-              await refreshCurrentReviewFinding();
-            }
-            if (connectedDeps) {
-              const uiManager = connectedDeps.uiManager as RuntimeUiManager;
-              uiManager.renderImageList();
-            }
-          } catch (error: unknown) {
-            markDocumentSaveError(input.state, imageName, workflow, error);
-            throw error;
-          } finally {
-            input.windowRef.dispatchEvent?.(new Event("easy-labeling:document-status-change"));
-          }
-        });
+        await saveCurrentLabels(isAuto, false);
       },
+
+      saveLabelsWithResult: () => saveCurrentLabels(false, true),
+      detectionBatchSaves,
 
       async removeOutOfBoundsLabels(folder: FileSystemDirectoryHandle): Promise<void> {
         await enqueueOperation(async () => {
@@ -1607,8 +1699,9 @@ export function createFileSystemAdapter(input: {
           if (session.workflow !== "detection" || !folder) throw new Error("Connect a Detection label folder before cleaning boxes.");
           if (session.labelFolderHandle !== folder) throw new Error("The active label folder changed. Check the selected folder and retry cleanup.");
           const directory = folder as unknown as DirectoryHandleLike;
-          const names = session.imageFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
-          if (new Set(names).size !== names.length) throw new Error("Images with the same label filename cannot be cleaned together.");
+          const conflicts = annotationConflicts(session.imageFiles, "detection");
+          const names = session.imageFiles.map((file) => detectionFileName(file.name)).filter((name) => !conflicts.has(annotationPathKey(name)));
+          if (conflicts.size) (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify("Skipped images that share an output file.");
           await runTrackedOperation({ title: "Cleaning outside boxes", detail: `All images · ${folder.name}`, stoppedMessage: "Cleanup stopped; original label files restored." }, async (operation) => {
             await saveBeforeLabelSwitch();
             const edits: { name: string; original: string; text: string }[] = [];
@@ -1641,16 +1734,23 @@ export function createFileSystemAdapter(input: {
           if (session.workflow !== "detection" || !folder) throw new Error("Connect a Detection label folder first.");
           const directory = folder as unknown as DirectoryHandleLike;
           const allFiles = [...session.imageFiles] as unknown as FileHandleLike[];
-          const allNames = allFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
-          if (new Set(allNames).size !== allNames.length) throw new Error("Images with the same label filename cannot be updated together.");
+          const conflicts = annotationConflicts(allFiles, "detection");
           const chosen = options.only ? [...new Set(options.only)].filter((index) => index >= 0 && index < allFiles.length).sort((a, b) => a - b) : null;
-          const files = chosen ? chosen.map((index) => allFiles[index]!) : allFiles;
-          const names = chosen ? chosen.map((index) => allNames[index]!) : allNames;
-          const scope = chosen ? `${files.length} of ${allFiles.length} images` : "All images";
+          const requested = chosen ? chosen.map((index) => allFiles[index]!) : allFiles;
+          const failures: DetectionLabelRewrite["failures"] = [];
+          const files = requested.filter((file) => {
+            const name = detectionFileName(file.name);
+            const conflictingImages = conflicts.get(annotationPathKey(name));
+            if (!conflictingImages) return true;
+            failures.push({ fileName: file.name, workflow: "detection", success: false, reason: `Output collision: ${conflictingImages.join(", ")}`,
+              paths: [outputPath(folder, name, pathOf)], conflictingImages });
+            return false;
+          });
+          const names = files.map((file) => detectionFileName(file.name));
+          const scope = chosen ? `${requested.length} of ${allFiles.length} images` : "All images";
           await runTrackedOperation({ title: options.title, detail: `${scope} · ${folder.name}`, stoppedMessage: `${options.title} stopped. No files changed.` }, async (operation) => {
             await saveBeforeLabelSwitch();
             const edits: Array<LabelFileEdit | undefined> = [];
-            const failures: DetectionLabelRewrite["failures"] = [];
             const startedAt = performance.now();
             const timings: LabelRewriteTimings = { batchMs: 0, batchImages: 0, waitMs: 0, prepareMs: 0, transformMs: 0, backupMs: 0, writeMs: 0, reloadMs: 0, totalMs: 0 };
             const step = operation && stepOperation(operation, 1, 4);
@@ -1718,9 +1818,9 @@ export function createFileSystemAdapter(input: {
             const backupPath = changed.length && !options.dryRun ? await commitLabelFileEdits(folder, changed, options.backupPrefix, operation, { timings, steps: { first: 2, total: 4 } }) : null;
             for (const key of ["waitMs", "prepareMs", "transformMs"] as const) timings[key] = Math.round(timings[key]);
             timings.totalMs = Math.round(performance.now() - startedAt);
-            outcome = { total: files.length, changed: changed.length, backupPath: backupPath && `${folder.name}/${backupPath}`, failures, timings };
+            outcome = { total: requested.length, changed: changed.length, backupPath: backupPath && `${folder.name}/${backupPath}`, failures, timings, ...(backupPath ? { saves: detectionBatchSaves(folder, changed) } : {}) };
             if (options.dryRun) {
-              outcome.plan = { folder, imageFolder: session.imageFolderHandle as FileSystemDirectoryHandle | null, fileNames: allNames, edits: changed, backupPrefix: options.backupPrefix };
+              outcome.plan = { folder, imageFolder: session.imageFolderHandle as FileSystemDirectoryHandle | null, fileNames: allFiles.map((file) => file.name), edits: changed, backupPrefix: options.backupPrefix };
             }
           });
         });
@@ -1732,7 +1832,7 @@ export function createFileSystemAdapter(input: {
         await enqueueOperation(async () => {
           const { session } = input.state;
           if (session.workflow !== "detection" || session.labelFolderHandle !== plan.folder || session.imageFolderHandle !== plan.imageFolder
-            || session.imageFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`).join("\n") !== plan.fileNames.join("\n")) {
+            || session.imageFiles.map((file) => file.name).join("\n") !== plan.fileNames.join("\n")) {
             throw new Error("The folder or its images changed since the dry run. Run it again.");
           }
           if (!plan.edits.length) return;
@@ -1757,19 +1857,27 @@ export function createFileSystemAdapter(input: {
         await enqueueOperation(async () => {
           const { session } = input.state;
           if (session.workflow !== "detection" || session.labelFolderHandle !== folder) throw new Error("The active Detection label folder changed. Preview again.");
-          const fileNames = session.imageFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`);
-          if (new Set(fileNames).size !== fileNames.length) throw new Error("Images with the same label filename cannot be updated together.");
+          const fileNames = session.imageFiles.map((file) => file.name);
+          const conflicts = annotationConflicts(session.imageFiles, "detection");
+          const skipped: ClassRemapPlan["skipped"] = [];
           const imageName = session.currentImageFile?.name;
           const documentStatus = getCurrentDocumentStatus(input.state);
-          const pendingName = imageName && ["dirty", "error"].includes(documentStatus?.phase ?? "") ? `${imageFileNameToBaseName(imageName)}.txt` : null;
+          const pendingName = imageName && ["dirty", "error"].includes(documentStatus?.phase ?? "") ? detectionFileName(imageName) : null;
           const pendingText = pendingName ? (connectedDeps?.canvasController as RuntimeCanvasController).raw.getLabelsAsYolo() : null;
           await runTrackedOperation({ title: "Previewing class changes", detail: `All images · ${folder.name}`, stoppedMessage: "Class preview stopped. No files changed.", signal }, async (operation) => {
             const edits: LabelFileEdit[] = [];
             const originals: ClassRemapPlan["originals"] = [];
             const changes = new Map<string, { from: string; to: string; count: number }>();
             let changedCount = 0;
-            for (const [index, name] of fileNames.entries()) {
+            for (const [index, image] of fileNames.entries()) {
               throwIfOperationCancelled(operation?.signal);
+              const name = detectionFileName(image);
+              const conflictingImages = conflicts.get(annotationPathKey(name));
+              if (conflictingImages) {
+                if (image === imageName && pendingName) assertAnnotationOutputUnshared(name, conflictingImages);
+                skipped.push({ image, workflow: "detection", success: false, paths: [outputPath(folder, name, pathOf)], conflictingImages });
+                continue;
+              }
               operation?.update({ detail: `Checking ${name}`, current: index, total: fileNames.length });
               let original: string | null = null;
               try { original = await readTextFileByName(folder as unknown as DirectoryHandleLike, name); }
@@ -1786,7 +1894,7 @@ export function createFileSystemAdapter(input: {
                 changes.set(change.from, { ...change, count: change.count + (existing?.count ?? 0) });
               }
             }
-            plan = { folder, imageFolder: session.imageFolderHandle, imageName, documentRevision: documentStatus?.revision, fileNames, originals, edits, changedCount,
+            plan = { folder, imageFolder: session.imageFolderHandle, imageName, documentRevision: documentStatus?.revision, fileNames, originals, edits, skipped, changedCount,
               changes: [...changes.values()].sort((a, b) => Number(a.from) - Number(b.from)) };
           });
         });
@@ -1800,7 +1908,7 @@ export function createFileSystemAdapter(input: {
           if (session.workflow !== "detection" || session.labelFolderHandle !== plan.folder || session.currentImageFile?.name !== plan.imageName
             || session.imageFolderHandle !== plan.imageFolder
             || getCurrentDocumentStatus(input.state)?.revision !== plan.documentRevision
-            || session.imageFiles.map((file) => `${imageFileNameToBaseName(file.name)}.txt`).join("\n") !== plan.fileNames.join("\n")) {
+            || session.imageFiles.map((file) => file.name).join("\n") !== plan.fileNames.join("\n")) {
             throw new Error("Labels or the active folder changed since preview. Preview again.");
           }
           if (!plan.changedCount) return;
@@ -1869,7 +1977,7 @@ export function createFileSystemAdapter(input: {
         if (!folder) {
           return "";
         }
-        const fileName = `${imageFileNameToBaseName(imageFileName)}.txt`;
+        const fileName = detectionFileName(imageFileName);
         try {
           return await readTextFileByName(folder, fileName);
         } catch (error: unknown) {
@@ -1906,8 +2014,15 @@ export function createFileSystemAdapter(input: {
         if (!folder) {
           throw new Error("Load a Detection label folder before running automation");
         }
+        const { session } = input.state;
+        if (automationFiles !== session.imageFiles) {
+          automationFiles = session.imageFiles;
+          automationConflicts = annotationConflicts(automationFiles, "detection");
+        }
+        const output = annotationOutput(session, imageFileName, "detection", automationConflicts);
+        assertAnnotationOutputUnshared(output.paths[0]!, output.conflictingImages);
         const trimmed = yoloData.trim();
-        await writeTextFileByName(folder, `${imageFileNameToBaseName(imageFileName)}.txt`, trimmed);
+        await writeTextFileByName(folder, output.paths[0]!, trimmed);
         queueReview([imageFileName], true);
         const status = input.state.session.imageWorkflowStatus.get(imageFileName) ?? createEmptyImageWorkflowStatus();
         status.detection.hasAnnotation = trimmed.length > 0;
@@ -2032,20 +2147,23 @@ export function createFileSystemAdapter(input: {
           uiManager.renderClassFileSelect();
           return false;
         }
-        const result = await createNewClassFile(target.folder, fileName, target.prefix);
-        if (!result.created) {
-          uiManager.notify("A class file with this name already exists.");
-          uiManager.renderClassFileSelect();
-          return false;
-        }
-        if (!result.fileHandle) {
-          return false;
-        }
-
-        input.state.session.classFiles = [...input.state.session.classFiles, result.fileHandle as FileHandle];
+        let created: FileHandleLike | null = null;
+        await enqueueOperation(async () => { created = await createAndSelectClassFile(target, fileName); });
+        if (created) return true;
+        uiManager.notify("A class file with this name already exists.");
         uiManager.renderClassFileSelect();
-        await this.loadClassNamesFromFile(result.fileHandle);
-        return true;
+        return false;
+      },
+
+      async createClassFile(name, content) {
+        let created: FileHandleLike | null = null;
+        await enqueueOperation(async () => {
+          if (!input.state.session.classInfoFolderHandle) await this.loadDefaultClassInfo();
+          const folder = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
+          if (!folder) throw new Error("Open a dataset or connect a Class Info folder first.");
+          created = await createAndSelectClassFile(await classSaveFolder(folder), name, content);
+        });
+        return created;
       },
 
       /** Deletes the chosen class file from its folder after a confirm; label files are not touched. */
