@@ -1,6 +1,6 @@
 {
   "name": "easy_labeling",
-  "version": "3.13.0",
+  "version": "3.13.1",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

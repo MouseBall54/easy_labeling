@@ -16,11 +16,17 @@ MCP server come from different releases before working around it.
 
 ## Habits that hold for every branch
 
-- **Numbers first, captures second.** Read counts, scores and lists (`get_boxes`, `get_regions`, `analyze_*`,
-  `compare_*`); capture only the items the numbers flag. Put all flagged boxes in one `capture_view`
-  `annotationIds` sheet (up to 36 numbered cells) instead of one call per box: about one or two captures per image.
+- **Capture when a decision needs pixels.** Read counts, scores and lists for review. Put flagged boxes in one
+  `capture_view` `annotationIds` sheet (up to 36 cells). For new visual labels without known positions, capture the
+  viewport or a region, including when the image has no boxes.
 - **Do not capture to confirm an edit.** The edit result, `get_boxes` and `analyze_boxes` already show what changed.
-  A repeated capture whose pixels did not change answers `unchanged: true` without the image; reuse the earlier one.
+  `unchanged: true` means the app omitted a duplicate PNG. Reuse an earlier PNG with the same `captureId` and the current mapping.
+  If that PNG is unavailable and you still need the pixels, repeat the request once with `force: true`. If the client
+  cannot show the PNG or the object is unclear, proceed with confirmed positions and leave uncertain positions pending.
+- **Convert PNG coordinates before editing.** Use the returned PNG dimensions and its pixel edges. For a viewport or
+  crop, use `imageFromCapture`: `imageX = pngX * scaleX + offsetX`, and likewise for Y. For a sheet tile, subtract
+  `cell.x`/`cell.y` and use that tile's `imageFromCell.scale` and offsets. Box tools accept original image edges from
+  0 through image width/height. `read_labels` gives normalized edges: multiply X by image width and Y by image height.
 - **Preview, then apply.** Tools that can be wrong (`find_similar`, `run_refine`, `run_reclass`, `segment_ai`,
   `boxes_to_masks`, `clean_masks`, folder runs) preview by default or take `dryRun`. Apply the accepted result with its
   `resultId` (and `accept: [indexes]`), or rerun with `apply: true` and thresholds.

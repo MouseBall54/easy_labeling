@@ -454,7 +454,7 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
 
   // The PNG last returned for each request; the same request rendering the same pixels answers "unchanged" instead
   // of sending the image again (agents re-capturing to check fill their context with identical images).
-  const lastCaptures = new Map<string, { hash: string; at: number; result: unknown }>();
+  const lastCaptures = new Map<string, { hash: string; at: number }>();
   const captureView: AgentTool = {
     changesApp: false,
     async run(args) {
@@ -467,19 +467,20 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
         : region ? await captureRegion(deps.documentRef, canvasController, region, maxSide) : await captureCanvas(deps.documentRef, canvasController, maxSide);
       const key = JSON.stringify([session.currentImageFile?.name, session.workflow, maxSide, ids, args.annotationId ?? null, region]);
       const hash = await digest(capture.png);
+      const result = { ...(capture.result as object), captureId: hash };
       const previous = lastCaptures.get(key);
       if (previous && previous.hash === hash && optionalArg(args, "force", "boolean") !== true) {
         return {
+          ...result,
           unchanged: true,
           capturedAt: new Date(previous.at).toISOString(),
-          note: "Same pixels as your earlier capture with these arguments: nothing in it changed since. Use that image (pass force: true to get it again).",
-          ...(previous.result as object)
+          imageNote: "The app omitted a duplicate PNG. Reuse an available PNG with the same captureId and this response's mapping. If you still need the PNG, repeat once with force: true."
         };
       }
       lastCaptures.delete(key);
-      lastCaptures.set(key, { hash, at: Date.now(), result: capture.result });
+      lastCaptures.set(key, { hash, at: Date.now() });
       if (lastCaptures.size > CAPTURE_MEMORY) lastCaptures.delete(lastCaptures.keys().next().value!);
-      return capture;
+      return new AgentImageResult(result, capture.png);
     }
   };
 
@@ -503,10 +504,11 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
  * Refine marks), scaled so the longer side is at most `maxSide`. imageX = captureX * scale + offsetX.
  */
 async function captureCanvas(documentRef: Document, canvasController: RuntimeCanvasController, maxSide: number): Promise<AgentImageResult> {
-  const main = documentRef.getElementById("canvas");
+  const main = documentRef.querySelector<HTMLCanvasElement>("#canvas");
   const container = documentRef.getElementById("canvas-container");
   if (!main || !container) throw new AgentToolError("failed", "The canvas is not on the page.");
   const area = main.getBoundingClientRect();
+  if (!area.width || !area.height || !main.width || !main.height) throw new AgentToolError("failed", "The canvas has no visible area.");
   const ratio = documentRef.defaultView?.devicePixelRatio ?? 1;
   const scale = Math.min(ratio, maxSide / Math.max(area.width, area.height));
   const out = documentRef.createElement("canvas");
@@ -514,18 +516,24 @@ async function captureCanvas(documentRef: Document, canvasController: RuntimeCan
   out.height = Math.max(1, Math.round(area.height * scale));
   const context = out.getContext("2d");
   if (!context) throw new AgentToolError("failed", "Could not draw the capture.");
+  const cssToCaptureX = out.width / area.width;
+  const cssToCaptureY = out.height / area.height;
   for (const layer of container.querySelectorAll("canvas")) {
     const box = layer.getBoundingClientRect();
     if (!box.width || !box.height || layer.hidden || getComputedStyle(layer).visibility === "hidden" || getComputedStyle(layer).display === "none") continue;
-    context.drawImage(layer, (box.left - area.left) * scale, (box.top - area.top) * scale, box.width * scale, box.height * scale);
+    context.drawImage(layer, (box.left - area.left) * cssToCaptureX, (box.top - area.top) * cssToCaptureY, box.width * cssToCaptureX, box.height * cssToCaptureY);
   }
+  const [zoomX, , , zoomY, panX, panY] = canvasController.raw.canvas.viewportTransform;
+  // Fabric paints logical viewport pixels at the backing canvas context's retina scale.
+  const backing = main.getContext("2d")?.getTransform();
+  const scaleX = main.width / (out.width * (backing?.a ?? 1) * zoomX);
+  const scaleY = main.height / (out.height * (backing?.d ?? 1) * zoomY);
   const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/png"));
   if (!blob) throw new AgentToolError("failed", "Could not encode the capture.");
-  const [zoomX, , , zoomY, panX, panY] = canvasController.raw.canvas.viewportTransform;
   return new AgentImageResult({
     width: out.width,
     height: out.height,
-    imageFromCapture: { scaleX: 1 / (scale * zoomX), scaleY: 1 / (scale * zoomY), offsetX: -panX / zoomX, offsetY: -panY / zoomY },
+    imageFromCapture: { scaleX, scaleY, offsetX: -panX / zoomX, offsetY: -panY / zoomY },
     note: "imageX = captureX * scaleX + offsetX; imageY = captureY * scaleY + offsetY"
   }, new Uint8Array(await blob.arrayBuffer()));
 }
@@ -655,7 +663,7 @@ async function captureSheet(
     width: sheet.width,
     height: sheet.height,
     cells,
-    note: "Cells in reading order, numbered as in the image; inside a cell imageX = (captureX - cell.x) * scale + offsetX"
+    note: "For pixels inside a tile, use its cell and imageFromCell: imageX = (captureX - cell.x) * scale + offsetX; imageY = (captureY - cell.y) * scale + offsetY."
   }, new Uint8Array(await blob.arrayBuffer()));
 }
 

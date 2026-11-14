@@ -5,7 +5,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
-import { grayPng } from "./fixtures/review-dataset.js";
+import { encodePng, grayPng } from "./fixtures/review-dataset.js";
 import { launchDesktop } from "./fixtures/tauri-app.js";
 
 // Drives the desktop app the way an AI agent does: easy-labeling-mcp.exe over stdio (MCP JSON-RPC), which
@@ -539,6 +539,94 @@ test("an MCP agent runs Refine, review and folder-wide changes the person allows
   }
 });
 
+test("MCP capture pixels map back to image box edges through viewport and crops", async () => {
+  const width = 513;
+  const height = 387;
+  const marker = { x0: 81, y0: 59, x1: 238, y1: 176 };
+  const { page, mcp, dataset, close } = await openAgentApp({ dataset: async (folder) => {
+    const pixels = new Uint8Array(width * height);
+    for (let y = marker.y0; y < marker.y1; y++) pixels.fill(255, y * width + marker.x0, y * width + marker.x1);
+    await writeFile(path.join(folder, "marker.png"), encodePng(pixels, width, height, 1));
+  } });
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1237, height: 913, deviceScaleFactor: 1.25, mobile: false });
+    json(await mcp.call("open_folder", { path: dataset }));
+    await expect.poll(() => testApi(page, "api.getCurrentImageName()")).toBe("marker.png");
+    expect(await page.evaluate(() => devicePixelRatio)).toBe(1.25);
+    const locate = async (args: Record<string, unknown>) => {
+      const result = await mcp.call("capture_view", args);
+      const info = json(result);
+      const png = result.content.find((part) => part.type === "image");
+      if (!png || png.type !== "image") throw new Error("MCP did not return a PNG image block");
+      const edges = await page.evaluate(async (data) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${data}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0);
+        const pixels = ctx.getImageData(0, 0, img.width, img.height).data;
+        let x0 = img.width, y0 = img.height, x1 = 0, y1 = 0;
+        for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+          const i = (y * img.width + x) * 4;
+          if (pixels[i] < 128 || pixels[i + 1] < 128 || pixels[i + 2] < 128 || pixels[i + 3] < 128) continue;
+          x0 = Math.min(x0, x);
+          y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x + 1);
+          y1 = Math.max(y1, y + 1);
+        }
+        return { x0, y0, x1, y1, width: img.width, height: img.height };
+      }, png.data);
+      expect(edges).toMatchObject({ width: info.width, height: info.height });
+      const { scaleX, scaleY, offsetX, offsetY } = info.imageFromCapture;
+      return { x0: edges.x0 * scaleX + offsetX, y0: edges.y0 * scaleY + offsetY, x1: edges.x1 * scaleX + offsetX, y1: edges.y1 * scaleY + offsetY };
+    };
+    const checkMarker = (bounds: typeof marker, tolerance: number) => {
+      for (const edge of ["x0", "y0", "x1", "y1"] as const) expect(Math.abs(bounds[edge] - marker[edge]), edge).toBeLessThan(tolerance);
+    };
+    checkMarker(await locate({ maxSide: 911 }), 1);
+    checkMarker(await locate({ maxSide: 4096 }), 1);
+    const canvas = page.locator("canvas.upper-canvas");
+    const beforeResize = (await canvas.boundingBox())!.width;
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1153, height: 853, deviceScaleFactor: 1.25, mobile: false });
+    await expect.poll(async () => (await canvas.boundingBox())!.width).not.toBe(beforeResize);
+    await testApi(page, "api.setCanvasViewportTransform([1.9, 0, 0, 1.9, -37.4, 17.3])");
+    // Scale the CSS presentation without changing the logical viewport or backing store.
+    await page.locator("#canvas-container > .canvas-container").evaluate((el) => {
+      (el as HTMLElement).style.transform = "scale(0.83, 0.91)";
+      (el as HTMLElement).style.transformOrigin = "0 0";
+    });
+    checkMarker(await locate({ maxSide: 911 }), 1);
+    const bounds = await locate({ region: { x0: -0.25, y0: -0.5, x1: 281.3, y1: 231.7 }, maxSide: 641 });
+    checkMarker(bounds, 0.75);
+    const imageEdges = { classId: 1, x0: width - 5, y0: height - 7, x1: width, y1: height };
+    const added = json(await mcp.call("add_boxes", { boxes: [{ classId: 0, ...bounds }, imageEdges] }));
+    const box = json(await mcp.call("get_boxes", { ids: added.annotationIds })).boxes[0];
+    checkMarker(box, 0.75);
+    expect(String(box.classId)).toBe("0");
+    json(await mcp.call("save"));
+    const saved = json(await mcp.call("read_labels", { image: "marker.png" }));
+    expect(saved.units).toBe("normalized");
+    checkMarker({ x0: saved.boxes[0].x0 * width, y0: saved.boxes[0].y0 * height, x1: saved.boxes[0].x1 * width, y1: saved.boxes[0].y1 * height }, 0.75);
+    expect(saved.boxes).toHaveLength(2);
+    expect(saved.boxes[1].x1).toBeCloseTo(1, 8);
+    expect(saved.boxes[1].y1).toBeCloseTo(1, 8);
+
+    // Two empty viewports can produce identical PNGs with different mappings.
+    await testApi(page, "api.setCanvasViewportTransform([2, 0, 0, 2, -3000, -3000])");
+    const blank = json(await mcp.call("capture_view", { maxSide: 911 }));
+    await testApi(page, "api.setCanvasViewportTransform([2, 0, 0, 2, -3020, -3000])");
+    const duplicate = await mcp.call("capture_view", { maxSide: 911 });
+    expect(duplicate.content.some((part) => part.type === "image")).toBe(false);
+    expect(json(duplicate)).toMatchObject({ unchanged: true, captureId: blank.captureId, imageFromCapture: { offsetX: blank.imageFromCapture.offsetX + 10 } });
+  } finally {
+    await close();
+  }
+});
+
 test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and layouts", async () => {
   test.setTimeout(240_000);
   const { page, mcp, dataset, errors, close } = await openAgentApp({ dataset: semDataset });
@@ -582,8 +670,11 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     // The same crop again with nothing changed: no image, the earlier mapping repeated; force sends it again.
     const again = await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512 });
     expect(again.content.some((part) => part.type === "image")).toBe(false);
-    expect(JSON.parse(textOf(again))).toMatchObject({ unchanged: true, imageFromCapture: cropInfo.imageFromCapture });
-    expect((await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512, force: true })).content.some((part) => part.type === "image")).toBe(true);
+    expect(typeof cropInfo.captureId).toBe("string");
+    expect(json(again)).toMatchObject({ unchanged: true, captureId: cropInfo.captureId, imageFromCapture: cropInfo.imageFromCapture, imageNote: expect.stringContaining("force: true") });
+    const forced = await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512, force: true });
+    expect(forced.content.some((part) => part.type === "image")).toBe(true);
+    expect(json(forced).captureId).toBe(cropInfo.captureId);
 
     // Several boxes in one sheet: numbered cells in the order given.
     const sheetIds = classZero.map((box) => box.annotationId);
