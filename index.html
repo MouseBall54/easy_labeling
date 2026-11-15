@@ -548,11 +548,12 @@
                             <div id="refineModeToggle" class="refine-scope refine-mode" role="group" aria-label="Refine mode">
                                 <button type="button" data-mode="edge" title="Snap box edges to the image">Edge</button>
                                 <button type="button" data-mode="reclass" title="Flag boxes for another class by their pixels; boxes never move">Reclass</button>
+                                <button type="button" data-mode="recenter" title="Move boxes onto the centre of their target pixels; sizes never change">Recenter</button>
                             </div>
                         </section>
                         <section class="inspector-section">
                             <div class="section-heading-row"><h3>Settings</h3></div>
-                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit presets, classes, edge rules and reclass rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
+                            <button id="openRefineLabBtn" type="button" class="btn btn-outline-primary btn-sm w-100" title="Edit presets, classes, edge rules, reclass and recenter rules with live results"><i class="bi bi-sliders" aria-hidden="true"></i> Open Refine Lab</button>
                             <p id="refineSettingsSummary" class="refine-hint"></p>
                         </section>
                         <section class="inspector-section" data-refine-mode="reclass" hidden>
@@ -572,6 +573,24 @@
                                 <button id="refineReclassClassBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Reclass every visible box of this class the rule matches (one undo step)">Reclass class</button>
                             </div>
                             <label class="form-check form-switch small mt-2 mb-0"><input id="refineReclassSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep boxes whose class was changed by hand when reclassing a class or all boxes</span></label>
+                        </section>
+                        <section class="inspector-section" data-refine-mode="recenter" hidden>
+                            <div class="section-heading-row"><h3>Recenter with</h3></div>
+                            <select id="refineRecenterPresetSelect" class="form-select form-select-sm" aria-label="Rule used when recentering"><option value="">Lab rule</option></select>
+                            <p id="refineRecenterSummary" class="refine-hint"></p>
+                        </section>
+                        <section class="inspector-section" data-refine-mode="recenter" hidden>
+                            <div class="section-heading-row"><h3>Apply</h3><span class="section-value">Boxes move, sizes stay</span></div>
+                            <div class="refine-run-grid">
+                                <button id="refineRecenterSelectedBtn" type="button" class="btn btn-primary btn-sm" data-refine-run title="Move the selected boxes onto their target centre (E); one undo step, moved boxes are queued for review">Selected</button>
+                                <button id="refineRecenterAllBtn" type="button" class="btn btn-outline-primary btn-sm" data-refine-run title="Move every visible box onto its target centre (Shift+E); one undo step, moved boxes are queued for review">All boxes</button>
+                            </div>
+                            <button id="refineRecenterFolderBtn" type="button" class="btn btn-outline-primary btn-sm w-100 mt-2" data-refine-run title="Recenter every box in every image of this folder with the Recenter-with rule. Current edits are saved first; original label files are backed up"><i class="bi bi-folder-check" aria-hidden="true"></i> Recenter all images in folder</button>
+                            <div class="input-group input-group-sm mt-2">
+                                <select id="refineRecenterClassSelect" class="form-select" aria-label="Class to recenter"></select>
+                                <button id="refineRecenterClassBtn" type="button" class="btn btn-outline-primary" data-refine-run title="Recenter every visible box of this class (one undo step)">Recenter class</button>
+                            </div>
+                            <label class="form-check form-switch small mt-2 mb-0"><input id="refineRecenterSkipManualToggle" class="form-check-input" type="checkbox" checked><span class="form-check-label">Keep hand-edited boxes when recentering a class or all boxes</span></label>
                         </section>
                         <section class="inspector-section" data-refine-mode="edge">
                             <div class="section-heading-row"><h3>Run with</h3></div>

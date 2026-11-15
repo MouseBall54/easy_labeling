@@ -1,4 +1,5 @@
 import { refineBoxes, toGray } from "../dist/domain/refine/edge-refine.js";
+import { recenterBoxes } from "../dist/domain/refine/recenter.js";
 import { getSegmentationPreprocessingKey, normalizeSegmentationPreprocessingConfig, preprocessGray } from "../dist/features/segmentation/preprocessing.js";
 
 // The gray image stays resident here; refine requests only carry boxes and params.
@@ -36,6 +37,8 @@ self.onmessage = ({ data }) => {
       self.postMessage({ id: data.id, result: null });
     } else if (data.type === "refine") {
       self.postMessage({ id: data.id, result: refineBoxes(sourceImage(data.key, data.source), data.boxes, data.paramsByClass, data.neighbours) });
+    } else if (data.type === "recenter") {
+      self.postMessage({ id: data.id, result: recenterBoxes(sourceImage(data.key, data.source), data.boxes, data.rule) });
     } else if (data.type === "gray") {
       // Desktop builds decode here and hand the gray image to the native refine (native-refine-worker.ts).
       if (!image || image.key !== data.key) throw new Error("Refine image is not loaded");

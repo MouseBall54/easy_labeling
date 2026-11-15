@@ -11,6 +11,7 @@ export const PRESET_PICKER_SELECTS = [
   ["segmentationToolPresetSelect", "segmentation"],
   ["refineRunPresetSelect", "refine"],
   ["refineReclassPresetSelect", "reclass"],
+  ["refineRecenterPresetSelect", "recenter"],
   ["boxLayoutSelect", "layout"],
   ["templateLayoutSelect", "layout"],
   ["automationPresetSelect", "preset"],

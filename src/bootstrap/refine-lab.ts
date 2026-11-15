@@ -15,12 +15,15 @@ import {
 } from "../domain/refine/edge-refine.js";
 import {
   applyReclassPreset,
+  applyRecenterPreset,
   applyRefinePreset,
   mergeRefinePresets,
   resolveRefineParams,
   saveReclassPreset,
+  saveRecenterPreset,
   saveRefinePreset,
   type ReclassPreset,
+  type RecenterPreset,
   type RefineImageSource,
   type RefineMode,
   type RefinePreset,
@@ -30,7 +33,8 @@ import {
 import { centreCrop, describeReclassRule, judgeReclass, measureReclass, reclassRuleOf, ruleChecks, type ReclassRule, type ReclassStats } from "../domain/refine/reclass.js";
 import { getColorForClass } from "../features/canvas/colors.js";
 import { createRefineEditor, REFINE_CRITERION_LABELS } from "./refine-editor.js";
-import { layoutMarks, drawMarks, RECLASS_COLOR } from "./refine-marks.js";
+import { analyzeRecenter, describeRecenterRule, judgeRecenter, RECENTER_STATUS_TEXT, recenterChecks, type RecenterAnalysis, type RecenterResult, type RecenterRule } from "../domain/refine/recenter.js";
+import { layoutMarks, drawMarks, RECENTER_COLOR, RECLASS_COLOR } from "./refine-marks.js";
 
 export type RefineLabCaseSource = "selection" | "classes" | "all";
 
@@ -53,10 +57,10 @@ interface LabCase {
   neighbours: RefineRect[];
   img: GrayImage;
   pixels: HTMLCanvasElement;
-  /** Same crop from the image the reclass checks read (the edge crop itself when both read the same image). */
-  reclassSource: string;
-  reclassImg: GrayImage;
-  reclassPixels: HTMLCanvasElement;
+  /** Same crop from the image the Reclass or Recenter rule reads (the edge crop itself when both read the same image). */
+  ruleSource: string;
+  ruleImg: GrayImage;
+  rulePixels: HTMLCanvasElement;
 }
 
 interface LabResult {
@@ -65,6 +69,8 @@ interface LabResult {
   sides: Partial<Record<RefineSide, RefineSideDiagnostics>>;
   /** Null when the rule does not check this case's class. same: the box is already of the rule's class (Apply leaves it). */
   reclass: { stats: ReclassStats; rule: ReclassRule; match: boolean; same: boolean } | null;
+  /** Recenter mode: null when the rule does not move this case's class. */
+  recenter: { analysis: RecenterAnalysis; result: RecenterResult; rule: RecenterRule } | null;
 }
 
 const MAX_CASES = 24;
@@ -142,6 +148,8 @@ export function createRefineLab(input: {
   refineOnCanvas(ids: string[]): void;
   /** Reclasses these canvas boxes with the saved reclass settings (as the pane's Apply does). */
   reclassOnCanvas(ids: string[]): void;
+  /** Recenters these canvas boxes with the saved recenter settings (as the pane's Apply does). */
+  recenterOnCanvas(ids: string[]): void;
   collectCases(source: RefineLabCaseSource, classIds: readonly string[]): RefineBoxInput[];
   /** Gray pixels refinement reads for rect (clamped), from the original or the processed image. */
   cropImage(image: HTMLImageElement, rect: RefineRect, source: RefineImageSource, processing: RefineProcessing | null): Promise<GrayImage & { x0: number; y0: number }>;
@@ -152,6 +160,8 @@ export function createRefineLab(input: {
   deleteProfilePreset?(name: string): Promise<void>;
   profileReclassPresets(): ReclassPreset[];
   deleteProfileReclassPreset?(name: string): Promise<void>;
+  profileRecenterPresets(): RecenterPreset[];
+  deleteProfileRecenterPreset?(name: string): Promise<void>;
   allBoxes(): RefineBoxInput[];
   /** Box bounds as loaded from the label file (the base for reclass shrink checks), or null. */
   loadedBox(id: string): RefineRect | null;
@@ -182,8 +192,15 @@ export function createRefineLab(input: {
   const sourceKey = (imageSource: RefineImageSource, processing: RefineProcessing | null): string =>
     imageSource === "processed" ? `processed:${JSON.stringify(processing?.config ?? "live")}` : "original";
   const imageKey = (doc: RefineSettingsDocument): string => sourceKey(doc.imageSource, doc.processing);
-  const reclassKey = (doc: RefineSettingsDocument): string => sourceKey(doc.reclassImageSource, doc.reclassProcessing);
+  /** The image the current rule mode reads (the edge image in Edge mode). */
+  const ruleKey = (doc: RefineSettingsDocument): string => doc.mode === "reclass" ? sourceKey(doc.reclassImageSource, doc.reclassProcessing)
+    : doc.mode === "recenter" ? sourceKey(doc.recenterImageSource, doc.recenterProcessing) : imageKey(doc);
+  const ruleImage = (doc: RefineSettingsDocument): [RefineImageSource, RefineProcessing | null] => doc.mode === "reclass" ? [doc.reclassImageSource, doc.reclassProcessing]
+    : doc.mode === "recenter" ? [doc.recenterImageSource, doc.recenterProcessing] : [doc.imageSource, doc.processing];
   const reclassMode = (): boolean => draft.mode === "reclass";
+  const recenterMode = (): boolean => draft.mode === "recenter";
+  /** Reclass and Recenter show no edge search: no bands, profile or surroundings. */
+  const ruleMode = (): boolean => draft.mode !== "edge";
   let cases: LabCase[] = [];
   let results: LabResult[] = [];
   let active = 0;
@@ -206,7 +223,9 @@ export function createRefineLab(input: {
       profilePresets: input.profilePresets,
       deleteProfilePreset: input.deleteProfilePreset,
       profileReclassPresets: input.profileReclassPresets,
-      deleteProfileReclassPreset: input.deleteProfileReclassPreset
+      deleteProfileReclassPreset: input.deleteProfileReclassPreset,
+      profileRecenterPresets: input.profileRecenterPresets,
+      deleteProfileRecenterPreset: input.deleteProfileRecenterPreset
     }
   });
   /**
@@ -215,7 +234,7 @@ export function createRefineLab(input: {
    * Otherwise a preset applied or saved here. Save writes the values into the preset the name field names.
    */
   type PresetEdit = { name: string; target: "default" | string[]; runWith: boolean; sync: boolean };
-  let presetEdits: Record<RefineMode, PresetEdit | null> = { edge: null, reclass: null };
+  let presetEdits: Record<RefineMode, PresetEdit | null> = { edge: null, reclass: null, recenter: null };
   const presetBanner = byId<HTMLElement>("refineLabPresetBanner");
   /** The mode whose preset the name field shows; switching modes shows the other mode's preset. */
   let nameMode: RefineMode | null = null;
@@ -230,9 +249,11 @@ export function createRefineLab(input: {
     presetBanner.textContent = !edit?.runWith ? ""
       : draft.mode === "reclass"
         ? `Reclass with "${edit.name}": edits here update this preset. To edit the Lab rule, choose Lab rule under Reclass with in the Refine pane.`
-        : `Run with "${edit.name}": edits here (the Default and each class) update this preset. To edit the saved class settings, choose Class settings under Run with in the Refine pane.`;
+        : draft.mode === "recenter"
+          ? `Recenter with "${edit.name}": edits here update this preset. To edit the Lab rule, choose Lab rule under Recenter with in the Refine pane.`
+          : `Run with "${edit.name}": edits here (the Default and each class) update this preset. To edit the saved class settings, choose Class settings under Run with in the Refine pane.`;
     const apply = byId("refineLabApplyBtn");
-    apply.textContent = draft.mode === "reclass" ? "Save & reclass these boxes" : "Save & refine these boxes";
+    apply.textContent = { edge: "Save & refine these boxes", reclass: "Save & reclass these boxes", recenter: "Save & recenter these boxes" }[draft.mode];
   };
   editor.onPresetChange((name, target, mode) => {
     if (presetEdits[mode]?.runWith) return; // values loaded from another preset still save into the Run-with preset
@@ -286,10 +307,22 @@ export function createRefineLab(input: {
         if (!datasetOwned && !input.deleteProfileReclassPreset) input.notify(`Saved "${name}" to this dataset's presets; the profile folder file is unchanged.`);
       }
     }
+    const recenter = presetEdits.recenter;
+    if (recenter && (recenter.runWith || recenter.sync)) {
+      const { name } = recenter;
+      const datasetOwned = next.recenterPresets.some((preset) => preset.name === name);
+      const updated = saveRecenterPreset(next, name);
+      const key = (preset: RecenterPreset | undefined): string => JSON.stringify(preset && [preset.recenter, preset.imageSource, preset.processing]);
+      if (key(mergeRefinePresets(next.recenterPresets, input.profileRecenterPresets()).find((preset) => preset.name === name)) !== key(updated.recenterPresets.find((preset) => preset.name === name))) {
+        next = updated;
+        if (!datasetOwned && !input.deleteProfileRecenterPreset) input.notify(`Saved "${name}" to this dataset's presets; the profile folder file is unchanged.`);
+      }
+    }
     // A Run-with preset was edited in place of the saved settings of its mode: those stay as they were.
     const saved = input.getSettings();
     if (edge?.runWith) next = { ...next, imageSource: saved.imageSource, processing: saved.processing, default: saved.default, classes: saved.classes };
     if (reclass?.runWith) next = { ...next, reclass: saved.reclass, reclassImageSource: saved.reclassImageSource, reclassProcessing: saved.reclassProcessing };
+    if (recenter?.runWith) next = { ...next, recenter: saved.recenter, recenterImageSource: saved.recenterImageSource, recenterProcessing: saved.recenterProcessing };
     input.saveSettings(next);
   };
   editor.onTargetsChange(() => {
@@ -318,9 +351,9 @@ export function createRefineLab(input: {
     const source = imageKey(draft);
     const rect = { x0: box.x0 - margin, y0: box.y0 - margin, x1: box.x1 + margin, y1: box.y1 + margin };
     const crop = await input.cropImage(image, rect, draft.imageSource, draft.processing);
-    // Reclass reads its own image; it is cropped only while Reclass mode shows it.
-    const reclassSource = reclassMode() ? reclassKey(draft) : source;
-    const reclassCrop = reclassSource === source ? crop : await input.cropImage(image, rect, draft.reclassImageSource, draft.reclassProcessing);
+    // Reclass and Recenter read their own image; it is cropped only while that mode shows it.
+    const ruleSource = ruleKey(draft);
+    const ruleCrop = ruleSource === source ? crop : await input.cropImage(image, rect, ...ruleImage(draft));
     const { x0, y0, width, height } = crop;
     const pixels = toCanvas(crop);
     const shift = (r: RefineRect): RefineRect => ({ x0: r.x0 - x0, y0: r.y0 - y0, x1: r.x1 - x0, y1: r.y1 - y0 });
@@ -337,9 +370,9 @@ export function createRefineLab(input: {
       neighbours: everyBox.filter((n) => n.id !== box.id && n.x1 > x0 && n.x0 < x1 && n.y1 > y0 && n.y0 < y1).map(shift),
       img: { gray: crop.gray, width, height },
       pixels,
-      reclassSource,
-      reclassImg: { gray: reclassCrop.gray, width: reclassCrop.width, height: reclassCrop.height },
-      reclassPixels: reclassCrop === crop ? pixels : toCanvas(reclassCrop)
+      ruleSource,
+      ruleImg: { gray: ruleCrop.gray, width: ruleCrop.width, height: ruleCrop.height },
+      rulePixels: ruleCrop === crop ? pixels : toCanvas(ruleCrop)
     };
   };
 
@@ -357,7 +390,7 @@ export function createRefineLab(input: {
       : "No boxes for this source. Select boxes on the canvas, or switch the case source.";
     if (!image || !boxes.length) { cases = []; schedule(); return; }
     status.textContent = "Loading cases…";
-    Promise.all(boxes.map((box) => prepare(image, box, everyBox, neededMargin(box.classId)))).then((loaded) => {
+    Promise.all(boxes.map((box) => prepare(image, box, everyBox, neededMargin(box)))).then((loaded) => {
       if (token !== caseToken) return;
       cases = loaded;
       active = Math.min(active, Math.max(0, cases.length - 1));
@@ -367,10 +400,16 @@ export function createRefineLab(input: {
 
   /**
    * Crop margin a case needs: the outward search plus the background ring beyond it (perpendicular),
-   * and the scan-span extensions (along the side). Pixels past the crop would read as clamped copies.
+   * and the scan-span extensions (along the side). Pixels past the crop would read as clamped copies. Recenter
+   * needs its region and the farthest move instead.
    */
-  const neededMargin = (classId: string): number => {
-    const params = resolveRefineParams(draft, classId);
+  const neededMargin = (box: RefineBoxInput): number => {
+    if (recenterMode()) {
+      const r = draft.recenter;
+      const reach = Math.max(r.marginTop, r.marginBottom, r.marginLeft, r.marginRight, r.maxShift, 0) * Math.max(box.x1 - box.x0, box.y1 - box.y0);
+      return Math.max(CROP_MARGIN, Math.ceil(reach) + 16);
+    }
+    const params = resolveRefineParams(draft, box.classId);
     const perSide = REFINE_SIDES.map((side) => sideParams(params, side));
     const outward = Math.max(...perSide.map((p) => p.rangeOut)) + params.contextRing + 1;
     const extension = Math.max(...perSide.map((p) => (p.scanSpan === "box" ? 0 : Math.max(p.extendStart, p.extendEnd))));
@@ -379,29 +418,47 @@ export function createRefineLab(input: {
   /** Re-crops cases whose image source changed or whose extensions outgrew the crop; renders again when done. */
   const recropStale = (): void => {
     const image = input.getImage();
-    const stale = (c: LabCase): boolean => c.source !== imageKey(draft) || (reclassMode() && c.reclassSource !== reclassKey(draft)) || neededMargin(c.classId) > c.margin;
+    const stale = (c: LabCase): boolean => c.source !== imageKey(draft) || c.ruleSource !== ruleKey(draft) || neededMargin(c.box) > c.margin;
     if (recropping || !image || !cases.some(stale)) return;
     recropping = true;
     const token = caseToken;
     const everyBox = input.allBoxes();
-    Promise.all(cases.map((c) => (stale(c) ? prepare(image, c.box, everyBox, Math.max(c.margin, Math.ceil(neededMargin(c.classId) / 64) * 64)) : c)))
+    Promise.all(cases.map((c) => (stale(c) ? prepare(image, c.box, everyBox, Math.max(c.margin, Math.ceil(neededMargin(c.box) / 64) * 64)) : c)))
       .then((next) => { if (token === caseToken) cases = next; })
       .catch(fail)
       .finally(() => { recropping = false; schedule(); });
   };
 
-  /** Edge mode: the refinement and its per-side diagnostics. Reclass mode: the judgment, refining only for shrink checks. */
+  /**
+   * Edge mode: the refinement and its per-side diagnostics. Reclass mode: the judgment, refining only for shrink
+   * checks. Recenter mode: the same move the canvas makes, on the case crop (moves are clamped to the whole image).
+   */
   const compute = (c: LabCase): LabResult => {
     const params = resolveRefineParams(draft, c.classId);
     const sides: LabResult["sides"] = {};
+    if (recenterMode()) {
+      const rule = draft.recenter;
+      if (!recenterChecks(rule, c.classId)) return { params, result: null, sides, reclass: null, recenter: null };
+      const analysis = analyzeRecenter(c.ruleImg, c.local, rule);
+      // Judged in image coordinates (the crop origin is a whole pixel), so moves clamp to the whole image as on the canvas.
+      const [ox, oy] = [-c.imageBounds.x0, -c.imageBounds.y0];
+      const inImage = {
+        ...analysis,
+        region: { x0: analysis.region.x0 + ox, y0: analysis.region.y0 + oy, x1: analysis.region.x1 + ox, y1: analysis.region.y1 + oy },
+        centroid: analysis.centroid && { x: analysis.centroid.x + ox, y: analysis.centroid.y + oy }
+      };
+      const judged = judgeRecenter({ width: c.imageBounds.x1 - c.imageBounds.x0, height: c.imageBounds.y1 - c.imageBounds.y0 }, c.box, rule, inImage);
+      const result = { ...judged, box: { x0: judged.box.x0 - ox, y0: judged.box.y0 - oy, x1: judged.box.x1 - ox, y1: judged.box.y1 - oy } };
+      return { params, result: null, sides, reclass: null, recenter: { analysis, result, rule } };
+    }
     if (!reclassMode()) {
       for (const side of REFINE_SIDES) sides[side] = describeRefineSide(c.img, c.local, side, params, c.neighbours);
-      return { params, result: params.enabled ? refineBox(c.img, c.local, params, c.neighbours) : null, sides, reclass: null };
+      return { params, result: params.enabled ? refineBox(c.img, c.local, params, c.neighbours) : null, sides, reclass: null, recenter: null };
     }
     const rule = reclassRuleOf(draft.reclass);
     const shrinks = rule.shrink.enabled && ruleChecks(rule, c.classId);
     const result = params.enabled && shrinks ? refineBox(c.img, c.local, params, c.neighbours) : null;
-    return { params, result, sides, reclass: judgeCase(c, result) };
+    return { params, result, sides, reclass: judgeCase(c, result), recenter: null };
   };
   /**
    * Same judgment as the canvas: centre pixels of the reclass crop, refined area against the box as loaded. Boxes
@@ -413,7 +470,7 @@ export function createRefineLab(input: {
     const area = (r: RefineRect): number => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
     const base = area(input.loadedBox(c.id) ?? c.box);
     const areaChange = result && base > 0 ? area(result.box) / base - 1 : null;
-    const stats = { ...measureReclass(c.reclassImg, c.local, rule), areaChange };
+    const stats = { ...measureReclass(c.ruleImg, c.local, rule), areaChange };
     return { stats, rule, match: judgeReclass(rule, stats), same: c.classId === rule.toClass };
   };
   const reclassText = (r: NonNullable<LabResult["reclass"]>): string => {
@@ -426,7 +483,7 @@ export function createRefineLab(input: {
   const drawReclass = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, X: (x: number) => number, Y: (y: number) => number, detail: boolean): void => {
     if (!r.reclass) return;
     const { rule } = r.reclass;
-    const crop = centreCrop(c.local, rule, c.reclassImg);
+    const crop = centreCrop(c.local, rule, c.ruleImg);
     context.save();
     if (detail && rule.bright.enabled) {
       context.fillStyle = "rgba(230, 73, 128, 0.35)";
@@ -434,7 +491,7 @@ export function createRefineLab(input: {
       const { level, dark } = rule.bright;
       for (let y = crop.y0; y < crop.y1; y += 1) {
         for (let x = crop.x0; x < crop.x1; x += 1) {
-          const v = c.reclassImg.gray[y * c.reclassImg.width + x];
+          const v = c.ruleImg.gray[y * c.ruleImg.width + x];
           if (dark ? v <= level : v >= level) context.fillRect(X(x), Y(y), cell, cell);
         }
       }
@@ -454,13 +511,56 @@ export function createRefineLab(input: {
     }
   };
 
+  const recenterText = (r: NonNullable<LabResult["recenter"]>): string => {
+    const { result } = r;
+    return result.status === "notFound" || result.status === "tooFew"
+      ? `${RECENTER_STATUS_TEXT[result.status]} · ${result.count} px`
+      : `${RECENTER_STATUS_TEXT[result.status]} · x ${shiftText(result.shiftX)} y ${shiftText(result.shiftY)} px`;
+  };
+  const shiftText = (value: number): string => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(1)}`;
+  /** Region (dashed), counted target pixels (green) and left-out ones (faint) in the detail view, the centroid and the moved box. */
+  const drawRecenter = (context: CanvasRenderingContext2D, r: LabResult, X: (x: number) => number, Y: (y: number) => number, detail: boolean): void => {
+    if (!r.recenter) return;
+    const { analysis, result } = r.recenter;
+    const { region, mask, centroid } = analysis;
+    const w = region.x1 - region.x0;
+    context.save();
+    if (detail) {
+      const cell = Math.max(1, X(1) - X(0));
+      for (let i = 0; i < mask.length; i += 1) {
+        if (!mask[i]) continue;
+        context.fillStyle = mask[i] === 1 ? "rgba(12, 166, 120, 0.4)" : "rgba(200, 200, 200, 0.22)";
+        context.fillRect(X(region.x0 + (i % w)), Y(region.y0 + Math.floor(i / w)), cell, cell);
+      }
+    }
+    context.setLineDash([4, 3]);
+    context.strokeStyle = RECENTER_COLOR;
+    context.lineWidth = 1.5;
+    context.strokeRect(X(region.x0), Y(region.y0), X(region.x1) - X(region.x0), Y(region.y1) - Y(region.y0));
+    context.setLineDash([]);
+    if (result.status === "moved") {
+      context.lineWidth = 2;
+      context.strokeRect(X(result.box.x0), Y(result.box.y0), X(result.box.x1) - X(result.box.x0), Y(result.box.y1) - Y(result.box.y0));
+    }
+    if (centroid) {
+      const [cx, cy] = [X(centroid.x), Y(centroid.y)];
+      context.strokeStyle = result.status === "tooFar" || result.status === "tooFew" ? WARN : RECENTER_COLOR;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(cx - 6, cy); context.lineTo(cx + 6, cy);
+      context.moveTo(cx, cy - 6); context.lineTo(cx, cy + 6);
+      context.stroke();
+    }
+    context.restore();
+  };
+
   // ---------------------------------------------------------------- surroundings
   /**
    * Where Surroundings reads (Edge mode): the box core (inner 50%) and the background ring that starts past the
    * widest outward search, as measureContext in edge-refine.ts samples them. Null in Reclass mode or with the ring off.
    */
   const surroundings = (c: LabCase, r: LabResult): { core: RefineRect; inner: RefineRect; outer: RefineRect; from: number; to: number } | null => {
-    if (reclassMode() || r.params.contextRing <= 0) return null;
+    if (ruleMode() || r.params.contextRing <= 0) return null;
     const { x0, y0, x1, y1 } = c.local;
     const [w, h] = [x1 - x0, y1 - y0];
     const from = Math.max(...REFINE_SIDES.map((side) => sideParams(r.params, side).rangeOut)) + 1;
@@ -471,7 +571,7 @@ export function createRefineLab(input: {
   const SURROUND_COLOR = "rgba(240, 173, 78, 0.95)";
   /** Zoom view: the background ring (amber band), the box core (dotted) and the neighbour boxes the search avoids. */
   const drawSurroundings = (context: CanvasRenderingContext2D, c: LabCase, r: LabResult, X: (x: number) => number, Y: (y: number) => number): void => {
-    if (reclassMode()) return;
+    if (ruleMode()) return;
     const rect = (b: RefineRect): [number, number, number, number] => [X(b.x0), Y(b.y0), X(b.x1) - X(b.x0), Y(b.y1) - Y(b.y0)];
     const tag = (text: string, x: number, y: number, color: string): void => {
       context.font = "600 11px system-ui, sans-serif";
@@ -587,6 +687,13 @@ export function createRefineLab(input: {
     // Thumbnails show the box plus the widest outward search actually used (side rules, neighbour limits).
     const reach = Math.max(0, ...REFINE_SIDES.map((side) => r.sides[side]?.rangeOut ?? 0)) + 10;
     let [vx0, vy0, vx1, vy1] = [c.local.x0 - reach, c.local.y0 - reach, c.local.x1 + reach, c.local.y1 + reach];
+    // Recenter: the view holds the region and the moved box.
+    if (r.recenter) {
+      const { region } = r.recenter.analysis;
+      const moved = r.recenter.result.box;
+      vx0 = Math.min(vx0, region.x0 - 4, moved.x0 - 4); vy0 = Math.min(vy0, region.y0 - 4, moved.y0 - 4);
+      vx1 = Math.max(vx1, region.x1 + 4, moved.x1 + 4); vy1 = Math.max(vy1, region.y1 + 4, moved.y1 + 4);
+    }
     if (detail) {
       for (const { requested } of bands) {
         vx0 = Math.min(vx0, requested.x0 - 6); vy0 = Math.min(vy0, requested.y0 - 6);
@@ -613,7 +720,7 @@ export function createRefineLab(input: {
       context.fillRect(X(vx0), Y(vy0), vw * s, vh * s);
     }
     context.imageSmoothingEnabled = false;
-    context.drawImage(reclassMode() ? c.reclassPixels : c.pixels, X(0), Y(0), c.img.width * s, c.img.height * s);
+    context.drawImage(ruleMode() ? c.rulePixels : c.pixels, X(0), Y(0), c.img.width * s, c.img.height * s);
 
     if (detail) {
       // Search ranges: user-set fill opacity plus an outline, so the range stays findable even at low opacity.
@@ -934,8 +1041,8 @@ export function createRefineLab(input: {
       button.className = "refine-lab-case";
       button.dataset.index = String(index);
       button.setAttribute("aria-pressed", String(index === active));
-      button.classList.toggle("is-flagged", reclassMode() ? Boolean(r.reclass?.match) : Boolean(r.result?.flagged));
-      button.classList.toggle("is-off", reclassMode() ? !r.reclass : !r.result);
+      button.classList.toggle("is-flagged", recenterMode() ? r.recenter?.result.status === "moved" : reclassMode() ? Boolean(r.reclass?.match) : Boolean(r.result?.flagged));
+      button.classList.toggle("is-off", recenterMode() ? !r.recenter : reclassMode() ? !r.reclass : !r.result);
       const thumb = doc.createElement("canvas");
       thumb.width = 88;
       thumb.height = 88;
@@ -944,12 +1051,16 @@ export function createRefineLab(input: {
       context.fillRect(0, 0, 88, 88);
       const { X, Y } = drawCase(context, c, r, 88, 88, false);
       drawReclass(context, c, r, X, Y, false);
+      drawRecenter(context, r, X, Y, false);
       if (r.reclass) button.dataset.reclass = r.reclass.match ? "match" : "miss";
+      if (r.recenter) button.dataset.recenter = r.recenter.result.status;
       const name = `${c.classId}${input.className(c.classId) ? ` ${input.className(c.classId)}` : ""}`;
       const label = doc.createElement("span");
-      label.textContent = reclassMode()
-        ? `${name} · ${r.reclass ? reclassText(r.reclass) : "no rule"}`
-        : `${name} · ${r.result ? r.result.conf.toFixed(2) : "off"}`;
+      label.textContent = recenterMode()
+        ? `${name} · ${r.recenter ? recenterText(r.recenter) : "not in the rule"}`
+        : reclassMode()
+          ? `${name} · ${r.reclass ? reclassText(r.reclass) : "no rule"}`
+          : `${name} · ${r.result ? r.result.conf.toFixed(2) : "off"}`;
       button.title = label.textContent;
       button.append(thumb, label);
       fragment.appendChild(button);
@@ -965,17 +1076,21 @@ export function createRefineLab(input: {
     results = cases.map(compute);
     const elapsed = performance.now() - started;
     renderCases();
-    // Reclass mode has no edge profile: the side tabs, search-range controls and the plot step aside.
-    const reclass = reclassMode();
+    // Reclass and Recenter have no edge profile: the side tabs, search-range controls and the plot step aside.
+    const reclass = ruleMode();
     for (const element of [sideTabs, profile, bandOpacity.closest("label"), modalElement.querySelector(".refine-lab-legend")]) if (element instanceof HTMLElement) element.hidden = reclass;
     sideTabs.querySelectorAll<HTMLButtonElement>("[data-side]").forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.side === activeSide)));
     const c = cases[active];
     if (!c) { fitCanvas(zoom); readout.textContent = ""; fitCanvas(profile); return; }
     drawZoom();
-    if (reclass) drawReclassReadout(c, results[active]);
+    if (recenterMode()) drawRecenterReadout(c, results[active]);
+    else if (reclass) drawReclassReadout(c, results[active]);
     else drawProfile(c, results[active]);
     const checked = results.filter((r) => r.reclass);
-    status.textContent = reclass
+    const centred = results.filter((r) => r.recenter);
+    status.textContent = recenterMode()
+      ? `${cases.length} cases · recenter moves ${centred.filter((r) => r.recenter!.result.status === "moved").length} of ${centred.length} · ${elapsed.toFixed(1)} ms`
+      : reclass
       ? `${cases.length} cases · reclass ${checked.filter((r) => r.reclass!.match).length} of ${checked.length} match · ${elapsed.toFixed(1)} ms`
       : `${cases.length} cases · ${results.filter((r) => r.result?.flagged).length} to review · ${elapsed.toFixed(1)} ms`;
   }
@@ -1001,6 +1116,27 @@ export function createRefineLab(input: {
     }));
   };
 
+  /** Recenter mode readout: the rule, what the region held and what the move would be. */
+  const drawRecenterReadout = (c: LabCase, r: LabResult): void => {
+    const pct = (share: number): string => `${Math.round(share * 100)}%`;
+    const rule = draft.recenter;
+    const name = input.className(c.classId);
+    const lines = !r.recenter
+      ? [`The rule does not move class ${c.classId}${name ? ` ${name}` : ""} (choose it in Classes).`]
+      : [
+        `${RECENTER_STATUS_TEXT[r.recenter.result.status]}${r.recenter.result.status === "moved" || r.recenter.result.status === "tooFar" ? `: x ${shiftText(r.recenter.result.shiftX)} · y ${shiftText(r.recenter.result.shiftY)} px` : ""}`,
+        `Target pixels ${r.recenter.analysis.targets} in the region · counted ${r.recenter.result.count} (${pct(r.recenter.result.ratio)}; needs ${rule.minPixels} px and ${pct(rule.minRatio)})`,
+        `Max shift ${pct(rule.maxShift)}: ${(rule.maxShift * (c.box.x1 - c.box.x0)).toFixed(1)} px across, ${(rule.maxShift * (c.box.y1 - c.box.y0)).toFixed(1)} px down`,
+        describeRecenterRule(rule)
+      ];
+    readout.replaceChildren(...lines.map((line, index) => {
+      const row = doc.createElement("div");
+      row.textContent = line;
+      if (index === 0 && r.recenter && r.recenter.result.status !== "moved" && r.recenter.result.status !== "centred") row.className = "text-warning";
+      return row;
+    }));
+  };
+
   /** Redraws only the zoom view from the last results (zoom and pan need no new refinement). */
   function drawZoom(): void {
     viewFrame = 0;
@@ -1009,6 +1145,7 @@ export function createRefineLab(input: {
     if (c && results[active]) {
       const { X, Y } = drawCase(context, c, results[active], zoom.clientWidth, zoom.clientHeight, true);
       drawReclass(context, c, results[active], X, Y, true);
+      drawRecenter(context, results[active], X, Y, true);
     }
     fitButton.disabled = !view;
     fitButton.textContent = view ? `${Math.round((view.s / fit.s) * 100)}% · Fit` : "Fit";
@@ -1121,12 +1258,13 @@ export function createRefineLab(input: {
     modal.hide();
   });
   byId("refineLabApplyBtn").addEventListener("click", () => {
-    const reclass = reclassMode();
+    const mode = draft.mode;
     linkPresetName();
     commit();
     modal.hide();
     const ids = cases.map((c) => c.id);
-    if (reclass) input.reclassOnCanvas(ids);
+    if (mode === "reclass") input.reclassOnCanvas(ids);
+    else if (mode === "recenter") input.recenterOnCanvas(ids);
     else input.refineOnCanvas(ids);
   });
 
@@ -1146,9 +1284,13 @@ export function createRefineLab(input: {
       // With a Run-with preset the Lab edits that preset (its default and class values), as runs use it.
       draft = run ? applyRefinePreset(saved, run.name, "default", presets) : saved;
       if (reclassRun) draft = applyReclassPreset(draft, reclassRun.name, reclassPresets);
+      const recenterPresets = mergeRefinePresets(saved.recenterPresets, input.profileRecenterPresets());
+      const recenterRun = saved.activeRecenterPreset ? recenterPresets.find((preset) => preset.name === saved.activeRecenterPreset) : undefined;
+      if (recenterRun) draft = applyRecenterPreset(draft, recenterRun.name, recenterPresets);
       presetEdits = {
         edge: run ? { name: run.name, target: "default", runWith: true, sync: true } : null,
-        reclass: reclassRun ? { name: reclassRun.name, target: "default", runWith: true, sync: true } : null
+        reclass: reclassRun ? { name: reclassRun.name, target: "default", runWith: true, sync: true } : null,
+        recenter: recenterRun ? { name: recenterRun.name, target: "default", runWith: true, sync: true } : null
       };
       nameMode = null; // show the opened mode's preset name
       renderPresetEdit();

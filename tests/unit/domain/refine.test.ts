@@ -15,13 +15,19 @@ import {
 } from "../../../src/domain/refine/edge-refine.js";
 import {
   applyReclassPreset,
+  applyRecenterPreset,
   applyRefinePreset,
   createRefineSettings,
   deleteReclassPreset,
+  deleteRecenterPreset,
   deleteRefinePreset,
   importReclassPresets,
+  importRecenterPresets,
   importRefinePresets,
   parseReclassPresetFiles,
+  parseRecenterPresetFiles,
+  saveRecenterPreset,
+  serializeRecenterPresets,
   saveReclassPreset,
   serializeReclassPresets,
   mergeRefinePresets,
@@ -40,6 +46,7 @@ import {
   type RefineSettingsDocument
 } from "../../../src/domain/refine/settings.js";
 import { createReclassRule } from "../../../src/domain/refine/reclass.js";
+import { createRecenterRule } from "../../../src/domain/refine/recenter.js";
 
 function paint(width: number, height: number, rects: readonly RefineRect[], noise = 6): GrayImage {
   const gray = new Float32Array(width * height).fill(40);
@@ -572,6 +579,27 @@ describe("domain/refine/settings", () => {
 
     const active = { ...doc, activeReclassPreset: "voids" };
     expect(deleteReclassPreset(active, "voids")).toMatchObject({ reclassPresets: [], activeReclassPreset: null });
+  });
+
+  it("reads files without recenter settings, and keeps recenter presets apart from the other modes", () => {
+    const old = parseRefineSettings(JSON.stringify({ mode: "reclass", imageSource: "processed" }));
+    expect(old).toMatchObject({ recenter: createRecenterRule(), recenterImageSource: "original", recenterProcessing: null, activeRecenterPreset: null, recenterPresets: [] });
+    const rule = { ...createRecenterRule(), axis: "x" as const, fromClasses: ["2"], marginLeft: -0.2 };
+    const processing = { name: "SEM", config: { median: 3 } };
+    let doc: RefineSettingsDocument = { ...createRefineSettings(), mode: "recenter", recenter: rule, recenterImageSource: "processed", recenterProcessing: processing };
+    expect(parseRefineSettings(serializeRefineSettings(doc))).toEqual(doc);
+    doc = saveRecenterPreset(doc, " fins ");
+    expect(doc.recenterPresets).toEqual([{ name: "fins", recenter: rule, imageSource: "processed", processing }]);
+    expect(doc.reclassPresets).toEqual([]);
+    expect(applyRecenterPreset(createRefineSettings(), "fins", doc.recenterPresets)).toMatchObject({ recenter: rule, recenterImageSource: "processed", recenterProcessing: processing, imageSource: "original" });
+
+    const file = serializeRecenterPresets(doc.recenterPresets);
+    expect(() => importRefinePresets(createRefineSettings(), file)).toThrow(/recenter presets file/);
+    expect(() => importReclassPresets(createRefineSettings(), file)).toThrow(/No reclass presets/);
+    expect(importRecenterPresets(createRefineSettings(), file).doc.recenterPresets).toEqual(doc.recenterPresets);
+    expect(importRecenterPresets(createRefineSettings(), serializeRefineSettings(doc)).names).toEqual(["fins"]);
+    expect(parseRecenterPresetFiles([{ name: "a.json", contents: file }, { name: "b.json", contents: "{" }])).toMatchObject({ presets: [{ name: "fins" }], errors: [expect.stringContaining("b.json")] });
+    expect(deleteRecenterPreset({ ...doc, activeRecenterPreset: "fins" }, "fins")).toMatchObject({ recenterPresets: [], activeRecenterPreset: null });
   });
 });
 

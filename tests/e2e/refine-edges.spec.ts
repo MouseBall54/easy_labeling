@@ -1466,3 +1466,100 @@ test("presets: the Run-with preset picked while another folder's settings show i
   });
   expect(aPreset).toBeNull();
 });
+
+// ---------------------------------------------------------------- recenter
+/** Labels the size of TRUTH but off centre: box 0 left 6 / down 4, box 1 right 5. */
+const OFF_CENTRE: Geometry[] = [{ left: 14, top: 34, right: 54, bottom: 94 }, { left: 105, top: 30, right: 145, bottom: 90 }];
+const recenterSettings = (patch: Record<string, unknown> = {}) => ({ default: {}, mode: "recenter", recenter: { target: { level: 128, dark: false }, ...patch } });
+
+test("recenter: All boxes moves each box onto its target in one undo step, keeps sizes, and queues the moves for review", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page, { labels: OFF_CENTRE, settings: recenterSettings() });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineModeToggle [data-mode='recenter']")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#refineRecenterSummary")).toContainText("all classes · ≥ 128 · both axes · nearest group");
+
+  await page.locator("#refineRecenterAllBtn").click();
+  await expect.poll(async () => maxError(await geometries(page))).toBeLessThan(0.6);
+  await expect(page.locator("#refineStatus")).toContainText("2 of 2 boxes recentered");
+  await expect(page.locator("#refineReviewCounter")).toHaveText("2 to review");
+  const overlay = page.locator("#refineOverlayCanvas");
+  await expect(overlay).toHaveAttribute("data-pins", "2");
+  await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-recenter-light.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await page.locator("#inspectorRefinePane").screenshot({ path: "test-results/refine-pane-recenter-dark.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+
+  // Again: nothing left to move.
+  await page.locator("#refineRecenterAllBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("No box moved (2 checked)");
+  await expect(page.locator("#refineStatus")).toContainText("2 already centred");
+
+  // N / F walk and approve the moves.
+  await page.keyboard.press("n");
+  await page.keyboard.press("f");
+  // F approves and goes on to the other moved box.
+  await expect(page.locator("#refineReviewCounter")).toHaveText("1 / 1 to review");
+
+  // One undo step puts both boxes back.
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await geometries(page)).map((g) => [g.left, g.top].map(Math.round))).toEqual([[14, 34], [105, 30]]);
+  await expect(page.locator("#refineReviewCounter")).toHaveText("0 to review");
+});
+
+test("refine lab: Recenter mode shows the region, target pixels and move, and moves one axis when asked", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSemDataset(page, { labels: OFF_CENTRE, settings: { ...recenterSettings(), presets: [{ name: "Edge one", params: {} }] } });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await openLab(page);
+  const editor = page.locator("#refineLabEditor");
+  await expect(editor.locator("[data-ref='presetsTitle']")).toHaveText("Recenter presets");
+  await expect(editor.locator("[data-ref='presetSelect'] option", { hasText: "Edge one" })).toHaveCount(0);
+  await expect(page.locator("#refineLabProfile")).toBeHidden();
+  await expect(page.locator("#refineLabApplyBtn")).toHaveText("Save & recenter these boxes");
+  await expect(editor.locator(".recenter-rule")).toHaveCount(1);
+  await expect(page.locator("#refineLabStatus")).toContainText("recenter moves 2 of 2");
+  await expect(page.locator(".refine-lab-case[data-recenter='moved']")).toHaveCount(2);
+  await expect(page.locator("#refineLabReadout")).toContainText("moved: x");
+  await lab(page).screenshot({ path: "test-results/refine-lab-recenter-light.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+  await lab(page).screenshot({ path: "test-results/refine-lab-recenter-dark.png" });
+  await page.evaluate(() => document.getElementById("darkModeToggle")?.click());
+
+  // A tight Max shift leaves box 0 (6 px of 40 = 15%) where it is.
+  await page.locator("#refineLabRecenter-maxShift").fill("14");
+  await expect(page.locator("#refineLabStatus")).toContainText("recenter moves 1 of 2");
+  await expect(page.locator(".refine-lab-case[data-recenter='tooFar']")).toHaveCount(1);
+  await page.locator("#refineLabRecenter-maxShift").fill("50");
+  // Horizontal only: box 0 keeps its top.
+  await page.locator("#refineLabRecenter-axis").selectOption("x");
+  await editor.locator("[data-ref='presetName']").fill("Across");
+  await editor.locator("[data-act='savePreset']").click();
+  await page.locator("#refineLabApplyBtn").click();
+  await expect(lab(page)).toBeHidden();
+  await expect.poll(async () => (await geometries(page)).map((g) => [g.left, g.top].map(Math.round))).toEqual([[20, 34], [100, 30]]);
+  await expect.poll(async () => JSON.stringify(await settingsFile(page))).toContain('"axis":"x"');
+  const saved = await settingsFile(page) as unknown as { mode: string; recenterPresets: { name: string; recenter: { axis: string } }[] };
+  expect(saved.mode).toBe("recenter");
+  expect(saved.recenterPresets).toMatchObject([{ name: "Across", recenter: { axis: "x" } }]);
+});
+
+test("recenter: the folder run moves every image's boxes with the Recenter-with preset and backs the files up", async ({ page }) => {
+  test.setTimeout(120_000);
+  await openSemDataset(page, {
+    labels: OFF_CENTRE, images: 3,
+    settings: { ...recenterSettings({ axis: "y" }), recenterPresets: [{ name: "Both", recenter: { target: { level: 128, dark: false } }, imageSource: "original", processing: null }], activeRecenterPreset: "Both" }
+  });
+  await page.locator("#canvas-container").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("r");
+  await expect(page.locator("#refineRecenterPresetSelect")).toHaveValue("Both");
+  page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("Recenter boxes in all 3 images"); expect(dialog.message()).toContain("Both"); await dialog.accept(); });
+  await page.locator("#refineRecenterFolderBtn").click();
+  await expect(page.locator("#refineStatus")).toContainText("6 boxes recentered in 3 of 3 images", { timeout: 30_000 });
+  const saved = await labelFiles(page);
+  expect(saved.backups).toEqual([expect.stringMatching(/^recenter-all-/)]);
+  for (const name of ["sem.txt", "sem2.txt", "sem3.txt"]) expect(maxError(yoloBoxes(saved.files[name]))).toBeLessThan(0.6);
+  await expect.poll(async () => maxError(await geometries(page))).toBeLessThan(0.6);
+});

@@ -572,7 +572,12 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
         const config = normalizeSegmentationPreprocessingConfig(api.getSegmentationPreprocessingConfig());
         const expected = preprocessSegmentationImage({ width: original.width, height: original.height, rgba: original.data }, config);
 
-        const [{ createRefineService }, { normalizeRefineParams }] = await Promise.all([load("./dist/features/refine/refine-service.js"), load("./dist/domain/refine/edge-refine.js")]);
+        const [{ createRefineService }, { normalizeRefineParams }, { normalizeRecenterRule }] = await Promise.all([
+          load("./dist/features/refine/refine-service.js"), load("./dist/domain/refine/edge-refine.js"), load("./dist/domain/refine/recenter.js")
+        ]);
+        // Recenter on the same boxes: nearest group on the original, every target pixel and wide margins on the processed image.
+        const recenterNearest = normalizeRecenterRule({ target: { level: 120, dark: false } });
+        const recenterWide = normalizeRecenterRule({ target: { level: 90, dark: true }, component: "all", axis: "x", marginLeft: 1.5, marginRight: 0.8, maxShift: 2, minPixels: 1, minRatio: 0 });
         const boxes = Array.from({ length: 40 }, (_, index) => {
           const x0 = (index % 8) * 480 + 100;
           const y0 = Math.floor(index / 8) * 560 + 120;
@@ -587,7 +592,8 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
           const firstMs = performance.now() - refineStarted;
           const onProcessed = await service.refine(image, boxes, paramsByClass, boxes, processed);
           const crop = await service.crop(image, { x0: 1000.5, y0: 700, x1: 1060, y1: 771.2 }, processed);
-          return { onOriginal, onProcessed, crop: { ...crop, gray: Array.from(crop.gray) }, firstMs };
+          const recentered = [...await service.recenter(image, boxes, recenterNearest, { kind: "original" }), ...await service.recenter(image, boxes, recenterWide, processed)];
+          return { onOriginal, onProcessed, crop: { ...crop, gray: Array.from(crop.gray) }, recentered, firstMs };
         };
         const nativeRefine = await refine();
         const refineCommands = commands.splice(0);
@@ -629,6 +635,15 @@ test("Tauri Processed view and refine read a natively decoded TIFF in Rust inste
         });
       }
       expect(outcome.nativeRefine.crop).toEqual(outcome.workerRefine.crop);
+      // Recenter: Rust gives the worker's statuses, counts and boxes.
+      expect(outcome.nativeRefine.recentered).toHaveLength(80);
+      outcome.nativeRefine.recentered.forEach((result: { id: string; status: string; count: number; box: Record<string, number> }, index: number) => {
+        const expected = outcome.workerRefine.recentered[index];
+        expect([result.id, result.status, result.count]).toEqual([expected.id, expected.status, expected.count]);
+        for (const side of ["x0", "y0", "x1", "y1"] as const) expect(result.box[side]).toBeCloseTo(expected.box[side], 9);
+      });
+      expect(new Set(outcome.nativeRefine.recentered.map((result: { status: string }) => result.status)).size).toBeGreaterThan(1);
+      expect(outcome.refineCommands).toContain("refine_recenter");
     }
     // Native TIFF: Rust reads its own decode. tiff.js image: the page extracts and uploads the pixels.
     expect(resident.viewCommands).toContain("preprocess_view_load_tiff");
@@ -1143,7 +1158,7 @@ test("Tauri presets save into their profile folders without a dialog and list fr
     // Every preset kind has its profile folder, where the folder handles write, list and remove files.
     const folders = await page.evaluate(async () => {
       const names: string[] = [];
-      for (const kind of ["preset", "layout", "refine", "reclass", "preprocessing", "segmentation"] as const) {
+      for (const kind of ["preset", "layout", "refine", "reclass", "recenter", "preprocessing", "segmentation"] as const) {
         const folder = await window.getEasyLabelingProfileDirectory!(kind) as FileSystemDirectoryHandle & { removeEntry(name: string): Promise<void> };
         const handle = await folder.getFileHandle("probe.json", { create: true });
         const writable = await handle.createWritable();
@@ -1156,7 +1171,7 @@ test("Tauri presets save into their profile folders without a dialog and list fr
       }
       return names;
     });
-    expect(folders).toEqual(["Template Presets:0", "Layouts:0", "Refine Presets:0", "Reclass Presets:0", "Preprocessing Presets:0", "Segmentation Presets:0"]);
+    expect(folders).toEqual(["Template Presets:0", "Layouts:0", "Refine Presets:0", "Reclass Presets:0", "Recenter Presets:0", "Preprocessing Presets:0", "Segmentation Presets:0"]);
     expect(errors).toEqual([]);
   } finally {
     await app.close();

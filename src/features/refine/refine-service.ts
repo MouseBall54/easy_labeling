@@ -1,4 +1,5 @@
 import type { GrayImage, RefineBoxInput, RefineParams, RefineRect, RefineResult } from "../../domain/refine/edge-refine.js";
+import type { RecenterResult, RecenterRule } from "../../domain/refine/recenter.js";
 import type { SegmentationPreprocessingConfig } from "../segmentation/preprocessing.js";
 import { nativeTiffPathOf } from "../images/native-tiff.js";
 import { createNativeRefineWorker, type RefineWorkerLike } from "./native-refine-worker.js";
@@ -17,6 +18,8 @@ export interface RefineService {
     neighbours: readonly RefineBoxInput[],
     source: RefineImageInput
   ): Promise<RefineResult[]>;
+  /** Recenter results for boxes, one per box in order, on the pixels source names. */
+  recenter(image: HTMLImageElement, boxes: readonly RefineBoxInput[], rule: RecenterRule, source: RefineImageInput): Promise<RecenterResult[]>;
   /** The gray pixels refinement sees inside rect (clamped to the image), for the Refine Lab. */
   crop(image: HTMLImageElement, rect: RefineRect, source: RefineImageInput): Promise<GrayImage & { x0: number; y0: number }>;
 }
@@ -86,6 +89,11 @@ export function createRefineService(): RefineService {
     async refine(image, boxes, paramsByClass, neighbours, source) {
       const key = await ensureImage(image);
       return call({ type: "refine", key, boxes, paramsByClass, neighbours, source }) as Promise<RefineResult[]>;
+    },
+    async recenter(image, boxes, rule, source) {
+      if (!boxes.length) return [];
+      const key = await ensureImage(image);
+      return call({ type: "recenter", key, boxes, rule, source }) as Promise<RecenterResult[]>;
     },
     async crop(image, rect, source) {
       const key = await ensureImage(image);

@@ -10,6 +10,7 @@ import {
   type HelpLang,
   type HelpTopic
 } from "./refine-help-content.js";
+import type { RefineMode } from "../domain/refine/settings.js";
 
 /**
  * The Refine Lab guide: a <dialog> inside the Lab modal (so Bootstrap's focus trap keeps focus in it), shown in
@@ -19,9 +20,9 @@ import {
 type GroupFilter = HelpGroup | "all";
 const LANG_KEY = "easyLabeling.refineHelpLang";
 
-let guide: { open(mode: "edge" | "reclass", topic?: string): void } | null = null;
+let guide: { open(mode: RefineMode, topic?: string): void } | null = null;
 
-export function openRefineHelp(doc: Document, options: { mode: "edge" | "reclass"; topic?: string }): void {
+export function openRefineHelp(doc: Document, options: { mode: RefineMode; topic?: string }): void {
   guide ??= createGuide(doc);
   guide.open(options.mode, options.topic);
 }
@@ -36,7 +37,7 @@ function initialLang(doc: Document): HelpLang {
   return win?.navigator.language?.toLowerCase().startsWith("ko") ? "ko" : "en";
 }
 
-function createGuide(doc: Document): { open(mode: "edge" | "reclass", topic?: string): void } {
+function createGuide(doc: Document): { open(mode: RefineMode, topic?: string): void } {
   const dialog = doc.getElementById("refineHelpDialog") as HTMLDialogElement;
   dialog.innerHTML = `${HELP_SVG_DEFS}
 <div class="rh-shell">

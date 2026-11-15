@@ -4,6 +4,8 @@ import { REFINE_EDITOR_FIELD_LABELS } from "../../../src/bootstrap/refine-editor
 
 /** Reclass rule labels (reclass-editor.ts builds them inline). */
 const RECLASS_LABELS = ["Change to", "Combine", "Centre inset top %", "Centre inset bottom %", "Centre inset left %", "Centre inset right %", "Mean ≥", "Bright pixels ≥ %", "Bright level", "Area shrinks ≥ %"];
+/** Recenter rule labels (recenter-editor.ts). */
+const RECENTER_LABELS = ["Target", "Level", "Move", "Pixels", "Margin top %", "Min target %", "Min pixels", "Max shift %"];
 const LANGS = HELP_LANGS.map((lang) => lang.id);
 
 describe("bootstrap/refine-help-content", () => {
@@ -17,7 +19,7 @@ describe("bootstrap/refine-help-content", () => {
       for (const [, target] of topic.html.matchAll(/data-topic="([^"]+)"/g)) expect(HELP_TOPIC_IDS).toContain(target);
     }
     // The guide opens on each mode's tutorial.
-    expect(HELP_TOPIC_IDS).toEqual(expect.arrayContaining(["edge-quickstart", "reclass-quickstart"]));
+    expect(HELP_TOPIC_IDS).toEqual(expect.arrayContaining(["edge-quickstart", "reclass-quickstart", "recenter-quickstart"]));
   });
 
   it("keeps the two languages apart: Korean text and figure labels, English UI names", () => {
@@ -29,7 +31,7 @@ describe("bootstrap/refine-help-content", () => {
 
   // Both languages name settings exactly as the Lab shows them, so a setting name finds its explanation.
   it.each(LANGS)("%s: explains every setting the Lab shows, under its UI name", (lang) => {
-    for (const label of [...REFINE_EDITOR_FIELD_LABELS, ...RECLASS_LABELS]) {
+    for (const label of [...REFINE_EDITOR_FIELD_LABELS, ...RECLASS_LABELS, ...RECENTER_LABELS]) {
       expect(searchHelpTopics(label, helpTopics(lang)).length, label).toBeGreaterThan(0);
     }
   });
