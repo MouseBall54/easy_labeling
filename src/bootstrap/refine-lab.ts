@@ -91,6 +91,9 @@ const BAND_OPACITY_KEY = "easy-labeling:refine-lab-band-opacity";
 const SIDE_NAMES: Record<RefineSide, string> = { L: "Left", R: "Right", T: "Top", B: "Bottom" };
 const POLARITY_TEXT = { 1: "bright → dark", [-1]: "dark → bright", 0: "unclear" } as const;
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
+/** Readout markup: `key()` labels a row, `val()` marks a value measured on this case (styled apart from settings). */
+const key = (text: string): string => `\u27EA${text}\u27EB`;
+const val = (text: string | number): string => `\u27E6${text}\u27E7`;
 
 /** Search range actually used on a side, naming what cut it short of the setting. */
 const searchText = (d: RefineSideDiagnostics, set: RefineParams, room: number): string => {
@@ -99,7 +102,7 @@ const searchText = (d: RefineSideDiagnostics, set: RefineParams, room: number): 
     ...(d.rangeOut < set.rangeOut ? [`set ${set.rangeOut}, stops halfway to a neighbour`] : []),
     ...(d.rangeOut > room ? [`image edge after ${Math.max(0, Math.floor(room))} px`] : [])
   ];
-  return `Search ${inward} · ${d.rangeOut} px out${limits.length ? ` (${limits.join("; ")})` : ""}`;
+  return `${key("Search")} ${inward} · ${d.rangeOut} px out${limits.length ? ` (${limits.join("; ")})` : ""}`;
 };
 /** Outward distance (px) from the original edge to a coordinate on that side's axis (0 for the edge itself). */
 const imageToOutward = (d: RefineSideDiagnostics, original: number, value = original): number => (value - original) * d.out;
@@ -114,8 +117,9 @@ const pickText = (d: RefineSideDiagnostics, set: RefineParams, iterations: numbe
       : `${d.criterion === "peak" ? "Band centre" : "Band outer 50%"}: brightest band ${near}`;
   const found = d.segments.filter((segment) => segment.value !== null).length;
   const kept = d.segments.filter((segment) => segment.kept).length;
-  const shift = (value: number | null): string => (value === null ? "no edge" : `${value >= 0 ? "out" : "in"} ${Math.abs(value).toFixed(1)} px`);
-  return `${how} · ${d.segments.length} segment${d.segments.length === 1 ? "" : "s"}: ${found} found, ${kept} kept (≥ ½ best confidence) → ${COMBINE_TEXT[set.comb]} = ${shift(firstShift)}`
+  const shift = (value: number | null): string => val(value === null ? "no edge" : `${value >= 0 ? "out" : "in"} ${Math.abs(value).toFixed(1)} px`);
+  const colon = how.indexOf(": ");
+  return `${key(how.slice(0, colon + 1))}${how.slice(colon + 1)} · ${d.segments.length} segment${d.segments.length === 1 ? "" : "s"}: ${val(found)} found, ${val(kept)} kept (≥ ½ best confidence) → ${COMBINE_TEXT[set.comb]} = ${shift(firstShift)}`
     + (finalShift === null ? "" : ` · after ${iterations} pass${iterations === 1 ? "" : "es"}: ${shift(finalShift)}`);
 };
 
@@ -124,14 +128,14 @@ const PAIR_AXIS_NAMES = { TB: "Top + bottom", LR: "Left + right" } as const;
 const pairText = (pair: NonNullable<RefineSideDiagnostics["pair"]>): string => {
   const kind = (group: "grow" | "shrink") => (group === "grow" ? "growing" : "shrinking");
   const rule = pair.pick === "strongest" ? "clearest" : "nearest";
-  const change = `${pair.spanChange >= 0 ? "+" : "−"}${Math.abs(pair.spanChange).toFixed(1)} px`;
+  const change = val(`${pair.spanChange >= 0 ? "+" : "−"}${Math.abs(pair.spanChange).toFixed(1)} px`);
   const candidates = `this side: ${pair.candidates.length} candidate${pair.candidates.length === 1 ? "" : "s"}`;
   const pairs = `${pair.pool} pair${pair.pool === 1 ? "" : "s"}`;
   const how = pair.group === null
     ? (pair.chosen === null ? "no edge found" : `one side found no edge, ${rule} edge of the other used`)
     : pair.fallback ? `no ${kind(pair.prefer)} pair, used the ${rule} of ${pairs} ${kind(pair.group)}`
       : `${rule} of ${pairs} ${kind(pair.group)}`;
-  return `${PAIR_AXIS_NAMES[pair.axis]} pair: prefer ${kind(pair.prefer)} · ${how} (${change}) · ${candidates}`;
+  return `${key(`${PAIR_AXIS_NAMES[pair.axis]} pair:`)} prefer ${kind(pair.prefer)} · ${how} (${change}) · ${candidates}`;
 };
 
 /** Pixels between a side of the box and the image border, outward. */
@@ -473,10 +477,11 @@ export function createRefineLab(input: {
     const stats = { ...measureReclass(c.ruleImg, c.local, rule), areaChange };
     return { stats, rule, match: judgeReclass(rule, stats), same: c.classId === rule.toClass };
   };
-  const reclassText = (r: NonNullable<LabResult["reclass"]>): string => {
+  /** `mark` wraps the measured numbers (the readout passes `val`; case labels stay plain). */
+  const reclassText = (r: NonNullable<LabResult["reclass"]>, mark: (text: string | number) => string = String): string => {
     const { stats, rule } = r;
-    const parts = [`mean ${Math.round(stats.mean)}`, `${rule.bright.dark ? "dark" : "bright"} ${Math.round(stats.brightRatio * 100)}%`];
-    if (rule.shrink.enabled) parts.push(stats.areaChange === null ? "area: refine off" : `area ${stats.areaChange >= 0 ? "+" : "−"}${Math.abs(stats.areaChange * 100).toFixed(0)}%`);
+    const parts = [`mean ${mark(Math.round(stats.mean))}`, `${rule.bright.dark ? "dark" : "bright"} ${mark(`${Math.round(stats.brightRatio * 100)}%`)}`];
+    if (rule.shrink.enabled) parts.push(stats.areaChange === null ? "area: refine off" : `area ${mark(`${stats.areaChange >= 0 ? "+" : "−"}${Math.abs(stats.areaChange * 100).toFixed(0)}%`)}`);
     return parts.join(" · ");
   };
   /** Centre crop (dashed), the pixels the bright/dark check counts when it is on (detail view), and a pin on a match. */
@@ -615,9 +620,9 @@ export function createRefineLab(input: {
     const n = c.neighbours.length;
     return [
       ring && d.inside !== null && d.outside !== null
-        ? `Surroundings: box core (dotted) ${Math.round(d.inside)} → background ring (amber, ${ring.from}–${ring.to} px out) ${Math.round(d.outside)}: ${POLARITY_TEXT[d.detectedPolarity]}`
-        : "Surroundings: background ring off, polarity is not measured",
-      n ? `${n} neighbour box${n === 1 ? "" : "es"} nearby (grey dashed): ${r.params.avoidNeighbors ? "the outward search stops halfway to them" : "ignored, the search may reach into them"}` : "No neighbour boxes near this one",
+        ? `${key("Surroundings:")} box core (dotted) ${val(Math.round(d.inside))} → background ring (amber, ${ring.from}–${ring.to} px out) ${val(Math.round(d.outside))}: ${val(POLARITY_TEXT[d.detectedPolarity])}`
+        : `${key("Surroundings:")} background ring off, polarity is not measured`,
+      n ? `${val(n)} neighbour box${n === 1 ? "" : "es"} nearby (grey dashed): ${r.params.avoidNeighbors ? "the outward search stops halfway to them" : "ignored, the search may reach into them"}` : "No neighbour boxes near this one",
       r.params.peerTolerance > 0
         ? `Row/column tolerance ${r.params.peerTolerance} px: checked across all boxes when refining on the canvas (not per case here)`
         : "Row/column alignment flags off"
@@ -1011,23 +1016,39 @@ export function createRefineLab(input: {
     const usedPolarity = r.params.polarity === "auto"
       ? `Auto → ${POLARITY_TEXT[d.polarity]}`
       : `${POLARITY_TEXT[d.polarity]} (fixed)${d.detectedPolarity !== 0 && d.detectedPolarity !== d.polarity ? " · differs from the image" : ""}`;
-    readout.replaceChildren(...[
-      off ? `${SIDE_NAMES[activeSide]}: off` : `${SIDE_NAMES[activeSide]}: ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${(r.result?.sideConf[activeSide] ?? 0).toFixed(2)} · ${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`,
+    renderReadout([
+      [off ? `${key(`${SIDE_NAMES[activeSide]}:`)} off` : `${key(`${SIDE_NAMES[activeSide]}:`)} ${REFINE_CRITERION_LABELS[d.criterion]} · confidence ${val((r.result?.sideConf[activeSide] ?? 0).toFixed(2))} · ${val(`${outward >= 0 ? "out" : "in"} ${Math.abs(outward).toFixed(1)} px`)}`, "head"],
       off ? "" : searchText(d, sideParams(r.params, activeSide), roomOutside(c, activeSide)),
       off ? "" : pickText(d, sideParams(r.params, activeSide), r.params.iterations,
         d.firstPass === null ? null : imageToOutward(d, c.local[SIDE_KEY[activeSide]], d.firstPass),
         r.result ? imageToOutward(d, c.local[SIDE_KEY[activeSide]], r.result.box[SIDE_KEY[activeSide]]) : null),
       off || !d.pair ? "" : pairText(d.pair),
-      off || !d.parts ? "" : `Parts (strength): ${partNames(d).map((name, index) => `${name} ${d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1)}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
-      ...surroundingsText(c, r, d),
-      `Polarity used: ${usedPolarity}`,
-      r.result ? `Box area ${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}` : "",
-      r.result?.sizeLimited ? "Refined size left the min/max width or height: that axis kept its sides, flagged for review" : ""
-    ].filter(Boolean).map((line, index) => {
+      off || !d.parts ? "" : `${key("Parts (strength):")} ${partNames(d).map((name, index) => `${name} ${val(d.parts![index]!.value === null ? "no edge" : d.parts![index]!.strength.toFixed(1))}${index === d.chosenPart ? " — used" : ""}`).join(" · ")}`,
+      ...surroundingsText(c, r, d).map((line) => [line, "context"] as const),
+      [`${key("Polarity used:")} ${val(usedPolarity)}`, usedPolarity.includes("differs") ? "warning" : ""],
+      r.result ? [`${key("Box area")} ${val(`${r.result.areaChange >= 0 ? "+" : "−"}${Math.abs(r.result.areaChange * 100).toFixed(0)}%`)}${r.result.areaFlagged ? " · beyond the area limit, flagged for review" : ""}`, r.result.areaFlagged ? "danger" : ""] : "",
+      r.result?.sizeLimited ? ["Refined size left the min/max width or height: that axis kept its sides, flagged for review", "danger"] : ""
+    ]);
+  };
+
+  /**
+   * Readout rows under the plot: `[line, tone]` or a plain line (empty ones are dropped). In a line, key() text
+   * becomes the row label and val() text a measured value; the text itself stays as written.
+   */
+  const renderReadout = (rows: ReadonlyArray<string | readonly [string, string]>): void => {
+    readout.replaceChildren(...rows.map((entry) => (typeof entry === "string" ? [entry, ""] as const : entry)).filter(([line]) => line).map(([line, tone]) => {
       const row = doc.createElement("div");
-      row.textContent = line;
-      if (line.startsWith("Polarity used") && line.includes("differs")) row.className = "text-warning";
-      if (line.includes("area limit") || line.includes("min/max width")) row.className = "text-danger";
+      row.className = `refine-lab-readout-row${tone ? ` is-${tone}` : ""}`;
+      for (const part of line.split(/(\u27E6[^\u27E7]*\u27E7|\u27EA[^\u27EB]*\u27EB)/u)) {
+        if (!part) continue;
+        if (part.startsWith("\u27E6") || part.startsWith("\u27EA")) {
+          const span = doc.createElement("span");
+          span.className = part.startsWith("\u27E6") ? "refine-lab-readout-value" : "refine-lab-readout-key";
+          span.textContent = part.slice(1, -1);
+          if (part.startsWith("⟦")) span.title = "Measured on this case";
+          row.append(span);
+        } else row.append(part);
+      }
       return row;
     }));
   };
@@ -1104,16 +1125,11 @@ export function createRefineLab(input: {
     const lines = !r.reclass
       ? [rule.mean.enabled || rule.bright.enabled || rule.shrink.enabled ? `The rule does not check ${className} (choose it in Classes).` : "The rule has no check on."]
       : [
-        `${r.reclass.match ? "Match" : "No match"}${r.reclass.same ? ` (already ${className}: Apply leaves it as it is)` : ""}: ${describeReclassRule(r.reclass.rule, name)}`,
-        `Centre inset top ${pct(r.reclass.rule.insetTop)} · bottom ${pct(r.reclass.rule.insetBottom)} · left ${pct(r.reclass.rule.insetLeft)} · right ${pct(r.reclass.rule.insetRight)}: ${reclassText(r.reclass)}`,
+        `${key(r.reclass.match ? "Match" : "No match")}${r.reclass.same ? ` (already ${className}: Apply leaves it as it is)` : ""}: ${describeReclassRule(r.reclass.rule, name)}`,
+        `${key("Centre inset")} top ${pct(r.reclass.rule.insetTop)} · bottom ${pct(r.reclass.rule.insetBottom)} · left ${pct(r.reclass.rule.insetLeft)} · right ${pct(r.reclass.rule.insetRight)}: ${reclassText(r.reclass, val)}`,
         ...(r.reclass.rule.shrink.enabled ? ["Area is the refined box (Edge settings) against the box as loaded from the label file."] : [])
       ];
-    readout.replaceChildren(...lines.map((line, index) => {
-      const row = doc.createElement("div");
-      row.textContent = line;
-      if (index === 0 && r.reclass?.match) row.className = "text-danger";
-      return row;
-    }));
+    renderReadout(lines.map((line, index) => [line, index ? (index === 2 ? "context" : "") : r.reclass?.match ? "danger" : "head"] as const));
   };
 
   /** Recenter mode readout: the rule, what the region held and what the move would be. */
@@ -1124,17 +1140,13 @@ export function createRefineLab(input: {
     const lines = !r.recenter
       ? [`The rule does not move class ${c.classId}${name ? ` ${name}` : ""} (choose it in Classes).`]
       : [
-        `${RECENTER_STATUS_TEXT[r.recenter.result.status]}${r.recenter.result.status === "moved" || r.recenter.result.status === "tooFar" ? `: x ${shiftText(r.recenter.result.shiftX)} · y ${shiftText(r.recenter.result.shiftY)} px` : ""}`,
-        `Target pixels ${r.recenter.analysis.targets} in the region · counted ${r.recenter.result.count} (${pct(r.recenter.result.ratio)}; needs ${rule.minPixels} px and ${pct(rule.minRatio)})`,
-        `Max shift ${pct(rule.maxShift)}: ${(rule.maxShift * (c.box.x1 - c.box.x0)).toFixed(1)} px across, ${(rule.maxShift * (c.box.y1 - c.box.y0)).toFixed(1)} px down`,
+        `${key(RECENTER_STATUS_TEXT[r.recenter.result.status])}${r.recenter.result.status === "moved" || r.recenter.result.status === "tooFar" ? `: x ${val(shiftText(r.recenter.result.shiftX))} · y ${val(shiftText(r.recenter.result.shiftY))} px` : ""}`,
+        `${key("Target pixels")} ${val(r.recenter.analysis.targets)} in the region · counted ${val(r.recenter.result.count)} (${val(pct(r.recenter.result.ratio))}; needs ${rule.minPixels} px and ${pct(rule.minRatio)})`,
+        `${key("Max shift")} ${pct(rule.maxShift)}: ${(rule.maxShift * (c.box.x1 - c.box.x0)).toFixed(1)} px across, ${(rule.maxShift * (c.box.y1 - c.box.y0)).toFixed(1)} px down`,
         describeRecenterRule(rule)
       ];
-    readout.replaceChildren(...lines.map((line, index) => {
-      const row = doc.createElement("div");
-      row.textContent = line;
-      if (index === 0 && r.recenter && r.recenter.result.status !== "moved" && r.recenter.result.status !== "centred") row.className = "text-warning";
-      return row;
-    }));
+    const settled = !r.recenter || r.recenter.result.status === "moved" || r.recenter.result.status === "centred";
+    renderReadout(lines.map((line, index) => [line, index ? (index >= 2 ? "context" : "") : settled ? "head" : "warning"] as const));
   };
 
   /** Redraws only the zoom view from the last results (zoom and pan need no new refinement). */
