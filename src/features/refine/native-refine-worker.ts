@@ -82,6 +82,10 @@ export function createNativeRefineWorker(createDecoder: () => Worker): RefineWor
             source: toNativeSource(message.source as RefineSourceMessage)
           }
         }));
+      } else if (message.type === "recenter") {
+        work = ready.then(() => native.invoke("refine_recenter", {
+          request: { key, boxes: message.boxes, rule: message.rule, source: toNativeSource(message.source as RefineSourceMessage) }
+        }));
       } else if (message.type === "crop") {
         const rect = message.rect as { x0: number; y0: number; x1: number; y1: number };
         work = ready.then(async () => {

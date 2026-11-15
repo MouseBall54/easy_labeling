@@ -1,7 +1,7 @@
 // Native refine: box refinement and its preprocessing run in Rust (crates/el-core) instead of the
 // refine worker. src/features/refine/native-refine-worker.ts keeps the worker's message protocol.
 
-use el_core::{preprocess, refine};
+use el_core::{preprocess, recenter, refine};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -126,6 +126,25 @@ pub async fn refine_run(request: RefineRequest) -> CommandResult<Vec<refine::Ref
         let (pixels, width, height) = source_pixels(&request.key, &request.source)?;
         let image = refine::GrayImage { gray: &pixels, width, height };
         Ok(refine::refine_boxes(&image, &request.boxes, &request.params_by_class, &request.neighbours))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+pub struct RecenterRequest {
+    key: String,
+    boxes: Vec<refine::BoxInput>,
+    rule: recenter::RecenterRule,
+    source: RefineSource,
+}
+
+/// Recenter results for the loaded refine image (one per box, in order).
+#[tauri::command]
+pub async fn refine_recenter(request: RecenterRequest) -> CommandResult<Vec<recenter::RecenterResult>> {
+    blocking(move || {
+        let (pixels, width, height) = source_pixels(&request.key, &request.source)?;
+        let image = refine::GrayImage { gray: &pixels, width, height };
+        Ok(recenter::recenter_boxes(&image, &request.boxes, &request.rule))
     })
     .await
 }

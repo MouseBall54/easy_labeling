@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { normalizeSegmentationPreprocessingConfig, preprocessGray, preprocessSegmentationImage } from "../../dist/features/segmentation/preprocessing.js";
 import { normalizeRefineParams, refineBoxes } from "../../dist/domain/refine/edge-refine.js";
 import { LABEL_FILE_MOVE_EPSILON, labelFileBoxes, movedBy } from "../../dist/domain/refine/label-file.js";
+import { normalizeRecenterRule, recenterBoxes } from "../../dist/domain/refine/recenter.js";
 import { inspectDetectionLabels } from "../../dist/features/review/quality.js";
 import { parseYoloRows } from "../../dist/domain/yolo/yolo.js";
 import { createSlicoSuperpixels, normalizeSuperpixelSettings } from "../../dist/features/segmentation/superpixels.js";
@@ -476,6 +477,54 @@ function writeRefineFolder() {
   return cases.length;
 }
 
+/** recenterBoxes (recenter.rs) on the refine fixture images (Original and Processed) with rule variants. */
+function writeRecenter() {
+  const dir = path.join(fixtures, "recenter");
+  mkdirSync(dir, { recursive: true });
+  const images = [
+    { file: "gray-203x151.u8", width: 203, height: 151, seed: 7, cellW: 40, cellH: 50 },
+    { file: "gray-384x288.u8", width: 384, height: 288, seed: 21, cellW: 16, cellH: 12 }
+  ];
+  const processing = normalizeSegmentationPreprocessingConfig({ mode: "original", median: true, claheClip: 2 });
+  const variants = {
+    "default": {},
+    "dark": { target: { level: 90.5, dark: true } },
+    "axis-x": { axis: "x", marginLeft: 0.6, marginRight: 0.6 },
+    "axis-y": { axis: "y", marginTop: 1.2, marginBottom: 0.1 },
+    "all-pixels": { component: "all", maxShift: 2 },
+    "inward": { marginTop: -0.3, marginBottom: -0.2, marginLeft: -0.45, marginRight: -0.1, minPixels: 1, minRatio: 0 },
+    "wide": { marginTop: 3, marginBottom: 3, marginLeft: 3, marginRight: 3, maxShift: 5, target: { level: 150, dark: false } },
+    "strict": { minRatio: 0.6, minPixels: 50, maxShift: 0.05 },
+    "level-edge": { target: { level: 0, dark: false }, component: "all" }
+  };
+  const cases = [];
+  const add = (name, imageIndex, boxes, raw, processed) => {
+    const image = images[imageIndex];
+    let pixels = toGray(syntheticImage(image.width, image.height, image.seed, image.cellW, image.cellH));
+    if (processed) pixels = toGray(preprocessGray(Float32Array.from(pixels), image.width, image.height, processing));
+    const rule = normalizeRecenterRule(raw);
+    const expected = recenterBoxes({ gray: pixels, width: image.width, height: image.height }, boxes, rule);
+    cases.push({ name, image: `../refine/${image.file}`, width: image.width, height: image.height, processing: processed ? processing : null, boxes, rule, expected });
+  };
+  const small = gridBoxes(203, 151, 40, 50, 11, ["0", "1"]);
+  for (const [name, raw] of Object.entries(variants)) add(`small-${name}`, 0, small, raw, false);
+  add("small-processed", 0, small, {}, true);
+  add("small-edges", 0, [
+    { id: "across-left", classId: "0", x0: -6, y0: 20, x1: 14, y1: 44 },
+    { id: "across-bottom-right", classId: "1", x0: 190, y0: 140, x1: 215, y1: 160 },
+    { id: "outside", classId: "0", x0: 300, y0: 300, x1: 320, y1: 330 },
+    { id: "zero-width", classId: "0", x0: 60, y0: 60, x1: 60, y1: 80 },
+    { id: "one-pixel", classId: "1", x0: 100.4, y0: 70.6, x1: 101.4, y1: 71.6 },
+    { id: "half-pixels", classId: "0", x0: 49.5, y0: 60.5, x1: 70.5, y1: 90.5 },
+    { id: "wider-than-image", classId: "0", x0: -20, y0: 30, x1: 230, y1: 60 }
+  ], { maxShift: 5, minPixels: 1, minRatio: 0 }, false);
+  const dense = gridBoxes(384, 288, 16, 12, 23, ["0", "1", "2"]);
+  add("dense-576-default", 1, dense, {}, false);
+  add("dense-576-wide-all", 1, dense, variants.wide, true);
+  writeFileSync(path.join(dir, "cases.json"), JSON.stringify(cases));
+  return cases.length;
+}
+
 /** SEM-sized inputs for the benches; not committed (tens of MB). */
 function writeBenchInputs() {
   const dir = path.join(fixtures, "generated");
@@ -516,6 +565,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`review cases: ${writeReview()}`);
   console.log(`refine cases: ${writeRefine()}`);
   console.log(`refine-folder cases: ${writeRefineFolder()}`);
+  console.log(`recenter cases: ${writeRecenter()}`);
   console.log(`tiff cases: ${writeTiff()}`);
   console.log(`superpixel cases: ${writeSuperpixels()}`);
   if (process.argv.includes("--bench")) console.log(`bench inputs: ${writeBenchInputs()}`);

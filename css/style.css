@@ -4725,7 +4725,11 @@ body.dark-mode .loading-overlay {
     margin-bottom: 0;
 }
 
-/* Edge / Reclass: sections of the other mode are hidden (they use grid/flex display rules). */
+.refine-scope.refine-mode {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Edge / Reclass / Recenter: sections of the other modes are hidden (they use grid/flex display rules). */
 [data-mode-only][hidden],
 [data-refine-mode][hidden],
 .refine-lab-view-column [hidden] {

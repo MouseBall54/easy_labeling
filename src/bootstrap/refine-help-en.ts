@@ -1,7 +1,7 @@
 import type { HelpKit, HelpText } from "./refine-help-content.js";
 
 /** English guide texts, by topic id (refine-help-content.ts orders and illustrates them). */
-export function englishHelpTexts({ D, R, pct, link, tip, def, keys }: HelpKit): Record<string, HelpText> {
+export function englishHelpTexts({ D, R, C, pct, link, tip, def, keys }: HelpKit): Record<string, HelpText> {
   return {
     "edge-quickstart": {
       title: "Tutorial: snap boxes to particle edges",
@@ -172,13 +172,49 @@ ${def("Review", `Changed boxes get a magenta pin (from → to). ${keys("N")} / $
 ${def("Reclass all images in folder", `Every image of the folder (${link("folder-run", "whole folder")}).`)}
 </dl>`
     },
+    "recenter-quickstart": {
+      title: "Tutorial: centre boxes on their target",
+      caption: "Recenter moves each box onto the centroid of its target pixels; sizes never change.",
+      html: `<ol class="rh-steps">
+<li><strong>Switch Mode to Recenter</strong> in the Lab. The class chips choose which classes the rule moves (none = all).</li>
+<li><strong>Target and Level:</strong> what the box should be centred on, bright pixels (at or above the level) or dark ones (at or below it).</li>
+<li><strong>Margins</strong> set the region around the box the target is looked for in (${link("recenter-rule", "rule")}); <em>Move</em> picks both axes, horizontal only or vertical only.</li>
+<li>Each case shows the region dashed, counted pixels green, the centroid as a cross and the moved box solid. Cases that would move are highlighted; the footer counts them.</li>
+<li><strong>Save &amp; recenter these boxes</strong> (or <em>Apply</em> in the pane): boxes move at once (one undo step) and are queued for review (${link("recenter-run", "apply and review")}).</li>
+</ol>`
+    },
+    "recenter-rule": {
+      title: "Recenter rule: target, region and limits",
+      html: `<p>The rule looks for target pixels in a region around the box, takes their centroid (each pixel counts the same) and moves the box, its size kept, so its centre sits there.</p>
+<dl class="rh-defs">
+${def("Target", "Bright: pixels at or above the level are the target. Dark: pixels at or below it.", C.target.dark ? "Dark" : "Bright")}
+${def("Level", "Gray level (0–255) that splits target pixels from the rest.", C.target.level)}
+${def("Move", "Both axes, Horizontal only or Vertical only: the other axis keeps its position.", "Both axes")}
+${def("Pixels", "Nearest group: only the connected target pixels nearest the box centre count, so a neighbouring particle inside the region does not pull the box. All in region: every target pixel counts.", "Nearest group")}
+${def("Margin top / bottom / left / right %", "How far the region reaches past each side, as a share of the box height (top, bottom) or width (left, right). Negative values keep the region inside the box.", pct(C.marginTop))}
+${def("Min target %", "Counted pixels must be at least this share of the region, or the box stays.", pct(C.minRatio))}
+${def("Min pixels", "Counted pixels must be at least this many, or the box stays.", C.minPixels)}
+${def("Max shift %", "Largest move as a share of the box width (horizontal) or height (vertical). A box whose target lies farther stays where it is.", pct(C.maxShift))}
+</dl>${tip("The region should hold the whole particle but not much of its neighbours: raise the margins until the green pixels cover the particle, keep Nearest group on, and use Max shift to stop boxes from jumping to the next particle.")}`
+    },
+    "recenter-run": {
+      title: "Apply, review and recenter",
+      html: `<p>In the Refine pane (Recenter mode), <em>Recenter with</em> picks the Lab rule or a recenter preset. Each <em>Apply</em> button moves its boxes with the rule now, as one undo step; boxes without enough target pixels or with a move past the limit stay, and the status line counts them.</p>
+<dl class="rh-defs">
+${def("Selected / All boxes", "The selected boxes, or every visible box.")}
+${def("Recenter class", "Every visible box of the class chosen beside it. Classes the rule does not move cannot be chosen.")}
+${def("Keep hand-edited boxes", "On (default), All boxes and Recenter class leave boxes you moved or resized by hand alone; Selected always moves.")}
+${def("Review", `Moved boxes get a green pin and their move. ${keys("N")} / ${keys("Shift", "N")} walks them, ${keys("F")} approves one, <em>Approve all</em> approves the rest. Undo or a hand move takes a box out of the queue.`)}
+${def("Recenter all images in folder", `Every image of the folder (${link("folder-run", "whole folder")}).`)}
+</dl>`
+    },
     "folder-run": {
       title: "Whole folder with a preset",
       html: `<ol class="rh-steps">
-<li>Tune on a few images in the Lab and save a preset (Edge or Reclass).</li>
-<li>In the pane choose it under <em>Run with</em> (Edge) or <em>Reclass with</em> (Reclass).</li>
-<li>Press <em>Refine all images in folder</em> or <em>Reclass all images in folder</em> and confirm.</li>
-</ol><p>Current edits are saved first; every label file that changes is backed up under <em>.easy-labeling/refine-all-…</em> or <em>reclass-all-…</em> in the label folder. Stopping writes nothing. Undo (${keys("Ctrl", "Z")}) does not reach other images: restore from the backup.</p>`
+<li>Tune on a few images in the Lab and save a preset (Edge, Reclass or Recenter).</li>
+<li>In the pane choose it under <em>Run with</em> (Edge), <em>Reclass with</em> (Reclass) or <em>Recenter with</em> (Recenter).</li>
+<li>Press <em>Refine</em>, <em>Reclass</em> or <em>Recenter all images in folder</em> and confirm.</li>
+</ol><p>Current edits are saved first; every label file that changes is backed up under <em>.easy-labeling/refine-all-…</em>, <em>reclass-all-…</em> or <em>recenter-all-…</em> in the label folder. Stopping writes nothing. Undo (${keys("Ctrl", "Z")}) does not reach other images: restore from the backup.</p>`
     },
     hints: {
       title: "Symptoms and what to try",
@@ -193,14 +229,16 @@ ${def("Long lines or trenches", `Scan span <em>Box + outside</em> with extension
 ${def("Many boxes flagged", `Look at the weak-side carets first; fix the range or criterion of that side. Lower <em>Flag below confidence</em> only for truly faint edges (${link("edge-review", "review")}).`)}
 ${def("Reclass flags normal boxes", `Move the crop off the rim (${link("reclass-crop", "insets")}), raise Mean, or combine with AND (${link("reclass-checks", "checks")}).`)}
 ${def("Reclass misses defects", "Lower one threshold at a time, turn on Bright pixels for mottled centres, move the crop toward where defects show.")}
+${def("Recenter pulls boxes toward neighbours", `Keep <em>Nearest group</em> on, lower the margins or <em>Max shift</em> (${link("recenter-rule", "rule")}).`)}
+${def("Recenter leaves boxes where they are", `Read the case: no target pixels (adjust Level or Target), too few (lower Min target % or Min pixels) or a move past Max shift.`)}
 </dl>`
     },
     shortcuts: {
       title: "Shortcuts",
       html: `<dl class="rh-defs">
 ${def(keys("R"), "Open or close the Refine pane.")}
-${def(`${keys("E")} / ${keys("Shift", "E")}`, "Apply to the selected boxes / every box with the mode shown: refine in Edge mode, reclass in Reclass mode.")}
-${def(`${keys("N")} / ${keys("Shift", "N")}`, "Next / previous box to review (flags in Edge mode, reclassed boxes in Reclass mode).")}
+${def(`${keys("E")} / ${keys("Shift", "E")}`, "Apply to the selected boxes / every box with the mode shown: refine in Edge mode, reclass in Reclass mode, recenter in Recenter mode.")}
+${def(`${keys("N")} / ${keys("Shift", "N")}`, "Next / previous box to review (flags in Edge mode, reclassed boxes in Reclass mode, moved boxes in Recenter mode).")}
 ${def(keys("F"), "Approve the selected box to review (<em>Approve all</em> in the pane approves every one).")}
 ${def("Zoom view", "Wheel: zoom · drag: pan · double-click: fit.")}
 </dl>`

@@ -11,6 +11,7 @@ import {
   type RefineSideRule
 } from "./edge-refine.js";
 import { normalizeReclassRules, type ReclassRule } from "./reclass.js";
+import { createRecenterRule, normalizeRecenterRule, type RecenterRule } from "./recenter.js";
 
 export const REFINE_SETTINGS_FILE = "refine-settings.json";
 
@@ -31,8 +32,8 @@ export interface RefineProcessing {
   config: Record<string, unknown>;
 }
 
-/** What Refine does: snap box edges, or flag boxes for another class. Each mode has its own presets and image. */
-export type RefineMode = "edge" | "reclass";
+/** What Refine does: snap box edges, flag boxes for another class, or move boxes onto their target. Each mode has its own presets and image. */
+export type RefineMode = "edge" | "reclass" | "recenter";
 
 export interface RefineSettingsDocument {
   schemaVersion: 1;
@@ -53,6 +54,13 @@ export interface RefineSettingsDocument {
   /** Reclass preset the pane finds candidates with instead of the rules above; null = those rules. */
   activeReclassPreset: string | null;
   reclassPresets: ReclassPreset[];
+  /** Recenter rule (see recenter.ts); files without it get the default. */
+  recenter: RecenterRule;
+  recenterImageSource: RefineImageSource;
+  recenterProcessing: RefineProcessing | null;
+  /** Recenter preset the pane moves boxes with instead of the rule above; null = that rule. */
+  activeRecenterPreset: string | null;
+  recenterPresets: RecenterPreset[];
 }
 
 /** Edge preset. Rules older versions saved in it ("reclass") are ignored: reclass has presets of its own. */
@@ -74,13 +82,21 @@ export interface ReclassPreset {
   processing: RefineProcessing | null;
 }
 
+export interface RecenterPreset {
+  name: string;
+  recenter: RecenterRule;
+  imageSource: RefineImageSource;
+  processing: RefineProcessing | null;
+}
+
 type ScalarKey = Exclude<keyof RefineParams, "sides" | "sideRules">;
 const SCALAR_KEYS = Object.keys(normalizeRefineParams({})).filter((key) => key !== "sides" && key !== "sideRules") as ScalarKey[];
 
 export function createRefineSettings(): RefineSettingsDocument {
   return {
     schemaVersion: 1, mode: "edge", imageSource: "original", processing: null, activePreset: null, default: normalizeRefineParams({}), classes: {}, presets: [],
-    reclass: [], reclassImageSource: "original", reclassProcessing: null, activeReclassPreset: null, reclassPresets: []
+    reclass: [], reclassImageSource: "original", reclassProcessing: null, activeReclassPreset: null, reclassPresets: [],
+    recenter: createRecenterRule(), recenterImageSource: "original", recenterProcessing: null, activeRecenterPreset: null, recenterPresets: []
   };
 }
 
@@ -229,9 +245,10 @@ export function parseRefineSettings(text: string): RefineSettingsDocument {
   const imageSource = parseImageSource(source.imageSource) ?? "original";
   const processing = parseProcessing(source.processing);
   const reclassImageSource = parseImageSource(source.reclassImageSource);
+  const recenterImageSource = parseImageSource(source.recenterImageSource) ?? "original";
   return {
     schemaVersion: 1,
-    mode: source.mode === "reclass" ? "reclass" : "edge",
+    mode: source.mode === "reclass" || source.mode === "recenter" ? source.mode : "edge",
     imageSource,
     processing,
     activePreset: typeof source.activePreset === "string" ? source.activePreset : null,
@@ -243,7 +260,12 @@ export function parseRefineSettings(text: string): RefineSettingsDocument {
     reclassImageSource: reclassImageSource ?? imageSource,
     reclassProcessing: reclassImageSource ? parseProcessing(source.reclassProcessing) : processing,
     activeReclassPreset: typeof source.activeReclassPreset === "string" ? source.activeReclassPreset : null,
-    reclassPresets: parseReclassPresetList(source.reclassPresets)
+    reclassPresets: parseReclassPresetList(source.reclassPresets),
+    recenter: normalizeRecenterRule(source.recenter),
+    recenterImageSource,
+    recenterProcessing: recenterImageSource === "processed" ? parseProcessing(source.recenterProcessing) : null,
+    activeRecenterPreset: typeof source.activeRecenterPreset === "string" ? source.activeRecenterPreset : null,
+    recenterPresets: parseRecenterPresetList(source.recenterPresets)
   };
 }
 
@@ -333,6 +355,7 @@ export function serializeRefinePresets(presets: readonly RefinePreset[]): string
 export function importRefinePresets(doc: RefineSettingsDocument, text: string): { doc: RefineSettingsDocument; count: number; names: string[] } {
   const parsed: unknown = JSON.parse(text);
   if ((parsed as { kind?: unknown } | null)?.kind === RECLASS_PRESETS_KIND) throw new Error("This is a reclass presets file; load it in Reclass mode");
+  if ((parsed as { kind?: unknown } | null)?.kind === RECENTER_PRESETS_KIND) throw new Error("This is a recenter presets file; load it in Recenter mode");
   const presets = parsePresetList((parsed as { presets?: unknown } | null)?.presets);
   if (!presets.length) throw new Error("No refine presets found in the file");
   let next = doc;
@@ -415,6 +438,65 @@ export function parseReclassPresetFiles(files: readonly { name: string; contents
     try { doc = importReclassPresets(doc, file.contents).doc; } catch (error: unknown) { errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`); }
   }
   return { presets: doc.reclassPresets, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Recenter presets: the rule plus the image it reads, kept apart from the other modes' presets.
+// ---------------------------------------------------------------------------
+const RECENTER_PRESETS_KIND = "easy-labeling-recenter-presets";
+
+function parseRecenterPresetList(value: unknown): RecenterPreset[] {
+  if (!Array.isArray(value)) return [];
+  const byName = new Map<string, RecenterPreset>();
+  for (const item of value) {
+    const name = typeof item?.name === "string" ? item.name.trim() : "";
+    if (!name) continue;
+    const imageSource = parseImageSource(item.imageSource) ?? "original";
+    byName.set(name, { name, recenter: normalizeRecenterRule(item.recenter), imageSource, processing: imageSource === "processed" ? parseProcessing(item.processing) : null });
+  }
+  return [...byName.values()];
+}
+
+/** Saves the document's recenter rule and image as a preset, replacing one with the same name. */
+export function saveRecenterPreset(doc: RefineSettingsDocument, name: string): RefineSettingsDocument {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Preset name is required");
+  const preset: RecenterPreset = { name: trimmed, recenter: normalizeRecenterRule(doc.recenter), imageSource: doc.recenterImageSource, processing: cloneProcessing(doc.recenterProcessing) };
+  const index = doc.recenterPresets.findIndex((item) => item.name === trimmed);
+  return { ...doc, recenterPresets: index < 0 ? [...doc.recenterPresets, preset] : doc.recenterPresets.map((item, i) => (i === index ? preset : item)) };
+}
+
+export function deleteRecenterPreset(doc: RefineSettingsDocument, name: string): RefineSettingsDocument {
+  return { ...doc, recenterPresets: doc.recenterPresets.filter((item) => item.name !== name), activeRecenterPreset: doc.activeRecenterPreset === name ? null : doc.activeRecenterPreset };
+}
+
+/** Replaces the recenter rule and image with the preset's. */
+export function applyRecenterPreset(doc: RefineSettingsDocument, name: string, presets: readonly RecenterPreset[] = doc.recenterPresets): RefineSettingsDocument {
+  const preset = presets.find((item) => item.name === name);
+  if (!preset) return doc;
+  return { ...doc, recenter: normalizeRecenterRule(preset.recenter), recenterImageSource: preset.imageSource, recenterProcessing: cloneProcessing(preset.processing) };
+}
+
+export function serializeRecenterPresets(presets: readonly RecenterPreset[]): string {
+  return `${JSON.stringify({ schemaVersion: 1, kind: RECENTER_PRESETS_KIND, presets }, null, 2)}\n`;
+}
+
+/** Accepts a recenter presets file or a whole refine-settings.json; imported names replace existing ones. */
+export function importRecenterPresets(doc: RefineSettingsDocument, text: string): { doc: RefineSettingsDocument; count: number; names: string[] } {
+  const parsed = JSON.parse(text) as { kind?: unknown; presets?: unknown; recenterPresets?: unknown } | null;
+  const presets = parseRecenterPresetList(parsed?.kind === RECENTER_PRESETS_KIND ? parsed.presets : parsed?.recenterPresets);
+  if (!presets.length) throw new Error("No recenter presets found in the file");
+  const names = new Set(presets.map((preset) => preset.name));
+  return { doc: { ...doc, recenterPresets: [...doc.recenterPresets.filter((preset) => !names.has(preset.name)), ...presets] }, count: presets.length, names: presets.map((preset) => preset.name) };
+}
+
+export function parseRecenterPresetFiles(files: readonly { name: string; contents: string }[]): { presets: RecenterPreset[]; errors: string[] } {
+  let doc = createRefineSettings();
+  const errors: string[] = [];
+  for (const file of files) {
+    try { doc = importRecenterPresets(doc, file.contents).doc; } catch (error: unknown) { errors.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  return { presets: doc.recenterPresets, errors };
 }
 
 /** "Refine preset · Processed (SEM fins)" style label for preset lists. */

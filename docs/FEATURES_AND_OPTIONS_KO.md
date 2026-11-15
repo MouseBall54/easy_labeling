@@ -99,9 +99,9 @@ Detection의 Classes 아래 `Change label class IDs`에서 현재 이미지 또�
 
 `label/<이미지 이름>.txt`에 YOLO 형식(클래스 ID, 정규화된 중심 X/Y, 너비/높이)으로 저장한다.
 
-## 4. Refine (박스 경계 맞추기)과 Reclass
+## 4. Refine (박스 경계 맞추기), Reclass, Recenter
 
-Inspector의 `Refine`(`R`)은 박스 변을 이미지의 실제 경계에 맞추거나(Edge), 박스 안 밝기로 클래스를 바꾼다(Reclass). 두 기능은 맨 위의 **Mode**로 나뉘고, 모드는 `.easy-labeling/refine-settings.json`에 저장된다. 데스크톱 앱은 Refine을 Rust 네이티브로 실행한다(결과는 웹 버전과 같다).
+Inspector의 `Refine`(`R`)은 박스 변을 이미지의 실제 경계에 맞추거나(Edge), 박스 안 밝기로 클래스를 바꾸거나(Reclass), 박스 크기는 그대로 둔 채 대상의 중심으로 옮긴다(Recenter). 세 기능은 맨 위의 **Mode**로 나뉘고, 모드는 `.easy-labeling/refine-settings.json`에 저장된다. 데스크톱 앱은 Refine을 Rust 네이티브로 실행한다(결과는 웹 버전과 같다).
 
 ### 4.1 Edge 모드
 
@@ -126,22 +126,41 @@ Inspector의 `Refine`(`R`)은 박스 변을 이미지의 실제 경계에 맞추
   - **Area shrinks ≥ %**: 현재 Edge 설정으로 경계를 다시 계산한 면적이 불러온 크기보다 기준 이상 줄어듦
 - 저장된 규칙이 없으면 기본 규칙(모든 클래스 → 0, 가운데 평균 ≥ 128)을 쓴다. **기본 규칙도 실제로 클래스를 바꾸므로** 처음 쓸 때는 규칙을 먼저 확인한다.
 
-### 4.3 검토 (Review)
+### 4.3 Recenter 모드
 
-- 검토 대상은 박스 옆에 표시한다. 노란 `!` 핀은 Refine 검토 대상, 빨간 `!`는 면적이 크게 바뀐 박스, 마젠타 숫자는 Reclass로 바뀐 클래스다. 박스 바깥의 노란 삼각형은 신뢰도가 낮은 변을 가리킨다. 표시가 있는 동안 다른 박스는 흐리게 보인다(저장되는 라벨과는 무관).
+박스 크기는 그대로 두고, 박스 주변 영역에서 대상 픽셀(설정한 밝기 이상 또는 이하)의 무게중심을 구해 박스 중심을 그 점으로 옮긴다. 대상 픽셀은 모두 같은 무게로 센다. 대상을 찾지 못하거나, 대상 픽셀이 너무 적거나, 이동량이 제한을 넘으면 박스를 옮기지 않는다.
+
+- **Recenter with**: Refine Lab의 규칙(Lab rule) 또는 Recenter 프리셋.
+- **Apply**: `Selected`(`E`), `All boxes`(`Shift+E`), 클래스 드롭다운 + `Recenter class`. 박스를 바로 옮기고(Undo 한 단계), 옮긴 박스는 검토 대상이 된다. 상태줄에 옮기지 않은 박스 수를 이유별(already centred, no target pixels, too few target pixels, shift beyond the limit)로 보여 준다. 규칙이 옮기지 않는 클래스는 드롭다운에서 고를 수 없다.
+- **Keep hand-edited boxes when recentering…**(기본 켜짐): All boxes와 Recenter class에서 손으로 옮기거나 크기를 바꾼 박스를 건드리지 않는다. Selected는 항상 실행한다.
+- **Recenter all images in folder**: Recenter with 규칙으로 폴더의 모든 이미지를 처리한다(5.3 참고).
+- 규칙(Lab의 Recenter 모드 **Rule**):
+  - 옮길 클래스: Classes 칩(All은 전체)
+  - **Target**: Bright(level 이상, 기본값) 또는 Dark(level 이하). **Level**: 0~255, 기본 128
+  - **Move**: Both axes(기본값), Horizontal only, Vertical only. 고르지 않은 축은 위치가 그대로다
+  - **Pixels**: Nearest group(기본값)은 박스 중심에 가장 가까운, 서로 이어진(8방향) 대상 픽셀 덩어리만 센다. 영역 안에 이웃 입자가 있어도 박스가 끌려가지 않는다. All in region은 영역 안의 대상 픽셀을 모두 센다
+  - **Margin top / bottom / left / right %**: 영역이 박스 각 변 바깥으로 나가는 거리를 박스 높이(위·아래) 또는 너비(왼쪽·오른쪽)에 대한 비율로 정한다. -45~300%, 기본 25%. 음수면 박스 안쪽으로 들어온다
+  - **Min target %**(기본 5%)와 **Min pixels**(기본 4): 센 픽셀이 영역의 이 비율 또는 이 개수보다 적으면 옮기지 않는다
+  - **Max shift %**(기본 50%): 이동량이 박스 너비(수평) 또는 높이(수직)의 이 비율을 넘으면 옮기지 않는다
+- 옮긴 박스는 이미지 밖으로 나가지 않게 이미지 경계 안에 둔다.
+
+### 4.4 검토 (Review)
+
+- 검토 대상은 박스 옆에 표시한다. 노란 `!` 핀은 Refine 검토 대상, 빨간 `!`는 면적이 크게 바뀐 박스, 마젠타 숫자는 Reclass로 바뀐 클래스, 초록 `+` 핀과 `x … · y … px` 태그는 Recenter로 옮긴 박스와 이동량이다. 박스 바깥의 노란 삼각형은 신뢰도가 낮은 변을 가리킨다. 표시가 있는 동안 다른 박스는 흐리게 보인다(저장되는 라벨과는 무관).
 - `N` / `Shift+N`으로 다음/이전 검토 대상, `F`(Approve)로 승인하고 다음으로, **Approve all**로 남은 대상을 한 번에 승인한다. 현재 모드의 대상만 다룬다.
 - **Show review marks on the canvas**로 표시를 모두 끈다.
 
-### 4.4 Refine Lab
+### 4.5 Refine Lab
 
 `Open Refine Lab`은 케이스 박스를 확대해 보며 설정을 조정하는 창이다.
 
-- 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule.
+- 설정 순서: Edge 모드는 Mode → Edge presets → Classes → Image → Edges/Edge rule/Surroundings/Advanced, Reclass 모드는 Mode → Reclass presets → Classes → Image → Rule, Recenter 모드는 Mode → Recenter presets → Classes → Image → Rule.
+- Recenter 모드의 확대 화면은 영역(초록 점선), 센 대상 픽셀(초록), 다른 덩어리라 빠진 대상 픽셀(흐린 회색), 무게중심(십자, 옮기지 않을 때는 주황), 옮긴 박스(초록 실선)를 그린다. 아래 설명에 결과와 이동량, 대상 픽셀 수와 기준, 최대 이동량(px)이 나온다.
 - Edge 모드의 확대 화면은 Surroundings가 읽는 곳을 함께 그린다. 주황 띠는 Background ring, 점선 사각형은 박스 core(안쪽 50%), 회색 점선 박스는 이웃 박스다. Stop halfway to neighbours를 켜면 바깥 검색이 이웃과의 중간에서 멈춘다.
 - Edge rule의 **Scan span**이 Box + outside 또는 Outside only일 때, 각 끝은 박스 너머(Extend before/after)와 **Into box from start / end (px)**만큼 박스 안쪽도 스캔한다.
 - Image(Original/Processed와 Processing)는 모드마다 따로다. 예를 들어 경계는 Processed로 찾고 Reclass 판정은 Original 밝기로 할 수 있다.
 - 프리셋: preset name 칸에 이름이 채워지고, **Save settings**는 설정을 저장하면서 그 이름의 프리셋에도 저장한다(새 이름이면 새 프리셋). Edge 프리셋은 Default와 클래스별 값을 함께 저장한다. Default 상태에서 저장·적용하면 클래스별 값까지 저장·교체되고, 클래스 칩을 고른 채 적용하면 그 클래스들만 프리셋 Default 값으로 맞춘다.
-- **Save & refine these boxes** / **Save & reclass these boxes**: 저장한 뒤 Lab의 케이스 박스에 바로 적용한다.
+- **Save & refine these boxes** / **Save & reclass these boxes** / **Save & recenter these boxes**: 저장한 뒤 Lab의 케이스 박스에 바로 적용한다.
 - **?** 버튼은 가이드 창을 연다(EN / 한국어 전환, 탭·목차·키워드 검색, 설정별 예시 그림과 증상 → 해결 힌트).
 - Refine 패널이 열린 채 다른 폴더를 열면 패널이 그 폴더의 설정과 프리셋으로 바뀐다.
 
@@ -171,7 +190,7 @@ SEM/TEM 이미지를 보기 좋게, 또는 경계를 찾기 좋게 가공한 **P
 
 ### 5.3 폴더 전체 변경과 백업
 
-Refine all images / Reclass all images / Change label class IDs(폴더) / Remove outside boxes(폴더)는 확인 창 뒤에 현재 편집을 먼저 저장하고, 바뀌는 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/` 아래(`refine-all-…`, `reclass-all-…`, `class-remap-…` 등)에 백업한 뒤 쓴다. 중간에 멈추거나 실패하면 어떤 파일도 바뀌지 않는다. Undo로는 되돌릴 수 없고 백업으로 되돌린다.
+Refine all images / Reclass all images / Recenter all images / Change label class IDs(폴더) / Remove outside boxes(폴더)는 확인 창 뒤에 현재 편집을 먼저 저장하고, 바뀌는 라벨 파일의 원본을 라벨 폴더의 `.easy-labeling/` 아래(`refine-all-…`, `reclass-all-…`, `recenter-all-…`, `class-remap-…` 등)에 백업한 뒤 쓴다. 중간에 멈추거나 실패하면 어떤 파일도 바뀌지 않는다. Undo로는 되돌릴 수 없고 백업으로 되돌린다.
 
 ### 5.4 Inference (YOLO ONNX 추론)
 
@@ -575,7 +594,7 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 ### 8.2 Undo와 Redo
 
 - `Ctrl+Z` / `Ctrl+Y`(또는 `Ctrl+Shift+Z`).
-- 박스 생성·편집·삭제, 레이아웃 적용, Refine/Reclass 실행, 마스크 편집을 되돌린다. 폴더 전체 변경은 Undo가 아니라 백업으로 되돌린다(5.3).
+- 박스 생성·편집·삭제, 레이아웃 적용, Refine/Reclass/Recenter 실행, 마스크 편집을 되돌린다. 폴더 전체 변경은 Undo가 아니라 백업으로 되돌린다(5.3).
 
 ### 8.3 준비 화면과 진행 중인 작업
 
@@ -596,6 +615,7 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 | 레이아웃 | `Layouts` |
 | Refine(Edge) 프리셋 | `Refine Presets` |
 | Reclass 프리셋 | `Reclass Presets` |
+| Recenter 프리셋 | `Recenter Presets` |
 | 전처리 프리셋 | `Preprocessing Presets` |
 | Superpixel 프리셋 | `Segmentation Presets` |
 | 클래스 파일 | `Class Info` |
@@ -612,7 +632,7 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 | 파일 | 내용 |
 | --- | --- |
 | `automation-library.json` | 레이아웃, 템플릿(PNG Data URL 포함), 자동화 프리셋 |
-| `refine-settings.json` | Refine/Reclass 설정과 프리셋 |
+| `refine-settings.json` | Refine/Reclass/Recenter 설정과 프리셋 |
 | `preprocessing-presets.json` | 전처리 프리셋 |
 | `segmentation-tool-presets.json` | Superpixel 프리셋 |
 | `review-state.json` | 검수 상태와 Quality rules (두 버전 공통) |
@@ -623,7 +643,7 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 
 ### 9.4 프리셋 선택 목록
 
-클래스 파일, 전처리, Superpixel, Refine `Run with`, Reclass `Reclass with`, 레이아웃(Automation 탭과 Template Matching Setup), 자동화 프리셋을 고르는 칸은 누르면 선택 목록이 열린다. 클래스 파일 목록 맨 위의 `＋ Create new class file...`은 항상 그 자리에 있다.
+클래스 파일, 전처리, Superpixel, Refine `Run with`, Reclass `Reclass with`, Recenter `Recenter with`, 레이아웃(Automation 탭과 Template Matching Setup), 자동화 프리셋을 고르는 칸은 누르면 선택 목록이 열린다. 클래스 파일 목록 맨 위의 `＋ Create new class file...`은 항상 그 자리에 있다.
 
 - 맨 위 검색칸에 입력하면 이름과 폴더 경로로 찾고, 결과를 폴더 경로와 함께 한 줄씩 보인다.
 - 데스크톱 앱은 프로필 폴더의 하위 폴더(9.1)를 트리로 보인다. 폴더를 누르면 펼치거나 접고, 펼친 상태는 기억한다. 목록을 열면 지금 고른 프리셋이 있는 폴더가 펼쳐진다. 선택한 프리셋의 폴더는 칸 오른쪽에 흐리게 보인다.

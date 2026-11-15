@@ -17,6 +17,7 @@ export const PRESET_KIND_LABELS: Record<ProfilePresetKind, string> = {
   layout: "Layouts",
   refine: "Refine presets",
   reclass: "Reclass presets",
+  recenter: "Recenter presets",
   preprocessing: "Preprocessing presets",
   segmentation: "Superpixel presets",
   "class-info": "Class files"

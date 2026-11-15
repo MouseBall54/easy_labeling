@@ -52,7 +52,7 @@ declare global {
     };
   }
 
-  type EasyLabelingLibraryFileKind = "preset" | "layout" | "refine" | "reclass" | "preprocessing" | "segmentation";
+  type EasyLabelingLibraryFileKind = "preset" | "layout" | "refine" | "reclass" | "recenter" | "preprocessing" | "segmentation";
   type EasyLabelingProfileDirectoryKind = EasyLabelingLibraryFileKind | "class-info";
 
   interface EasyLabelingLibraryFile {

@@ -1,7 +1,7 @@
 import type { RefineRect, RefineSide } from "../domain/refine/edge-refine.js";
 
 /**
- * Canvas marks for boxes to review (Refine flags and reclassed boxes). They sit beside the box instead of
+ * Canvas marks for boxes to review (Refine flags, reclassed and recentered boxes). They sit beside the box instead of
  * thickening its outline, so they stay readable on images with hundreds of small boxes: a fixed-size pin on the
  * top-right corner, carets outside weak sides, and a tag only when it fits under the box or the box has focus.
  */
@@ -11,6 +11,7 @@ export const CARET_MIN_SIZE = 24;
 export const REVIEW_COLOR = "#f0ad4e";
 export const AREA_COLOR = "#dc3545";
 export const RECLASS_COLOR = "#e64980";
+export const RECENTER_COLOR = "#0ca678";
 
 const CARET_GAP = 4;
 const CARET_SIZE = 7;
@@ -24,6 +25,8 @@ export interface MarkTarget {
   /** areaChange is set only when the area change is flagged. */
   review?: { weakSides: readonly RefineSide[]; areaChange: number | null };
   reclass?: { toClass: string; label: string };
+  /** label: how far the box moved. */
+  recenter?: { label: string };
   /** Selected, or the box the review navigation is on. */
   focused: boolean;
 }
@@ -43,6 +46,7 @@ export function layoutMarks(target: MarkTarget, measure: (text: string) => numbe
   const area = review?.areaChange ?? null;
   const reviewColor = area !== null ? AREA_COLOR : REVIEW_COLOR;
   if (target.reclass) layout.pins.push({ x: review ? x1 - PIN_DIAMETER - 2 : x1, y: y0, color: RECLASS_COLOR, text: target.reclass.toClass });
+  if (target.recenter) layout.pins.push({ x: x1, y: y0, color: RECENTER_COLOR, text: "+" });
   if (review) layout.pins.push({ x: x1, y: y0, color: reviewColor, text: "!" });
 
   if (review && Math.min(x1 - x0, y1 - y0) >= CARET_MIN_SIZE) {
@@ -58,6 +62,7 @@ export function layoutMarks(target: MarkTarget, measure: (text: string) => numbe
 
   const texts: { text: string; color: string }[] = [];
   if (target.reclass) texts.push({ text: target.reclass.label, color: RECLASS_COLOR });
+  if (target.recenter) texts.push({ text: target.recenter.label, color: RECENTER_COLOR });
   if (area !== null) texts.push({ text: areaText(area), color: AREA_COLOR });
   let y = y1 + CARET_GAP + (review?.weakSides.includes("B") ? CARET_SIZE + 2 : 2);
   for (const { text, color } of texts) {

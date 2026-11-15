@@ -4,17 +4,21 @@ import {
   createRefineSettings,
   mergeRefinePresets,
   parseReclassPresetFiles,
+  parseRecenterPresetFiles,
   parseRefinePresetFiles,
   parseRefineSettings,
   resolvePresetParams,
   resolveRefineParams,
   serializeReclassPresets,
+  serializeRecenterPresets,
   serializeRefinePresets,
   serializeRefineSettings,
   REFINE_SETTINGS_FILE,
   refinePresetLabel,
   type ReclassPreset,
+  type RecenterPreset,
   type RefineImageSource,
+  type RefineMode,
   type RefinePreset,
   type RefineProcessing,
   type RefineSettingsDocument
@@ -23,6 +27,7 @@ import { extractVisibleRectSelection, getRectBounds } from "../features/canvas/a
 import { getColorForClass } from "../features/canvas/colors.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike, type YoloMetadata } from "../features/canvas/fabric-types.js";
 import { describeReclassRule, evaluateReclass, reclassRuleOf, ruleApplies, ruleChecks, type ReclassMatch, type ReclassRule } from "../domain/refine/reclass.js";
+import { describeRecenterRule, RECENTER_STATUS_TEXT, recenterChecks, type RecenterResult, type RecenterRule, type RecenterStatus } from "../domain/refine/recenter.js";
 import { createRefineService, type RefineImageInput, type RefineService } from "../features/refine/refine-service.js";
 import { refineFolderNatively } from "../features/refine/native-refine-folder.js";
 import { applyLabelFileChanges, LABEL_FILE_MOVE_EPSILON, labelFileBoxes, movedBy } from "../domain/refine/label-file.js";
@@ -76,8 +81,8 @@ export interface RefineAgentApi {
   refine(scope: RefineScope, options: { preset?: string | null; keepHandEdited?: boolean; dryRun?: boolean }): Promise<RefineRunOutcome>;
   /** `preset`: a reclass preset for this call (null: the Lab rule; omitted: the pane's Reclass with). */
   reclass(scope: RefineScope, options: { preset?: string | null; keepHandEdited?: boolean; dryRun?: boolean }): Promise<RefineRunOutcome>;
-  reviewQueue(mode?: "edge" | "reclass"): { mode: "edge" | "reclass"; boxes: Record<string, unknown>[] };
-  approve(ids: readonly string[] | "all", mode?: "edge" | "reclass"): { approved: number; remaining: number };
+  reviewQueue(mode?: RefineMode): { mode: RefineMode; boxes: Record<string, unknown>[] };
+  approve(ids: readonly string[] | "all", mode?: RefineMode): { approved: number; remaining: number };
   /**
    * `dryRun`: computes every change and returns a summary and a `resultId` without writing (no approval asked).
    * `only`: image indexes to run (a sample); every image when omitted.
@@ -94,6 +99,8 @@ export interface RefineController {
 }
 
 const PREVIEW_LIMIT = 50;
+const MODE_NAME: Record<RefineMode, string> = { edge: "Refine", reclass: "Reclass", recenter: "Recenter" };
+const MODE_DONE: Record<RefineMode, string> = { edge: "refined", reclass: "reclassed", recenter: "recentered" };
 const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
 
 interface RefineRecord { result: RefineResult; reviewed: boolean }
@@ -127,7 +134,7 @@ export function createRefineController(input: {
   let edgePresetOverride: string | null | undefined;
   let reclassPresetOverride: string | null | undefined;
   /**
-   * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets, Reclass Presets). A
+   * Desktop app: presets are files in the profile folder (Easy Labeling / Refine Presets, Reclass Presets, Recenter Presets). A
    * preset saved or edited here moves out of refine-settings.json into its own file; presets an older version
    * saved in the dataset stay there as they are (listed first, as before) until edited or deleted.
    */
@@ -144,7 +151,7 @@ export function createRefineController(input: {
     folderOf(name: string): string;
   }
   const presetLibrary = <T extends { name: string }>(
-    kind: "refine" | "reclass",
+    kind: "refine" | "reclass" | "recenter",
     parse: (files: readonly { name: string; contents: string }[]) => { presets: T[]; errors: string[] },
     serialize: (presets: readonly T[]) => string
   ): PresetLibrary<T> => {
@@ -202,8 +209,10 @@ export function createRefineController(input: {
   const edgeLibrary = presetLibrary<RefinePreset>("refine", parseRefinePresetFiles, serializeRefinePresets);
   const reclassLibrary = presetLibrary<ReclassPreset>("reclass", parseReclassPresetFiles, serializeReclassPresets);
   const allPresets = (): RefinePreset[] => mergeRefinePresets(settings.presets, edgeLibrary.presets);
+  const recenterLibrary = presetLibrary<RecenterPreset>("recenter", parseRecenterPresetFiles, serializeRecenterPresets);
   const allReclassPresets = (): ReclassPreset[] => mergeRefinePresets(settings.reclassPresets, reclassLibrary.presets);
-  const refreshProfilePresets = (): Promise<void> => Promise.all([edgeLibrary.refresh(), reclassLibrary.refresh()]).then(() => undefined);
+  const allRecenterPresets = (): RecenterPreset[] => mergeRefinePresets(settings.recenterPresets, recenterLibrary.presets);
+  const refreshProfilePresets = (): Promise<void> => Promise.all([edgeLibrary.refresh(), reclassLibrary.refresh(), recenterLibrary.refresh()]).then(() => undefined);
   /** Desktop: new and edited presets leave the dataset list for their profile files (listed at once; the files follow). */
   const moveToProfile = <T extends { name: string }>(presets: T[], library: PresetLibrary<T>): T[] => {
     if (!hasProfileFolder) return presets;
@@ -232,6 +241,8 @@ export function createRefineController(input: {
   const reclassed = new Map<string, { match: ReclassMatch; from: string; reviewed: boolean }>();
   /** Boxes whose class was changed by hand: All boxes / Reclass class skip them while the keep toggle is on. */
   const manualClass = new Set<string>();
+  /** Boxes Recenter Apply moved (id -> result, box before): the Review queue in Recenter mode. */
+  const recentered = new Map<string, { result: RecenterResult; before: RefineRect; reviewed: boolean }>();
 
   const isDetection = (): boolean => input.state.session.workflow === "detection";
   const paneOpen = (): boolean => !pane.hidden;
@@ -262,6 +273,13 @@ export function createRefineController(input: {
       ? { rule: reclassRuleOf(preset.reclass), image: imageInput(preset.imageSource, preset.processing), preset }
       : { rule: reclassRuleOf(settings.reclass), image: imageInput(settings.reclassImageSource, settings.reclassProcessing), preset };
   };
+  /** What Recenter Apply uses: the Recenter-with preset (its rule and image) or the Lab rule. */
+  const recenterConfig = (): { rule: RecenterRule; image: RefineImageInput; preset: RecenterPreset | undefined } => {
+    const preset = settings.activeRecenterPreset ? allRecenterPresets().find((item) => item.name === settings.activeRecenterPreset) : undefined;
+    return preset
+      ? { rule: preset.recenter, image: imageInput(preset.imageSource, preset.processing), preset }
+      : { rule: settings.recenter, image: imageInput(settings.recenterImageSource, settings.recenterProcessing), preset };
+  };
   const imageText = (source: RefineImageSource, processing: RefineProcessing | null): string =>
     source === "processed" ? `Processed (${processing?.name || "live Preprocess panel"})` : "Original";
   const setStatus = (text: string): void => { status.textContent = text; };
@@ -289,6 +307,7 @@ export function createRefineController(input: {
       loadedBoxes.clear();
       reclassed.clear();
       manualClass.clear();
+      recentered.clear();
     }
     rememberLoaded(rects().map((rect) => ({ annotationId: ensureAnnotationId(rect), originalYolo: rect.originalYolo })));
     return image;
@@ -345,10 +364,16 @@ export function createRefineController(input: {
     const entry = reclassed.get(ensureAnnotationId(rect));
     return Boolean(entry && !entry.reviewed && (rect.labelClass ?? "0") === entry.match.toClass);
   };
-  /** Boxes to look at, top to bottom: Refine flags in Edge mode, reclassed boxes in Reclass mode. */
+  /** Moved by Recenter Apply, not yet approved, and still where Apply put it (an undo or a hand move takes it out). */
+  const recenterPending = (box: RefineBoxInput): boolean => {
+    const entry = recentered.get(box.id);
+    return Boolean(entry && !entry.reviewed && sameRect(entry.result.box, box));
+  };
+  /** Boxes to look at, top to bottom: Refine flags in Edge mode, reclassed boxes in Reclass mode, moved boxes in Recenter mode. */
   const reviewQueue = (mode = settings.mode): RefineBoxInput[] => {
     const byPosition = (a: RefineBoxInput, b: RefineBoxInput): number => (a.y0 - b.y0) || (a.x0 - b.x0);
     if (mode === "reclass") return reclassed.size ? visibleRects().filter(reclassPending).map(toBox).sort(byPosition) : [];
+    if (mode === "recenter") return recentered.size ? visibleRects().map(toBox).filter(recenterPending).sort(byPosition) : [];
     if (!records.size) return [];
     return visibleRects()
       .filter((rect) => { const record = records.get(ensureAnnotationId(rect)); return Boolean(record?.result.flagged && !record.reviewed); })
@@ -357,6 +382,9 @@ export function createRefineController(input: {
       .sort(byPosition);
   };
   const className = (id: string): string | undefined => input.state.session.classNames.get(id);
+  /** The review record a mode keeps for a box (Approve marks it reviewed). */
+  const reviewEntry = (id: string, mode: RefineMode = settings.mode): { reviewed: boolean } | undefined =>
+    mode === "reclass" ? reclassed.get(id) : mode === "recenter" ? recentered.get(id) : records.get(id);
 
   // ---------------------------------------------------------------- settings
   /** The pane only applies settings: summary line plus the class list for "Refine class". Editing lives in the Lab. */
@@ -364,10 +392,11 @@ export function createRefineController(input: {
     const mode = settings.mode;
     byId("refineModeToggle").querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === mode)));
     pane.querySelectorAll<HTMLElement>("[data-refine-mode]").forEach((section) => { section.hidden = section.dataset.refineMode !== mode; });
-    byId("refineShowReviewToggle").closest("label")!.title = mode === "reclass" ? "Pins on reclassed boxes to review" : "Pins and weak-side marks on boxes to review";
+    byId("refineShowReviewToggle").closest("label")!.title = mode === "reclass" ? "Pins on reclassed boxes to review" : mode === "recenter" ? "Pins on recentered boxes to review" : "Pins and weak-side marks on boxes to review";
     const own = Object.keys(settings.classes).length;
     byId("refineSettingsSummary").textContent = mode === "reclass"
       ? `Lab rule${settings.reclass.length ? "" : " (default)"} · image ${imageText(settings.reclassImageSource, settings.reclassProcessing)}`
+      : mode === "recenter" ? `Lab rule · image ${imageText(settings.recenterImageSource, settings.recenterProcessing)}`
       : `Class settings: image ${imageText(settings.imageSource, settings.processing)} · `
         + (own ? `${own} class${own === 1 ? "" : "es"} with own settings` : "every class uses the default");
     // Reclass with: the Lab rules or one reclass preset, the chosen rules summarised below.
@@ -384,6 +413,20 @@ export function createRefineController(input: {
     reclassSelect.value = config.preset?.name ?? "";
     byId("refineReclassSummary").textContent = describeReclassRule(config.rule, className)
       + (config.preset ? ` · ${imageText(config.preset.imageSource, config.preset.processing)}` : "");
+    // Recenter with: the Lab rule or one recenter preset.
+    const recenterPresets = allRecenterPresets();
+    const recenterDatasetNames = new Set(settings.recenterPresets.map((preset) => preset.name));
+    const recenterSelect = byId<HTMLSelectElement>("refineRecenterPresetSelect");
+    recenterSelect.replaceChildren(new Option("Lab rule", ""), ...recenterPresets.map((preset) => {
+      const option = new Option(`${refinePresetLabel(preset)}${recenterDatasetNames.has(preset.name) ? "" : " (profile)"}`, preset.name);
+      const folder = recenterDatasetNames.has(preset.name) ? "" : recenterLibrary.folderOf(preset.name);
+      if (folder) option.dataset.folder = folder;
+      return option;
+    }));
+    const recenterNow = recenterConfig();
+    recenterSelect.value = recenterNow.preset?.name ?? "";
+    byId("refineRecenterSummary").textContent = describeRecenterRule(recenterNow.rule)
+      + (recenterNow.preset ? ` · ${imageText(recenterNow.preset.imageSource, recenterNow.preset.processing)}` : "");
     // Run with: a dropdown scales to many presets; the chosen one's rule summary sits below it.
     const presets = allPresets();
     const datasetNames = new Set(settings.presets.map((preset) => preset.name));
@@ -415,6 +458,7 @@ export function createRefineController(input: {
     };
     // Classes the rule does not check (or already turns boxes into) cannot be reclassed.
     classOptions(byId<HTMLSelectElement>("refineReclassClassSelect"), (classId) => !ruleApplies({ ...config.rule, mean: { ...config.rule.mean, enabled: true } }, classId));
+    classOptions(byId<HTMLSelectElement>("refineRecenterClassSelect"), (classId) => !recenterChecks(recenterNow.rule, classId));
     const select = byId<HTMLSelectElement>("refineClassSelect");
     const previous = select.value;
     select.replaceChildren(...ids.map((classId) => {
@@ -450,6 +494,7 @@ export function createRefineController(input: {
       settings = next;
       edgeLibrary.dataset = settings.presets;
       reclassLibrary.dataset = settings.reclassPresets;
+      recenterLibrary.dataset = settings.recenterPresets;
       renderPane();
     })();
     return settingsLoad;
@@ -459,7 +504,12 @@ export function createRefineController(input: {
     loadSettings().then(() => changeSettings(patch(settings)));
   const changeSettings = (next: RefineSettingsDocument): void => {
     // Desktop: new and edited presets go to the profile folder instead of the dataset file.
-    next = { ...next, presets: moveToProfile(next.presets, edgeLibrary), reclassPresets: moveToProfile(next.reclassPresets, reclassLibrary) };
+    next = {
+      ...next,
+      presets: moveToProfile(next.presets, edgeLibrary),
+      reclassPresets: moveToProfile(next.reclassPresets, reclassLibrary),
+      recenterPresets: moveToProfile(next.recenterPresets, recenterLibrary)
+    };
     const modeChanged = next.mode !== settings.mode;
     settings = next;
     if (modeChanged) { renderReviewCounter(); raw.canvas.requestRenderAll?.(); }
@@ -576,10 +626,9 @@ export function createRefineController(input: {
   const approve = (): void => {
     const selected = selectedRects();
     if (!selected.length) { setStatus("Select a flagged box to approve."); return; }
-    // Approve settles what the current mode reviews: a Refine flag, or a reclassed box (its new class stays).
+    // Approve settles what the current mode reviews: a Refine flag, a reclassed box (its new class stays) or a recentered one.
     selected.forEach((rect) => {
-      const id = ensureAnnotationId(rect);
-      const entry = reclassMode() ? reclassed.get(id) : records.get(id);
+      const entry = reviewEntry(ensureAnnotationId(rect));
       if (entry) entry.reviewed = true;
     });
     raw.canvas.requestRenderAll?.();
@@ -591,7 +640,7 @@ export function createRefineController(input: {
     const queue = reviewQueue();
     if (!queue.length) { renderReviewCounter(); setStatus("Nothing to review."); return; }
     for (const box of queue) {
-      const entry = reclassMode() ? reclassed.get(box.id) : records.get(box.id);
+      const entry = reviewEntry(box.id);
       if (entry) entry.reviewed = true;
     }
     setStatus(`${queue.length} box${queue.length === 1 ? "" : "es"} approved`);
@@ -699,6 +748,79 @@ export function createRefineController(input: {
     void reclass(visibleRects().map(toBox).filter((box) => box.classId === classId), reclassSkipManual(), `No class ${classId} boxes on this image.`);
   };
 
+  // ---------------------------------------------------------------- recenter
+  const shiftText = (value: number): string => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(1)}`;
+  /** Status counts in the order the status line names them. */
+  const statusCounts = (results: readonly RecenterResult[]): string => (["centred", "notFound", "tooFew", "tooFar"] as RecenterStatus[])
+    .map((status) => [status, results.filter((result) => result.status === status).length] as const)
+    .filter(([, count]) => count > 0)
+    .map(([status, count]) => ` · ${count} ${RECENTER_STATUS_TEXT[status]}`).join("");
+  /**
+   * Apply (Recenter mode): moves every target box the Recenter-with rule finds a target for onto its centroid, in one
+   * undo step, and queues the moved boxes for review. Boxes keep their size.
+   */
+  const recenter = async (targets: RefineBoxInput[], skipManual: boolean, emptyText: string, dryRun = false): Promise<RefineRunOutcome> => {
+    const image = syncImage();
+    if (!image || !isDetection()) return fail("Open an image in the Detection workflow first.");
+    if (busy) return fail("Refine is already running.", "busy");
+    if (!targets.length) return fail(emptyText);
+    setBusy(true);
+    try {
+      await loadSettings();
+      const config = recenterConfig();
+      const ruled = targets.filter((box) => recenterChecks(config.rule, box.classId));
+      const checked = skipManual ? ruled.filter((box) => !manual.has(box.id)) : ruled;
+      const kept = ruled.length - checked.length;
+      if (!checked.length) return fail(ruled.length ? "Nothing to recenter: every box was edited by hand." : "The recenter rule does not move these classes.");
+      const started = performance.now();
+      setStatus(`Recentering ${checked.length} box${checked.length === 1 ? "" : "es"}…`);
+      const results = await getService().recenter(image, checked, config.rule, config.image);
+      if (image !== input.state.session.currentImage) return fail("The image changed while recentering; nothing was applied.");
+      // Skip boxes edited while the run was busy.
+      const now = new Map(rects().map(toBox).map((box) => [box.id, box]));
+      const sent = new Map(checked.map((box) => [box.id, box]));
+      const moved = results.filter((result) => {
+        const current = now.get(result.id);
+        return result.status === "moved" && current && sameRect(current, sent.get(result.id)!, 1e-6);
+      });
+      const changes = moved.map((result) => {
+        const before = sent.get(result.id)!;
+        return { annotationId: result.id, classId: result.classId, before: { x0: before.x0, y0: before.y0, x1: before.x1, y1: before.y1 }, after: result.box, shiftX: result.box.x0 - before.x0, shiftY: result.box.y0 - before.y0 };
+      });
+      const skipped = statusCounts(results) + (kept ? ` · ${kept} hand-edited box${kept === 1 ? "" : "es"} kept` : "");
+      if (dryRun) {
+        setStatus(`Preview: ${moved.length} of ${checked.length} box${checked.length === 1 ? "" : "es"} would move${skipped} (nothing applied)`);
+        return { ok: true, dryRun: true, message: status.textContent ?? "", checked: checked.length, keptHandEdited: kept, moved: changes };
+      }
+      applying = true;
+      try {
+        raw.updateBoxGeometries?.(moved.map((result) => ({ annotationId: result.id, x: result.box.x0, y: result.box.y0, width: result.box.x1 - result.box.x0, height: result.box.y1 - result.box.y0 })));
+      } finally {
+        applying = false;
+      }
+      moved.forEach((result) => { recentered.set(result.id, { result, before: sent.get(result.id)!, reviewed: false }); manual.delete(result.id); });
+      const ms = Math.round(performance.now() - started);
+      setStatus((moved.length
+        ? `${moved.length} of ${checked.length} box${checked.length === 1 ? "" : "es"} recentered in ${ms} ms · ${moved.length} to review`
+        : `No box moved (${checked.length} checked) in ${ms} ms`) + skipped);
+      renderReviewCounter();
+      raw.canvas.requestRenderAll?.();
+      return { ok: true, message: status.textContent ?? "", checked: checked.length, keptHandEdited: kept, moved: changes };
+    } catch (error: unknown) {
+      return fail(`Recenter failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const recenterSkipManual = (): boolean => byId<HTMLInputElement>("refineRecenterSkipManualToggle").checked;
+  const recenterSelected = (): void => { void recenter(selectedRects().map(toBox), false, "Select boxes to recenter first."); };
+  const recenterAll = (): void => { void recenter(visibleRects().map(toBox), recenterSkipManual(), "No boxes to recenter."); };
+  const recenterClass = (): void => {
+    const classId = byId<HTMLSelectElement>("refineRecenterClassSelect").value;
+    if (!classId) { setStatus("Choose a class to recenter."); return; }
+    void recenter(visibleRects().map(toBox).filter((box) => box.classId === classId), recenterSkipManual(), `No class ${classId} boxes on this image.`);
+  };
+
   /** What the agent reads to judge a refined box: confidence 0..1 overall and per refined side (low = unsure). */
   const confidenceOf = (result: RefineResult): { confidence: number; sideConfidence: Partial<Record<string, number>> } => ({
     confidence: Number(result.conf.toFixed(3)),
@@ -712,11 +834,11 @@ export function createRefineController(input: {
    * Reclass-with rule matches (shrink against the box as saved). Goes through the label files, one backup.
    */
   /** Dry runs kept for applyFolderPlan, newest last. */
-  const folderPlans = new Map<string, { mode: "edge" | "reclass"; plan: LabelFilePlan; label: string; boxesChanged: number }>();
+  const folderPlans = new Map<string, { mode: RefineMode; plan: LabelFilePlan; label: string; boxesChanged: number }>();
   const FOLDER_PLANS_KEPT = 5;
   let folderPlanCount = 0;
   const runFolder = async (
-    mode: "edge" | "reclass",
+    mode: RefineMode,
     confirm: (message: string) => boolean | Promise<boolean> = (message) => windowRef.confirm(message),
     options: { dryRun?: boolean; only?: readonly number[]; outliers?: number } = {}
   ): Promise<RefineRunOutcome> => {
@@ -727,12 +849,15 @@ export function createRefineController(input: {
     await loadSettings();
     const edge = runConfig();
     const config = reclassConfig();
+    const centre = recenterConfig();
     if (mode === "reclass" && !config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) return fail("The reclass rule has no check on.");
     const total = input.state.session.imageFiles.length;
     const folderName = input.state.session.labelFolderHandle?.name ?? "label";
     const what = mode === "edge"
       ? `Refine every box in all ${total} images of "${folderName}" with ${edge.label}?`
-      : `Reclass boxes in all ${total} images of "${folderName}" with ${config.preset ? refinePresetLabel(config.preset) : "the Lab rule"} (${describeReclassRule(config.rule, className)})?`;
+      : mode === "recenter"
+        ? `Recenter boxes in all ${total} images of "${folderName}" with ${centre.preset ? refinePresetLabel(centre.preset) : "the Lab rule"} (${describeRecenterRule(centre.rule)})?`
+        : `Reclass boxes in all ${total} images of "${folderName}" with ${config.preset ? refinePresetLabel(config.preset) : "the Lab rule"} (${describeReclassRule(config.rule, className)})?`;
     if (!options.dryRun && !(await confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
       return { ok: false, message: "The person declined the folder run.", code: "declined" };
     }
@@ -740,6 +865,7 @@ export function createRefineController(input: {
     // Dry run: each image's boxes and results, for the summary.
     const edgeRecords: EdgeImageRecord[] = [];
     const reclassRecords: ReclassImageRecord[] = [];
+    const recenterRecords: { image: string; line: number; classId: string; box: RefineRect }[] = [];
     const nameOf = (file: unknown): string => (file as { name?: string }).name ?? "";
     // Inside transform: the image upload into refine, then the refine / reclass work itself (ms).
     const work = { loadMs: 0, runMs: 0 };
@@ -767,6 +893,14 @@ export function createRefineController(input: {
         work.runMs += performance.now() - mark;
         boxesChanged += changes.length;
         return applyLabelFileChanges(lines, changes, width, height);
+      } else if (mode === "recenter") {
+        const ruled = boxes.filter((box) => recenterChecks(centre.rule, box.classId));
+        const results = await getService().recenter(image, ruled, centre.rule, centre.image);
+        const changes = results.filter((result) => result.status === "moved").map((result) => ({ line: Number(result.id), classId: result.classId, box: result.box }));
+        if (options.dryRun) recenterRecords.push(...changes.map((change) => ({ image: nameOf(file), ...change })));
+        work.runMs += performance.now() - mark;
+        boxesChanged += changes.length;
+        return changes.length ? applyLabelFileChanges(lines, changes, width, height) : null;
       } else {
         const classChanges: ReclassImageRecord["changes"][number][] = [];
         for (const match of await matchReclass(image, boxes, boxes, config, edge)) {
@@ -800,12 +934,13 @@ export function createRefineController(input: {
       return rewrites;
     };
     setBusy(true);
-    setStatus(mode === "edge" ? `Refining all ${total} images…` : `Reclassing all ${total} images…`);
+    const verbing = { edge: "Refining", reclass: "Reclassing", recenter: "Recentering" }[mode];
+    setStatus(`${verbing} all ${total} images…`);
     let outcome: DetectionLabelRewrite | null;
     try {
       outcome = await files.rewriteDetectionLabels({
-        title: options.dryRun ? (mode === "edge" ? "Previewing Refine on images" : "Previewing Reclass on images") : mode === "edge" ? "Refining every image" : "Reclassing every image",
-        backupPrefix: mode === "edge" ? "refine-all" : "reclass-all",
+        title: options.dryRun ? `Previewing ${MODE_NAME[mode]} on images` : `${verbing} every image`,
+        backupPrefix: `${mode === "edge" ? "refine" : mode}-all`,
         prepare: (file) => files.decodeImageForAutomation(file),
         transform,
         batch: mode === "edge" ? batch : undefined,
@@ -818,10 +953,15 @@ export function createRefineController(input: {
       setBusy(false);
     }
     if (!outcome) return fail("Folder run stopped. No files changed.");
-    if (options.dryRun) return dryRunOutcome(mode, outcome, boxesChanged, edgeRecords, reclassRecords, mode === "edge" ? edge.label : config.preset ? refinePresetLabel(config.preset) : "the Lab rule", options.outliers);
+    if (options.dryRun) {
+      const preset = mode === "recenter" ? centre.preset : config.preset;
+      const ruleLabel = mode === "edge" ? edge.label : preset ? refinePresetLabel(preset) : "the Lab rule";
+      return dryRunOutcome(mode, outcome, boxesChanged, edgeRecords, reclassRecords, recenterRecords, ruleLabel, options.outliers);
+    }
     // The current image reloaded from its file: earlier flags and reclass reviews no longer apply.
     records.clear();
     reclassed.clear();
+    recentered.clear();
     renderReviewCounter();
     raw.canvas.requestRenderAll?.();
     const skipped = outcome.failures.length
@@ -831,10 +971,10 @@ export function createRefineController(input: {
     status.dataset.timings = JSON.stringify(timings);
     const s = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
     // Read + decode overlap the previous image's work; "waited" is what the run still waited for.
-    setStatus(`${boxesChanged} box${boxesChanged === 1 ? "" : "es"} ${mode === "edge" ? "refined" : "reclassed"} in ${outcome.changed} of ${outcome.total} images`
+    setStatus(`${boxesChanged} box${boxesChanged === 1 ? "" : "es"} ${MODE_DONE[mode]} in ${outcome.changed} of ${outcome.total} images`
       + (outcome.backupPath ? ` · originals in ${outcome.backupPath}` : "") + skipped
       + ` · Time ${s(timings.totalMs)}: ${timings.batchImages ? `native ${timings.batchImages} images ${s(timings.batchMs)}, ` : ""}read+decode ${s(timings.prepareMs)} (waited ${s(timings.waitMs)}), load ${s(timings.loadMs)}, `
-      + `${mode === "edge" ? "refine" : "reclass"} ${s(timings.runMs)}, backup ${s(timings.backupMs)}, write ${s(timings.writeMs)}, reload ${s(timings.reloadMs)}`);
+      + `${mode === "edge" ? "refine" : mode} ${s(timings.runMs)}, backup ${s(timings.backupMs)}, write ${s(timings.writeMs)}, reload ${s(timings.reloadMs)}`);
     return {
       ok: true, message: status.textContent ?? "", boxesChanged, imagesChanged: outcome.changed, images: outcome.total,
       backupPath: outcome.backupPath, skipped: outcome.failures, saves: outcome.saves ?? []
@@ -843,8 +983,9 @@ export function createRefineController(input: {
 
   /** A dry run's result: the summary in numbers, kept for applyFolderPlan under a new resultId. */
   const dryRunOutcome = (
-    mode: "edge" | "reclass", outcome: DetectionLabelRewrite, boxesChanged: number,
-    edgeRecords: EdgeImageRecord[], reclassRecords: ReclassImageRecord[], label: string, outliers: number | undefined
+    mode: RefineMode, outcome: DetectionLabelRewrite, boxesChanged: number,
+    edgeRecords: EdgeImageRecord[], reclassRecords: ReclassImageRecord[], recenterRecords: { image: string; line: number; classId: string; box: RefineRect }[],
+    label: string, outliers: number | undefined
   ): RefineRunOutcome => {
     const resultId = `${mode}-${++folderPlanCount}`;
     if (outcome.plan) {
@@ -857,7 +998,8 @@ export function createRefineController(input: {
     const failed = outcome.failures.length;
     const summary = mode === "edge"
       ? summarizeEdgeFolder(byOrder(edgeRecords), { failed, outliers, moveEpsilon: LABEL_FILE_MOVE_EPSILON })
-      : summarizeReclassFolder(byOrder(reclassRecords), { failed, outliers });
+      : mode === "recenter" ? { images: { checked: outcome.total, withChanges: outcome.changed, failed }, boxes: { moved: boxesChanged }, moved: byOrder(recenterRecords).slice(0, outliers ?? 20) }
+        : summarizeReclassFolder(byOrder(reclassRecords), { failed, outliers });
     setStatus(`Preview: ${boxesChanged} box${boxesChanged === 1 ? "" : "es"} would change in ${outcome.changed} of ${outcome.total} images (nothing written)`);
     return {
       ok: true, dryRun: true, resultId, message: status.textContent ?? "", settings: label,
@@ -872,7 +1014,7 @@ export function createRefineController(input: {
     if (!files) return fail("Folder runs are not available here.");
     const { plan } = entry;
     if (!plan.edits.length) return { ok: true, message: "The dry run changed nothing; nothing to write.", boxesChanged: 0, imagesChanged: 0 };
-    const verb = entry.mode === "edge" ? "Refine" : "Reclass";
+    const verb = MODE_NAME[entry.mode];
     if (!(await confirm(`${verb} ${entry.boxesChanged} boxes in ${plan.edits.length} label files of "${plan.folder.name}" with ${entry.label}, exactly as the dry run showed?\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
       return { ok: false, message: "The person declined the folder run.", code: "declined" };
     }
@@ -889,9 +1031,10 @@ export function createRefineController(input: {
     folderPlans.delete(resultId);
     records.clear();
     reclassed.clear();
+    recentered.clear();
     renderReviewCounter();
     raw.canvas.requestRenderAll?.();
-    setStatus(`${entry.boxesChanged} boxes ${entry.mode === "edge" ? "refined" : "reclassed"} in ${plan.edits.length} images as previewed · originals in ${backupPath}`);
+    setStatus(`${entry.boxesChanged} boxes ${MODE_DONE[entry.mode]} in ${plan.edits.length} images as previewed · originals in ${backupPath}`);
     return { ok: true, message: status.textContent ?? "", boxesChanged: entry.boxesChanged, imagesChanged: plan.edits.length, backupPath, saves: files.detectionBatchSaves(plan.folder, plan.edits) };
   };
 
@@ -901,7 +1044,7 @@ export function createRefineController(input: {
     previewTimer = setTimeout(() => {
       const image = syncImage();
       // The would-be edges preview only in Edge mode.
-      const selected = paneOpen() && isDetection() && !reclassMode() ? selectedRects().map(toBox) : [];
+      const selected = paneOpen() && isDetection() && settings.mode === "edge" ? selectedRects().map(toBox) : [];
       if (!image || !selected.length || selected.length > PREVIEW_LIMIT) {
         if (preview.length) { preview = []; raw.canvas.requestRenderAll?.(); }
         if (selected.length > PREVIEW_LIMIT) setStatus(`Preview shows up to ${PREVIEW_LIMIT} selected boxes.`);
@@ -931,14 +1074,16 @@ export function createRefineController(input: {
     if (!byId<HTMLInputElement>("refineShowReviewToggle").checked) return [];
     const selected = new Set(selectedRects().map((rect) => ensureAnnotationId(rect)));
     return queue.map((box) => {
-      const result = !reclassMode() && refineFlagged(box) ? records.get(box.id)!.result : undefined;
+      const result = settings.mode === "edge" && refineFlagged(box) ? records.get(box.id)!.result : undefined;
       const entry = reclassMode() ? reclassed.get(box.id) : undefined;
       const name = entry ? className(entry.match.toClass) : undefined;
+      const moved = settings.mode === "recenter" ? recentered.get(box.id) : undefined;
       return {
         id: box.id,
         screen: { x0: sx(box.x0), y0: sy(box.y0), x1: sx(box.x1), y1: sy(box.y1) },
         review: result ? { weakSides: result.weakSides, areaChange: result.areaFlagged ? result.areaChange : null } : undefined,
         reclass: entry ? { toClass: entry.match.toClass, label: `${entry.from} → ${entry.match.toClass}${name ? ` ${name}` : ""}` } : undefined,
+        recenter: moved ? { label: `x ${shiftText(moved.result.box.x0 - moved.before.x0)} · y ${shiftText(moved.result.box.y0 - moved.before.y0)} px` } : undefined,
         focused: selected.has(box.id)
       };
     });
@@ -975,7 +1120,7 @@ export function createRefineController(input: {
     const height = Math.max(1, Math.round(fabricCanvas.getHeight()));
     const context = overlay.getContext("2d");
     if (!context) return;
-    const active = isDetection() && input.state.session.currentImage === recordsImage && (records.size > 0 || reclassed.size > 0 || preview.length > 0);
+    const active = isDetection() && input.state.session.currentImage === recordsImage && (records.size > 0 || reclassed.size > 0 || recentered.size > 0 || preview.length > 0);
     if (!active) {
       if (overlay.width > 1) context.clearRect(0, 0, overlay.width, overlay.height);
       dimExcept(null);
@@ -1071,6 +1216,10 @@ export function createRefineController(input: {
           const wanted = new Set(ids);
           void reclass(rects().map(toBox).filter((box) => wanted.has(box.id)), false, "No boxes to reclass.");
         },
+        recenterOnCanvas: (ids) => {
+          const wanted = new Set(ids);
+          void recenter(rects().map(toBox).filter((box) => wanted.has(box.id)), false, "No boxes to recenter.");
+        },
         collectCases,
         cropImage: (image, rect, source, processing) => getService().crop(image, rect, imageInput(source, processing)),
         loadPreprocessingPresets: async () => (await loadPreprocessingPresetLibrary(await openProfilePresetFolder(windowRef, "preprocessing"),
@@ -1080,6 +1229,8 @@ export function createRefineController(input: {
         deleteProfilePreset: hasProfileFolder ? edgeLibrary.remove : undefined,
         profileReclassPresets: () => reclassLibrary.presets,
         deleteProfileReclassPreset: hasProfileFolder ? reclassLibrary.remove : undefined,
+        profileRecenterPresets: () => recenterLibrary.presets,
+        deleteProfileRecenterPreset: hasProfileFolder ? recenterLibrary.remove : undefined,
         allBoxes: () => rects().map(toBox),
         loadedBox: (id) => { syncImage(); return loadedBoxes.get(id) ?? null; },
         classIds,
@@ -1124,11 +1275,14 @@ export function createRefineController(input: {
         mode: settings.mode,
         runWith: settings.activePreset ?? null,
         reclassWith: settings.activeReclassPreset ?? null,
+        recenterWith: settings.activeRecenterPreset ?? null,
         edgePresets: allPresets().map((preset) => preset.name),
         reclassPresets: allReclassPresets().map((preset) => preset.name),
+        recenterPresets: allRecenterPresets().map((preset) => preset.name),
         classesWithOwnSettings: Object.keys(settings.classes),
         imageSource: settings.imageSource,
         reclassRule: describeReclassRule(reclassConfig().rule, className),
+        recenterRule: describeRecenterRule(recenterConfig().rule),
         keepHandEdited: skipManualToggle().checked,
         keepHandRelabelled: reclassSkipManual()
       };
@@ -1147,6 +1301,10 @@ export function createRefineController(input: {
             const entry = reclassed.get(box.id);
             return { ...position, from: entry?.from ?? null, to: entry?.match.toClass ?? null };
           }
+          if (mode === "recenter") {
+            const entry = recentered.get(box.id);
+            return { ...position, shiftX: entry ? entry.result.box.x0 - entry.before.x0 : 0, shiftY: entry ? entry.result.box.y0 - entry.before.y0 : 0 };
+          }
           const result = records.get(box.id)?.result;
           return { ...position, weakSides: result?.weakSides ?? [], areaChange: result?.areaChange ?? null, areaFlagged: result?.areaFlagged ?? false, sizeLimited: result?.sizeLimited ?? false, ...(result ? confidenceOf(result) : {}) };
         })
@@ -1157,7 +1315,7 @@ export function createRefineController(input: {
       const queue = reviewQueue(mode);
       const targets = ids === "all" ? queue.map((box) => box.id) : ids.filter((id) => queue.some((box) => box.id === id));
       for (const id of targets) {
-        const entry = mode === "reclass" ? reclassed.get(id) : records.get(id);
+        const entry = reviewEntry(id, mode);
         if (entry) entry.reviewed = true;
       }
       renderReviewCounter();
@@ -1173,9 +1331,9 @@ export function createRefineController(input: {
     if (!isDetection()) return;
     switch (action) {
       case "toggle": input.uiManager.setInspectorTab(paneOpen() ? "annotation" : "refine"); break;
-      // E / Shift+E press the Apply buttons of the mode shown: Refine in Edge mode, Reclass in Reclass mode.
-      case "refineSelected": if (reclassMode()) reclassSelected(); else refineSelected(); break;
-      case "refineAll": if (reclassMode()) reclassAll(); else refineAll(); break;
+      // E / Shift+E press the Apply buttons of the mode shown.
+      case "refineSelected": ({ edge: refineSelected, reclass: reclassSelected, recenter: recenterSelected })[settings.mode](); break;
+      case "refineAll": ({ edge: refineAll, reclass: reclassAll, recenter: recenterAll })[settings.mode](); break;
       case "nextReview": navigateReview(1); break;
       case "previousReview": navigateReview(-1); break;
       case "approve": approve(); break;
@@ -1188,7 +1346,7 @@ export function createRefineController(input: {
       // Presets moved in the folder manager: reread their file names before the next save.
       windowRef.addEventListener?.("easy-labeling:presets-changed", (event) => {
         const kind = (event as CustomEvent<{ kind?: string }>).detail?.kind;
-        if (kind === "refine" || kind === "reclass") void refreshProfilePresets().then(renderPane);
+        if (kind === "refine" || kind === "reclass" || kind === "recenter") void refreshProfilePresets().then(renderPane);
       });
       byId("refineRunPresetSelect").addEventListener("change", (event) => {
         const name = (event.target as HTMLSelectElement).value;
@@ -1200,9 +1358,14 @@ export function createRefineController(input: {
         void changeLoadedSettings((current) => ({ ...current, activeReclassPreset: name || null }));
         setStatus(name ? `Reclassing with ${name}.` : "Reclassing with the Lab rule.");
       });
+      byId("refineRecenterPresetSelect").addEventListener("change", (event) => {
+        const name = (event.target as HTMLSelectElement).value;
+        void changeLoadedSettings((current) => ({ ...current, activeRecenterPreset: name || null }));
+        setStatus(name ? `Recentering with ${name}.` : "Recentering with the Lab rule.");
+      });
       byId("refineModeToggle").addEventListener("click", (event) => {
         const mode = (event.target as HTMLElement).closest<HTMLElement>("[data-mode]")?.dataset.mode;
-        if (mode === "edge" || mode === "reclass") void changeLoadedSettings((current) => (mode === current.mode ? current : { ...current, mode }));
+        if (mode === "edge" || mode === "reclass" || mode === "recenter") void changeLoadedSettings((current) => (mode === current.mode ? current : { ...current, mode }));
       });
       byId("refineSelectedBtn").addEventListener("click", refineSelected);
       byId("refineClassesBtn").addEventListener("click", refineClasses);
@@ -1217,6 +1380,10 @@ export function createRefineController(input: {
       byId("refineReclassClassBtn").addEventListener("click", reclassClass);
       byId("refineFolderBtn").addEventListener("click", () => { void runFolder("edge"); });
       byId("refineReclassFolderBtn").addEventListener("click", () => { void runFolder("reclass"); });
+      byId("refineRecenterSelectedBtn").addEventListener("click", recenterSelected);
+      byId("refineRecenterAllBtn").addEventListener("click", recenterAll);
+      byId("refineRecenterClassBtn").addEventListener("click", recenterClass);
+      byId("refineRecenterFolderBtn").addEventListener("click", () => { void runFolder("recenter"); });
       byId("openRefineLabBtn").addEventListener("click", openLab);
       byId("taskRefineBtn").addEventListener("click", () => runShortcut("toggle"));
       byId("inspectorRefineTabBtn").addEventListener("click", () => input.uiManager.setInspectorTab("refine"));
@@ -1224,7 +1391,7 @@ export function createRefineController(input: {
       const canvas = raw.canvas;
       canvas.on?.("after:render", drawOverlay);
       const onSelection = (): void => {
-        if (records.size || reclassed.size) renderReviewCounter();
+        if (records.size || reclassed.size || recentered.size) renderReviewCounter();
         if (paneOpen() || preview.length) schedulePreview();
       };
       ["selection:created", "selection:updated", "selection:cleared", "object:modified"].forEach((name) => canvas.on?.(name, onSelection));
@@ -1255,7 +1422,7 @@ export function createRefineController(input: {
             if (prior.labelClass !== after.labelClass) { reclassed.delete(after.annotationId); manualClass.add(after.annotationId); }
           }
         }
-        before.forEach((_, id) => { records.delete(id); manual.delete(id); reclassed.delete(id); manualClass.delete(id); });
+        before.forEach((_, id) => { records.delete(id); manual.delete(id); reclassed.delete(id); manualClass.delete(id); recentered.delete(id); });
         if (created.length === 1 && input.state.view.currentMode === "draw") {
           const rect = rects().find((candidate) => ensureAnnotationId(candidate) === created[0]);
           if (rect) {

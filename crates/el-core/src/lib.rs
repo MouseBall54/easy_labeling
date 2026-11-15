@@ -4,6 +4,7 @@ pub mod image_info;
 pub mod js;
 pub mod label_commit;
 pub mod preprocess;
+pub mod recenter;
 pub mod refine;
 pub mod refine_folder;
 pub mod review;

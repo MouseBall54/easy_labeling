@@ -1,5 +1,6 @@
 import { DEFAULT_REFINE_PARAMS } from "../domain/refine/edge-refine.js";
 import { createReclassRule } from "../domain/refine/reclass.js";
+import { createRecenterRule } from "../domain/refine/recenter.js";
 import { englishHelpTexts } from "./refine-help-en.js";
 import { koreanHelpTexts } from "./refine-help-ko.js";
 
@@ -10,9 +11,9 @@ import { koreanHelpTexts } from "./refine-help-ko.js";
  * Defaults are read from the domain so the text follows them.
  */
 export type HelpLang = "en" | "ko";
-export type HelpGroup = "start" | "edge" | "reclass" | "hints";
+export type HelpGroup = "start" | "edge" | "reclass" | "recenter" | "hints";
 export const HELP_LANGS: { id: HelpLang; label: string }[] = [{ id: "en", label: "EN" }, { id: "ko", label: "한국어" }];
-export const HELP_GROUP_IDS: readonly HelpGroup[] = ["start", "edge", "reclass", "hints"];
+export const HELP_GROUP_IDS: readonly HelpGroup[] = ["start", "edge", "reclass", "recenter", "hints"];
 
 export interface HelpText { title: string; caption?: string; html: string }
 export interface HelpTopic extends HelpText {
@@ -27,6 +28,7 @@ export interface HelpTopic extends HelpText {
 export interface HelpKit {
   D: typeof DEFAULT_REFINE_PARAMS;
   R: ReturnType<typeof createReclassRule>;
+  C: ReturnType<typeof createRecenterRule>;
   pct(share: number): string;
   link(id: string, text: string): string;
   tip(html: string): string;
@@ -41,13 +43,13 @@ export const HELP_UI: Record<HelpLang, {
 }> = {
   en: {
     title: "Refine Lab guide", search: "Search: polarity, neighbour, inset, 극성, 이웃…", searchLabel: "Search the guide", close: "Close (Esc)", all: "All",
-    groups: { start: "Start", edge: "Edge", reclass: "Reclass", hints: "Hints" }, sections: "Guide sections", contents: "Contents", language: "Guide language",
+    groups: { start: "Start", edge: "Edge", reclass: "Reclass", recenter: "Recenter", hints: "Hints" }, sections: "Guide sections", contents: "Contents", language: "Guide language",
     results: (count) => `${count} result${count === 1 ? "" : "s"}`,
     empty: (query) => `No topic matches "${query}". Try one word, a setting name, or Hints.`
   },
   ko: {
     title: "Refine Lab 가이드", search: "검색: 극성, 이웃, inset, polarity…", searchLabel: "가이드 검색", close: "닫기 (Esc)", all: "전체",
-    groups: { start: "시작", edge: "Edge", reclass: "Reclass", hints: "힌트" }, sections: "가이드 구역", contents: "목차", language: "가이드 언어",
+    groups: { start: "시작", edge: "Edge", reclass: "Reclass", recenter: "Recenter", hints: "힌트" }, sections: "가이드 구역", contents: "목차", language: "가이드 언어",
     results: (count) => `결과 ${count}개`,
     empty: (query) => `"${query}"와 맞는 주제가 없습니다. 한 단어나 설정 이름으로 찾거나 힌트를 보세요.`
   }
@@ -63,7 +65,7 @@ export const HELP_SVG_DEFS = `<svg class="rh-svg-defs" aria-hidden="true" focusa
 <marker id="rhArrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f0ad4e"/></marker>
 </defs></svg>`;
 
-const COLORS = { original: "#f2f2f2", result: "#4d94ff", band: "rgba(77,148,255,0.28)", amber: "#f0ad4e", reclass: "#e64980", area: "#dc3545", gold: "#ffd666", green: "#3ecf8e" };
+const COLORS = { original: "#f2f2f2", result: "#4d94ff", band: "rgba(77,148,255,0.28)", amber: "#f0ad4e", reclass: "#e64980", recenter: "#0ca678", area: "#dc3545", gold: "#ffd666", green: "#3ecf8e" };
 const svg = (label: string, w: number, h: number, body: string): string =>
   `<svg class="rh-fig" viewBox="0 0 ${w} ${h}" role="img" aria-label="${label}">${body}</svg>`;
 /** A grayscale micrograph panel: background, soft structures, grain. Clipped to its own box. */
@@ -225,6 +227,15 @@ function figures(lang: HelpLang) {
       + note(160, 132, L("bright centre → match", "밝은 가운데 → 일치"), "middle", "rh-note rh-small")
       + micro(216, 4, 100, 112, blob(34, 38, 32, 34, 195), rect(14, 18, 72, 74, ORIGINAL) + rect(34, 38, 32, 34, RESULT) + `<circle cx="86" cy="18" r="7" fill="${COLORS.reclass}"/>`)
       + note(266, 132, L("area −79% → match", "면적 −79% → 일치"), "middle", "rh-note rh-small")),
+    recenter: svg(L("Recenter: region around the box, centroid of the target pixels, box moved onto it", "Recenter: 박스 주변 영역, 대상 픽셀의 무게중심, 그 위로 옮긴 박스"), 320, 150,
+      micro(4, 4, 150, 120, blob(62, 30, 52, 52, 215) + blob(126, 34, 20, 44, 205),
+        rect(30, 40, 52, 52, ORIGINAL)
+        + rect(17, 27, 78, 78, `fill="none" stroke="${COLORS.recenter}" stroke-width="1.6" stroke-dasharray="5 3"`)
+        + line(82, 56, 94, 56, `stroke="${COLORS.recenter}" stroke-width="2"`) + line(88, 50, 88, 62, `stroke="${COLORS.recenter}" stroke-width="2"`))
+      + note(79, 140, L("before: region (dashed)", "이전: 영역(점선)"), "middle", "rh-note rh-small")
+      + micro(166, 4, 150, 120, blob(62, 30, 52, 52, 215) + blob(126, 34, 20, 44, 205),
+        rect(62, 30, 52, 52, RESULT) + `<circle cx="114" cy="30" r="7" fill="${COLORS.recenter}"/>` + tag(114, 34, "+", "#ffffff", "middle"))
+      + note(241, 140, L("after: same size, centred", "이후: 크기 그대로, 중심 맞춤"), "middle", "rh-note rh-small")),
     flow: svg(L("From the Lab to the pane: presets, this image, the whole folder", "Lab에서 pane까지: 프리셋, 이 이미지, 폴더 전체"), 320, 120,
       [["Refine Lab", L("tune · save preset", "조정 · 프리셋 저장"), 8], ["Refine pane", "Run with / Reclass with", 114], ["Apply", L("image or whole folder", "이미지 또는 폴더 전체"), 220]].map(([title, sub, x]) =>
         `<rect class="rh-wire" x="${x}" y="30" width="92" height="56" rx="6"/>${note((x as number) + 46, 52, title as string, "middle", "rh-note rh-strong rh-small")}${note((x as number) + 46, 70, sub as string, "middle", "rh-note rh-small")}`).join("")
@@ -257,6 +268,9 @@ const META: { id: string; group: HelpGroup; figure?: FigureKey; keywords: string
   { id: "reclass-crop", group: "reclass", figure: "insets", keywords: ["centre", "center", "crop", "inset", "top", "bottom", "left", "right", "가운데", "중앙", "영역", "상하좌우", "인셋"] },
   { id: "reclass-checks", group: "reclass", figure: "checks", keywords: ["mean", "bright", "bright pixels", "bright level", "shrink", "area", "and", "or", "combine", "평균", "밝은 픽셀", "면적", "축소", "조합"] },
   { id: "reclass-run", group: "reclass", keywords: ["apply", "selected", "all boxes", "reclass class", "approve all", "review", "hand-edited", "reclass with", "적용", "검토", "승인", "재분류"] },
+  { id: "recenter-quickstart", group: "start", figure: "recenter", keywords: ["tutorial", "recenter", "centre", "center", "centroid", "move", "position", "튜토리얼", "중심", "무게중심", "위치", "이동"] },
+  { id: "recenter-rule", group: "recenter", figure: "recenter", keywords: ["target", "level", "move", "axis", "horizontal", "vertical", "pixels", "nearest group", "margin", "min target", "min pixels", "max shift", "대상", "수평", "수직", "연결", "여백", "최소", "최대 이동"] },
+  { id: "recenter-run", group: "recenter", keywords: ["apply", "selected", "all boxes", "recenter class", "approve all", "review", "hand-edited", "recenter with", "적용", "검토", "승인", "중심 맞춤"] },
   { id: "folder-run", group: "start", figure: "flow", keywords: ["folder", "all images", "batch", "preset", "backup", "run with", "reclass with", "폴더", "전체", "일괄", "백업"] },
   { id: "hints", group: "hints", keywords: ["hint", "hints", "troubleshoot", "problem", "wrong edge", "jumps", "noisy", "soft", "rim", "too many", "힌트", "문제", "해결", "잘못", "튐", "노이즈", "흐림"] },
   { id: "shortcuts", group: "hints", keywords: ["shortcut", "keys", "keyboard", "단축키", "키"] }
@@ -268,6 +282,7 @@ function kit(lang: HelpLang): HelpKit {
   return {
     D: DEFAULT_REFINE_PARAMS,
     R: createReclassRule(),
+    C: createRecenterRule(),
     pct: (share) => `${Math.round(share * 100)}%`,
     link: (id, text) => `<a href="#" data-topic="${id}">${text}</a>`,
     tip: (html) => `<div class="rh-tip"><strong>${words.hint}</strong> ${html}</div>`,

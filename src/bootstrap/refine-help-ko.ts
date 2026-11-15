@@ -5,7 +5,7 @@ import type { HelpKit, HelpText } from "./refine-help-content.js";
  * app shows them, so the text matches the screen; tests/unit/bootstrap/refine-help.test.ts checks that every
  * Lab setting name is found here too.
  */
-export function koreanHelpTexts({ D, R, pct, link, tip, def, keys }: HelpKit): Record<string, HelpText> {
+export function koreanHelpTexts({ D, R, C, pct, link, tip, def, keys }: HelpKit): Record<string, HelpText> {
   return {
     "edge-quickstart": {
       title: "튜토리얼: 박스를 입자 경계에 맞추기",
@@ -176,13 +176,49 @@ ${def("Review", `바뀐 박스에는 마젠타 핀(원래 → 바뀐 클래스)�
 ${def("Reclass all images in folder", `폴더의 모든 이미지에 적용(${link("folder-run", "폴더 전체")}).`)}
 </dl>`
     },
+    "recenter-quickstart": {
+      title: "튜토리얼: 박스를 대상의 중심에 맞추기",
+      caption: "Recenter는 박스를 대상 픽셀의 무게중심으로 옮깁니다. 크기는 바뀌지 않습니다.",
+      html: `<ol class="rh-steps">
+<li>Lab에서 <strong>Mode를 Recenter로</strong> 바꿉니다. 클래스 칩으로 규칙이 옮길 클래스를 고릅니다(없으면 전체).</li>
+<li><strong>Target과 Level:</strong> 박스를 무엇에 맞출지 정합니다. 밝은 픽셀(level 이상) 또는 어두운 픽셀(level 이하)입니다.</li>
+<li><strong>Margin</strong>으로 박스 주변에서 대상을 찾을 영역을 정하고(${link("recenter-rule", "규칙")}), <em>Move</em>로 두 축, 수평만, 수직만 중 하나를 고릅니다.</li>
+<li>각 케이스에 영역은 점선, 센 픽셀은 초록, 무게중심은 십자, 옮긴 박스는 실선으로 표시됩니다. 옮겨질 케이스는 강조되고 아래 상태줄에 개수가 나옵니다.</li>
+<li><strong>Save &amp; recenter these boxes</strong>(또는 pane의 <em>Apply</em>)를 누르면 박스가 바로 옮겨지고(실행 취소 한 번) 검토 목록에 들어갑니다(${link("recenter-run", "적용과 검토")}).</li>
+</ol>`
+    },
+    "recenter-rule": {
+      title: "Recenter 규칙: 대상, 영역, 제한",
+      html: `<p>규칙은 박스 주변 영역에서 대상 픽셀을 찾아 무게중심을 구하고(픽셀마다 같은 무게), 박스 크기는 그대로 둔 채 중심이 그 점에 오도록 옮깁니다.</p>
+<dl class="rh-defs">
+${def("Target", "Bright: level 이상인 픽셀이 대상. Dark: level 이하인 픽셀이 대상.", C.target.dark ? "Dark" : "Bright")}
+${def("Level", "대상 픽셀과 나머지를 가르는 밝기(0–255).", C.target.level)}
+${def("Move", "Both axes, Horizontal only, Vertical only 중 하나. 고르지 않은 축은 위치가 그대로입니다.", "Both axes")}
+${def("Pixels", "Nearest group: 박스 중심에 가장 가까운, 서로 이어진 대상 픽셀만 셉니다. 영역 안에 이웃 입자가 있어도 박스가 끌려가지 않습니다. All in region: 영역 안의 대상 픽셀을 모두 셉니다.", "Nearest group")}
+${def("Margin top / bottom / left / right %", "영역이 각 변 바깥으로 얼마나 나가는지를 박스 높이(위, 아래) 또는 너비(왼쪽, 오른쪽)에 대한 비율로 정합니다. 음수면 영역이 박스 안쪽으로 들어옵니다.", pct(C.marginTop))}
+${def("Min target %", "센 픽셀이 영역에서 이 비율보다 적으면 박스를 옮기지 않습니다.", pct(C.minRatio))}
+${def("Min pixels", "센 픽셀이 이 개수보다 적으면 박스를 옮기지 않습니다.", C.minPixels)}
+${def("Max shift %", "최대 이동량을 박스 너비(수평) 또는 높이(수직)에 대한 비율로 정합니다. 대상이 이보다 멀면 박스는 그대로 둡니다.", pct(C.maxShift))}
+</dl>${tip("영역에는 입자 전체가 들어가되 이웃은 적게 들어가야 합니다. 초록 픽셀이 입자를 덮을 때까지 margin을 늘리고, Nearest group은 켜 두고, Max shift로 옆 입자로 튀는 것을 막으세요.")}`
+    },
+    "recenter-run": {
+      title: "적용, 검토, 중심 맞춤",
+      html: `<p>Refine pane(Recenter 모드)의 <em>Recenter with</em>에서 Lab 규칙 또는 recenter 프리셋을 고릅니다. <em>Apply</em> 버튼은 지금 규칙으로 박스를 옮기고 실행 취소 한 번으로 묶습니다. 대상 픽셀이 부족하거나 이동량이 제한을 넘는 박스는 그대로 두고, 상태줄에 그 수를 보여 줍니다.</p>
+<dl class="rh-defs">
+${def("Selected / All boxes", "선택한 박스 또는 보이는 모든 박스.")}
+${def("Recenter class", "옆에서 고른 클래스의 보이는 박스 전부. 규칙이 옮기지 않는 클래스는 고를 수 없습니다.")}
+${def("Keep hand-edited boxes", "켜 두면(기본값) All boxes와 Recenter class는 손으로 옮기거나 크기를 바꾼 박스를 건드리지 않습니다. Selected는 항상 옮깁니다.")}
+${def("Review", `옮긴 박스에는 초록 핀과 이동량이 붙습니다. ${keys("N")} / ${keys("Shift", "N")}으로 차례로 보고, ${keys("F")}로 하나씩, <em>Approve all</em>로 나머지를 한 번에 승인합니다. 실행 취소하거나 손으로 옮기면 검토 목록에서 빠집니다.`)}
+${def("Recenter all images in folder", `폴더의 모든 이미지에 적용(${link("folder-run", "폴더 전체")}).`)}
+</dl>`
+    },
     "folder-run": {
       title: "프리셋으로 폴더 전체 적용",
       html: `<ol class="rh-steps">
-<li>Lab에서 이미지 몇 장으로 맞추고 프리셋(Edge 또는 Reclass)을 저장합니다.</li>
-<li>pane의 <em>Run with</em>(Edge) 또는 <em>Reclass with</em>(Reclass)에서 그 프리셋을 고릅니다.</li>
-<li><em>Refine all images in folder</em> 또는 <em>Reclass all images in folder</em>를 누르고 확인합니다.</li>
-</ol><p>현재 편집을 먼저 저장하고, 바뀌는 라벨 파일은 모두 라벨 폴더의 <em>.easy-labeling/refine-all-…</em> 또는 <em>reclass-all-…</em>에 백업합니다. 중간에 멈추면 아무 파일도 바뀌지 않습니다. 실행 취소(${keys("Ctrl", "Z")})는 다른 이미지까지 되돌리지 못하니 백업 파일로 복원하세요.</p>`
+<li>Lab에서 이미지 몇 장으로 맞추고 프리셋(Edge, Reclass, Recenter)을 저장합니다.</li>
+<li>pane의 <em>Run with</em>(Edge), <em>Reclass with</em>(Reclass), <em>Recenter with</em>(Recenter)에서 그 프리셋을 고릅니다.</li>
+<li><em>Refine</em>, <em>Reclass</em>, <em>Recenter all images in folder</em> 중 하나를 누르고 확인합니다.</li>
+</ol><p>현재 편집을 먼저 저장하고, 바뀌는 라벨 파일은 모두 라벨 폴더의 <em>.easy-labeling/refine-all-…</em>, <em>reclass-all-…</em>, <em>recenter-all-…</em>에 백업합니다. 중간에 멈추면 아무 파일도 바뀌지 않습니다. 실행 취소(${keys("Ctrl", "Z")})는 다른 이미지까지 되돌리지 못하니 백업 파일로 복원하세요.</p>`
     },
     hints: {
       title: "증상별 해결 힌트",
@@ -197,14 +233,16 @@ ${def("긴 선이나 트렌치", `Scan span <em>Box + outside</em>에 연장을 
 ${def("검토 대상이 너무 많음", `먼저 약한 변 꺾쇠를 보고 그 변의 범위나 기준을 고치세요. <em>Flag below confidence</em>는 정말 희미한 경계일 때만 낮추세요(${link("edge-review", "검토 표시")}).`)}
 ${def("Reclass가 정상 박스를 잡음", `crop을 테두리에서 떼고(${link("reclass-crop", "inset")}), Mean을 올리거나 AND로 조합하세요(${link("reclass-checks", "검사")}).`)}
 ${def("Reclass가 결함을 놓침", "기준을 하나씩 낮추고, 얼룩덜룩한 가운데는 Bright pixels를 켜고, 결함이 보이는 쪽으로 crop을 옮기세요.")}
+${def("Recenter가 박스를 이웃 쪽으로 끌어감", `<em>Nearest group</em>을 켜 두고 margin이나 <em>Max shift</em>를 줄이세요(${link("recenter-rule", "규칙")}).`)}
+${def("Recenter가 박스를 옮기지 않음", "케이스를 보세요. 대상 픽셀이 없으면 Level이나 Target을, 너무 적으면 Min target %나 Min pixels를 낮추고, Max shift를 넘었는지 확인하세요.")}
 </dl>`
     },
     shortcuts: {
       title: "단축키",
       html: `<dl class="rh-defs">
 ${def(keys("R"), "Refine pane 열기/닫기.")}
-${def(`${keys("E")} / ${keys("Shift", "E")}`, "선택한 박스 / 모든 박스에 지금 모드로 적용: Edge 모드는 경계 맞추기, Reclass 모드는 재분류.")}
-${def(`${keys("N")} / ${keys("Shift", "N")}`, "다음 / 이전 검토 박스(Edge 모드는 검토 대상, Reclass 모드는 클래스가 바뀐 박스).")}
+${def(`${keys("E")} / ${keys("Shift", "E")}`, "선택한 박스 / 모든 박스에 지금 모드로 적용: Edge 모드는 경계 맞추기, Reclass 모드는 재분류, Recenter 모드는 중심 맞춤.")}
+${def(`${keys("N")} / ${keys("Shift", "N")}`, "다음 / 이전 검토 박스(Edge 모드는 검토 대상, Reclass 모드는 클래스가 바뀐 박스, Recenter 모드는 옮긴 박스).")}
 ${def(keys("F"), "선택한 검토 박스 승인(Approve). pane의 <em>Approve all</em>은 모두 승인.")}
 ${def("확대 보기", "휠: 확대 · 드래그: 이동 · 더블클릭: 전체 보기.")}
 </dl>`

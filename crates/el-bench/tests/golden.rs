@@ -315,3 +315,37 @@ fn golden_refine_folder() {
     }
     assert!(failures.is_empty(), "{} of {} refine-folder cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecenterCase {
+    name: String,
+    image: String,
+    width: usize,
+    height: usize,
+    processing: Option<preprocess::PreprocessConfig>,
+    boxes: Vec<refine::BoxInput>,
+    rule: el_core::recenter::RecenterRule,
+    expected: Value,
+}
+
+/// recenterBoxes on the Original or Processed pixels: same JSON as TS (numbers within REFINE_TOLERANCE).
+#[test]
+fn golden_recenter() {
+    let cases: Vec<RecenterCase> = read_json("recenter/cases.json");
+    assert!(!cases.is_empty());
+    let mut failures = Vec::new();
+    for case in &cases {
+        let mut pixels = read_bytes(&format!("recenter/{}", case.image));
+        if let Some(config) = &case.processing {
+            let values: Vec<f32> = pixels.iter().map(|&v| f32::from(v)).collect();
+            pixels = preprocess::to_bytes(&preprocess::preprocess_gray(values, case.width, case.height, config));
+        }
+        let image = refine::GrayImage { gray: &pixels, width: case.width, height: case.height };
+        let actual = serde_json::to_value(el_core::recenter::recenter_boxes(&image, &case.boxes, &case.rule)).expect("results serialize");
+        let mut out = Vec::new();
+        compare(&case.name, &case.expected, &actual, &mut out);
+        failures.extend(out.into_iter().take(5));
+    }
+    assert!(failures.is_empty(), "{} recenter differences:\n{}", failures.len(), failures.join("\n"));
+}
