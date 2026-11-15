@@ -105,6 +105,17 @@ const SIDE_KEY = { L: "x0", R: "x1", T: "y0", B: "y1" } as const;
 
 interface RefineRecord { result: RefineResult; reviewed: boolean }
 
+/** Folder run confirmation: the question, then one fact per line and the rule as bullets, so the numbers stand out. */
+const folderRunMessage = (question: string, settings: string, folder: string, rule: readonly string[]): string => [
+  question,
+  "",
+  `Settings: ${settings}`,
+  `Label folder: ${folder}`,
+  ...(rule.length ? ["", "Rule:", ...rule.map((line) => `  • ${line}`)] : []),
+  "",
+  "Current edits are saved first, and the original label files are backed up."
+].join("\n");
+
 export function createRefineController(input: {
   state: AppState;
   canvasController: RuntimeCanvasController;
@@ -853,12 +864,14 @@ export function createRefineController(input: {
     if (mode === "reclass" && !config.rule.mean.enabled && !config.rule.bright.enabled && !config.rule.shrink.enabled) return fail("The reclass rule has no check on.");
     const total = input.state.session.imageFiles.length;
     const folderName = input.state.session.labelFolderHandle?.name ?? "label";
-    const what = mode === "edge"
-      ? `Refine every box in all ${total} images of "${folderName}" with ${edge.label}?`
-      : mode === "recenter"
-        ? `Recenter boxes in all ${total} images of "${folderName}" with ${centre.preset ? refinePresetLabel(centre.preset) : "the Lab rule"} (${describeRecenterRule(centre.rule)})?`
-        : `Reclass boxes in all ${total} images of "${folderName}" with ${config.preset ? refinePresetLabel(config.preset) : "the Lab rule"} (${describeReclassRule(config.rule, className)})?`;
-    if (!options.dryRun && !(await confirm(`${what}\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
+    const rulePreset = mode === "recenter" ? centre.preset : config.preset;
+    const message = folderRunMessage(
+      mode === "edge" ? `Refine every box in all ${total} images?` : `${MODE_NAME[mode]} boxes in all ${total} images?`,
+      mode === "edge" ? edge.label : rulePreset ? refinePresetLabel(rulePreset) : "the Lab rule",
+      folderName,
+      mode === "edge" ? [] : (mode === "recenter" ? describeRecenterRule(centre.rule) : describeReclassRule(config.rule, className)).split(" · ")
+    );
+    if (!options.dryRun && !(await confirm(message))) {
       return { ok: false, message: "The person declined the folder run.", code: "declined" };
     }
     let boxesChanged = 0;
@@ -1015,7 +1028,7 @@ export function createRefineController(input: {
     const { plan } = entry;
     if (!plan.edits.length) return { ok: true, message: "The dry run changed nothing; nothing to write.", boxesChanged: 0, imagesChanged: 0 };
     const verb = MODE_NAME[entry.mode];
-    if (!(await confirm(`${verb} ${entry.boxesChanged} boxes in ${plan.edits.length} label files of "${plan.folder.name}" with ${entry.label}, exactly as the dry run showed?\n\nCurrent edits will be saved first. Original label files will be backed up.`))) {
+    if (!(await confirm(folderRunMessage(`${verb} ${entry.boxesChanged} boxes in ${plan.edits.length} label files, exactly as the dry run showed?`, entry.label, plan.folder.name, [])))) {
       return { ok: false, message: "The person declined the folder run.", code: "declined" };
     }
     setBusy(true);

@@ -4618,6 +4618,50 @@ body.dark-mode .loading-overlay {
     font-size: var(--fs-caption);
     font-variant-numeric: tabular-nums;
     line-height: 1.5;
+    display: grid;
+    gap: 1px;
+}
+
+/* One row per readout line: a label, the text, and pills for the values measured on this case. */
+.refine-lab-readout-row {
+    padding-left: 8px;
+    border-left: 2px solid var(--workbench-border);
+}
+
+.refine-lab-readout-row.is-head {
+    border-left-color: var(--workbench-primary);
+    font-weight: 600;
+}
+
+.refine-lab-readout-row.is-context {
+    color: var(--workbench-text-muted);
+}
+
+.refine-lab-readout-row.is-warning {
+    border-left-color: var(--bs-warning, #d39e00);
+}
+
+.refine-lab-readout-row.is-danger {
+    border-left-color: var(--bs-danger, #c0392b);
+    color: var(--bs-danger, #c0392b);
+}
+
+.refine-lab-readout-key {
+    color: var(--workbench-text-muted);
+    font-weight: 600;
+}
+
+.refine-lab-readout-value {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--workbench-primary-soft);
+    color: var(--workbench-text);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.refine-lab-readout-row.is-warning .refine-lab-readout-value {
+    background: rgba(211, 158, 0, 0.22);
 }
 
 @media (max-width: 991.98px) {
