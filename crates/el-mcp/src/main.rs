@@ -35,12 +35,13 @@ numbers over images for review. Use one annotationIds sheet for flagged boxes. F
 capture the needed view or region even if there are no boxes yet. Verify edits through numeric results.\n\n\
 Typical flow: find_similar from one good box (or run_template_matching / apply_layout) to add boxes -> run_refine with dryRun \
 to see what would move, then without dryRun (pass the returned annotationIds as the scope) -> review_queue, then one capture_view \
-sheet (annotationIds) of the flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Before run_reclass, read reclassRule from \
+sheet (annotationIds) of the flagged boxes -> approve or update_boxes -> save -> set_review_status. analyze_boxes checks sizes, rows/columns and missing positions in numbers after any of these steps. Act on many boxes with where (class, size, region) rather than id lists; arrange_boxes aligns rows and columns as the Arrange buttons do; refine_profile explains a flagged box side by side. To reuse a placement: save_layout, then save_template_preset (stored in the Agent folder), check it with run_template_matching (distinctiveness.margin), and run it over the folder with run_template_matching_folder (dry run first); copy_boxes copies boxes to images that hold the same layout, detect_boxes offers a loaded model's detections as boxes. Before run_reclass, read reclassRule from \
 get_refine_settings and try dryRun first. For a whole folder, judge by numbers rather than captures: dry-run refine_folder / \
 reclass_folder on a sample (sample: 20), read the summary (flagged share, shift and confidence spreads, outliers), capture only \
 the outliers, adjust, and write the accepted result with its resultId. When the person has reference labels (a folder of \
 checked label files inside the image folder), compare_labels is the score: measure before and after each change and keep what \
-raises F1 and lowers the edge error. Every edit is one undo step; folder-wide writes ask the person first.\n\n\
+raises F1 and lowers the edge error. Every edit is one undo step; folder-wide writes ask the person first. Layouts, presets and \
+class files you save go to the Agent subfolder of the person's preset library; you may change only those (agentOwned: true).\n\n\
 Box tools work in Detection. For masks, set_workflow \"segmentation\" and read the mask as numbers with get_regions \
 (connected regions per class: area, bounding box, centre, a seed pixel), edit it with paint_mask (shapes) and edit_regions (delete or relabel regions by seed, or a class's regions by area), and draw regions from prompts with segment_ai (AI Select: points and boxes, many per call, previewed with score and edgeFit before applying) or boxes_to_masks (one AI region per Detection box of the image); check masks with analyze_masks (specks, holes, merged regions, boundaries off edges, missing spots) and fix them with clean_masks; undo, redo, save and capture_view work in both workflows. \
 With reference masks (a folder of checked mask PNGs inside the image folder), compare_masks is the score: IoU, boundary F1 and \
@@ -295,6 +296,9 @@ struct GetBoxesArgs {
     ids: Option<Vec<String>>,
     #[schemars(description = "Only the boxes of this class")]
     class_id: Option<Value>,
+    #[schemars(description = "Only the boxes matching these conditions (class, size, region)")]
+    #[serde(rename = "where")]
+    filter: Option<BoxWhere>,
     #[schemars(description = "Index of the first box to return (default 0)")]
     offset: Option<u32>,
     #[schemars(description = "Boxes to return (default 200, or every id given; at most 5000; 0 returns only countsByClass and total)")]
@@ -369,9 +373,24 @@ struct CaptureViewArgs {
     #[schemars(description = "Or: several boxes (up to 36) in one sheet, a numbered zoomed cell per box in this order; use this rather than one call per box")]
     annotation_ids: Option<Vec<String>>,
     #[schemars(
+        description = "A run_refine dryRun resultId: the sheet outlines where Refine would move each box (dashed cyan) over the box now; without annotationIds it shows the moved boxes, flagged first"
+    )]
+    refine_result_id: Option<String>,
+    #[schemars(
+        description = "What to draw over the image (each default true): {\"boxes\": false} shows the bare image, {\"tags\": false} hides the class tags, {\"refine\": false} hides Refine's marks"
+    )]
+    layers: Option<CaptureLayers>,
+    #[schemars(
         description = "Resend the PNG if it matches a prior app capture (default false). Use once if the image is needed and the earlier PNG is unavailable."
     )]
     force: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct CaptureLayers {
+    boxes: Option<bool>,
+    tags: Option<bool>,
+    refine: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -413,14 +432,76 @@ struct BoxUpdate {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct UpdateBoxesArgs {
-    #[schemars(description = "Changes by annotationId (at most 5000)")]
-    updates: Vec<BoxUpdate>,
+    #[schemars(description = "Changes by annotationId (at most 5000). Or give where and change instead")]
+    updates: Option<Vec<BoxUpdate>>,
+    #[schemars(description = "Instead of updates: every box matching these conditions gets the same change")]
+    #[serde(rename = "where")]
+    filter: Option<BoxWhere>,
+    #[schemars(description = "With where: the change for every matching box")]
+    change: Option<BoxChange>,
+}
+
+/// Which boxes of the current image a call acts on; every given condition must hold.
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct BoxWhere {
+    #[schemars(description = "Only these annotationIds")]
+    annotation_ids: Option<Vec<String>>,
+    #[schemars(description = "Only these classes, e.g. [\"0\", 3]")]
+    class_ids: Option<Vec<Value>>,
+    #[schemars(description = "Width in pixels at least")]
+    min_width: Option<f64>,
+    #[schemars(description = "Width in pixels at most")]
+    max_width: Option<f64>,
+    #[schemars(description = "Height in pixels at least")]
+    min_height: Option<f64>,
+    #[schemars(description = "Height in pixels at most")]
+    max_height: Option<f64>,
+    #[schemars(description = "Area (width x height) in pixels at least")]
+    min_area: Option<f64>,
+    #[schemars(description = "Area in pixels at most, e.g. 20 for specks")]
+    max_area: Option<f64>,
+    #[schemars(description = "The whole box lies in this image region")]
+    inside: Option<PixelRegion>,
+    #[schemars(description = "The box does not touch this image region")]
+    outside: Option<PixelRegion>,
+    #[schemars(description = "The box shares some area with this image region")]
+    overlaps: Option<PixelRegion>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct BoxChange {
+    #[schemars(description = "New class id")]
+    class_id: Option<Value>,
+    #[schemars(description = "Move by dx, dy pixels")]
+    shift: Option<BoxShift>,
+    #[schemars(description = "Grow (negative: shrink) by dw x dh pixels")]
+    resize: Option<BoxResize>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct BoxShift {
+    dx: Option<f64>,
+    dy: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct BoxResize {
+    dw: Option<f64>,
+    dh: Option<f64>,
+    #[schemars(description = "\"center\" (default: grow evenly on both sides) or \"topLeft\" (keep the top-left corner)")]
+    anchor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct DeleteBoxesArgs {
-    annotation_ids: Vec<String>,
+    #[schemars(description = "These boxes. Or give where instead")]
+    annotation_ids: Option<Vec<String>>,
+    #[schemars(description = "Instead of annotationIds: every box matching these conditions")]
+    #[serde(rename = "where")]
+    filter: Option<BoxWhere>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -428,6 +509,9 @@ struct DeleteBoxesArgs {
 struct SelectBoxesArgs {
     #[schemars(description = "Select exactly these boxes")]
     annotation_ids: Option<Vec<String>>,
+    #[schemars(description = "Or: select every box matching these conditions")]
+    #[serde(rename = "where")]
+    filter: Option<BoxWhere>,
     #[schemars(description = "Or: select every box of this class")]
     class_id: Option<Value>,
     #[schemars(description = "Or: \"all\" or \"none\"")]
@@ -512,6 +596,213 @@ struct FolderRunArgs {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct RefineProfileArgs {
+    #[schemars(description = "The boxes to explain (1 to 50 annotationIds of the current image)")]
+    annotation_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct CleanOutOfBoundsArgs {
+    #[schemars(description = "Compute and list without writing (default true). false writes the whole folder after the person allows it")]
+    dry_run: Option<bool>,
+    #[schemars(description = "Dry run on this many images spread evenly over the list instead of all")]
+    sample: Option<u32>,
+    #[schemars(description = "Or: dry run on these image file names")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Write a previous dry run exactly as previewed (the person must allow it)")]
+    result_id: Option<String>,
+    #[schemars(description = "Index of the first image listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Images listed, most boxes removed first (default 200)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct ArrangeBoxesArgs {
+    #[schemars(
+        description = "alignLeft, alignRight, alignTop, alignBottom, alignColumnCenters, alignRowCenters, alignRowSetColumnCenters, distributeHorizontally, distributeVertically or sameSize"
+    )]
+    action: String,
+    #[schemars(description = "The boxes to arrange: every box matching these conditions")]
+    #[serde(rename = "where")]
+    filter: Option<BoxWhere>,
+    #[schemars(description = "Or: these boxes")]
+    annotation_ids: Option<Vec<String>>,
+    #[schemars(description = "Or: \"all\" boxes of the image (default: the selected boxes)")]
+    scope: Option<String>,
+    #[schemars(description = "For sameSize: \"median\" (default), \"largest\" or \"smallest\"")]
+    size: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct DetectBoxesArgs {
+    #[schemars(description = "Confidence threshold 0..1 (default: the Inference panel's)")]
+    confidence: Option<f64>,
+    #[schemars(description = "NMS IoU 0..1 (default: the panel's)")]
+    iou: Option<f64>,
+    #[schemars(description = "Most detections (default: the panel's)")]
+    max_detections: Option<u32>,
+    #[schemars(description = "Model class -> class id of the current class file, e.g. {\"0\": \"2\"} (unmapped classes keep their id)")]
+    class_map: Option<serde_json::Map<String, Value>>,
+    #[schemars(description = "Only these model classes")]
+    model_classes: Option<Vec<Value>>,
+    #[schemars(description = "Leave out detections over existing boxes (IoU 0.5+; default true)")]
+    skip_overlapping: Option<bool>,
+    #[schemars(description = "Add every detection of at least minConfidence right away (default false: preview)")]
+    apply: Option<bool>,
+    #[schemars(description = "With apply: only detections of at least this confidence")]
+    min_confidence: Option<f64>,
+    #[schemars(description = "How many objects you expect, for scores.coverage")]
+    expected: Option<u32>,
+    #[schemars(description = "Instead of running the model: apply the preview with this resultId")]
+    result_id: Option<String>,
+    #[schemars(description = "With resultId: candidate indexes to apply (default: all)")]
+    accept: Option<Vec<u32>>,
+    #[schemars(description = "Index of the first candidate listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Candidates listed (default 100)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct TemplateFolderArgs {
+    #[schemars(description = "Automation preset name (see list_templates); not needed with resultId")]
+    preset: Option<String>,
+    #[schemars(description = "Compute and summarize without writing (default true). false writes the whole folder after the person allows it")]
+    dry_run: Option<bool>,
+    #[schemars(description = "Dry run on this many images spread evenly over the list instead of all")]
+    sample: Option<u32>,
+    #[schemars(description = "Or: dry run on these image file names")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Write a previous dry run exactly as previewed (the person must allow it)")]
+    result_id: Option<String>,
+    #[schemars(description = "Index of the first image in perImage (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Images listed in perImage, problems first (default 50)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct BoxOffset {
+    dx: Option<f64>,
+    dy: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct CopyBoxesArgs {
+    #[schemars(description = "Image file names to copy the boxes to (the current image is left out)")]
+    images: Option<Vec<String>>,
+    #[schemars(description = "Copy only the boxes matching these conditions (default: every box)")]
+    #[serde(rename = "where")]
+    filter: Option<BoxWhere>,
+    #[schemars(description = "Shift every copied box by dx, dy pixels (default 0, 0)")]
+    offset: Option<BoxOffset>,
+    #[schemars(description = "\"append\" (default: keep the target's boxes) or \"replace\" (the copies replace them)")]
+    existing: Option<String>,
+    #[schemars(description = "Leave out a copy overlapping a box already on the target (IoU 0.5+; default true)")]
+    skip_overlapping: Option<bool>,
+    #[schemars(description = "Compute without writing (default true)")]
+    dry_run: Option<bool>,
+    #[schemars(description = "Write a previous dry run exactly as previewed (the person must allow it)")]
+    result_id: Option<String>,
+    #[schemars(description = "Index of the first image in perImage (default 0)")]
+    offset_images: Option<u32>,
+    #[schemars(description = "Images listed in perImage (default 100)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct ListTemplatesArgs {
+    #[schemars(description = "Every setting of this preset")]
+    preset: Option<String>,
+    #[schemars(description = "The boxes of this layout")]
+    layout: Option<String>,
+    #[schemars(description = "With layout: index of the first box listed (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "With layout: boxes listed (default 500)")]
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct PixelPoint {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct PresetMatching {
+    #[schemars(description = "Minimum match score 0..1 (default 0.8)")]
+    min_score: Option<f64>,
+    #[schemars(description = "\"accurate\" (default) or \"fast\"")]
+    mode: Option<String>,
+    #[schemars(description = "Search only this part of the image (default: the whole image)")]
+    search_region: Option<PixelRegion>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct PresetBoxes {
+    #[schemars(description = "Class of the boxes (required for outputMode boxes)")]
+    class_id: Option<Value>,
+    #[schemars(description = "Most boxes per image (default 100, at most 10000)")]
+    max_matches: Option<u32>,
+    #[schemars(description = "Matches overlapping a better one at this IoU or more are dropped (default 0.3)")]
+    nms_iou: Option<f64>,
+    #[schemars(description = "Never keep two overlapping boxes (default true)")]
+    strict_non_overlap: Option<bool>,
+    #[schemars(description = "Pixels added left and right of every box (default 0)")]
+    padding_x: Option<f64>,
+    #[schemars(description = "Pixels added above and below every box (default 0)")]
+    padding_y: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct PresetPreprocessing {
+    #[schemars(description = "Gaussian blur kernel: odd 1..99, 0 = off (default 13)")]
+    blur: Option<u32>,
+    #[schemars(description = "Match in gray (default true)")]
+    grayscale: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct SaveTemplatePresetArgs {
+    #[schemars(description = "Preset name")]
+    name: String,
+    #[schemars(description = "\"layout\" (place a saved layout on the best match) or \"boxes\" (a box at every match)")]
+    output_mode: String,
+    #[schemars(description = "The template: this box of the current image")]
+    annotation_id: Option<String>,
+    #[schemars(description = "Or: this region in pixels")]
+    region: Option<PixelRegion>,
+    #[schemars(description = "Cut the region from this image of the folder instead of the current one")]
+    template_image: Option<String>,
+    #[schemars(description = "For layout: the layout name (list_templates)")]
+    layout: Option<String>,
+    #[schemars(
+        description = "For layout: the layout's anchor relative to the template's top-left in pixels (default: computed when both come from one image)"
+    )]
+    anchor_offset: Option<PixelPoint>,
+    #[schemars(description = "For layout: a final shift of the placed layout in pixels (default 0, 0)")]
+    final_adjustment: Option<PixelPoint>,
+    matching: Option<PresetMatching>,
+    boxes: Option<PresetBoxes>,
+    preprocessing: Option<PresetPreprocessing>,
+    #[schemars(description = "What a run does on an image that already has boxes: \"append\" (default), \"skip\" or \"replace\"")]
+    existing_labels: Option<String>,
+    #[schemars(description = "Replace a preset of the same name kept in the Agent folder (default false)")]
+    overwrite: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 struct RemapRow {
     #[schemars(description = "Class id to change")]
     from: Value,
@@ -536,6 +827,12 @@ struct TemplateRunArgs {
     preset: String,
     #[schemars(description = "Apply the boxes to the current image (one undo step); default false returns the match or candidates only")]
     apply: Option<bool>,
+    #[schemars(description = "Multiple-boxes presets: how many objects you expect, for scores.coverage (candidates per expected object)")]
+    expected: Option<u32>,
+    #[schemars(description = "Multiple-boxes presets: index of the first candidate to list (default 0)")]
+    offset: Option<u32>,
+    #[schemars(description = "Multiple-boxes presets: candidates to list (default 100, at most 5000)")]
+    limit: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -545,6 +842,8 @@ struct FindSimilarArgs {
     annotation_id: Option<String>,
     #[schemars(description = "Or: use this image region in pixels as the template (then classId is required)")]
     region: Option<PixelRegion>,
+    #[schemars(description = "Cut the region from this image of the folder instead of the current one (its pixels); the view stays")]
+    template_image: Option<String>,
     #[schemars(description = "Class id of the boxes to add (default: the template box's class)")]
     class_id: Option<Value>,
     #[schemars(description = "Minimum match score 0..1 (default 0.8; lower finds more, with more false matches)")]
@@ -555,6 +854,20 @@ struct FindSimilarArgs {
     skip_overlapping: Option<bool>,
     #[schemars(description = "Add the matches as boxes (one undo step); default false only returns them")]
     apply: Option<bool>,
+    #[schemars(description = "Gaussian blur kernel before matching: odd 1..99, 0 = off (default 13). Less blur separates fine, close objects")]
+    blur: Option<u32>,
+    #[schemars(description = "\"accurate\" (default) or \"fast\" (image pyramid; quicker on large images, may miss small objects)")]
+    mode: Option<String>,
+    #[schemars(description = "Search only this part of the current image (pixels)")]
+    search_region: Option<PixelRegion>,
+    #[schemars(description = "Matches overlapping a better match at this IoU or more are dropped (0..1, default 0.3)")]
+    nms_iou: Option<f64>,
+    #[schemars(description = "Pixels added left and right of every match box (default 0)")]
+    padding_x: Option<f64>,
+    #[schemars(description = "Pixels added above and below every match box (default 0)")]
+    padding_y: Option<f64>,
+    #[schemars(description = "How many objects you expect, for scores.coverage (candidates per expected object)")]
+    expected: Option<u32>,
     #[schemars(description = "Index of the first candidate to list (default 0)")]
     offset: Option<u32>,
     #[schemars(description = "Candidates to list (default 100, at most 5000)")]
@@ -587,7 +900,7 @@ struct SaveLayoutArgs {
     annotation_ids: Option<Vec<String>>,
     #[schemars(description = "Without annotationIds: \"selected\" (default) or \"all\" boxes of the current image")]
     scope: Option<String>,
-    #[schemars(description = "Replace a layout with the same name (default false: that is an error)")]
+    #[schemars(description = "Replace a layout with the same name kept in the Agent folder (default false: that is an error)")]
     overwrite: Option<bool>,
 }
 
@@ -676,7 +989,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Create and select a new class YAML file when the existing classes do not fit. Existing files are protected. Returns the path and the classes as get_classes sees them.",
+        description = "Create and select a new class YAML file when the existing classes do not fit. Existing files are protected. In the desktop profile's Class Info folder the file goes to its Agent subfolder. Returns the path and the classes as get_classes sees them.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn create_class_file(
@@ -816,7 +1129,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Boxes on the current image as the canvas has them, unsaved edits included: annotationId, classId, className, x0/y0/x1/y1 in image pixels, hidden, selected. Paged (default 200 per call) with countsByClass and total for the whole image. annotationIds are assigned anew each time an image loads: read them again after go_to_image or open_folder.",
+        description = "Boxes on the current image as the canvas has them, unsaved edits included: annotationId, classId, className, x0/y0/x1/y1 in image pixels, hidden, selected. Paged (default 200 per call) with countsByClass and total for the whole image; where filters by class, size or region. annotationIds are assigned anew each time an image loads: read them again after go_to_image or open_folder (an old id answers stale_id).",
         annotations(read_only_hint = true)
     )]
     async fn get_boxes(
@@ -872,7 +1185,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Returns an MCP PNG image block plus JSON for the viewport, an image-pixel region, a crop around annotationId, or a sheet (annotationIds). Use for new visual labels and review decisions that need pixels. Convert PNG pixel edges to original image pixel edges before editing: x = pngX * imageFromCapture.scaleX + imageFromCapture.offsetX, likewise for y. On a sheet, subtract the tile's cell.x/y first and use its imageFromCell scale and offsets. unchanged: true means the app omitted a duplicate PNG. Reuse an available PNG with the same captureId and the current mapping, or repeat once with force: true if the image is still needed. Use numeric results to verify edits.",
+        description = "Returns an MCP PNG image block plus JSON for the viewport, an image-pixel region, a crop around annotationId, or a sheet (annotationIds; with refineResultId it outlines a Refine dry run over the boxes). layers hides boxes, tags or Refine marks (the bare image shows edges boxes would cover); viewSource says whether the Original or Processed image is shown. Use for new visual labels and review decisions that need pixels. Convert PNG pixel edges to original image pixel edges before editing: x = pngX * imageFromCapture.scaleX + imageFromCapture.offsetX, likewise for y. On a sheet, subtract the tile's cell.x/y first and use its imageFromCell scale and offsets. unchanged: true means the app omitted a duplicate PNG. Reuse an available PNG with the same captureId and the current mapping, or repeat once with force: true if the image is still needed. Use numeric results to verify edits.",
         annotations(read_only_hint = true)
     )]
     async fn capture_view(
@@ -903,7 +1216,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Move/resize boxes (x0, y0, x1, y1 in original image pixel edges) and/or change their class, by annotationId. All updates of one call are one undo step.",
+        description = "Move/resize boxes (x0, y0, x1, y1 in original image pixel edges) and/or change their class, by annotationId; or give where and change to move, resize or relabel every matching box at once (clipped to the image). All updates of one call are one undo step.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn update_boxes(
@@ -916,7 +1229,10 @@ impl EasyLabeling {
         forward("update_boxes", to_value(&args), (meta, peer, ct)).await
     }
 
-    #[tool(description = "Delete boxes by annotationId (one undo step; undo brings them back).", annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Delete boxes by annotationId, or every box matching where (class, size, region); one undo step, undo brings them back.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn delete_boxes(
         &self,
         Parameters(args): Parameters<DeleteBoxesArgs>,
@@ -928,7 +1244,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Change which boxes are selected in the app (to show the person, or before an app action). Give annotationIds, classId, or select \"all\"/\"none\".",
+        description = "Change which boxes are selected in the app (to show the person, or before an app action). Give annotationIds, where (class, size, region), classId, or select \"all\"/\"none\".",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn select_boxes(
@@ -939,6 +1255,20 @@ impl EasyLabeling {
         ct: CancellationToken,
     ) -> CallToolResult {
         forward("select_boxes", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Arrange boxes of the current image as the Arrange buttons do, as one undo step: alignLeft/Right/Top/Bottom, alignColumnCenters, alignRowCenters, alignRowSetColumnCenters (staggered rows), distributeHorizontally/Vertically (equal gaps, 3+ boxes), or sameSize (every box to the median, largest or smallest width and height, around its centre). Boxes: where, annotationIds, scope \"all\", or the selection. Center alignments group boxes by the person's tolerance slider. Returns how many boxes moved and the largest shift; check rows with analyze_boxes after.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn arrange_boxes(
+        &self,
+        Parameters(args): Parameters<ArrangeBoxesArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("arrange_boxes", to_value(&args), (meta, peer, ct)).await
     }
 
     #[tool(
@@ -974,7 +1304,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Snap boxes of the current image to the image edges (Refine, as the pane's Apply buttons). One undo step. Returns counts and moved boxes before/after with their confidence (0..1, overall and per side; low = unsure), flagged ones first (paged). dryRun: true returns the same without moving anything.",
+        description = "Snap boxes of the current image to the image edges (Refine, as the pane's Apply buttons). One undo step. Returns counts and moved boxes before/after with their confidence (0..1, overall and per side; low = unsure), flagged ones first (paged). dryRun: true returns the same without moving anything, plus a resultId for capture_view refineResultId (before/after on one sheet).",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn run_refine(
@@ -1080,6 +1410,34 @@ impl EasyLabeling {
     }
 
     #[tool(
+        description = "Why Refine moves (or keeps) each side of these boxes, from the edge profile the Refine Lab plots, with the run's own settings and image: per side the criterion, the polarity used and detected (box core and background ring brightness), the edge it picks, the strongest edges it saw along the scan (position in image pixels, strength relative to the strongest), the scanned range and, for paired sides, the pair candidates. Use it when run_refine flags a box or a side has low confidence: two candidates of similar strength mean a neighbouring edge competes; a weak lone candidate means no clear edge; a wrong polarity means the box core and ring brightness disagree. Read-only.",
+        annotations(read_only_hint = true)
+    )]
+    async fn refine_profile(
+        &self,
+        Parameters(args): Parameters<RefineProfileArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("refine_profile", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Remove the boxes that cross image edges from the folder's label files (the Clean outside boxes button). Dry run by default: returns how many boxes each image would lose and a resultId, writing nothing; sample or images check a few. Pass resultId to write exactly that (the person allows it; originals are backed up under outside-boxes), refused if a label file changed since.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
+    async fn clean_out_of_bounds(
+        &self,
+        Parameters(args): Parameters<CleanOutOfBoundsArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("clean_out_of_bounds", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
         description = "Change class ids in every label file of the folder (a mapping or an offset). Dry run by default: returns what would change; with dryRun false the person must allow it and originals are backed up.",
         annotations(read_only_hint = false, destructive_hint = true)
     )]
@@ -1097,15 +1455,63 @@ impl EasyLabeling {
 #[tool_router(router = auto_router)]
 impl EasyLabeling {
     #[tool(
-        description = "Saved template-matching automation presets (output mode, layout, class, minimum score) and box layouts.",
+        description = "Saved template-matching automation presets (output mode, layout, class, minimum score) and box layouts, each with its preset-library folder and agentOwned (true = in the Agent folder, so agents may change it). With preset: every setting of that preset and its template (source image, region). With layout: its boxes (class, position relative to the anchor, size), source image and anchor.",
         annotations(read_only_hint = true)
     )]
-    async fn list_templates(&self, meta: RequestMetaObject, peer: Peer<RoleServer>, ct: CancellationToken) -> CallToolResult {
-        forward("list_templates", json!({}), (meta, peer, ct)).await
+    async fn list_templates(
+        &self,
+        Parameters(args): Parameters<ListTemplatesArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("list_templates", to_value(&args), (meta, peer, ct)).await
     }
 
     #[tool(
-        description = "Run an automation preset's template match on the current image (OpenCV). By default only returns the best match (layout presets) or the candidates (multiple-boxes presets); apply: true adds the boxes as the Run on current image button does (one undo step).",
+        description = "Run an automation preset over the folder (or some images) as the Run on all images batch does. Dry run by default: per image matched / no match / failed with score and box count (problems first), the score spread over matched images, how many label files would change, and a resultId, writing nothing; sample or images check a few. Pass resultId to write exactly that (the person allows it; originals are backed up under template-batch), refused if a label file changed since. The preset's existing-labels policy (append, skip, replace) applies. Save the current image first: it is read from its saved file.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
+    async fn run_template_matching_folder(
+        &self,
+        Parameters(args): Parameters<TemplateFolderArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("run_template_matching_folder", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Copy boxes of the current image (all, or those matching where) to other images of the folder, optionally shifted by offset; boxes are clipped to each image, and by default a box overlapping one already there (IoU 0.5+) is left out. Dry run by default: per image how many boxes it would get, and a resultId; pass resultId to write exactly that (the person allows it; originals are backed up under copy-boxes). For images that hold the same layout at the same place, this beats save_layout plus apply_layout on every image.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
+    async fn copy_boxes(
+        &self,
+        Parameters(args): Parameters<CopyBoxesArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("copy_boxes", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Save a template matching preset, as Template Matching Setup's Save does, in the Agent folder of the preset library. outputMode \"layout\" places a saved layout (save_layout) on the best match: anchorOffset (the layout's anchor relative to the template's top-left) is computed when the layout and the template come from the same image. outputMode \"boxes\" adds a box of boxes.classId at every match. The template is a box (annotationId) or a region, of the current image or of templateImage. Unset settings take the Setup's defaults (minScore 0.8, accurate mode, blur 13, grayscale). Then check it: run_template_matching on the image it came from should put the layout back where it was, and distinctiveness.margin shows whether the template also fits elsewhere (re-save a more distinctive region with overwrite if it is small). overwrite replaces only a preset in the Agent folder; a name the person uses elsewhere is refused.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn save_template_preset(
+        &self,
+        Parameters(args): Parameters<SaveTemplatePresetArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("save_template_preset", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Run an automation preset's template match on the current image (OpenCV). By default only returns the best match (layout presets: with distinctiveness = best score, the best score of a place not overlapping it and their margin; a small margin means the template also fits elsewhere; plus layoutAnchor and layoutBoxesOutside) or the candidates (multiple-boxes presets: paged, with scores = spread, largestGap and its suggestedMinScore, coverage when expected is given); apply: true adds the boxes as the Run on current image button does (one undo step).",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn run_template_matching(
@@ -1119,7 +1525,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Find objects that look like one box (or an image region) on the current image with OpenCV template matching, as Template Matching Setup does with its default settings. Returns candidates best first; apply: true adds them as boxes (one undo step). Matches over existing boxes are skipped by default.",
+        description = "Find objects that look like one box (or an image region) on the current image with OpenCV template matching, as Template Matching Setup does (its defaults unless blur, mode, searchRegion, nmsIou or padding are given; templateImage cuts the template from another image). Returns candidates best first with scores: their spread, largestGap (the drop between true matches and background; run once with a low minScore such as 0.5 to see it) with suggestedMinScore, and coverage when expected is given. apply: true adds them as boxes (one undo step). Matches over existing boxes are skipped by default.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn find_similar(
@@ -1147,7 +1553,7 @@ impl EasyLabeling {
     }
 
     #[tool(
-        description = "Save boxes of the current image (given ids, the selection, or all) as a named box layout in the layout library, as Save layout does. Returns its anchor (top-left of the box set).",
+        description = "Save boxes of the current image (given ids, the selection, or all) as a named box layout in the layout library, as Save layout does. It goes to the library's Agent folder (fileName); overwrite replaces only a layout in the Agent folder, and a name the person uses elsewhere is refused. Returns its anchor (top-left of the box set).",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn save_layout(
@@ -1180,6 +1586,20 @@ impl EasyLabeling {
         ct: CancellationToken,
     ) -> CallToolResult {
         forward("load_model", to_value(&args), (meta, peer, ct)).await
+    }
+
+    #[tool(
+        description = "Run the loaded YOLO model on the current image and offer its detections as boxes, writing nothing: candidates best first with confidence, the model's class and the class after classMap (model class -> class of the current class file), counts per class and the confidence spread (largestGap suggests a threshold). Detections over existing boxes (IoU 0.5+) are left out by default. Apply chosen ones with resultId and accept (indexes), or apply: true with minConfidence; added to the current labels as one undo step. Compare with the model's own folder through compare_labels.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn detect_boxes(
+        &self,
+        Parameters(args): Parameters<DetectBoxesArgs>,
+        meta: RequestMetaObject,
+        peer: Peer<RoleServer>,
+        ct: CancellationToken,
+    ) -> CallToolResult {
+        forward("detect_boxes", to_value(&args), (meta, peer, ct)).await
     }
 
     #[tool(
@@ -1493,13 +1913,17 @@ mod tests {
                 "app_state",
                 "apply_layout",
                 "approve",
+                "arrange_boxes",
                 "boxes_to_masks",
                 "capture_view",
                 "clean_masks",
+                "clean_out_of_bounds",
                 "compare_labels",
                 "compare_masks",
+                "copy_boxes",
                 "create_class_file",
                 "delete_boxes",
+                "detect_boxes",
                 "edit_regions",
                 "find_similar",
                 "get_boxes",
@@ -1517,6 +1941,7 @@ mod tests {
                 "reclass_folder",
                 "redo",
                 "refine_folder",
+                "refine_profile",
                 "remap_classes",
                 "review_folder",
                 "review_queue",
@@ -1524,8 +1949,10 @@ mod tests {
                 "run_reclass",
                 "run_refine",
                 "run_template_matching",
+                "run_template_matching_folder",
                 "save",
                 "save_layout",
+                "save_template_preset",
                 "segment_ai",
                 "select_boxes",
                 "set_review_status",

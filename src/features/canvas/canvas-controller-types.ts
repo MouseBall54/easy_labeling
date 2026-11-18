@@ -169,6 +169,8 @@ export interface CanvasController {
   paste(options?: CanvasBulkOperationOptions): Promise<void>;
   getClipboardItemCount(): number;
   deleteSelection(options?: CanvasBulkOperationOptions): void;
+  /** Deletes these boxes as one undo step without selecting them (a selection of thousands is slow to build). */
+  deleteBoxes?(rects: readonly FabricRectLike[]): void;
   setSelectedLabelClass?(classId: string): boolean;
   remapLabelClasses?(rule: ClassRemapRule): ClassRemapSummary;
   alignSelectionLeft(): void;

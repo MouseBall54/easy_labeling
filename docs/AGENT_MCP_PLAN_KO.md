@@ -682,6 +682,74 @@ MCP 패널 `Live view`(기본 꺼짐, 이 PC에 저장): Detection에서는 런�
 
 다음 일: 박스를 기준으로 붙은 영역 찾고 나누기, 놓친 자리만 AI로 채우고 나머지는 다듬는 조합 측정, 크기가 다른 템플릿(8.4·8.5), `edgeFit`에 크기 검사 더하기, avif·webp 지원과 같은 이름 다른 확장자 충돌(앱 쪽).
 
+### 10단계: Detection 우선 (계획, 2026-11-18)
+
+목표: 에이전트가 사람 손 없이 "박스 배치 → 레이아웃 저장 → 템플릿 매칭 프리셋 만들기 → 검증 → 폴더 실행"을 끝까지 하고, 에이전트가 만든 프리셋은 프리셋 관리의 `Agent` 폴더에서 관리되게 합니다. Segmentation 도구는 바꾸지 않습니다. 단계마다 먼저 측정(또는 실패하는 테스트)을 하고, 기존 도구 조합보다 나을 게 없으면 만들지 않고 숫자를 남깁니다.
+
+| 단계 | 내용 |
+|---|---|
+| 10.0 | **에이전트 프리셋 폴더.** 에이전트가 저장한 레이아웃·프리셋·클래스 파일은 프로필의 각 종류 아래 `Agent/`에. 에이전트는 모든 프리셋을 읽고 실행하지만 고치는 것은 `Agent/` 안만(폴더가 소유권). 사람 폴더와 이름이 겹치면 거절, 사람의 `Save new presets in`은 건드리지 않고, 에이전트 경로는 `confirm`을 띄우지 않음 |
+| 10.1 | 공통 `where` 조건(클래스, 크기, 영역, ids)으로 고르기·지우기·바꾸기, 일괄 이동·크기, 낡은 annotationId는 `stale_id`, `capture_view` 층(박스·태그·Refine)과 Original/Processed, Refine 전/후 시트 |
+| 10.2 | `arrange_boxes`(정렬·분배·같은 크기, `arrange.ts`의 plan 함수), 폴더 영역 밖 박스 정리(`removeOutOfBoundsLabels`를 dry run·`resultId`·승인·백업으로) |
+| 10.3 | 매칭 점수 해석(분포, 가장 큰 간격과 제안 임계값, 커버리지, 최고와 둘째의 차이 `margin`), `find_similar` 설정(블러, 모드, 검색 영역, NMS, 패딩, 다른 이미지의 템플릿), 스케일 탐색은 측정 후 |
+| 10.4 | `save_template_preset`(버튼의 `savePreset`에서 저장 함수를 꺼내 함께 씀, `Template Presets/Agent/`, Anchor offset 자동 계산), `list_templates` 상세, 자기 검증 레시피 |
+| 10.5 | 폴더 템플릿 배치(배치 컨트롤러의 사전 점검·실행, dry run·`resultId`), `copy_boxes`(레이아웃 레시피보다 나을 때만) |
+| 10.6 | 추론 결과를 현재 이미지에서 미리 보고 현재 라벨에 추가(클래스 매핑) |
+| 10.7 | Refine 경계 프로파일 진단, 설정·전처리 쓰기는 측정으로 필요할 때만(프리셋은 `Agent/`) |
+| 10.8 | 클래스 파일에 클래스 추가·이름 변경(선택) |
+
+#### 10.0 결과 (2026-11-18)
+
+- `ProfilePresetFolder.save`에 `{ folder, onExists: "ask" | "fail" | "replace" }`. 옵션이 없으면 예전 그대로(사람의 저장 폴더, 같은 이름이면 `confirm`). `AGENT_PRESET_FOLDER = "Agent"`, `isAgentPresetFile`(대소문자 무시, 맨 위의 `Agent/`만).
+- Automation: 에이전트가 저장한 항목 id만 `Agent` 옵션으로 저장(`agentSaveIds`), 이미 파일이 있는 항목은 그 파일에. `save_layout`의 `overwrite`는 `Agent/` 안의 레이아웃만, 사람의 것이면 `invalid_args`. 결과에 `fileName`, `list_templates`의 프리셋·레이아웃에 `folder`·`agentOwned`.
+- `create_class_file`: 프로필 Class Info 폴더면 `Class Info/Agent/`에(데이터셋 폴더는 그대로).
+- UI는 그대로: `Agent` 폴더는 선택 목록 트리와 `Manage folders…`에 저절로 나오고, 옮기기·지우기도 기존 창이 합니다. 에이전트에게 삭제 도구는 없습니다.
+
+#### 10.1 결과 (2026-11-18)
+
+- **`where`**(DOM 없는 `domain/annotations/box-where.ts`): 클래스 목록, 너비·높이·넓이 범위, 영역 `inside`/`outside`/`overlaps`, ids를 AND로. `get_boxes`·`select_boxes`·`delete_boxes`·`update_boxes`가 받고, `update_boxes`는 `where` + `change`(`shift`, `resize`(가운데/좌상단 기준), `classId`)로 맞는 박스를 한 undo 단계에 바꿉니다(이미지 밖은 잘라 내고, 1 px 미만이 되면 그대로 두고 셈).
+- 박스 5000개를 조건으로 지우는 호출이 30초 시간 제한을 넘었습니다. Fabric 선택 그룹을 만드는 단계가 원인이어서, Delete 버튼이 끝에 부르는 내부 `deleteRects`를 선택 없이 부르는 `deleteBoxes(rects)`를 워크플로에 더해 씁니다(같은 undo 기록).
+- **`stale_id`**: 런타임 래퍼(`withStaleIds`) 한 곳에서, 호출마다 화면의 박스 id를 이미지 이름과 함께 기억하고(최대 20만 개), 모르는 id로 `not_found`가 나면 예전에 본 id인지 보고 `stale_id`("belonged to a.png" / "before it was loaded again")로 바꿉니다. id 형식은 그대로입니다.
+- **`capture_view`**: `layers`(`boxes`, `tags`, `refine`)는 그리기 직전에 숨기고 같은 작업 안에서 되돌려 사람 화면에는 보이지 않습니다. `run_refine` dry run이 `resultId`를 주고, `capture_view {refineResultId}`가 움직일 박스(검토 대상 먼저)마다 결과 자리를 하늘색 점선으로 겹친 시트(`cells[].refined`)를 그립니다.
+- **Original/Processed 선택은 만들지 않았습니다.** Processed 보기는 두 워크플로가 함께 쓰는 툴바 전환(Q)이고, 불투명한 Processed 이미지는 캔버스가 아니라 `<img>`로 보여서 캡처 한 번을 위해 사람 화면을 바꿔야 합니다. 대신 결과에 지금 보이는 소스(`viewSource`)를 넣었습니다.
+
+#### 10.2 결과 (2026-11-18)
+
+- **`arrange_boxes`**: 대상 박스를 선택한 뒤 Arrange 버튼이 부르는 함수(`alignSelection*`, `distributeSelection*`, `resizeSelectedBoxes` "to")를 그대로 부릅니다. 열·행 중심 맞추기는 사람의 허용 범위 슬라이더를 따릅니다. 결과는 움직인 박스 수와 가장 큰 이동량입니다. dry run은 만들지 않았습니다(한 undo 단계).
+- **`clean_out_of_bounds`**: 버튼 코드는 건드리지 않고, `rewriteDetectionLabels`(dry run이면 `plan` 반환)에 버튼과 같은 `removeOutOfBoundsYoloRows`를 넘깁니다. `resultId` → `agent_confirm` → `commitLabelFilePlan`(백업 `outside-boxes`, dry run 뒤 바뀐 파일은 거절)입니다.
+
+#### 10.3 결과 (2026-11-18)
+
+- **점수 해석**(`domain/automation/match-scores.ts`): 분위수, 이웃 점수 사이의 가장 큰 간격(중앙 간격의 3배 이상이고 0.02 이상일 때만, 위·아래 점수, 위쪽 개수, 제안 최소 점수 = 간격의 가운데), `expected`를 주면 커버리지. `find_similar`·`run_template_matching`(여러 박스)·`detect_boxes` 결과에 `scores`.
+- **최고와 둘째의 차이**: 레이아웃 모드(정확)는 워커가 최고 자리의 템플릿 상자와 겹치는 점수 맵을 지우고 한 번 더 `minMaxLoc`를 해 `secondScore`를 돌려줍니다(기존 출력은 그대로, 필드만 추가). `run_template_matching` 미리보기에 `distinctiveness {best, secondBest, margin}`, 레이아웃이 놓일 `layoutAnchor`와 이미지 밖으로 나갈 박스 수.
+- **`find_similar` 설정**: `blur`(0 = 끔, 홀수 1~99), `mode`, `searchRegion`, `nmsIou`, `paddingX/Y`, `templateImage`(그 이미지를 화면 밖에서 디코드해 자름). 결과의 `settings`가 실제로 쓴 값입니다. 기본값은 그대로입니다.
+- **스케일 탐색과 F1 측정은 하지 않았습니다.** 엔진에 스케일이 없고, 크기 차이가 놓침의 원인인지 재 볼 데이터(9.8의 `test_2` 복사본)가 이 PC에 없었습니다. 측정이 생기면 그때 판단합니다.
+
+#### 10.4 결과 (2026-11-18)
+
+- **`save_template_preset`**: 버튼의 `savePreset`(화면 입력칸을 읽고 템플릿 재사용을 판단)은 그대로 두고, 같은 저장 경로(`persistLibrary`, 여기에 Agent 폴더 규칙)를 쓰는 `AutomationAgentApi.savePreset(spec)`을 따로 두었습니다. 빠진 값은 Template Matching Setup의 `reset()` 기본값이고, 레이아웃 모드의 Anchor offset은 레이아웃과 템플릿이 같은 이미지에서 왔을 때 화면과 같은 식(`layout.sourceAnchor − ROI 좌상단`, 반올림)으로 계산하며, 아니면 값을 요구합니다. 같은 이름(대소문자 무시)은 `overwrite`가 있어야 하고 `Agent/` 안의 것만 바꿉니다. 결과는 전체 설정과 덮어쓴 경우 이전 설정입니다.
+- **`list_templates {preset | layout}`**: 프리셋의 전체 설정과 템플릿 출처·영역, 레이아웃의 박스와 기준점입니다.
+- e2e: 격자 이미지에서 레이아웃 → 프리셋 → 같은 이미지에서 적용하면 레이아웃 박스와 같은 자리(±1 px), 반복 격자라 `margin` < 0.2로 "독특하지 않음"이 숫자로 드러남, 파일은 `Template Presets/Agent/`.
+
+#### 10.5 결과 (2026-11-18)
+
+- **`run_template_matching_folder`**: 배치 컨트롤러의 `run()`에 선택 인자(`preset`, dry run 결과를 모으는 `collect`)와 반환값(요약)만 더했습니다. 버튼 동작은 그대로입니다. 모은 라벨 텍스트는 새 `planDetectionLabelWrites`(원본을 읽어 같은 파일은 빼고 `LabelFilePlan`으로)를 거쳐 `resultId`로 씁니다(백업 `template-batch`).
+- **`copy_boxes`**: 현재 이미지의 박스(전체 또는 `where`)를 다른 이미지들에 복사합니다(이동량, 잘라 내기, 이미 있는 박스와 IoU 0.5 이상이면 뺌, 배치와 같은 `serializeAutomationBoxes`·`mergeDetectionLabels`, 백업 `copy-boxes`). 레이아웃 레시피(이미지마다 이동·적용·저장 = 4번 호출, 백업 없음)를 한 번의 호출과 백업으로 바꿉니다.
+- 두 도구의 dry run은 `refine_folder`처럼 현재 이미지의 저장 안 된 편집을 먼저 저장합니다. 그렇지 않으면 적용할 때 "바뀐 파일"로 거절됐습니다(e2e에서 발견).
+
+#### 10.6 결과 (2026-11-18)
+
+- **`detect_boxes`**(새 도구): `run_inference`의 기본(모델 폴더에 쓰기)을 바꾸면 기존 사용법이 깨져서, 현재 이미지 미리보기는 따로 두었습니다. 패널과 같은 디코드와 `service.infer`로 검출을 얻고, `classMap`(모델 클래스 → 현재 클래스), `modelClasses`, 이미 있는 박스와 겹치는 검출 빼기, `scores`. `resultId` + `accept` 또는 `apply` + `minConfidence`로 현재 라벨에 한 undo 단계로 추가합니다.
+
+#### 10.7 결과 (2026-11-18)
+
+- **`refine_profile`**(읽기 전용): Refine 워커의 `crop`(실행과 같은 Original/Processed 입력)으로 Lab과 같은 픽셀을 받아 `describeRefineSide`를 부르고, DOM 없는 `domain/refine/profile-summary.ts`가 변마다 고른 경계, 점수의 지역 최대 상위 3개(위치 = 시작 + i + scoreShift + 0.5, 최강 대비 강도), 극성, 안·바깥 밝기, 스캔 범위, 짝 후보를 이미지 좌표로 돌려줍니다. 합성 블록 단위 테스트와 e2e(4 px 큰 박스의 네 변 경계가 블록 경계 ±1.5 px)로 확인했습니다.
+- **설정·전처리 쓰기는 만들지 않았습니다.** 관문 기준(다른 데이터에서 경계 오차가 한계보다 0.3 px 넘게 나쁨)을 잴 정답 데이터가 기준 세트 하나뿐이고, 그 세트는 0.66 px 대 한계 0.62 px로 여유가 0.04 px입니다.
+
+#### 10.8: 하지 않음
+
+- 클래스 파일 편집은 측정되거나 요청된 필요가 없어 미뤘습니다(`create_class_file`이 `Agent` 폴더에 새 파일을 만듭니다).
+
 ## 6. 파일 목록 요약
 
 | 새 파일 / 바뀌는 파일 | 단계 |
@@ -744,6 +812,7 @@ Claude Desktop, Cursor, Codex는 각 클라이언트의 MCP 설정 파일에 같
 | 7 주요 기능 활용 보강 | 완료 (2026-11-11) | PR #52, v3.4.0 | unit 639, Rust 5, e2e 8(agent-desktop) + 31(refine·automation·layout), 확대 캡처 확인 | 8단계로 이어짐 |
 | 8 전문가 수준 활용 (숫자 판단, 폴더 단위) | 진행 중 (2026-11-11~), 8.1~8.3·8.6 완료 | 8.1~8.3 PR #55 (v3.4.0), 8.6 미커밋 | 8.1: unit 644, Rust 31, e2e 50 (agent-desktop 8, tauri-desktop 18, refine-edges 24). 8.2: unit 644, e2e agent-desktop 8. 8.3: unit 648, e2e agent-desktop 8 | 8.4~8.8 |
 | 9 세그멘테이션 마스크 | 완료 (2026-11-11~12, 9.4는 AI Select만) | 미커밋 | 9.1: unit 658, Rust 2(el-mcp), e2e agent-desktop 10. 9.2: unit 662, e2e 11. 9.3: unit 666, e2e 11. 9.4: unit 671, e2e 11. 9.5: unit 671, e2e 11. 9.6: unit 675, e2e 11. Live view·9.7: unit 677, e2e agent-desktop 11. 9.8: 실제 폴더(test_2 복사본) 시험 | 박스 기준 붙은 영역 나누기, 크기 다른 템플릿, Smart·슈퍼픽셀 도구, avif·webp, 같은 이름 다른 확장자 |
+| 10 Detection 우선 | 10.0~10.7 완료 (2026-11-18), 10.8 미룸 | `feat/mcp-detection-10`, v3.15.0, 미커밋 | unit(새: box-where, match-scores, profile-summary, stale id, find_similar 설정, Agent 폴더 저장), Rust el-mcp 3, e2e agent-desktop 16 | 스케일 탐색과 F1 측정(데이터가 생기면), Refine 설정 쓰기(관문 미달), 클래스 파일 편집 |
 
 ## 11. 나중에: 헤드리스 대체 경로
 

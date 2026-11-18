@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { inferenceModel } from "./fixtures/inference-model.js";
@@ -256,7 +256,8 @@ test("MCP creates and selects a class file without overwriting existing files", 
   try {
     json(await mcp.call("open_folder", { path: dataset }));
     const classes = [{ id: "0", name: "Cell" }, { id: 2, name: "Boundary" }];
-    const file = path.join(path.dirname(dataset), "profiles", "Class Info", "specimen.yaml");
+    // Agents create class files in the profile Class Info folder's Agent subfolder.
+    const file = path.join(path.dirname(dataset), "profiles", "Class Info", "Agent", "specimen.yaml");
     const create = (name: string, definitions = classes) => mcp.call("create_class_file", { name, classes: definitions });
     expect(textOf(await create("../specimen"))).toMatch(/^invalid_args:/);
     expect(textOf(await create("specimen", [{ id: "0", name: "A" }, { id: 0, name: "B" }]))).toMatch(/^invalid_args:/);
@@ -264,7 +265,7 @@ test("MCP creates and selects a class file without overwriting existing files", 
     expect(existsSync(file)).toBe(false);
 
     const result = json(await create("specimen"));
-    expect(result).toMatchObject({ created: true, path: file, classFile: "specimen.yaml",
+    expect(result).toMatchObject({ created: true, path: file, classFile: "Agent/specimen.yaml",
       classes: [{ id: "0", name: "Cell" }, { id: "2", name: "Boundary" }] });
     expect(json(await mcp.call("get_classes"))).toEqual({ classFile: result.classFile, classes: result.classes });
     const original = await readFile(file, "utf8");
@@ -281,10 +282,10 @@ test("an MCP agent reads, navigates and captures the open app", async () => {
   const { page, mcp, dataset, errors, close } = await openAgentApp();
   try {
     expect(await mcp.tools()).toEqual([
-      "add_boxes", "analyze_boxes", "analyze_masks", "app_state", "apply_layout", "approve", "boxes_to_masks", "capture_view", "clean_masks", "compare_labels", "compare_masks", "create_class_file", "delete_boxes", "edit_regions", "find_similar", "get_boxes", "get_classes",
+      "add_boxes", "analyze_boxes", "analyze_masks", "app_state", "apply_layout", "approve", "arrange_boxes", "boxes_to_masks", "capture_view", "clean_masks", "clean_out_of_bounds", "compare_labels", "compare_masks", "copy_boxes", "create_class_file", "delete_boxes", "detect_boxes", "edit_regions", "find_similar", "get_boxes", "get_classes",
       "get_refine_settings", "get_regions", "go_to_image", "inference_status", "list_images", "list_templates", "load_model", "open_folder", "paint_mask", "read_labels",
-      "reclass_folder", "redo", "refine_folder", "remap_classes", "review_folder", "review_queue", "run_inference",
-      "run_reclass", "run_refine", "run_template_matching", "save", "save_layout", "segment_ai", "select_boxes", "set_review_status", "set_workflow", "undo", "update_boxes"
+      "reclass_folder", "redo", "refine_folder", "refine_profile", "remap_classes", "review_folder", "review_queue", "run_inference",
+      "run_reclass", "run_refine", "run_template_matching", "run_template_matching_folder", "save", "save_layout", "save_template_preset", "segment_ai", "select_boxes", "set_review_status", "set_workflow", "undo", "update_boxes"
     ]);
 
     expect(json(await mcp.call("app_state"))).toMatchObject({ folder: null, imageCount: 0, agentPaused: false });
@@ -414,6 +415,46 @@ test("an MCP agent edits boxes, each call one undo step, and saves", async () =>
     expect(await testApi<string[]>(page, "api.getSelectedRectIds()")).toEqual([second]);
     expect(json(await mcp.call("select_boxes", { select: "none" })).selectedIds).toEqual([]);
 
+    // Conditions instead of ids: select, change and delete every matching box, each call one undo step.
+    expect(json(await mcp.call("select_boxes", { where: { annotationIds: [first, second], classIds: ["3"] } })).selectedIds).toEqual([second]);
+    expect(json(await mcp.call("get_boxes", { where: { classIds: ["3"], minWidth: 49 } })).boxes.map((box: { annotationId: string }) => box.annotationId)).toContain(second);
+    expect(json(await mcp.call("update_boxes", { where: { annotationIds: [first, second] }, change: { shift: { dx: 5, dy: 0 }, classId: "4" } })))
+      .toMatchObject({ matched: 2, moved: 2, relabelled: 2 });
+    expect(await boxOf(first)).toMatchObject({ classId: "4", x0: 15, x1: 65 });
+    json(await mcp.call("undo"));
+    expect(await boxOf(first)).toMatchObject({ classId: "1", x0: 10, x1: 60 });
+    expect(textOf(await mcp.call("update_boxes", { where: { maxArea: 10 } }))).toMatch(/^invalid_args: change is required with where/);
+    expect(textOf(await mcp.call("delete_boxes", { where: { classId: 1 } }))).toMatch(/^invalid_args: where needs at least one condition/); // the server drops unknown fields
+    // The Arrange buttons on three boxes of a ragged row: one undo step each.
+    const row = json(await mcp.call("add_boxes", { boxes: [
+      { classId: "6", x0: 300, y0: 300, x1: 320, y1: 320 },
+      { classId: "6", x0: 340, y0: 303, x1: 360, y1: 325 },
+      { classId: "6", x0: 400, y0: 298, x1: 418, y1: 318 }
+    ] })).annotationIds as string[];
+    expect(json(await mcp.call("arrange_boxes", { action: "alignTop", where: { classIds: ["6"] } }))).toMatchObject({ boxes: 3, moved: 2 });
+    expect((json(await mcp.call("get_boxes", { ids: row })).boxes as Array<{ y0: number }>).map((box) => box.y0)).toEqual([298, 298, 298]);
+    expect(json(await mcp.call("arrange_boxes", { action: "sameSize", annotationIds: row, size: "largest" }))).toMatchObject({ moved: 2 }); // the middle box is already 20 x 22
+    expect(new Set((json(await mcp.call("get_boxes", { ids: row })).boxes as Array<{ x0: number; x1: number }>).map((box) => Math.round((box.x1 - box.x0) * 100)))).toEqual(new Set([2000]));
+    json(await mcp.call("undo"));
+    json(await mcp.call("undo"));
+    expect((json(await mcp.call("get_boxes", { ids: row })).boxes as Array<{ y0: number }>).map((box) => box.y0)).toEqual([300, 303, 298]);
+    expect(textOf(await mcp.call("arrange_boxes", { action: "spin", annotationIds: row }))).toMatch(/^invalid_args: action must be/);
+    expect(textOf(await mcp.call("arrange_boxes", { action: "distributeHorizontally", annotationIds: row.slice(0, 2) }))).toMatch(/^invalid_args: .*at least 3/);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start + 2);
+
+    // 5000 specks gone in one call and back in one undo; the answer stays small.
+    const specks = Array.from({ length: 5000 }, (_, index) => ({ classId: "5", x0: (index % 100) * 4, y0: Math.floor(index / 100) * 4, x1: (index % 100) * 4 + 2, y1: Math.floor(index / 100) * 4 + 2 }));
+    json(await mcp.call("add_boxes", { boxes: specks }));
+    expect(await rectCount()).toBe(start + 5002);
+    const swept = await mcp.call("delete_boxes", { where: { classIds: ["5"], maxArea: 4 } });
+    expect(json(swept)).toMatchObject({ deleted: 5000, boxCount: start + 2 });
+    expect(textOf(swept).length).toBeLessThan(500);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start + 5002);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(start + 2);
+
     // The person holding the mouse on the canvas: edits wait.
     const canvas = await page.locator("#canvas").boundingBox();
     await page.mouse.move(canvas!.x + canvas!.width - 5, canvas!.y + canvas!.height - 5);
@@ -427,11 +468,64 @@ test("an MCP agent edits boxes, each call one undo step, and saves", async () =>
     expect(rows).toHaveLength(start + 2);
     expect(rows.some((row) => row.startsWith("3 "))).toBe(true);
 
+    // Boxes copied to another image: previewed, then written as previewed with a backup.
+    const otherLabel = path.join(dataset, "label/sample_2.txt");
+    const otherBefore = await readFile(otherLabel, "utf8");
+    const copyDry = json(await mcp.call("copy_boxes", { images: ["sample_2.jpg"], where: { annotationIds: [second] }, offset: { dx: 3, dy: 0 } }));
+    expect(copyDry).toMatchObject({ dryRun: true, sourceBoxes: 1, images: 1, boxes: 1, filesToWrite: 1, perImage: [{ image: "sample_2.jpg", copied: 1 }] });
+    expect(await readFile(otherLabel, "utf8")).toBe(otherBefore);
+    expect(json(await mcp.call("copy_boxes", { resultId: copyDry.resultId }))).toMatchObject({ applied: true, files: 1, boxes: 1, backupPath: expect.stringMatching(/copy-boxes/) });
+    const otherRows = (await readFile(otherLabel, "utf8")).trim().split(/\r?\n/);
+    expect(otherRows).toHaveLength(otherBefore.trim().split(/\r?\n/).filter(Boolean).length + 1);
+    expect(otherRows.at(-1)!.startsWith("3 ")).toBe(true);
+    // Writing reloads the current image, so its ids are new; the same copy again lands on the box it made: left out.
+    expect(textOf(await mcp.call("copy_boxes", { images: ["sample_2.jpg"], where: { annotationIds: [second] } }))).toMatch(/^stale_id:/);
+    const again = { images: ["sample_2.jpg"], where: { classIds: ["3"], inside: { x0: 100, y0: 99, x1: 151, y1: 141 } }, offset: { dx: 3, dy: 0 } };
+    expect(json(await mcp.call("copy_boxes", again))).toMatchObject({ sourceBoxes: 1, boxes: 0, filesToWrite: 0 });
+
+    // Ids from another image load answer stale_id rather than a bare not_found.
+    json(await mcp.call("go_to_image", { image: "sample_2.jpg" }));
+    expect(textOf(await mcp.call("delete_boxes", { annotationIds: [first] }))).toMatch(/^stale_id: .*belonged to sample_1\.jpg/);
+    expect(textOf(await mcp.call("delete_boxes", { annotationIds: ["never-seen"] }))).toMatch(/^not_found:/);
+    json(await mcp.call("go_to_image", { image: "sample_1.jpg" }));
+    await expect.poll(rectCount).toBe(start + 2);
+
     // The person's Ctrl+Z undoes the agent's edit: one shared history.
     json(await mcp.call("add_boxes", { boxes: [{ classId: "1", x0: 1, y0: 1, x1: 9, y1: 9 }] }));
     expect(await rectCount()).toBe(start + 3);
     await page.keyboard.press("Control+KeyZ");
     await expect.poll(rectCount).toBe(start + 2);
+    expect(errors).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("an MCP agent removes boxes that cross image edges from the folder, as previewed", async () => {
+  const outside = "0 0.99 0.5 0.1 0.1"; // reaches past the right edge
+  const { mcp, dataset, errors, close } = await openAgentApp({
+    dataset: async (folder) => {
+      await semDataset(folder);
+      await writeFile(path.join(folder, "label/b.txt"), `${await readFile(path.join(folder, "label/b.txt"), "utf8")}\n${outside}`);
+    }
+  });
+  try {
+    json(await mcp.call("open_folder", { path: dataset }));
+    const labelB = path.join(dataset, "label/b.txt");
+    const before = await readFile(labelB, "utf8");
+    const dry = json(await mcp.call("clean_out_of_bounds", {}));
+    expect(dry).toMatchObject({ dryRun: true, imagesChecked: 2, imagesChanged: 1, boxesRemoved: 1, images: [{ image: "b.png", removed: 1 }] });
+    expect(await readFile(labelB, "utf8")).toBe(before);
+    expect(json(await mcp.call("clean_out_of_bounds", { images: ["a.png"] }))).toMatchObject({ imagesChecked: 1, boxesRemoved: 0 });
+
+    const applied = json(await mcp.call("clean_out_of_bounds", { resultId: dry.resultId }));
+    expect(applied).toMatchObject({ applied: true, removed: 1, files: 1 });
+    const after = await readFile(labelB, "utf8");
+    expect(after.trim().split(/\r?\n/)).toHaveLength(6);
+    expect(after).not.toContain(outside);
+    expect(applied.backupPath).toMatch(/outside-boxes/);
+    expect(textOf(await mcp.call("clean_out_of_bounds", { resultId: dry.resultId }))).toMatch(/^not_found:/);
+    expect(json(await mcp.call("clean_out_of_bounds", {}))).toMatchObject({ boxesRemoved: 0 });
     expect(errors).toEqual([]);
   } finally {
     await close();
@@ -643,12 +737,31 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     const classZero = json(await mcp.call("get_boxes", { classId: 0 })).boxes as Array<{ annotationId: string; x0: number; y0: number; x1: number; y1: number }>;
     expect(classZero).toHaveLength(3);
 
+    // Why Refine moves a box: each side's edge sits on the block boundary, 4 px inside the loose box.
+    const explained = json(await mcp.call("refine_profile", { annotationIds: [classZero[0].annotationId] }));
+    expect(explained.profiles).toHaveLength(1);
+    const sides = Object.fromEntries((explained.profiles[0].sides as Array<{ side: string; edge: number | null; candidates: Array<{ at: number; strength: number }> }>).map((side) => [side.side, side]));
+    const inward = { T: classZero[0].y0 + 4, B: classZero[0].y1 - 4, L: classZero[0].x0 + 4, R: classZero[0].x1 - 4 };
+    for (const key of ["T", "B", "L", "R"] as const) {
+      expect(Math.abs(sides[key]!.edge! - inward[key])).toBeLessThanOrEqual(1.5);
+      expect(sides[key]!.candidates[0]!.strength).toBe(1);
+    }
+    expect(textOf(await mcp.call("refine_profile", { annotationIds: [] }))).toMatch(/^invalid_args:/);
+
     // Dry runs return what would change and change nothing.
     const dry = json(await mcp.call("run_refine", { classId: "1", dryRun: true }));
     expect(dry.dryRun).toBe(true);
     expect(dry.changes.length).toBeGreaterThan(0);
     const unchanged = json(await mcp.call("get_boxes", { ids: [dry.changes[0].annotationId] })).boxes[0];
     expect(unchanged.x0).toBeCloseTo(dry.changes[0].before.x0, 6);
+    // Before/after of the dry run on one sheet: a cell per moved box with where Refine would put it.
+    expect(dry.resultId).toMatch(/^refine-preview-/);
+    const compareInfo = JSON.parse(textOf(await mcp.call("capture_view", { refineResultId: dry.resultId, maxSide: 768 })));
+    expect(compareInfo.cells).toHaveLength(dry.listed.total);
+    const compared = compareInfo.cells.find((cell: { annotationId: string }) => cell.annotationId === dry.changes[0].annotationId);
+    expect(compared.refined.x0).toBeCloseTo(dry.changes[0].after.x0, 1);
+    expect(compareInfo.note).toMatch(/dashed cyan/);
+    expect(textOf(await mcp.call("capture_view", { refineResultId: "refine-preview-999999" }))).toMatch(/^not_found:/);
     const one = json(await mcp.call("run_refine", { classId: "1", limit: 1 }));
     expect(one.changes).toHaveLength(1);
     expect(one.listed).toMatchObject({ total: 3, truncated: true });
@@ -675,6 +788,12 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     const forced = await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512, force: true });
     expect(forced.content.some((part) => part.type === "image")).toBe(true);
     expect(json(forced).captureId).toBe(cropInfo.captureId);
+    // The bare image (boxes left out) differs, and the boxes are shown again afterwards.
+    const bare = json(await mcp.call("capture_view", { annotationId: classZero[0].annotationId, maxSide: 512, layers: { boxes: false } }));
+    expect(bare.captureId).not.toBe(cropInfo.captureId);
+    expect(bare.viewSource).toBe("original");
+    expect(json(await mcp.call("get_boxes", { ids: [classZero[0].annotationId] })).boxes[0].hidden).toBe(false);
+    expect(textOf(await mcp.call("capture_view", { layers: { boxes: "no" } }))).toMatch(/expected a boolean/);
 
     // Several boxes in one sheet: numbered cells in the order given.
     const sheetIds = classZero.map((box) => box.annotationId);
@@ -700,7 +819,22 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     expect(similar.found).toBeGreaterThanOrEqual(50);
     expect(similar.candidates).toHaveLength(5);
     expect(similar.overlappingExisting).toBeGreaterThanOrEqual(5);
+    expect(similar.scores).toMatchObject({ count: similar.found });
+    expect(similar.settings).toMatchObject({ blur: 13, mode: "accurate", minScore: 0.8 });
     expect(await rectCount()).toBe(start);
+    // Settings beyond the defaults: a search region keeps every candidate inside it; no blur still finds the blocks.
+    const top = json(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, searchRegion: { x0: 0, y0: 0, x1: 512, y1: 100 }, limit: 5000 }));
+    expect(top.found).toBeGreaterThan(0);
+    expect(top.found).toBeLessThan(similar.found);
+    expect((top.candidates as Array<{ y1: number }>).every((candidate) => candidate.y1 <= 100)).toBe(true);
+    expect(json(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, blur: 0, limit: 0 })).found).toBeGreaterThanOrEqual(50);
+    expect(textOf(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, blur: 4 }))).toMatch(/^invalid_args: blur/);
+    // A template cut from the other image of the folder (same blocks), the view staying on this one.
+    const fromB = json(await mcp.call("find_similar", { templateImage: "b.png", region: { x0: 9, y0: 6, x1: 56, y1: 44 }, classId: "0", limit: 0 }));
+    expect(fromB.found).toBeGreaterThanOrEqual(50);
+    expect(fromB.template.image).toBe("b.png");
+    expect(await testApi<string>(page, "api.getCurrentImageName()")).toBe("a.png");
+    expect(textOf(await mcp.call("find_similar", { templateImage: "b.png", region: { x0: 500, y0: 370, x1: 600, y1: 420 }, classId: "0" }))).toMatch(/outside b\.png/);
     const added = json(await mcp.call("find_similar", { annotationId: classZero[0].annotationId, apply: true, limit: 0 }));
     expect(added.annotationIds).toHaveLength(similar.found);
     expect(await rectCount()).toBe(start + similar.found);
@@ -721,10 +855,19 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     expect(filesStats).toMatchObject({ units: "normalized", imagesChecked: 2, imagesWithFindings: 0 });
 
     // A layout from the class-0 row, placed two rows lower (anchor + 96 px), then undone.
+    // Agent layouts go to the profile's Layouts/Agent folder, whatever folder the person saves new presets in.
+    await page.evaluate(() => localStorage.setItem("easyLabeling.presetSaveFolder.layout", "Mine"));
     const saved = json(await mcp.call("save_layout", { name: "Agent row", annotationIds: classZero.map((box) => box.annotationId) }));
-    expect(saved).toMatchObject({ layout: "Agent row", boxCount: 3, overwritten: false });
+    expect(saved).toMatchObject({ layout: "Agent row", boxCount: 3, overwritten: false, fileName: "Agent/Agent row.json" });
+    const layoutsRoot = path.join(path.dirname(dataset), "profiles", "Layouts");
+    expect(existsSync(path.join(layoutsRoot, "Agent", "Agent row.json"))).toBe(true);
+    expect(existsSync(path.join(layoutsRoot, "Mine"))).toBe(false);
+    expect(await page.evaluate(() => localStorage.getItem("easyLabeling.presetSaveFolder.layout"))).toBe("Mine");
     expect(textOf(await mcp.call("save_layout", { name: "Agent row", scope: "all" }))).toMatch(/^invalid_args:/);
-    expect(json(await mcp.call("list_templates")).layouts).toContainEqual({ name: "Agent row", boxCount: 3 });
+    expect(json(await mcp.call("list_templates")).layouts).toContainEqual({ name: "Agent row", boxCount: 3, folder: "Agent", agentOwned: true });
+    // The agent may overwrite its own layout in place.
+    expect(json(await mcp.call("save_layout", { name: "Agent row", annotationIds: classZero.map((box) => box.annotationId), overwrite: true })))
+      .toMatchObject({ overwritten: true, fileName: "Agent/Agent row.json" });
     const placed = json(await mcp.call("apply_layout", { layout: "Agent row", x: saved.sourceAnchor.x, y: saved.sourceAnchor.y + 96 }));
     expect(placed.applied).toBe(3);
     const placedBoxes = json(await mcp.call("get_boxes", { ids: placed.annotationIds })).boxes as Array<{ y0: number }>;
@@ -732,6 +875,39 @@ test("an MCP agent previews, pages, zooms in, and reuses boxes as templates and 
     json(await mcp.call("undo"));
     expect(await rectCount()).toBe(start);
     expect(textOf(await mcp.call("apply_layout", { layout: "No such layout" }))).toMatch(/^not_found:/);
+
+    // A template matching preset from the agent's own layout: saved in the Agent folder, then run where it came from.
+    const anchorBox = classZero.reduce((first, box) => (box.x0 + box.y0 < first.x0 + first.y0 ? box : first));
+    const presetSaved = json(await mcp.call("save_template_preset", { name: "Agent row finder", outputMode: "layout", annotationId: anchorBox.annotationId, layout: "Agent row" }));
+    expect(presetSaved).toMatchObject({ name: "Agent row finder", outputMode: "layout-best-match", layout: "Agent row", fileName: "Agent/Agent row finder.json", agentOwned: true, overwritten: false });
+    expect(presetSaved.anchorOffset).toEqual({ x: Math.round(saved.sourceAnchor.x - Math.round(anchorBox.x0)), y: Math.round(saved.sourceAnchor.y - Math.round(anchorBox.y0)) });
+    expect(existsSync(path.join(path.dirname(dataset), "profiles", "Template Presets", "Agent", "Agent row finder.json"))).toBe(true);
+    expect(json(await mcp.call("list_templates", { preset: "Agent row finder" })).preset).toMatchObject({ matching: { minimumScore: 0.8, mode: "accurate" }, template: { sourceImage: "a.png" } });
+    expect(json(await mcp.call("list_templates", { layout: "Agent row" })).layout).toMatchObject({ boxCount: 3, agentOwned: true });
+    const presetPreview = json(await mcp.call("run_template_matching", { preset: "Agent row finder" }));
+    expect(presetPreview.match).toMatchObject({ layoutBoxes: 3, layoutBoxesOutside: 0 });
+    // Every block of the grid looks alike: the template is not distinctive, and the margin says so.
+    expect(presetPreview.distinctiveness.margin).toBeLessThan(0.2);
+    const presetRun = json(await mcp.call("run_template_matching", { preset: "Agent row finder", apply: true }));
+    const placedRow = json(await mcp.call("get_boxes", { ids: presetRun.annotationIds })).boxes as Array<{ x0: number; y0: number }>;
+    for (const box of classZero) expect(placedRow.some((placed) => Math.abs(placed.x0 - box.x0) <= 1 && Math.abs(placed.y0 - box.y0) <= 1)).toBe(true);
+    json(await mcp.call("undo"));
+    expect(textOf(await mcp.call("save_template_preset", { name: "agent ROW finder", outputMode: "layout", annotationId: anchorBox.annotationId, layout: "Agent row" }))).toMatch(/^invalid_args: .*already exists/);
+    expect(json(await mcp.call("save_template_preset", { name: "Agent row finder", outputMode: "layout", annotationId: anchorBox.annotationId, layout: "Agent row", matching: { minScore: 0.9 }, overwrite: true })))
+      .toMatchObject({ overwritten: true, matching: { minimumScore: 0.9 }, previous: { matching: { minimumScore: 0.8 } } });
+    const boxesPreset = json(await mcp.call("save_template_preset", { name: "Agent blocks", outputMode: "boxes", annotationId: anchorBox.annotationId, boxes: { classId: "0", maxMatches: 200 } }));
+    expect(boxesPreset).toMatchObject({ outputMode: "multiple-detection-boxes", boxes: { classId: "0", maximumDetections: 200 } });
+    expect(json(await mcp.call("run_template_matching", { preset: "Agent blocks", limit: 0 })).found).toBeGreaterThanOrEqual(50);
+    expect(textOf(await mcp.call("save_template_preset", { name: "No layout", outputMode: "layout", annotationId: anchorBox.annotationId, layout: "Missing" }))).toMatch(/^not_found:/);
+    expect(textOf(await mcp.call("save_template_preset", { name: "No class", outputMode: "boxes", annotationId: anchorBox.annotationId }))).toMatch(/^invalid_args: .*classId/);
+
+    // Moved out of the Agent folder (as the preset manager does), the layout is the person's: readable, not writable.
+    await rename(path.join(layoutsRoot, "Agent", "Agent row.json"), path.join(layoutsRoot, "Agent row.json"));
+    json(await mcp.call("open_folder", { path: dataset }));
+    expect(json(await mcp.call("list_templates")).layouts).toContainEqual({ name: "Agent row", boxCount: 3, folder: "", agentOwned: false });
+    const ownedBefore = await readFile(path.join(layoutsRoot, "Agent row.json"), "utf8");
+    expect(textOf(await mcp.call("save_layout", { name: "Agent row", scope: "all", overwrite: true }))).toMatch(/^invalid_args:.*outside the Agent folder/);
+    expect(await readFile(path.join(layoutsRoot, "Agent row.json"), "utf8")).toBe(ownedBefore);
 
     // Review status, as the image list's buttons set it.
     expect(json(await mcp.call("set_review_status", { status: "reviewed" }))).toMatchObject({ images: ["a.png"], reviewedInFolder: 1, imageCount: 2 });
@@ -1025,13 +1201,18 @@ test("an MCP agent runs template automation presets and YOLO inference", async (
 
     const library = json(await mcp.call("list_templates"));
     expect(library.presets.map((preset: { name: string }) => preset.name)).toEqual(["Sample Pink Anchor + Layout", "Sample Pink Vehicle Finder"]);
-    expect(library.layouts).toEqual([{ name: "Sample Color Grid (4 Cars)", boxCount: 4 }]);
+    expect(library.layouts).toEqual([{ name: "Sample Color Grid (4 Cars)", boxCount: 4, folder: null, agentOwned: false }]);
 
     // A preview finds the anchor and changes nothing; apply adds the layout's boxes as one undo step.
     const preview = json(await mcp.call("run_template_matching", { preset: "Sample Pink Anchor + Layout" }));
     expect(preview.applied).toBe(false);
     expect(preview.match.score).toBeGreaterThanOrEqual(0.85);
     expect(preview.match.layout).toBe("Sample Color Grid (4 Cars)");
+    // How far the anchor stands out from the next best place, and where the layout would land.
+    expect(preview.distinctiveness.best).toBeCloseTo(preview.match.score, 3);
+    expect(preview.distinctiveness.secondBest).toBeLessThan(preview.match.score);
+    expect(preview.distinctiveness.margin).toBeGreaterThan(0);
+    expect(preview.match).toMatchObject({ layoutBoxes: 4, layoutBoxesOutside: 0 });
     expect(await rectCount()).toBe(start);
     const applied = json(await mcp.call("run_template_matching", { preset: "Sample Pink Anchor + Layout", apply: true }));
     expect(applied.applied).toBe(true);
@@ -1040,16 +1221,46 @@ test("an MCP agent runs template automation presets and YOLO inference", async (
     json(await mcp.call("undo"));
     expect(await rectCount()).toBe(start);
 
-    const candidates = json(await mcp.call("run_template_matching", { preset: "Sample Pink Vehicle Finder" })).candidates;
+    const finder = json(await mcp.call("run_template_matching", { preset: "Sample Pink Vehicle Finder", expected: 4 }));
+    const candidates = finder.candidates;
     expect(candidates.length).toBeGreaterThan(0);
+    expect(finder.scores).toMatchObject({ count: finder.found, coverage: finder.found / 4 });
+    expect(finder.scores.max).toBeGreaterThanOrEqual(finder.scores.min);
     expect(candidates.every((item: { score: number; classId: string }) => item.score >= 0.82 && typeof item.classId === "string")).toBe(true);
     expect(textOf(await mcp.call("run_template_matching", { preset: "No such preset" }))).toMatch(/^not_found:/);
+
+    // The preset over the folder: a dry run writes nothing; its resultId writes exactly that, with a backup.
+    const labelTwo = path.join(dataset, "label/sample_2.txt");
+    const beforeFolder = await readFile(labelTwo, "utf8");
+    const folderDry = json(await mcp.call("run_template_matching_folder", { preset: "Sample Pink Anchor + Layout" }));
+    expect(folderDry).toMatchObject({ dryRun: true, preset: "Sample Pink Anchor + Layout", images: 2 });
+    expect(folderDry.matched + folderDry.noMatch + folderDry.failed + folderDry.skipped).toBe(2);
+    expect(folderDry.perImage).toHaveLength(2);
+    expect(await readFile(labelTwo, "utf8")).toBe(beforeFolder);
+    if (folderDry.filesToWrite > 0) {
+      const folderApplied = json(await mcp.call("run_template_matching_folder", { resultId: folderDry.resultId }));
+      expect(folderApplied).toMatchObject({ applied: true, files: folderDry.filesToWrite });
+      expect(folderApplied.backupPath).toMatch(/template-batch/);
+      expect(textOf(await mcp.call("run_template_matching_folder", { resultId: folderDry.resultId }))).toMatch(/^not_found:/);
+    }
+    expect(textOf(await mcp.call("run_template_matching_folder", {}))).toMatch(/^invalid_args: preset is required/);
 
     // Inference: a model from a path; results go to the model's own label folder.
     expect(textOf(await mcp.call("load_model", { path: path.join(dataset, "sample_1.jpg") }))).toMatch(/^invalid_args:/);
     expect(textOf(await mcp.call("run_inference"))).toMatch(/^failed: Load an ONNX model first/);
     expect(json(await mcp.call("load_model", { path: path.join(path.dirname(dataset), "local.onnx") })).model).toBe("local.onnx");
     expect(json(await mcp.call("inference_status"))).toMatchObject({ ready: true, model: "local.onnx" });
+    // The model as a helper: its detections offered as boxes on this image (nothing written), then added as one undo step.
+    const beforeDetect = await rectCount();
+    const detected = json(await mcp.call("detect_boxes", { skipOverlapping: false, classMap: { 0: "7" } }));
+    expect(detected).toMatchObject({ applied: false, model: "local.onnx", found: 1 });
+    expect(detected.candidates[0]).toMatchObject({ index: 0, classId: "7", modelClassId: "0" });
+    expect(await rectCount()).toBe(beforeDetect);
+    expect(json(await mcp.call("detect_boxes", { resultId: detected.resultId, accept: [0] }))).toMatchObject({ applied: true, added: 1 });
+    expect(await rectCount()).toBe(beforeDetect + 1);
+    json(await mcp.call("undo"));
+    expect(await rectCount()).toBe(beforeDetect);
+    expect(textOf(await mcp.call("detect_boxes", { resultId: detected.resultId }))).toMatch(/^not_found:/);
     const current = json(await mcp.call("run_inference"));
     expect(current).toMatchObject({ imageCount: 1, detectionCount: 1, folderName: "inference-local", skipped: [],
       saves: [{ image: "sample_1.jpg", workflow: "detection", success: true, paths: [path.join(dataset, "inference-local", "sample_1.txt")], boxCount: 1 }] });

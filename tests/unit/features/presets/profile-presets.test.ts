@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getPresetSaveFolder, openProfilePresetFolder, presetFileName, presetFolderOf, presetFolderPath, setPresetSaveFolder, type ProfilePresetWindow } from "../../../../src/features/presets/profile-presets.js";
+import { AGENT_PRESET_FOLDER, getPresetSaveFolder, isAgentPresetFile, openProfilePresetFolder, presetFileName, presetFolderOf, presetFolderPath, setPresetSaveFolder, type ProfilePresetWindow } from "../../../../src/features/presets/profile-presets.js";
 import { loadPreprocessingPresetLibrary, serializePreprocessingPresets } from "../../../../src/features/segmentation/preprocessing-presets.js";
 import { loadSegmentationToolPresetLibrary, saveSegmentationToolPresetFile } from "../../../../src/features/segmentation/preset-service.js";
 import { DEFAULT_SEGMENTATION_PREPROCESSING_CONFIG } from "../../../../src/features/segmentation/preprocessing.js";
@@ -179,6 +179,36 @@ describe("profile preset folders", () => {
     await presets.remove("Fins 2.json");
     await presets.remove("Fins 2.json");
     expect(Object.keys(folder.files).sort()).toEqual(["Fins 10.json", "Other.json", "notes.txt"]);
+  });
+
+  it("saves agent presets into the Agent folder without a dialog, ignoring the person's save folder", async () => {
+    const folder = memoryFolder("Layouts");
+    const confirm = vi.fn(() => { throw new Error("agents never open dialogs"); });
+    const { windowRef } = desktop({ layout: folder }, confirm);
+    const stored = new Map([["easyLabeling.presetSaveFolder.layout", "Mine"]]);
+    windowRef.localStorage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => { stored.set(key, value); } };
+    const layouts = (await openProfilePresetFolder(windowRef, "layout"))!;
+    const agent = { folder: AGENT_PRESET_FOLDER, onExists: "fail" as const };
+
+    await expect(layouts.save("Row", "one", null, agent)).resolves.toBe("Agent/Row.json");
+    expect(folder.folders.Agent!.files["Row.json"]).toBe("one");
+    expect(folder.folders.Mine).toBeUndefined();
+    await expect(layouts.save("Row", "two", null, agent)).rejects.toThrow(/already exists/);
+    await expect(layouts.save("Row", "two", null, { ...agent, onExists: "replace" })).resolves.toBe("Agent/Row.json");
+    expect(folder.folders.Agent!.files["Row.json"]).toBe("two");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(getPresetSaveFolder(windowRef, "layout")).toBe("Mine");
+    // Without options a save still follows the person's choice.
+    await expect(layouts.save("Row", "three")).resolves.toBe("Mine/Row.json");
+  });
+
+  it("tells agent files from the person's by folder", () => {
+    expect(isAgentPresetFile("Agent/Row.json")).toBe(true);
+    expect(isAgentPresetFile("agent/SEM/Row.json")).toBe(true);
+    expect(isAgentPresetFile("Agents/Row.json")).toBe(false);
+    expect(isAgentPresetFile("Agent.json")).toBe(false);
+    expect(isAgentPresetFile("Mine/Agent/Row.json")).toBe(false);
+    expect(isAgentPresetFile(undefined)).toBe(false);
   });
 
   it("lists, saves and removes presets in subfolders by their path, skipping the app's dot folders", async () => {

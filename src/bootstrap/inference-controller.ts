@@ -1,6 +1,7 @@
 import type { AppState } from "../app/state.js";
 import { createInferenceService, type InferenceBackendStatus } from "../features/inference/service.js";
-import type { OutputFormat } from "../features/inference/yolo.js";
+import type { Detection, OutputFormat } from "../features/inference/yolo.js";
+import type { FileHandleLike } from "../types/files.js";
 import type { InferenceSaveResult, RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeUiManager } from "./ui-manager-adapter.js";
 
@@ -12,6 +13,8 @@ export interface InferenceAgentApi {
   loadModel(file: File): Promise<{ model: string; description: string; backend: string | null }>;
   /** The panel's settings unless given; results go to the model's own label folder, which becomes active. */
   run(options: { allImages: boolean; confidence?: number; iou?: number; maxDetections?: number }): Promise<InferenceSaveResult>;
+  /** The loaded model on the current image (its saved pixels), returning the detections without writing anything. */
+  detect(options: { confidence?: number; iou?: number; maxDetections?: number }): Promise<{ model: string; width: number; height: number; detections: Detection[] }>;
 }
 
 export function bindInferenceControls(input: {
@@ -183,6 +186,29 @@ export function bindInferenceControls(input: {
       const result = await run(options.allImages, options);
       if (!result) throw new Error("Inference stopped. Partial results remain on disk.");
       return result;
+    },
+    async detect(options) {
+      if (!ready || !service) throw new Error("Load an ONNX model first.");
+      if (busy) throw new Error("The Inference panel is busy.");
+      const file = state.session.currentImageFile;
+      if (state.session.workflow !== "detection" || !file) throw new Error("Open a Detection dataset first.");
+      const confidence = options.confidence ?? element<HTMLInputElement>("inferenceConfidenceInput").valueAsNumber;
+      const iou = options.iou ?? element<HTMLInputElement>("inferenceIouInput").valueAsNumber;
+      const maxDet = options.maxDetections ?? element<HTMLInputElement>("inferenceMaxDetInput").valueAsNumber;
+      if (![confidence, iou].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) throw new Error("Confidence and IoU must be between 0 and 1.");
+      if (!Number.isInteger(maxDet) || maxDet < 1 || maxDet > 30000) throw new Error("Max detections must be a whole number between 1 and 30,000.");
+      const format = element<HTMLSelectElement>("inferenceOutputFormat").value as OutputFormat;
+      busy = true;
+      sync();
+      try {
+        // The same decode and model call the panel's run uses, without writing a file.
+        const image = await fileSystem.decodeImageForAutomation(file as unknown as FileHandleLike);
+        const detections = await service.infer(image, { confidence, iou, format, maxDet });
+        return { model: modelName, width: image.naturalWidth || image.width, height: image.naturalHeight || image.height, detections };
+      } finally {
+        busy = false;
+        sync();
+      }
     }
   };
   return { dispose: stop, agent };

@@ -1677,6 +1677,11 @@ export function createDetectionCanvasWorkflow(state: CanvasControllerState, deps
       return clipboard.getItemCount();
     },
 
+    /** Deletes these boxes as the Delete button deletes a selection (one undo step), without selecting them first. */
+    deleteBoxes(rects: readonly FabricRectLike[]): void {
+      deleteRects(rects);
+    },
+
     deleteSelection(_options: CanvasBulkOperationOptions = {}): void {
       const activeObjects = canvas.getActiveObjects();
       const rectsToDelete: FabricRectLike[] = [];

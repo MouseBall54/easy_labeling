@@ -1,5 +1,9 @@
 import type { AppState } from "../app/state.js";
-import { REFINE_SIDES, type RefineBoxInput, type RefineParams, type RefineRect, type RefineResult } from "../domain/refine/edge-refine.js";
+import { REFINE_SIDES, describeRefineSide, sideParams, type RefineBoxInput, type RefineParams, type RefineRect, type RefineResult } from "../domain/refine/edge-refine.js";
+import { summarizeSideProfile } from "../domain/refine/profile-summary.js";
+
+/** Pixels around a box the agent's edge profile crops at least (the Refine Lab's margin). */
+const PROFILE_MARGIN = 32;
 import {
   createRefineSettings,
   mergeRefinePresets,
@@ -77,6 +81,8 @@ export interface RefineRunOutcome {
 /** Runs the pane's actions with explicit targets and returns what happened (src/bootstrap/agent-tools-refine.ts). */
 export interface RefineAgentApi {
   settingsSummary(): Promise<Record<string, unknown>>;
+  /** Each side's edge profile of these boxes, as the Refine Lab computes it (the run's settings and image). */
+  profile(ids: readonly string[]): Promise<{ image: string; profiles: Array<Record<string, unknown>> }>;
   /** `preset`: an edge preset for this call (null: class settings; omitted: the pane's Run with). */
   refine(scope: RefineScope, options: { preset?: string | null; keepHandEdited?: boolean; dryRun?: boolean }): Promise<RefineRunOutcome>;
   /** `preset`: a reclass preset for this call (null: the Lab rule; omitted: the pane's Reclass with). */
@@ -1282,6 +1288,37 @@ export function createRefineController(input: {
   const keepFor = (scope: RefineScope, explicit: boolean | undefined, toggle: () => boolean): boolean =>
     explicit ?? (scope === "all" || (typeof scope === "object" && "classId" in scope) ? toggle() : false);
   const agent: RefineAgentApi = {
+    async profile(ids) {
+      const image = syncImage();
+      if (!image || !isDetection()) throw new Error("Open an image in the Detection workflow first.");
+      await loadSettings();
+      const boxes = rects().map(toBox);
+      const byId = new Map(boxes.map((box) => [box.id, box]));
+      const missing = ids.filter((id) => !byId.has(id));
+      if (missing.length) throw new Error(`No box with annotationId ${missing.slice(0, 5).join(", ")} on the current image.`);
+      const targets = ids.map((id) => byId.get(id)!);
+      const paramsByClass = paramsFor(targets);
+      const config = runConfig();
+      const profiles = [];
+      for (const box of targets) {
+        const params = paramsByClass[box.classId]!;
+        // The pixels refinement reads (the worker's crop, original or processed as the run uses), as the Lab shows them.
+        const margin = Math.max(PROFILE_MARGIN, ...REFINE_SIDES.map((side) => sideParams(params, side).rangeOut + 4));
+        const crop = await getService().crop(image, { x0: box.x0 - margin, y0: box.y0 - margin, x1: box.x1 + margin, y1: box.y1 + margin }, config.image);
+        const shift = (r: RefineRect): RefineRect => ({ x0: r.x0 - crop.x0, y0: r.y0 - crop.y0, x1: r.x1 - crop.x0, y1: r.y1 - crop.y0 });
+        const x1 = crop.x0 + crop.width;
+        const y1 = crop.y0 + crop.height;
+        const neighbours = boxes.filter((n) => n.id !== box.id && n.x1 > crop.x0 && n.x0 < x1 && n.y1 > crop.y0 && n.y0 < y1).map(shift);
+        const img = { gray: crop.gray, width: crop.width, height: crop.height };
+        profiles.push({
+          annotationId: box.id, classId: box.classId, enabled: params.enabled, box: { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1 },
+          sides: REFINE_SIDES.map((side) => params.sides[side] === "off"
+            ? { side, off: true }
+            : summarizeSideProfile(describeRefineSide(img, shift(box), side, params, neighbours), side === "L" || side === "R" ? crop.x0 : crop.y0))
+        });
+      }
+      return { image: config.label, profiles };
+    },
     async settingsSummary() {
       await loadSettings();
       return {

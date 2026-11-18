@@ -5,6 +5,7 @@
 import type { AppState } from "../app/state.js";
 import { hasDirtyDocuments } from "../app/document-status.js";
 import { parseNonNegativeClassId } from "../domain/class-id.js";
+import { changeBox, matchesBoxWhere, parseBoxWhere, type BoxChange, type BoxWhere, type WhereBox } from "../domain/annotations/box-where.js";
 import { AgentToolError, optionalArg, type AgentTool } from "../features/agent/agent-api.js";
 import { outputInfo, outputPath } from "../features/images/annotation-storage.js";
 import { AnnotationSaveError } from "../features/images/image-session-service.js";
@@ -48,6 +49,84 @@ export function checkClassId(value: unknown, label: string): string {
     throw new AgentToolError("invalid_args", error instanceof Error ? error.message : String(error));
   }
 }
+
+/** The `where` argument (null when absent); a malformed one is invalid_args. */
+export function whereArg(args: Record<string, unknown>): BoxWhere | null {
+  if (args.where == null) return null;
+  try {
+    return parseBoxWhere(args.where);
+  } catch (error) {
+    throw new AgentToolError("invalid_args", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** A canvas box as `where` sees it (image pixels). */
+export function whereBox(rect: FabricRectLike): WhereBox {
+  rect.setCoords(); // bounds lag right after a draw
+  const bounds = getRectBounds(rect);
+  return { id: ensureAnnotationId(rect), classId: String(rect.labelClass ?? "0"), x0: bounds.left, y0: bounds.top, x1: bounds.right, y1: bounds.bottom };
+}
+
+/** The boxes `where` picks, in canvas order. Ids it names that are not on the image are not_found, as with annotationIds. */
+export function rectsWhere(all: readonly FabricRectLike[], where: BoxWhere): FabricRectLike[] {
+  if (where.annotationIds) {
+    const present = new Set(all.map(ensureAnnotationId));
+    const missing = [...where.annotationIds].filter((id) => !present.has(id));
+    if (missing.length) throw new AgentToolError("not_found", `No box with annotationId ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` (+${missing.length - 5})` : ""} on the current image.`);
+  }
+  return all.filter((rect) => matchesBoxWhere(whereBox(rect), where));
+}
+
+const finiteNumber = (value: unknown, label: string): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new AgentToolError("invalid_args", `${label} must be a number.`);
+  return value;
+};
+
+/** update_boxes' `change`: classId, shift {dx, dy}, resize {dw, dh, anchor}. */
+function changeArg(value: unknown): { classId?: string; geometry?: BoxChange } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new AgentToolError("invalid_args", "change must be an object with classId, shift and/or resize.");
+  const change = value as Record<string, unknown>;
+  const geometry: BoxChange = {};
+  if (change.shift != null) {
+    const shift = change.shift as Record<string, unknown>;
+    geometry.shift = { dx: finiteNumber(shift.dx ?? 0, "change.shift.dx"), dy: finiteNumber(shift.dy ?? 0, "change.shift.dy") };
+  }
+  if (change.resize != null) {
+    const resize = change.resize as Record<string, unknown>;
+    const anchor = resize.anchor ?? "center";
+    if (anchor !== "center" && anchor !== "topLeft") throw new AgentToolError("invalid_args", "change.resize.anchor must be \"center\" or \"topLeft\".");
+    geometry.resize = { dw: finiteNumber(resize.dw ?? 0, "change.resize.dw"), dh: finiteNumber(resize.dh ?? 0, "change.resize.dh"), anchor };
+  }
+  const classId = change.classId == null ? undefined : checkClassId(change.classId, "change");
+  if (!classId && !geometry.shift && !geometry.resize) throw new AgentToolError("invalid_args", "change needs classId, shift or resize.");
+  return { ...(classId ? { classId } : {}), ...(geometry.shift || geometry.resize ? { geometry } : {}) };
+}
+
+type ArrangeController = RuntimeCanvasController["raw"];
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+};
+/** arrange_boxes actions: each calls the Arrange button's function on the selection. */
+const ARRANGE_ACTIONS: Record<string, (controller: ArrangeController, boxes: WhereBox[], size: string) => void> = {
+  alignLeft: (controller) => controller.alignSelectionLeft(),
+  alignRight: (controller) => controller.alignSelectionRight(),
+  alignTop: (controller) => controller.alignSelectionTop(),
+  alignBottom: (controller) => controller.alignSelectionBottom(),
+  alignColumnCenters: (controller) => controller.alignSelectionColumnCenters(),
+  alignRowCenters: (controller) => controller.alignSelectionRowCenters(),
+  alignRowSetColumnCenters: (controller) => controller.alignSelectionRowSetColumnCenters(),
+  distributeHorizontally: (controller) => controller.distributeSelectionHorizontally(),
+  distributeVertically: (controller) => controller.distributeSelectionVertically(),
+  // Every box to one width and height (the median, largest or smallest of them), around each box's centre.
+  sameSize: (controller, boxes, size) => {
+    const pick = size === "largest" ? (values: number[]) => Math.max(...values) : size === "smallest" ? (values: number[]) => Math.min(...values)
+      : size === "median" ? median : null;
+    if (!pick) throw new Error("size must be median, largest or smallest.");
+    controller.resizeSelectedBoxes({ mode: "to", width: pick(boxes.map((box) => box.x1 - box.x0)), height: pick(boxes.map((box) => box.y1 - box.y0)) });
+  }
+};
 
 function listArg(args: Record<string, unknown>, name: string): unknown[] {
   const value = args[name];
@@ -98,10 +177,46 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
     }
   };
 
+  /** Every box `where` picks gets the same change (one undo step); boxes clipping would shrink under 1 px stay as they were. */
+  const updateWhere = (size: { width: number; height: number }, where: BoxWhere, args: Record<string, unknown>) => {
+    if (args.change == null) throw new AgentToolError("invalid_args", "change is required with where: classId, shift and/or resize for every matching box.");
+    const change = changeArg(args.change);
+    const picked = rectsWhere(raw().getObjects("rect").filter(isRectObject), where);
+    const geometry: Array<{ annotationId: string; x: number; y: number; width: number; height: number }> = [];
+    let clipped = 0;
+    let skipped = 0;
+    if (change.geometry) {
+      for (const rect of picked) {
+        const box = whereBox(rect);
+        const next = changeBox(box, change.geometry, size);
+        if (!next) { skipped += 1; continue; }
+        if (next.clipped) clipped += 1;
+        geometry.push({ annotationId: box.id, x: next.box.x0, y: next.box.y0, width: next.box.x1 - next.box.x0, height: next.box.y1 - next.box.y0 });
+      }
+    }
+    const classes = change.classId ? picked.map((rect) => ({ annotationId: ensureAnnotationId(rect), classId: change.classId! })) : [];
+    if (geometry.length || classes.length) {
+      const controller = raw();
+      const apply = () => {
+        if (geometry.length) controller.updateBoxGeometries?.(geometry);
+        if (classes.length) controller.updateBoxClasses?.(classes);
+      };
+      if (controller.runAsOneHistoryStep) controller.runAsOneHistoryStep(apply);
+      else apply();
+    }
+    return edited({ matched: picked.length, moved: geometry.length, relabelled: classes.length, clippedToImage: clipped, skippedTooSmall: skipped });
+  };
+
   const updateBoxes: AgentTool = {
     changesApp: true,
     async run(args) {
       const size = imageSize();
+      const where = whereArg(args);
+      if (where) {
+        if (args.updates != null) throw new AgentToolError("invalid_args", "Give updates, or where with change, not both.");
+        return updateWhere(size, where, args);
+      }
+      if (args.change != null) throw new AgentToolError("invalid_args", "change needs where (which boxes to change).");
       const updates = listArg(args, "updates").map((value) => (value ?? {}) as Record<string, unknown>);
       const rects = findRects(updates.map((update) => update.annotationId));
       const geometry: Array<{ annotationId: string; x: number; y: number; width: number; height: number }> = [];
@@ -135,9 +250,17 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
     changesApp: true,
     async run(args) {
       imageSize();
-      const rects = findRects(listArg(args, "annotationIds"));
-      raw().setActiveSelection(rects, rects[0] ?? null);
-      raw().deleteSelection();
+      const where = whereArg(args);
+      if (where && args.annotationIds != null) throw new AgentToolError("invalid_args", "Give annotationIds or where, not both.");
+      const rects = where ? rectsWhere(raw().getObjects("rect").filter(isRectObject), where) : findRects(listArg(args, "annotationIds"));
+      if (rects.length) {
+        const controller = raw();
+        if (controller.deleteBoxes) controller.deleteBoxes(rects);
+        else {
+          controller.setActiveSelection(rects, rects[0] ?? null);
+          controller.deleteSelection();
+        }
+      }
       return edited({ deleted: rects.length });
     }
   };
@@ -150,7 +273,12 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
       const ids = args.annotationIds;
       const classId = args.classId;
       const controller = raw();
-      if (Array.isArray(ids)) {
+      const where = whereArg(args);
+      if (where) {
+        const rects = rectsWhere(controller.getObjects("rect").filter(isRectObject), where);
+        if (rects.length) controller.setActiveSelection(rects, rects[0]);
+        else controller.canvas.discardActiveObject();
+      } else if (Array.isArray(ids)) {
         const rects = findRects(ids);
         if (rects.length) controller.setActiveSelection(rects, rects[0]);
         else controller.canvas.discardActiveObject();
@@ -161,11 +289,51 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
       } else if (which === "none") {
         controller.canvas.discardActiveObject();
       } else {
-        throw new AgentToolError("invalid_args", "Give annotationIds, classId, or select \"all\" / \"none\".");
+        throw new AgentToolError("invalid_args", "Give annotationIds, where, classId, or select \"all\" / \"none\".");
       }
       controller.renderAll();
       const selectedIds = controller.canvas.getActiveObjects().filter(isRectObject).map(ensureAnnotationId);
       return edited({ selectedIds });
+    }
+  };
+
+  /**
+   * The Arrange buttons on a set of boxes: they become the selection, then the button's own function runs (one undo
+   * step). Center alignments group by the person's tolerance slider, as the buttons do.
+   */
+  const arrangeBoxes: AgentTool = {
+    changesApp: true,
+    async run(args) {
+      imageSize();
+      const controller = raw();
+      const action = optionalArg(args, "action", "string");
+      const where = whereArg(args);
+      const all = controller.getObjects("rect").filter(isRectObject);
+      const targets = where ? rectsWhere(all, where)
+        : Array.isArray(args.annotationIds) ? findRects(listArg(args, "annotationIds"))
+          : optionalArg(args, "scope", "string") === "all" ? all
+            : controller.canvas.getActiveObjects().filter(isRectObject);
+      const run = ARRANGE_ACTIONS[action ?? ""];
+      if (!run) throw new AgentToolError("invalid_args", `action must be one of ${Object.keys(ARRANGE_ACTIONS).join(", ")}.`);
+      const needed = action === "distributeHorizontally" || action === "distributeVertically" ? 3 : action === "sameSize" ? 1 : 2;
+      if (targets.length < needed) throw new AgentToolError("invalid_args", `${action} needs at least ${needed} boxes; ${targets.length} matched (give where, annotationIds or scope "all").`);
+      const before = new Map(targets.map((rect) => [rect, whereBox(rect)]));
+      controller.setActiveSelection(targets, targets[0] ?? null);
+      try {
+        run(controller, targets.map((rect) => before.get(rect)!), optionalArg(args, "size", "string") ?? "median");
+      } catch (error) {
+        throw new AgentToolError("invalid_args", error instanceof Error ? error.message : String(error));
+      }
+      let moved = 0;
+      let maxShift = 0;
+      for (const rect of targets) {
+        const was = before.get(rect)!;
+        const now = whereBox(rect);
+        const shift = Math.max(Math.abs(now.x0 - was.x0), Math.abs(now.y0 - was.y0), Math.abs(now.x1 - was.x1), Math.abs(now.y1 - was.y1));
+        if (shift > 1e-6) moved += 1;
+        maxShift = Math.max(maxShift, shift);
+      }
+      return edited({ action, boxes: targets.length, moved, maxShiftPx: Math.round(maxShift * 100) / 100 });
     }
   };
 
@@ -220,6 +388,7 @@ export function createAgentEditTools(deps: AgentEditToolDeps): Record<string, Ag
     update_boxes: updateBoxes,
     delete_boxes: deleteBoxes,
     select_boxes: selectBoxes,
+    arrange_boxes: arrangeBoxes,
     undo: history("undo"),
     redo: history("redo"),
     save

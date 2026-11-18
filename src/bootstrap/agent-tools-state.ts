@@ -23,6 +23,8 @@ import type { DirectoryHandleLike } from "../types/files.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
+import { rectsWhere, whereArg } from "./agent-tools-edit.js";
+import { refineDryRun } from "./agent-tools-refine.js";
 
 export interface AgentStateToolDeps {
   state: AppState;
@@ -269,7 +271,10 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
       const all = rects(canvasController);
       const countsByClass: Record<string, number> = {};
       for (const rect of all) countsByClass[String(rect.labelClass ?? "0")] = (countsByClass[String(rect.labelClass ?? "0")] ?? 0) + 1;
-      const matching = all.filter((rect) => (!wanted || wanted.has(ensureAnnotationId(rect))) && (classFilter === null || String(rect.labelClass ?? "0") === classFilter));
+      const where = whereArg(args);
+      const picked = where ? new Set(rectsWhere(all, where)) : null;
+      const matching = all.filter((rect) => (!wanted || wanted.has(ensureAnnotationId(rect))) && (classFilter === null || String(rect.labelClass ?? "0") === classFilter)
+        && (!picked || picked.has(rect)));
       const page = listPage(matching, args, wanted ? LIST_PAGE_MAX : BOX_PAGE);
       const boxes = page.items.map((rect) => {
         rect.setCoords(); // bounds lag right after a draw
@@ -460,14 +465,21 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
     async run(args) {
       const size = requireImage();
       const maxSide = Math.min(CAPTURE_SIDE.max, Math.max(CAPTURE_SIDE.min, Math.floor(optionalArg(args, "maxSide", "number") ?? CAPTURE_SIDE.default)));
-      const ids = Array.isArray(args.annotationIds) ? args.annotationIds.map(String) : null;
+      const layers = captureLayersArg(args);
+      const refineResultId = optionalArg(args, "refineResultId", "string");
+      const refinePreview = refineResultId === undefined ? null : refineDryRun(refineResultId, session.currentImageFile?.name ?? "");
+      let ids = Array.isArray(args.annotationIds) ? args.annotationIds.map(String) : null;
+      // A Refine dry run alone: its moved boxes, flagged first, as one sheet.
+      if (!ids && refinePreview) ids = refinePreview.order.slice(0, SHEET_MAX);
+      if (refinePreview && ids && !ids.length) throw new AgentToolError("invalid_args", `Refine dry run ${refineResultId} moved no boxes; there is nothing to compare.`);
+      if (refinePreview && !ids) throw new AgentToolError("invalid_args", "refineResultId draws on a sheet: give annotationIds or leave them out.");
       const region = ids ? null : captureRegionArg(args, size, canvasController);
       const capture = ids
-        ? await captureSheet(deps.documentRef, canvasController, ids, size, maxSide)
-        : region ? await captureRegion(deps.documentRef, canvasController, region, maxSide) : await captureCanvas(deps.documentRef, canvasController, maxSide);
-      const key = JSON.stringify([session.currentImageFile?.name, session.workflow, maxSide, ids, args.annotationId ?? null, region]);
+        ? await captureSheet(deps.documentRef, canvasController, ids, size, maxSide, layers, refinePreview?.after ?? null)
+        : region ? await captureRegion(deps.documentRef, canvasController, region, maxSide, layers) : await captureCanvas(deps.documentRef, canvasController, maxSide, layers);
+      const key = JSON.stringify([session.currentImageFile?.name, session.workflow, maxSide, ids, args.annotationId ?? null, region, layers, refineResultId ?? null]);
       const hash = await digest(capture.png);
-      const result = { ...(capture.result as object), captureId: hash };
+      const result = { ...(capture.result as object), viewSource: canvasController.raw.getSegmentationViewSource?.() ?? "original", captureId: hash };
       const previous = lastCaptures.get(key);
       if (previous && previous.hash === hash && optionalArg(args, "force", "boolean") !== true) {
         return {
@@ -503,12 +515,16 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
  * The canvas viewport as drawn: every visible canvas layer over the main canvas (image, boxes, tags,
  * Refine marks), scaled so the longer side is at most `maxSide`. imageX = captureX * scale + offsetX.
  */
-async function captureCanvas(documentRef: Document, canvasController: RuntimeCanvasController, maxSide: number): Promise<AgentImageResult> {
+async function captureCanvas(documentRef: Document, canvasController: RuntimeCanvasController, maxSide: number, layers: CaptureLayers = ALL_LAYERS): Promise<AgentImageResult> {
   const main = documentRef.querySelector<HTMLCanvasElement>("#canvas");
   const container = documentRef.getElementById("canvas-container");
   if (!main || !container) throw new AgentToolError("failed", "The canvas is not on the page.");
   const area = main.getBoundingClientRect();
   if (!area.width || !area.height || !main.width || !main.height) throw new AgentToolError("failed", "The canvas has no visible area.");
+  // Hidden layers: drawn without them, then drawn back, all before the page paints (the person sees no change).
+  const renderNow = () => (canvasController.raw.canvas as unknown as { renderAll?(): void }).renderAll?.();
+  const restore = hideLayers(canvasController, layers);
+  if (restore.changed) renderNow();
   const ratio = documentRef.defaultView?.devicePixelRatio ?? 1;
   const scale = Math.min(ratio, maxSide / Math.max(area.width, area.height));
   const out = documentRef.createElement("canvas");
@@ -518,10 +534,16 @@ async function captureCanvas(documentRef: Document, canvasController: RuntimeCan
   if (!context) throw new AgentToolError("failed", "Could not draw the capture.");
   const cssToCaptureX = out.width / area.width;
   const cssToCaptureY = out.height / area.height;
-  for (const layer of container.querySelectorAll("canvas")) {
-    const box = layer.getBoundingClientRect();
-    if (!box.width || !box.height || layer.hidden || getComputedStyle(layer).visibility === "hidden" || getComputedStyle(layer).display === "none") continue;
-    context.drawImage(layer, (box.left - area.left) * cssToCaptureX, (box.top - area.top) * cssToCaptureY, box.width * cssToCaptureX, box.height * cssToCaptureY);
+  try {
+    for (const layer of container.querySelectorAll("canvas")) {
+      if (!layers.refine && layer.id === REFINE_OVERLAY_ID) continue;
+      const box = layer.getBoundingClientRect();
+      if (!box.width || !box.height || layer.hidden || getComputedStyle(layer).visibility === "hidden" || getComputedStyle(layer).display === "none") continue;
+      context.drawImage(layer, (box.left - area.left) * cssToCaptureX, (box.top - area.top) * cssToCaptureY, box.width * cssToCaptureX, box.height * cssToCaptureY);
+    }
+  } finally {
+    restore();
+    if (restore.changed) renderNow();
   }
   const [zoomX, , , zoomY, panX, panY] = canvasController.raw.canvas.viewportTransform;
   // Fabric paints logical viewport pixels at the backing canvas context's retina scale.
@@ -540,6 +562,50 @@ async function captureCanvas(documentRef: Document, canvasController: RuntimeCan
 
 /** Most a region capture enlarges the image (beyond that it shows only blur). */
 const CAPTURE_ZOOM_MAX = 8;
+
+const REFINE_OVERLAY_ID = "refineOverlayCanvas";
+
+/** What a capture draws over the image: boxes, their class tags, and Refine's marks. */
+export interface CaptureLayers {
+  boxes: boolean;
+  tags: boolean;
+  refine: boolean;
+}
+
+const ALL_LAYERS: CaptureLayers = { boxes: true, tags: true, refine: true };
+
+export function captureLayersArg(args: Record<string, unknown>): CaptureLayers {
+  const value = args.layers;
+  if (value == null) return ALL_LAYERS;
+  if (typeof value !== "object" || Array.isArray(value)) throw new AgentToolError("invalid_args", "layers must be {boxes, tags, refine} with true or false.");
+  const read = (key: keyof CaptureLayers): boolean => {
+    const flag = (value as Record<string, unknown>)[key];
+    if (flag == null) return true;
+    if (typeof flag !== "boolean") throw new AgentToolError("invalid_args", `layers.${key} must be true or false.`);
+    return flag;
+  };
+  return { boxes: read("boxes"), tags: read("tags"), refine: read("refine") };
+}
+
+/**
+ * Hides the boxes and/or tags a capture leaves out; the returned function shows them again. Callers draw and restore
+ * in one task, so the person's view never paints without them.
+ */
+function hideLayers(canvasController: RuntimeCanvasController, layers: CaptureLayers): (() => void) & { changed: boolean } {
+  const hidden: Array<{ visible?: boolean }> = [];
+  const hide = (object: { visible?: boolean } | null | undefined) => {
+    if (!object || object.visible === false) return;
+    object.visible = false;
+    hidden.push(object);
+  };
+  if (!layers.boxes || !layers.tags) {
+    for (const rect of rects(canvasController)) {
+      if (!layers.boxes) hide(rect);
+      hide(rect._labelText);
+    }
+  }
+  return Object.assign(() => { for (const object of hidden) object.visible = true; }, { changed: hidden.length > 0 });
+}
 
 /** capture_view's region: an annotationId (the box plus a margin of half its size, at least 16 px) or {x0, y0, x1, y1}. */
 export function captureRegionArg(
@@ -577,17 +643,24 @@ function renderRegion(
   documentRef: Document,
   canvasController: RuntimeCanvasController,
   region: { x0: number; y0: number; x1: number; y1: number },
-  scale: number
+  scale: number,
+  layers: CaptureLayers = ALL_LAYERS
 ): HTMLCanvasElement {
   const canvas = canvasController.raw.canvas as unknown as FabricRenderCanvas;
   const [, , , , panX, panY] = canvas.viewportTransform;
   const zoom = canvas.getZoom();
-  // Crop is in view pixels at the current zoom; the multiplier turns that zoom into `scale`.
-  const out = canvas.toCanvasElement(scale / zoom, {
-    left: region.x0 * zoom + panX, top: region.y0 * zoom + panY, width: (region.x1 - region.x0) * zoom, height: (region.y1 - region.y0) * zoom
-  });
-  const overlay = documentRef.getElementById("refineOverlayCanvas") as HTMLCanvasElement | null;
-  if (overlay && overlay.width === out.width && overlay.height === out.height) out.getContext("2d")?.drawImage(overlay, 0, 0);
+  const restore = hideLayers(canvasController, layers);
+  let out: HTMLCanvasElement;
+  try {
+    // Crop is in view pixels at the current zoom; the multiplier turns that zoom into `scale`.
+    out = canvas.toCanvasElement(scale / zoom, {
+      left: region.x0 * zoom + panX, top: region.y0 * zoom + panY, width: (region.x1 - region.x0) * zoom, height: (region.y1 - region.y0) * zoom
+    });
+  } finally {
+    restore();
+  }
+  const overlay = documentRef.getElementById(REFINE_OVERLAY_ID) as HTMLCanvasElement | null;
+  if (layers.refine && overlay && overlay.width === out.width && overlay.height === out.height) out.getContext("2d")?.drawImage(overlay, 0, 0);
   return out;
 }
 
@@ -601,6 +674,9 @@ function boxCaptureRegion(rect: FabricRectLike): { x0: number; y0: number; x1: n
 }
 
 const SHEET_LABEL = 18;
+/** The Refine result outline on a comparison sheet: a colour no class palette entry is close to. */
+const AFTER_COLOR = "#00e5ff";
+const AFTER_COLOR_NAME = "cyan";
 
 /**
  * Many boxes in one PNG: a grid of zoomed cells, one per box in the order given, each labelled with its number
@@ -611,7 +687,10 @@ async function captureSheet(
   canvasController: RuntimeCanvasController,
   ids: readonly string[],
   size: { width: number; height: number },
-  maxSide: number
+  maxSide: number,
+  layers: CaptureLayers = ALL_LAYERS,
+  /** A Refine dry run's result per box, outlined over each cell (the box as it is now is the canvas's own outline). */
+  after: ReadonlyMap<string, { x0: number; y0: number; x1: number; y1: number }> | null = null
 ): Promise<AgentImageResult> {
   if (ids.length === 0) throw new AgentToolError("invalid_args", "annotationIds is empty.");
   if (ids.length > SHEET_MAX) throw new AgentToolError("invalid_args", `At most ${SHEET_MAX} boxes per sheet; capture the rest in another call.`);
@@ -635,12 +714,21 @@ async function captureSheet(
     const wanted = boxCaptureRegion(rect);
     const region = { x0: Math.max(0, wanted.x0), y0: Math.max(0, wanted.y0), x1: Math.min(size.width, wanted.x1), y1: Math.min(size.height, wanted.y1) };
     const scale = Math.min(CAPTURE_ZOOM_MAX, cell / Math.max(region.x1 - region.x0, region.y1 - region.y0));
-    const tile = renderRegion(documentRef, canvasController, region, scale);
+    const tile = renderRegion(documentRef, canvasController, region, scale, layers);
     const left = (index % columns) * cell;
     const top = Math.floor(index / columns) * (cell + SHEET_LABEL);
     const x = left + Math.floor((cell - tile.width) / 2);
     const y = top + SHEET_LABEL + Math.floor((cell - tile.height) / 2);
     context.drawImage(tile, x, y);
+    const moved = after?.get(id);
+    if (moved) {
+      context.save();
+      context.strokeStyle = AFTER_COLOR;
+      context.lineWidth = 2;
+      context.setLineDash([5, 3]);
+      context.strokeRect(x + (moved.x0 - region.x0) * scale, y + (moved.y0 - region.y0) * scale, (moved.x1 - moved.x0) * scale, (moved.y1 - moved.y0) * scale);
+      context.restore();
+    }
     const classId = String(rect.labelClass ?? "0");
     context.fillStyle = "#f3f5f7";
     context.fillText(`${index + 1} · class ${classId}`, left + 4, top + SHEET_LABEL / 2);
@@ -652,6 +740,7 @@ async function captureSheet(
       annotationId: id,
       classId,
       box: { x0: round2(bounds.left), y0: round2(bounds.top), x1: round2(bounds.right), y1: round2(bounds.bottom) },
+      ...(moved ? { refined: { x0: round2(moved.x0), y0: round2(moved.y0), x1: round2(moved.x1), y1: round2(moved.y1) } } : {}),
       cell: { x, y, width: tile.width, height: tile.height },
       imageFromCell: { scale: 1 / scale, offsetX: region.x0, offsetY: region.y0 }
     };
@@ -664,6 +753,7 @@ async function captureSheet(
     height: sheet.height,
     cells,
     note: "For pixels inside a tile, use its cell and imageFromCell: imageX = (captureX - cell.x) * scale + offsetX; imageY = (captureY - cell.y) * scale + offsetY."
+      + (after ? ` The dashed ${AFTER_COLOR_NAME} outline is where the Refine dry run would move the box; the solid outline is the box now.` : "")
   }, new Uint8Array(await blob.arrayBuffer()));
 }
 
@@ -680,7 +770,8 @@ async function captureRegion(
   documentRef: Document,
   canvasController: RuntimeCanvasController,
   region: { x0: number; y0: number; x1: number; y1: number },
-  maxSide: number
+  maxSide: number,
+  layers: CaptureLayers = ALL_LAYERS
 ): Promise<AgentImageResult> {
   const canvas = canvasController.raw.canvas as unknown as {
     viewportTransform: number[];
@@ -691,7 +782,7 @@ async function captureRegion(
   const width = region.x1 - region.x0;
   const height = region.y1 - region.y0;
   const scale = Math.min(CAPTURE_ZOOM_MAX, maxSide / Math.max(width, height));
-  const out = renderRegion(documentRef, canvasController, region, scale);
+  const out = renderRegion(documentRef, canvasController, region, scale, layers);
   canvas.requestRenderAll();
   const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/png"));
   if (!blob) throw new AgentToolError("failed", "Could not encode the capture.");
