@@ -19,10 +19,22 @@ import type { UiDomElements } from "../ui/dom-elements.js";
 import type { RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RuntimeOperationHandle, RuntimeUiManager } from "./ui-manager-adapter.js";
 
+/** What a batch run can be given besides the panel's choices (the agent's folder runs). */
+export interface AutomationBatchRunOptions {
+  files?: FileHandleLike[];
+  dryRun?: boolean;
+  /** Run this preset instead of the one chosen in the panel. */
+  preset?: AutomationPreset;
+  /** Dry runs: the label text each matched image would get (existing boxes merged as the preset's policy says). */
+  collect?(fileName: string, yolo: string): void;
+}
+
 export interface AutomationBatchController {
   bind(): void;
   hidePreflight(): void;
   cancel(): void;
+  /** The batch the Run on all images button starts; the summary, or null when stopped or already running. */
+  run(options?: AutomationBatchRunOptions): Promise<BatchSummary | null>;
 }
 
 export function createAutomationBatchController(input: {
@@ -178,11 +190,11 @@ export function createAutomationBatchController(input: {
     input.setRelatedControlsDisabled(nextRunning);
   };
 
-  const run = async (options: { files?: FileHandleLike[]; dryRun?: boolean } = {}): Promise<void> => {
+  const run = async (options: AutomationBatchRunOptions = {}): Promise<BatchSummary | null> => {
     if (running) {
-      return;
+      return null;
     }
-    const preset = input.getSelectedPreset();
+    const preset = options.preset ?? input.getSelectedPreset();
     if (!preset) {
       throw new Error("Choose an automation preset first");
     }
@@ -311,6 +323,7 @@ export function createAutomationBatchController(input: {
                 saveMs = (globalThis.performance?.now() ?? Date.now()) - saveStartedAt;
               } else {
                 setBatchStage(file.name, "Checking dry-run result");
+                options.collect?.(file.name, yolo);
               }
               const scores = activePreset.outputMode === "multiple-detection-boxes"
                 ? match.matches.map((candidate) => candidate.score)
@@ -359,6 +372,7 @@ export function createAutomationBatchController(input: {
         await input.fileSystem.imageSessionService.refreshImageWorkflowStatus();
       }
       input.uiManager.renderImageList();
+      return summary;
     } catch (error: unknown) {
       if (cancellationRequested || isOperationCancelledError(error)) {
         setBatchStage(
@@ -367,7 +381,7 @@ export function createAutomationBatchController(input: {
           "complete"
         );
         input.elements.automationBatchResultSummary.textContent = "Cancelled by user";
-        return;
+        return null;
       }
       setBatchStage(
         input.elements.automationBatchCurrentFile.textContent || "Batch stopped",
@@ -442,6 +456,8 @@ export function createAutomationBatchController(input: {
 
     cancel(): void {
       activeOperation?.cancel();
-    }
+    },
+
+    run
   };
 }

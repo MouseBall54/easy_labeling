@@ -3,7 +3,7 @@
  * Plan: docs/AGENT_MCP_PLAN_KO.md (sections 3.2, 3.3). DOM-free; agent-runtime.ts supplies the host.
  */
 
-export type AgentErrorCode = "busy" | "cancelled" | "declined" | "failed" | "invalid_args" | "no_folder" | "no_image" | "not_found" | "timeout";
+export type AgentErrorCode = "busy" | "cancelled" | "declined" | "failed" | "invalid_args" | "no_folder" | "no_image" | "not_found" | "stale_id" | "timeout";
 
 export const STALE_ID_HINT = "annotationIds are assigned anew each time an image loads (go_to_image, open_folder, reloading labels): read them again with get_boxes after switching images.";
 

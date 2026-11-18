@@ -8,7 +8,8 @@ import type { ClassRemapRule } from "../domain/class-remap.js";
 import { AgentToolError, listPage, optionalArg, type AgentTool, type AgentToolContext } from "../features/agent/agent-api.js";
 import { evenSample } from "../domain/refine/folder-summary.js";
 import { checkClassId } from "./agent-tools-edit.js";
-import type { RuntimeFileSystem } from "./file-system-adapter.js";
+import { removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
+import type { LabelFilePlan, RuntimeFileSystem } from "./file-system-adapter.js";
 import type { RefineAgentApi, RefineRunOutcome, RefineScope } from "./refine-controller.js";
 
 export interface AgentRefineToolDeps {
@@ -42,6 +43,36 @@ export function pagedOutcome(outcome: RefineRunOutcome, args: Record<string, unk
   }
   const page = listPage(rows, args, LISTED_BOXES);
   return { ...outcome, ...extra, [key]: page.items, listed: { total: page.total, offset: page.offset, truncated: page.truncated } };
+}
+
+/** Most boxes one refine_profile call explains (each side's profile is a few hundred bytes). */
+const PROFILE_LIMIT = 50;
+/** Folder dry runs (clean_out_of_bounds) kept for applying by resultId. */
+const FOLDER_DRY_RUNS_KEPT = 5;
+let outsideDryRunCount = 0;
+
+type PixelRect = { x0: number; y0: number; x1: number; y1: number };
+/** The last run_refine dry runs (per image): where each moved box would go, for capture_view's comparison sheet. */
+const refineDryRuns = new Map<string, { image: string; order: string[]; after: Map<string, PixelRect> }>();
+const REFINE_DRY_RUNS_KEPT = 5;
+let refineDryRunCount = 0;
+
+function rememberRefineDryRun(image: string, outcome: RefineRunOutcome): string | null {
+  if (!Array.isArray(outcome.changes)) return null;
+  const rows = outcome.changes as Array<{ annotationId?: string; after?: PixelRect; flagged?: boolean }>;
+  const moved = [...rows.filter((row) => row.flagged), ...rows.filter((row) => !row.flagged)].filter((row) => row.annotationId && row.after);
+  const resultId = `refine-preview-${++refineDryRunCount}`;
+  refineDryRuns.set(resultId, { image, order: moved.map((row) => row.annotationId!), after: new Map(moved.map((row) => [row.annotationId!, row.after!])) });
+  if (refineDryRuns.size > REFINE_DRY_RUNS_KEPT) refineDryRuns.delete(refineDryRuns.keys().next().value!);
+  return resultId;
+}
+
+/** A remembered run_refine dry run of `image`: its moved boxes (flagged first) and their refined boxes. */
+export function refineDryRun(resultId: string, image: string): { order: string[]; after: ReadonlyMap<string, PixelRect> } {
+  const run = refineDryRuns.get(resultId);
+  if (!run) throw new AgentToolError("not_found", `No run_refine dry run ${resultId} (the last ${REFINE_DRY_RUNS_KEPT} are kept).`);
+  if (run.image !== image) throw new AgentToolError("invalid_args", `Refine dry run ${resultId} was for ${run.image}; run it again on this image.`);
+  return run;
 }
 
 /** `preset` argument: omitted/null = the pane's choice, "" = class settings / Lab rule, else a preset name. */
@@ -137,7 +168,79 @@ export function createAgentRefineTools(deps: AgentRefineToolDeps): Record<string
     }
   });
 
+  /**
+   * The Clean outside boxes button over the folder (or some images) as a dry run first: the same row filter
+   * (removeOutOfBoundsYoloRows), the same backup name, written only as previewed and after the person allows it.
+   */
+  const outsidePlans = new Map<string, { plan: LabelFilePlan; removed: number }>();
+  const cleanOutOfBounds: AgentTool = {
+    changesApp: true,
+    async run(args, context) {
+      requireFolder();
+      if (state.session.workflow !== "detection" || !state.session.labelFolderHandle) throw new AgentToolError("failed", "Clean outside boxes needs the Detection workflow and a label folder.");
+      stopOnCancel(context);
+      const write = async (entry: { plan: LabelFilePlan; removed: number }, resultId: string | null) => {
+        const files = entry.plan.edits.length;
+        if (!files) return { applied: false, removed: 0, files: 0, message: "No boxes cross the image edges; nothing to write." };
+        const folderName = entry.plan.folder.name;
+        if (!(await deps.confirm(`Remove ${entry.removed} boxes that cross image edges from ${files} label files in "${folderName}", exactly as the dry run showed?\n\nCurrent edits will be saved first. Original label files will be backed up before removal.`))) {
+          throw new AgentToolError("declined", "The person declined the cleanup.");
+        }
+        const backupPath = await deps.fileSystem.commitLabelFilePlan(entry.plan, context.signal);
+        if (!backupPath) throw new AgentToolError("cancelled", "Stopped. No files changed.");
+        if (resultId) outsidePlans.delete(resultId);
+        deps.afterEdit();
+        return { applied: true, removed: entry.removed, files, backupPath };
+      };
+      const resultId = optionalArg(args, "resultId", "string");
+      if (resultId !== undefined) {
+        const entry = outsidePlans.get(resultId);
+        if (!entry) throw new AgentToolError("not_found", `No clean_out_of_bounds dry run ${resultId} (the last ${FOLDER_DRY_RUNS_KEPT} are kept). Run the dry run again.`);
+        return write(entry, resultId);
+      }
+      const dryRun = optionalArg(args, "dryRun", "boolean") ?? true;
+      const only = imagesArg(args);
+      if (!dryRun && only) throw new AgentToolError("invalid_args", "images and sample are for dry runs; apply one with its resultId.");
+      const perImage: Array<{ image: string; removed: number }> = [];
+      const outcome = await deps.fileSystem.rewriteDetectionLabels({
+        title: "Checking boxes that cross image edges",
+        backupPrefix: "outside-boxes",
+        prepare: async () => null,
+        transform: async (file, yolo) => {
+          const result = removeOutOfBoundsYoloRows(yolo);
+          if (!result.removedCount) return null;
+          perImage.push({ image: file.name, removed: result.removedCount });
+          return result.text;
+        },
+        only,
+        dryRun: true
+      });
+      if (!outcome?.plan) throw new AgentToolError("cancelled", "Stopped. No files changed.");
+      const entry = { plan: outcome.plan, removed: perImage.reduce((sum, image) => sum + image.removed, 0) };
+      if (!dryRun) return write(entry, null);
+      const id = `outside-${++outsideDryRunCount}`;
+      outsidePlans.set(id, entry);
+      if (outsidePlans.size > FOLDER_DRY_RUNS_KEPT) outsidePlans.delete(outsidePlans.keys().next().value!);
+      perImage.sort((a, b) => b.removed - a.removed);
+      const page = listPage(perImage, args, LISTED_IMAGES);
+      return {
+        dryRun: true, resultId: id, imagesChecked: outcome.total, imagesChanged: perImage.length, boxesRemoved: entry.removed,
+        images: page.items, truncated: page.truncated, skipped: outcome.failures.map((failure) => ({ image: failure.fileName, reason: failure.reason }))
+      };
+    }
+  };
+
   return {
+    refine_profile: {
+      changesApp: false,
+      async run(args) {
+        requireImage();
+        if (!Array.isArray(args.annotationIds) || !args.annotationIds.length) throw new AgentToolError("invalid_args", "annotationIds: 1 to 50 boxes to explain.");
+        if (args.annotationIds.length > PROFILE_LIMIT) throw new AgentToolError("invalid_args", `At most ${PROFILE_LIMIT} boxes per call.`);
+        return presetErrors(() => refine().profile(args.annotationIds as string[]));
+      }
+    },
+    clean_out_of_bounds: cleanOutOfBounds,
     get_refine_settings: {
       changesApp: false,
       run: () => refine().settingsSummary()
@@ -150,7 +253,10 @@ export function createAgentRefineTools(deps: AgentRefineToolDeps): Record<string
         const keep = optionalArg(args, "keepHandEdited", "boolean");
         const dryRun = optionalArg(args, "dryRun", "boolean") ?? false;
         const outcome = settled(await presetErrors(() => api.refine(scopeArg(args), { preset: presetArg(args), keepHandEdited: keep, dryRun })));
-        return pagedOutcome(dryRun ? outcome : edited(outcome), args);
+        if (!dryRun) return pagedOutcome(edited(outcome), args);
+        // Before/after of the moved boxes on one sheet: capture_view with this id.
+        const resultId = rememberRefineDryRun(state.session.currentImageFile?.name ?? "", outcome);
+        return { ...pagedOutcome(outcome, args), ...(resultId ? { resultId } : {}) };
       }
     },
     run_reclass: {

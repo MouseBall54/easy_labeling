@@ -30,7 +30,7 @@ export interface ProfilePresetFolder {
    * Otherwise it goes to `<name>.json` in the kind's save folder (getPresetSaveFolder), asking first when that
    * file already exists. Returns the file name, or null when the user declined.
    */
-  save(name: string, contents: string, fileName?: string | null): Promise<string | null>;
+  save(name: string, contents: string, fileName?: string | null, options?: PresetSaveOptions): Promise<string | null>;
   /** Deletes a preset file; a file already gone is fine. */
   remove(fileName: string): Promise<void>;
   /** Every subfolder path, empty ones included, in natural order. */
@@ -52,6 +52,25 @@ export interface ProfilePresetWindow {
   getEasyLabelingProfileDirectory?: (kind: EasyLabelingProfileDirectoryKind) => Promise<FileSystemDirectoryHandle>;
   confirm?: (message?: string) => boolean;
   localStorage?: Pick<Storage, "getItem" | "setItem">;
+}
+
+/**
+ * Where a save goes when it does not follow the person's "Save new presets in" choice. `folder` replaces that
+ * choice; `onExists` decides what happens when `<name>.json` is already there ("ask" = window.confirm, the default;
+ * "fail" throws; "replace" overwrites). Agent saves pass { folder: AGENT_PRESET_FOLDER } and never "ask".
+ */
+export interface PresetSaveOptions {
+  folder?: string;
+  onExists?: "ask" | "fail" | "replace";
+}
+
+/** Subfolder of every profile kind that holds what AI agents (MCP) saved; agents change only files under it. */
+export const AGENT_PRESET_FOLDER = "Agent";
+
+/** Whether a preset's fileName lies in the agent folder (any depth). */
+export function isAgentPresetFile(fileName: string | null | undefined): boolean {
+  // Windows folder names ignore case, so "agent/x.json" is the same folder.
+  return typeof fileName === "string" && fileName.toLowerCase().startsWith(`${AGENT_PRESET_FOLDER.toLowerCase()}/`);
 }
 
 const SAVE_FOLDER_KEY = "easyLabeling.presetSaveFolder.";
@@ -138,11 +157,14 @@ export async function openProfilePresetFolder(windowRef: ProfilePresetWindow, ki
         .sort((left, right) => left.fileName.localeCompare(right.fileName, undefined, { numeric: true, sensitivity: "base" }));
       return Promise.all(files.map(async ({ fileName, handle }) => ({ fileName, contents: await readFileText(handle) })));
     },
-    async save(name, contents, fileName) {
-      const saveFolder = presetFolderPath(getPresetSaveFolder(windowRef, kind));
+    async save(name, contents, fileName, options) {
+      const saveFolder = presetFolderPath(options?.folder ?? getPresetSaveFolder(windowRef, kind));
       const target = fileName ?? (saveFolder ? `${saveFolder}/${presetFileName(name)}` : presetFileName(name));
-      if (!fileName && await exists(target)
-        && !(windowRef.confirm?.(`"${target}" already exists in ${directory.name}. Replace it?`) ?? true)) return null;
+      if (!fileName && await exists(target)) {
+        const onExists = options?.onExists ?? "ask";
+        if (onExists === "fail") throw new Error(`"${target}" already exists in ${directory.name}.`);
+        if (onExists === "ask" && !(windowRef.confirm?.(`"${target}" already exists in ${directory.name}. Replace it?`) ?? true)) return null;
+      }
       const { parent, name: targetName } = await locate(target, true);
       await writeTextFileByName(parent, targetName, contents);
       return target;

@@ -21,7 +21,7 @@ import { grayImageElement, isOpaque } from "../features/images/gray-image.js";
 import { grayBytesToRgba } from "../features/segmentation/native-preprocessing.js";
 import { normalizeSegmentationPreprocessingConfig, preprocessSegmentationImage, type SegmentationPreprocessingConfig } from "../features/segmentation/preprocessing.js";
 import { calculateLayoutAnchor, validateBoxLayout } from "../features/automation/layout.js";
-import { DEFAULT_MULTIPLE_DETECTION_SETTINGS, parseAutomationLibrary, serializeAutomationLibrary } from "../features/automation/preset-codec.js";
+import { DEFAULT_MULTIPLE_DETECTION_SETTINGS, parseAutomationLibrary, serializeAutomationLibrary, validatePreprocessingSettings } from "../features/automation/preset-codec.js";
 import { intersectionOverUnion } from "../features/automation/matching-candidates.js";
 import { getRectBounds } from "../features/canvas/arrange.js";
 import { ensureAnnotationId, isRectObject } from "../features/canvas/fabric-types.js";
@@ -49,10 +49,16 @@ import {
   type TemplatePreprocessingSettings,
   type TemplateMatchCandidate,
   type TemplateMatchResult,
+  type TemplateMatchingMode,
+  type TemplateMatchingSettings,
+  type MultipleDetectionSettings,
+  type AutomationOutputMode,
 } from "../features/automation/types.js";
+import type { FileHandleLike } from "../types/files.js";
 import type { DirectoryHandleLike } from "../types/files.js";
-import { openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
+import { AGENT_PRESET_FOLDER, isAgentPresetFile, openProfilePresetFolder, presetFolderOf } from "../features/presets/profile-presets.js";
 import { createAutomationBatchController } from "./automation-batch-controller.js";
+import type { BatchSummary } from "../features/automation/batch.js";
 import { createAutomationLayoutPreview } from "./automation-layout-preview.js";
 import { createAutomationPresetForm } from "./automation-preset-form.js";
 import type { RuntimeCanvasController } from "./canvas-controller-adapter.js";
@@ -68,15 +74,23 @@ export interface AutomationRunOutcome {
   annotationIds?: string[];
   discardedOutOfBounds?: number;
   /** Not applied (a preview): the best match of a layout preset, or every candidate of a multiple-boxes preset. */
-  match?: { score: number; x: number; y: number; width: number; height: number; layout: string | null };
+  match?: {
+    score: number; x: number; y: number; width: number; height: number; layout: string | null;
+    /** Best score of a place not overlapping the match (accurate mode), for how distinctive the template is. */
+    secondScore?: number | null;
+    layoutAnchor?: PixelPoint | null;
+    layoutBoxes?: number;
+    /** Layout boxes that would fall past the image edges (dropped when applied). */
+    layoutBoxesOutside?: number;
+  };
   candidates?: Array<{ score: number; x: number; y: number; width: number; height: number; classId: string }>;
 }
 
 /** Saved automation presets, run on the current image as the Run on current image button does. */
 export interface AutomationAgentApi {
   library(): {
-    presets: Array<{ name: string; outputMode: string; layout: string | null; classId: string | null; minimumScore: number; existingLabels: string }>;
-    layouts: Array<{ name: string; boxCount: number }>;
+    presets: Array<{ name: string; outputMode: string; layout: string | null; classId: string | null; minimumScore: number; existingLabels: string } & PresetOwnership>;
+    layouts: Array<{ name: string; boxCount: number } & PresetOwnership>;
   };
   runPreset(name: string, options: { apply: boolean }): Promise<AutomationRunOutcome>;
   /** An ad hoc template from a region of the current image (Template Matching Setup's engine, default settings). */
@@ -84,7 +98,13 @@ export interface AutomationAgentApi {
   /** Places a saved layout with its first box's top-left at `anchor` (default: where it was saved), as Apply layout does. */
   applyLayout(name: string, options: { anchor?: PixelPoint; replaceExisting: boolean }): { layout: string; anchor: PixelPoint; annotationIds: string[]; discardedOutOfBounds: number };
   /** Saves boxes of the current image as a layout, as Save layout does (`overwrite` replaces one with that name). */
-  saveLayout(name: string, options: { boxes: "selected" | "all" | readonly string[]; overwrite: boolean }): Promise<{ layout: string; boxCount: number; sourceAnchor: PixelPoint; overwritten: boolean }>;
+  saveLayout(name: string, options: { boxes: "selected" | "all" | readonly string[]; overwrite: boolean }): Promise<{ layout: string; boxCount: number; sourceAnchor: PixelPoint; overwritten: boolean; fileName: string | null }>;
+  /** Saves a template matching preset as Template Matching Setup's Save does, into the profile's Agent folder. */
+  savePreset(spec: AgentPresetSpec): Promise<AutomationPresetSummary & { overwritten: boolean; previous: AutomationPresetSummary | null }>;
+  presetDetails(name: string): AutomationPresetSummary;
+  /** The Run on all images batch as a dry run on these images: its summary and the label text each matched image would get. */
+  presetFolderDryRun(name: string, files: readonly FileHandleLike[]): Promise<{ summary: BatchSummary; texts: Array<{ image: string; text: string }> }>;
+  layoutDetails(name: string): { name: string; sourceImage: string; sourceImageSize: { width: number; height: number }; sourceAnchor: PixelPoint; boxes: Array<{ classId: string; relativeX: number; relativeY: number; width: number; height: number }> } & PresetOwnership;
 }
 
 export interface SimilarSearch {
@@ -95,6 +115,18 @@ export interface SimilarSearch {
   /** Drop matches that overlap an existing box (IoU >= 0.3), such as the template box itself. */
   skipOverlapping: boolean;
   apply: boolean;
+  /** Cut the template from this image of the folder instead of the current one (roi in its pixels). */
+  templateImage?: string;
+  /** Gaussian blur kernel (odd, 1..99) before matching; 0 turns blur off. Default: Template Matching Setup's 13. */
+  blurKernelSize?: number;
+  mode?: TemplateMatchingMode;
+  /** Search only this part of the current image. */
+  searchRoi?: PixelRect | null;
+  /** Matches overlapping a better one at this IoU or more are dropped (default 0.3). */
+  nmsIou?: number;
+  /** Pixels added on each side of every match box. */
+  paddingX?: number;
+  paddingY?: number;
 }
 
 export interface SimilarOutcome {
@@ -125,6 +157,45 @@ export interface AutomationController {
   showSelectedLayoutPreview(): void;
   hideSelectedLayoutPreview(): void;
   dispose(): void;
+}
+
+/** What save_template_preset gives: Template Matching Setup's fields; absent ones take the Setup's defaults. */
+export interface AgentPresetSpec {
+  name: string;
+  /** Template region, in the pixels of the current image or of `templateImage`. */
+  roi: PixelRect;
+  templateImage?: string;
+  outputMode: AutomationOutputMode;
+  /** Layout name or id (layout presets). */
+  layout?: string | null;
+  /** The layout anchor relative to the template's top-left; default as the Setup computes it when both come from one image. */
+  anchorOffset?: PixelPoint | null;
+  finalAdjustment?: PixelPoint;
+  matching?: Partial<TemplateMatchingSettings>;
+  boxes?: Partial<MultipleDetectionSettings>;
+  preprocessing?: Partial<TemplatePreprocessingSettings>;
+  existingLabels?: ExistingLabelsPolicy;
+  /** Replace a preset of the same name in the Agent folder. */
+  overwrite: boolean;
+}
+
+export interface AutomationPresetSummary extends PresetOwnership {
+  name: string;
+  outputMode: AutomationOutputMode;
+  layout: string | null;
+  anchorOffset: PixelPoint;
+  finalAdjustment: PixelPoint;
+  matching: TemplateMatchingSettings;
+  boxes: MultipleDetectionSettings;
+  existingLabels: ExistingLabelsPolicy;
+  template: { sourceImage: string; sourceImageSize: { width: number; height: number }; roi: PixelRect; preprocessing: TemplatePreprocessingSettings } | null;
+  fileName: string | null;
+}
+
+/** A profile preset file's subfolder (null when it is not a profile file) and whether agents may change it. */
+export interface PresetOwnership {
+  folder: string | null;
+  agentOwned: boolean;
 }
 
 export interface AutomationWindow {
@@ -214,6 +285,8 @@ export function createAutomationController(input: {
   let datasetLibrary = createEmptyAutomationLibrary();
   let savedLibrary = createEmptyAutomationLibrary();
   let profileFileNames = { presets: new Map<string, string>(), layouts: new Map<string, string>() };
+  /** Ids of presets and layouts an agent saved since the last persist: new ones go to the profile's Agent folder. */
+  const agentSaveIds = new Set<string>();
   let matchingService: TemplateMatchingService | null = null;
   let matchingWarmUpPromise: Promise<void> | null = null;
   let disposed = false;
@@ -573,7 +646,24 @@ export function createAutomationController(input: {
     });
   };
 
+  const agentSaveOptions = (id: string) => agentSaveIds.has(id) ? { folder: AGENT_PRESET_FOLDER, onExists: "fail" as const } : undefined;
+  const hasProfileFolders = () => typeof input.windowRef.getEasyLabelingProfileDirectory === "function";
+  /** Refuses an agent change to a preset or layout kept outside the profile's Agent folder (the person's). */
+  const requireAgentOwned = (kind: "preset" | "layout", id: string, name: string) => {
+    if (!hasProfileFolders()) return;
+    const fileName = (kind === "preset" ? profileFileNames.presets : profileFileNames.layouts).get(id);
+    if (!isAgentPresetFile(fileName)) {
+      throw new Error(`A ${kind} named "${name.trim()}" is kept outside the ${AGENT_PRESET_FOLDER} folder, so agents may not change it; choose another name.`);
+    }
+  };
   const persistLibrary = async (): Promise<void> => {
+    try {
+      await persistLibraryChanges();
+    } finally {
+      agentSaveIds.clear();
+    }
+  };
+  const persistLibraryChanges = async (): Promise<void> => {
     const folder = input.state.session.imageFolderHandle;
     const [presetFolder, layoutFolder] = await Promise.all([
       openProfilePresetFolder(input.windowRef, "preset"),
@@ -591,13 +681,13 @@ export function createAutomationController(input: {
     }
     const changes = automationLibraryChanges(savedLibrary, library);
     for (const layout of changes.layouts) {
-      const saved = await layoutFolder.save(layout.name, `${JSON.stringify(layout, null, 2)}\n`, profileFileNames.layouts.get(layout.id));
+      const saved = await layoutFolder.save(layout.name, `${JSON.stringify(layout, null, 2)}\n`, profileFileNames.layouts.get(layout.id), agentSaveOptions(layout.id));
       if (!saved) throw new Error(`Layout "${layout.name}" was not saved.`);
       profileFileNames.layouts.set(layout.id, saved);
     }
     for (const preset of changes.presets) {
       const contents = serializeAutomationLibrary(createPresetFileDocument(library, preset.id));
-      const saved = await presetFolder.save(preset.name, contents, profileFileNames.presets.get(preset.id));
+      const saved = await presetFolder.save(preset.name, contents, profileFileNames.presets.get(preset.id), agentSaveOptions(preset.id));
       if (!saved) throw new Error(`Preset "${preset.name}" was not saved.`);
       profileFileNames.presets.set(preset.id, saved);
     }
@@ -1414,7 +1504,18 @@ export function createAutomationController(input: {
     if (!apply) {
       if (preset.outputMode === "layout-best-match") {
         requireAcceptedMatch(result, preset.matching.minimumScore);
-        return { preset: preset.name, applied: false, match: { score: result.score, x: result.x, y: result.y, width: result.width, height: result.height, layout: layout?.name ?? null } };
+        // Where the layout would land: boxes past the image edges are dropped when it is applied.
+        const anchor = layout ? calculateLayoutAnchor(result, preset) : null;
+        const image = { width: targetImage.naturalWidth || targetImage.width, height: targetImage.naturalHeight || targetImage.height };
+        const boxesOutside = layout && anchor
+          ? layout.boxes.filter((box) => anchor.x + box.relativeX < 0 || anchor.y + box.relativeY < 0
+            || anchor.x + box.relativeX + box.width > image.width || anchor.y + box.relativeY + box.height > image.height).length
+          : 0;
+        return {
+          preset: preset.name, applied: false,
+          match: { score: result.score, x: result.x, y: result.y, width: result.width, height: result.height, layout: layout?.name ?? null,
+            secondScore: result.secondScore ?? null, layoutAnchor: anchor, layoutBoxes: layout?.boxes.length ?? 0, layoutBoxesOutside: boxesOutside }
+        };
       }
       const classId = preset.multipleDetection.classId;
       return { preset: preset.name, applied: false, candidates: result.matches.map(({ score, x, y, width, height }) => ({ score, x, y, width, height, classId })) };
@@ -1466,6 +1567,28 @@ export function createAutomationController(input: {
     await runPresetOnCurrentImage(selectedPreset(), operation);
   };
 
+  /** Where a preset or layout file lives: its profile subfolder and whether agents may change it. */
+  const ownership = (fileName: string | undefined) => ({
+    folder: fileName === undefined ? null : presetFolderOf(fileName),
+    agentOwned: isAgentPresetFile(fileName)
+  });
+  /** Every setting of a preset, its template's source and region, and where its file lives. */
+  const presetSummary = (preset: AutomationPreset): AutomationPresetSummary => {
+    const template = library.templates.find((candidate) => candidate.id === preset.templateId) ?? null;
+    return {
+      name: preset.name,
+      outputMode: preset.outputMode,
+      layout: preset.layoutId ? library.layouts.find((layout) => layout.id === preset.layoutId)?.name ?? null : null,
+      anchorOffset: preset.relationOffset,
+      finalAdjustment: preset.manualOffset,
+      matching: preset.matching,
+      boxes: preset.multipleDetection,
+      existingLabels: preset.existingLabelsPolicy,
+      template: template ? { sourceImage: template.sourceImageName, sourceImageSize: template.sourceImageSize, roi: template.roi, preprocessing: template.preprocessing } : null,
+      fileName: profileFileNames.presets.get(preset.id) ?? null,
+      ...ownership(profileFileNames.presets.get(preset.id))
+    };
+  };
   const agent: AutomationAgentApi = {
     library: () => ({
       presets: library.presets.map((preset) => ({
@@ -1474,9 +1597,10 @@ export function createAutomationController(input: {
         layout: preset.layoutId ? library.layouts.find((layout) => layout.id === preset.layoutId)?.name ?? null : null,
         classId: preset.outputMode === "layout-best-match" ? null : preset.multipleDetection.classId,
         minimumScore: preset.matching.minimumScore,
-        existingLabels: preset.existingLabelsPolicy
+        existingLabels: preset.existingLabelsPolicy,
+        ...ownership(profileFileNames.presets.get(preset.id))
       })),
-      layouts: library.layouts.map((layout) => ({ name: layout.name, boxCount: layout.boxes.length }))
+      layouts: library.layouts.map((layout) => ({ name: layout.name, boxCount: layout.boxes.length, ...ownership(profileFileNames.layouts.get(layout.id)) }))
     }),
     async runPreset(name, options) {
       const preset = library.presets.find((candidate) => candidate.name === name || candidate.id === name);
@@ -1506,19 +1630,40 @@ export function createAutomationController(input: {
         // Leave room for the matches that land on existing boxes and get dropped below.
         // ponytail: assumes about one NMS-kept match per existing box; raise the headroom if dense overlaps still cut new boxes short.
         const matchLimit = Math.min(MAX_SIMILAR_MATCHES, search.maximumDetections + (search.skipOverlapping ? existing.length : 0));
+        // The template may come from another image of the folder (decoded off screen; the view stays).
+        let source: HTMLImageElement = targetImage;
+        if (search.templateImage !== undefined) {
+          const file = input.state.session.imageFiles.find((candidate) => candidate.name === search.templateImage);
+          if (!file) throw new Error(`No image named ${search.templateImage} in the open folder.`);
+          source = await input.fileSystem.decodeImageForAutomation(file as unknown as FileHandleLike);
+        }
+        const sourceWidth = source.naturalWidth || source.width;
+        const sourceHeight = source.naturalHeight || source.height;
+        if (search.roi.x < 0 || search.roi.y < 0 || search.roi.x + search.roi.width > sourceWidth || search.roi.y + search.roi.height > sourceHeight) {
+          throw new Error(`The template region lies outside ${search.templateImage ?? "the image"} (${sourceWidth} x ${sourceHeight}).`);
+        }
+        const blur = search.blurKernelSize ?? SIMILAR_PREPROCESSING.blurKernelSize;
+        const preprocessing: TemplatePreprocessingSettings = blur > 0
+          ? { ...SIMILAR_PREPROCESSING, gaussianBlurEnabled: true, blurKernelSize: blur }
+          : { ...SIMILAR_PREPROCESSING, gaussianBlurEnabled: false };
+        validatePreprocessingSettings(preprocessing);
         setMatchingEngineStatus("loading", "Matching engine: Running");
         let result: TemplateMatchResult;
         try {
-          const template = prepareAutomationImageData(await pngDataUrlToImageData(cropImageElementToPngDataUrl(targetImage, search.roi, input.documentRef), input.documentRef));
+          const template = prepareAutomationImageData(await pngDataUrlToImageData(cropImageElementToPngDataUrl(source, search.roi, input.documentRef), input.documentRef));
           throwIfOperationCancelled(operation.signal);
           operation.update({ detail: "Running OpenCV template matching" });
           result = await matchWithRecovery({
             target: await prepareAutomationTarget(targetImage),
             template,
-            preprocessing: SIMILAR_PREPROCESSING,
-            matching: { minimumScore: search.minimumScore, searchRoi: null, mode: "accurate" },
+            preprocessing,
+            matching: { minimumScore: search.minimumScore, searchRoi: search.searchRoi ?? null, mode: search.mode ?? "accurate" },
             outputMode: "multiple-detection-boxes",
-            multipleDetection: { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: matchLimit }
+            multipleDetection: {
+              ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, classId: search.classId, maximumDetections: matchLimit,
+              nmsIouThreshold: search.nmsIou ?? DEFAULT_MULTIPLE_DETECTION_SETTINGS.nmsIouThreshold,
+              paddingX: search.paddingX ?? 0, paddingY: search.paddingY ?? 0
+            }
           });
           throwIfOperationCancelled(operation.signal);
         } finally {
@@ -1561,6 +1706,7 @@ export function createAutomationController(input: {
     async saveLayout(name, options) {
       const existing = library.layouts.find((layout) => layout.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
       if (existing && !options.overwrite) throw new Error(`A layout named "${name.trim()}" already exists`);
+      if (existing) requireAgentOwned("layout", existing.id, existing.name);
       const normalized = requireUniqueLayoutName(name, existing?.id);
       const raw = input.canvasController.raw;
       if (Array.isArray(options.boxes)) {
@@ -1572,10 +1718,116 @@ export function createAutomationController(input: {
       const captured = raw.captureBoxLayout(normalized, input.state.session.currentImageFile?.name ?? "", options.boxes === "all" ? "all" : "selected");
       const layout: BoxLayout = existing ? { ...captured, id: existing.id, createdAt: existing.createdAt, updatedAt: new Date().toISOString() } : captured;
       library = { ...library, layouts: upsertById(library.layouts, layout) };
+      agentSaveIds.add(layout.id);
       await persistLibrary();
       refreshSelects({ layoutId: layout.id });
       input.uiManager.notify(`Layout ${existing ? "updated" : "saved"} with ${layout.boxes.length} boxes.`);
-      return { layout: layout.name, boxCount: layout.boxes.length, sourceAnchor: layout.sourceAnchor, overwritten: !!existing };
+      return {
+        layout: layout.name, boxCount: layout.boxes.length, sourceAnchor: layout.sourceAnchor, overwritten: !!existing,
+        fileName: profileFileNames.layouts.get(layout.id) ?? null
+      };
+    },
+    async savePreset(spec) {
+      const name = spec.name.trim();
+      if (!name) throw new Error("Preset name is required");
+      const sameName = (other: string) => other.trim().toLocaleLowerCase() === name.toLocaleLowerCase();
+      const existing = library.presets.find((preset) => sameName(preset.name)) ?? null;
+      if (existing && !spec.overwrite) throw new Error(`A preset named "${name}" already exists`);
+      if (existing) requireAgentOwned("preset", existing.id, existing.name);
+      const currentFile = input.state.session.currentImageFile;
+      if (!input.state.session.currentImage || !currentFile) throw new Error("Load an image before saving a preset");
+      let source: HTMLImageElement = input.state.session.currentImage;
+      let sourceName = currentFile.name;
+      if (spec.templateImage !== undefined) {
+        const file = input.state.session.imageFiles.find((candidate) => candidate.name === spec.templateImage);
+        if (!file) throw new Error(`No image named ${spec.templateImage} in the open folder.`);
+        source = await input.fileSystem.decodeImageForAutomation(file as unknown as FileHandleLike);
+        sourceName = file.name;
+      }
+      const sourceSize = { width: source.naturalWidth || source.width, height: source.naturalHeight || source.height };
+      const roi = spec.roi;
+      if (roi.x < 0 || roi.y < 0 || roi.width < 1 || roi.height < 1 || roi.x + roi.width > sourceSize.width || roi.y + roi.height > sourceSize.height) {
+        throw new Error(`The template region lies outside ${sourceName} (${sourceSize.width} x ${sourceSize.height}).`);
+      }
+      let layout: BoxLayout | null = null;
+      let relationOffset: PixelPoint = { x: 0, y: 0 };
+      if (spec.outputMode === "layout-best-match") {
+        layout = library.layouts.find((candidate) => candidate.name === spec.layout || candidate.id === spec.layout) ?? null;
+        if (!layout) throw new Error(spec.layout ? `No layout named "${spec.layout}".` : "A layout preset needs a layout (see list_templates)");
+        if (spec.anchorOffset) relationOffset = spec.anchorOffset;
+        // As Template Matching Setup fills Anchor offset: the layout's anchor relative to the template, on the image both come from.
+        else if (layout.sourceImageName === sourceName) relationOffset = { x: Math.round(layout.sourceAnchor.x - roi.x), y: Math.round(layout.sourceAnchor.y - roi.y) };
+        else throw new Error(`anchorOffset is required: layout "${layout.name}" was saved on ${layout.sourceImageName || "another image"}, the template comes from ${sourceName}.`);
+      }
+      const preprocessing: TemplatePreprocessingSettings = { ...SIMILAR_PREPROCESSING, ...spec.preprocessing };
+      validatePreprocessingSettings(preprocessing);
+      const matching: TemplateMatchingSettings = { minimumScore: 0.8, searchRoi: null, mode: "accurate", ...spec.matching };
+      if (!(matching.minimumScore >= 0 && matching.minimumScore <= 1)) throw new Error("minScore must be between 0 and 1");
+      const multipleDetection: MultipleDetectionSettings = { ...DEFAULT_MULTIPLE_DETECTION_SETTINGS, ...spec.boxes };
+      if (spec.outputMode === "multiple-detection-boxes" && spec.boxes?.classId === undefined) throw new Error("A boxes preset needs boxes.classId");
+      if (!Number.isInteger(multipleDetection.maximumDetections) || multipleDetection.maximumDetections < 1 || multipleDetection.maximumDetections > 10000) {
+        throw new Error("Maximum detections must be an integer between 1 and 10000");
+      }
+      if (multipleDetection.nmsIouThreshold < 0 || multipleDetection.nmsIouThreshold > 1) throw new Error("NMS IoU threshold must be between 0 and 1");
+      if (multipleDetection.paddingX < 0 || multipleDetection.paddingY < 0) throw new Error("Detection padding must be zero or greater");
+      const now = new Date().toISOString();
+      const existingTemplate = existing ? library.templates.find((template) => template.id === existing.templateId) ?? null : null;
+      const template: TemplateAsset = {
+        schemaVersion: TEMPLATE_SCHEMA_VERSION,
+        id: existingTemplate?.id ?? createId("template"),
+        name,
+        sourceImageName: sourceName,
+        sourceImageSize: sourceSize,
+        roi,
+        pngDataUrl: cropImageElementToPngDataUrl(source, roi, input.documentRef),
+        preprocessing,
+        createdAt: existingTemplate?.createdAt ?? now,
+        updatedAt: now
+      };
+      const preset: AutomationPreset = {
+        schemaVersion: AUTOMATION_SCHEMA_VERSION,
+        id: existing?.id ?? createId("preset"),
+        name,
+        templateId: template.id,
+        layoutId: layout?.id ?? null,
+        outputMode: spec.outputMode,
+        relationOffset,
+        manualOffset: spec.finalAdjustment ?? { x: 0, y: 0 },
+        matching,
+        multipleDetection,
+        existingLabelsPolicy: spec.existingLabels ?? "append",
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now
+      };
+      const previous = existing ? presetSummary(existing) : null;
+      library = { ...library, templates: upsertById(library.templates, template), presets: upsertById(library.presets, preset) };
+      agentSaveIds.add(preset.id);
+      await persistLibrary();
+      refreshSelects();
+      input.uiManager.notify(`Preset "${name}" ${existing ? "updated" : "saved"} by the agent.`);
+      return { ...presetSummary(preset), overwritten: Boolean(existing), previous };
+    },
+    async presetFolderDryRun(name, files) {
+      const preset = library.presets.find((candidate) => candidate.name === name || candidate.id === name);
+      if (!preset) throw new Error(`No automation preset named "${name}".`);
+      const texts: Array<{ image: string; text: string }> = [];
+      const summary = await batchController.run({ preset, files: [...files], dryRun: true, collect: (image, text) => texts.push({ image, text }) });
+      if (!summary) throw new Error("Template automation stopped, or another batch is running.");
+      return { summary, texts };
+    },
+    presetDetails(name) {
+      const preset = library.presets.find((candidate) => candidate.name === name || candidate.id === name);
+      if (!preset) throw new Error(`No automation preset named "${name}".`);
+      return presetSummary(preset);
+    },
+    layoutDetails(name) {
+      const layout = library.layouts.find((candidate) => candidate.name === name || candidate.id === name);
+      if (!layout) throw new Error(`No layout named "${name}".`);
+      return {
+        name: layout.name, sourceImage: layout.sourceImageName, sourceImageSize: layout.sourceImageSize, sourceAnchor: layout.sourceAnchor,
+        boxes: layout.boxes.map(({ classId, relativeX, relativeY, width, height }) => ({ classId, relativeX, relativeY, width, height })),
+        ...ownership(profileFileNames.layouts.get(layout.id))
+      };
     }
   };
 

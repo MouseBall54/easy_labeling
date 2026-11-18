@@ -4,7 +4,7 @@
  * pauses the agent until resumed. The MCP panel (agent-panel.ts) holds the person's permissions and the log.
  */
 import type { AppState } from "../app/state.js";
-import { AgentToolError, createAgentDispatcher, type AgentHost, type AgentRequest, type AgentTool } from "../features/agent/agent-api.js";
+import { AgentToolError, STALE_ID_HINT, createAgentDispatcher, type AgentHost, type AgentRequest, type AgentTool } from "../features/agent/agent-api.js";
 import { ensureAnnotationId, isRectObject, type FabricRectLike } from "../features/canvas/fabric-types.js";
 import { createAgentPanel } from "./agent-panel.js";
 import { createAgentAutoTools } from "./agent-tools-auto.js";
@@ -158,11 +158,16 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     inference: () => deps.inferenceAgent?.() ?? null,
     file: (entry) => bridge.file(entry),
     confirm,
-    afterEdit: () => deps.syncAfterEdit?.()
+    afterEdit: () => deps.syncAfterEdit?.(),
+    fileSystem: deps.fileSystem
   });
   const liveView = () => panel.settings().liveView;
   const segmentationTools = createAgentSegmentationTools({ state: deps.state, canvasController: deps.canvasController, documentRef, afterEdit: () => deps.syncAfterEdit?.(), liveView, fileSystem: deps.fileSystem, confirm, pathOf: (handle) => bridge.pathOf(handle) });
-  const dispatcher = createAgentDispatcher(withBoxReveal({ ...stateTools, ...editTools, ...refineTools, ...autoTools, ...segmentationTools }, {
+  const allTools = withStaleIds({ ...stateTools, ...editTools, ...refineTools, ...autoTools, ...segmentationTools }, {
+    rects: () => deps.canvasController.raw.getObjects("rect").filter(isRectObject),
+    image: () => (deps.state.session.workflow === "detection" ? deps.state.session.currentImageFile?.name ?? null : null)
+  });
+  const dispatcher = createAgentDispatcher(withBoxReveal(allTools, {
     enabled: () => liveView() && deps.state.session.workflow === "detection",
     rects: () => deps.canvasController.raw.getObjects("rect").filter(isRectObject),
     render: () => deps.canvasController.raw.canvas.requestRenderAll(),
@@ -178,6 +183,60 @@ export function startAgentRuntime(deps: AgentRuntimeDeps): AgentRuntime {
     cancel: (id) => dispatcher.cancel(id),
     togglePanel: (open) => panel.toggle(open)
   };
+}
+
+/** Most box ids remembered for stale-id answers (about 40 images of 5000 boxes); the oldest are forgotten first. */
+const SEEN_ID_LIMIT = 200_000;
+
+/** Every annotationId a call names: annotationIds, annotationId, ids, updates[].annotationId and where.annotationIds. */
+function idsInArgs(args: Record<string, unknown>): string[] {
+  const list = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
+  const updates = Array.isArray(args.updates) ? args.updates.map((update) => (update as { annotationId?: unknown } | null)?.annotationId).filter((id) => id != null) : [];
+  const where = args.where as { annotationIds?: unknown } | null | undefined;
+  return [...list(args.annotationIds), ...list(args.ids), ...list(where?.annotationIds), ...updates.map(String),
+    ...(typeof args.annotationId === "string" ? [args.annotationId] : [])];
+}
+
+/**
+ * Tells an agent when it used box ids from an earlier image load. annotationIds are new each time an image loads, so
+ * the ids of every box seen after each call are remembered with the image; an unknown id that was seen before (on
+ * another image, or on this one before it reloaded) turns the call's not_found into stale_id.
+ */
+export function withStaleIds(tools: Record<string, AgentTool>, view: { rects(): FabricRectLike[]; image(): string | null }): Record<string, AgentTool> {
+  const seen = new Map<string, string>();
+  const remember = (): void => {
+    const image = view.image();
+    if (!image) return;
+    for (const rect of view.rects()) seen.set(ensureAnnotationId(rect), image);
+    if (seen.size <= SEEN_ID_LIMIT) return;
+    let extra = seen.size - SEEN_ID_LIMIT;
+    for (const id of seen.keys()) {
+      if (extra-- <= 0) break;
+      seen.delete(id);
+    }
+  };
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, {
+    ...tool,
+    async run(args, context) {
+      try {
+        const result = await tool.run(args, context);
+        remember();
+        return result;
+      } catch (error) {
+        if (error instanceof AgentToolError && error.code === "not_found" && error.message.startsWith("No box with annotationId")) {
+          const current = new Set(view.rects().map(ensureAnnotationId));
+          const stale = idsInArgs(args).filter((id) => !current.has(id) && seen.has(id));
+          if (stale.length) {
+            const image = seen.get(stale[0]!)!;
+            const where = image === view.image() ? `${image} before it was loaded again` : image;
+            throw new AgentToolError("stale_id", `annotationId ${stale.slice(0, 5).join(", ")}${stale.length > 5 ? ` (+${stale.length - 5})` : ""} belonged to ${where}. ${STALE_ID_HINT}`);
+          }
+        }
+        remember();
+        throw error;
+      }
+    }
+  } satisfies AgentTool]));
 }
 
 /**

@@ -196,6 +196,26 @@ function matchAccurate(cv, target, template) {
   return result;
 }
 
+/**
+ * The best score among places whose template box does not overlap the best match's box: how distinctive the
+ * template is. Clears the score map around the best location (it is deleted by the caller right after). Null when
+ * no other place exists.
+ */
+function secondBestScore(cv, result, best, width, height) {
+  const x0 = Math.max(0, best.x - width + 1);
+  const y0 = Math.max(0, best.y - height + 1);
+  const x1 = Math.min(result.cols, best.x + width);
+  const y1 = Math.min(result.rows, best.y + height);
+  if (x0 === 0 && y0 === 0 && x1 === result.cols && y1 === result.rows) return null;
+  const around = result.roi(new cv.Rect(x0, y0, x1 - x0, y1 - y0));
+  try {
+    around.setTo(new cv.Scalar(-1));
+  } finally {
+    around.delete();
+  }
+  return cv.minMaxLoc(result).maxVal;
+}
+
 function matchFastBest(cv, target, template) {
   if (target.cols < template.cols + 4 || target.rows < template.rows + 4 || template.cols < 8 || template.rows < 8) {
     const result = matchAccurate(cv, target, template);
@@ -354,6 +374,8 @@ async function runMatch(request) {
     const matchingStartedAt = now();
     let best;
     let matches;
+    /** Layout presets (accurate mode): the best score of a place that does not overlap the best match. */
+    let bestSecondScore = null;
     if (request.outputMode === "multiple-detection-boxes") {
       const settings = request.multipleDetection;
       if (!settings) {
@@ -391,16 +413,20 @@ async function runMatch(request) {
       const bestCandidate = candidates[0];
       best = bestCandidate ?? { score: -1, x: 0, y: 0, width: cachedTemplateSource.width, height: cachedTemplateSource.height };
     } else {
+      let secondScore = null;
       const extrema = request.matching.mode === "fast"
         ? matchFastBest(cv, target, template)
         : (() => {
           const result = matchAccurate(cv, target, template);
           try {
-            return cv.minMaxLoc(result);
+            const found = cv.minMaxLoc(result);
+            secondScore = secondBestScore(cv, result, found.maxLoc, template.cols, template.rows);
+            return found;
           } finally {
             result.delete();
           }
         })();
+      bestSecondScore = secondScore;
       timings.matchingMs = now() - matchingStartedAt;
       best = {
         score: extrema.maxVal,
@@ -423,6 +449,7 @@ async function runMatch(request) {
         width: best.width,
         height: best.height,
         matches,
+        secondScore: bestSecondScore,
         timings,
         templateCacheHit: templateEntry.cacheHit
       }

@@ -46,7 +46,7 @@ import {
   markImageDocumentsClean
 } from "../app/document-status.js";
 import { loadSegmentationToolPresetLibrary } from "../features/segmentation/preset-service.js";
-import { getPresetSaveFolder, openProfilePresetFolder, presetFolderPath } from "../features/presets/profile-presets.js";
+import { AGENT_PRESET_FOLDER, getPresetSaveFolder, openProfilePresetFolder, presetFolderPath } from "../features/presets/profile-presets.js";
 import { parseYoloRows, removeOutOfBoundsYoloRows } from "../domain/yolo/yolo.js";
 import { remapYoloClassIds, type ClassRemapRule, type ClassRemapSummary } from "../domain/class-remap.js";
 
@@ -335,6 +335,8 @@ export interface RuntimeFileSystem extends FileSystem {
    * that the folder, the image list and every edited file are as they were when previewed. Null when stopped.
    */
   commitLabelFilePlan(plan: LabelFilePlan, signal?: AbortSignal): Promise<string | null>;
+  /** A plan that writes these Detection label texts (per image), for commitLabelFilePlan; files already equal are left out. */
+  planDetectionLabelWrites(texts: ReadonlyArray<{ image: string; text: string }>, backupPrefix: string): Promise<LabelFilePlan>;
   previewClassRemap(folder: FileSystemDirectoryHandle, rule: ClassRemapRule, signal?: AbortSignal): Promise<ClassRemapPlan | null>;
   applyClassRemap(plan: ClassRemapPlan, signal?: AbortSignal): Promise<string | null>;
   navigateImage(direction: number): Promise<void>;
@@ -349,6 +351,7 @@ export interface RuntimeFileSystem extends FileSystem {
   saveClassFileContent(): Promise<void>;
   addNewClassRow(): void;
   createNewClassFile(): Promise<boolean>;
+  /** For agents: a new class file (in the profile Class Info folder, its Agent subfolder), selected. */
   createClassFile(name: string, content: string): Promise<FileHandleLike | null>;
   deleteSelectedClassFile(): Promise<boolean>;
   /**
@@ -635,8 +638,8 @@ export function createFileSystemAdapter(input: {
   };
 
   /** Where a new class file goes: the save folder when `folder` is the profile's Class Info folder, else `folder` itself. */
-  const classSaveFolder = async (folder: DirectoryHandleLike): Promise<{ folder: DirectoryHandleLike; prefix: string }> => {
-    const saveFolder = presetFolderPath(getPresetSaveFolder(input.windowRef, "class-info"));
+  const classSaveFolder = async (folder: DirectoryHandleLike, folderOverride?: string): Promise<{ folder: DirectoryHandleLike; prefix: string }> => {
+    const saveFolder = presetFolderPath(folderOverride ?? getPresetSaveFolder(input.windowRef, "class-info"));
     const profile = saveFolder ? await input.windowRef.getEasyLabelingProfileDirectory?.("class-info") : null;
     const same = (folder as unknown as { isSameEntry?(other: unknown): Promise<boolean> }).isSameEntry;
     const isProfile = Boolean(profile) && ((profile as unknown) === folder || (same ? await same.call(folder, profile) : false));
@@ -1827,6 +1830,22 @@ export function createFileSystemAdapter(input: {
         return outcome;
       },
 
+      async planDetectionLabelWrites(texts, backupPrefix): Promise<LabelFilePlan> {
+        const { session } = input.state;
+        const folder = session.labelFolderHandle;
+        if (session.workflow !== "detection" || !folder) throw new Error("Connect a Detection label folder first.");
+        const edits: LabelFileEdit[] = [];
+        for (const { image, text } of texts) {
+          const name = detectionFileName(image);
+          let original: string | null = null;
+          try { original = await readTextFileByName(folder as unknown as DirectoryHandleLike, name); }
+          catch (error) { if (!isNotFoundError(error)) throw error; }
+          if (original !== text) edits.push({ name, original, text });
+        }
+        assertLabelEditsUnshared(session.imageFiles, edits);
+        return { folder, imageFolder: session.imageFolderHandle as FileSystemDirectoryHandle | null, fileNames: session.imageFiles.map((file) => file.name), edits, backupPrefix };
+      },
+
       async commitLabelFilePlan(plan, signal): Promise<string | null> {
         let backupPath: string | null = null;
         await enqueueOperation(async () => {
@@ -2161,7 +2180,8 @@ export function createFileSystemAdapter(input: {
           if (!input.state.session.classInfoFolderHandle) await this.loadDefaultClassInfo();
           const folder = (input.state.session.classInfoFolderHandle ?? input.state.session.labelFolderHandle) as DirectoryHandleLike | null;
           if (!folder) throw new Error("Open a dataset or connect a Class Info folder first.");
-          created = await createAndSelectClassFile(await classSaveFolder(folder), name, content);
+          // Only agents call this: in the profile's Class Info folder their files go to its Agent subfolder.
+          created = await createAndSelectClassFile(await classSaveFolder(folder, AGENT_PRESET_FOLDER), name, content);
         });
         return created;
       },

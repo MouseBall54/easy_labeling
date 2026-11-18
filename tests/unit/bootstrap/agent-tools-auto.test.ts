@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAgentAutoTools } from "../../../src/bootstrap/agent-tools-auto.js";
+import { createAgentAutoTools, similarSettings } from "../../../src/bootstrap/agent-tools-auto.js";
 import type { AutomationAgentApi } from "../../../src/bootstrap/automation-controller.js";
 import type { InferenceAgentApi } from "../../../src/bootstrap/inference-controller.js";
 import { AgentToolError } from "../../../src/features/agent/agent-api.js";
@@ -92,7 +92,7 @@ describe("agent automation and inference tools", () => {
         saveLayout: async (name, options) => {
           calls.push([name, options]);
           if (name === "dup") throw new Error('A layout named "dup" already exists');
-          return { layout: name, boxCount: 1, sourceAnchor: { x: 0, y: 0 }, overwritten: false };
+          return { layout: name, boxCount: 1, sourceAnchor: { x: 0, y: 0 }, overwritten: false, fileName: `Agent/${name}.json` };
         }
       }
     });
@@ -105,5 +105,19 @@ describe("agent automation and inference tools", () => {
     await set.save_layout.run({ name: "row", annotationIds: ["t"] }, context);
     expect(calls.at(-1)).toEqual(["row", { boxes: ["t"], overwrite: false }]);
     expect(await codeOf(set.save_layout.run({ name: "dup", scope: "all" }, context))).toBe("invalid_args");
+  });
+});
+
+describe("find_similar settings", () => {
+  const size = { width: 200, height: 100 };
+  it("keeps the defaults when nothing is given and reads each setting", () => {
+    expect(similarSettings({}, size)).toEqual({});
+    expect(similarSettings({ blur: 0, mode: "fast", nmsIou: 0.5, paddingX: 2, paddingY: null, searchRegion: { x0: 10, y0: 0, x1: 50.4, y1: 40 } }, size))
+      .toEqual({ blurKernelSize: 0, mode: "fast", nmsIou: 0.5, paddingX: 2, searchRoi: { x: 10, y: 0, width: 40, height: 40 } });
+  });
+  it("refuses even blur kernels, unknown modes and regions outside the image", () => {
+    for (const args of [{ blur: 4 }, { blur: 101 }, { mode: "quick" }, { nmsIou: 2 }, { paddingX: -1 }, { searchRegion: { x0: 0, y0: 0, x1: 300, y1: 10 } }]) {
+      expect(() => similarSettings(args, size)).toThrow(AgentToolError);
+    }
   });
 });

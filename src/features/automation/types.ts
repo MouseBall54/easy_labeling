@@ -112,6 +112,8 @@ export interface TemplateMatchResult {
   width: number;
   height: number;
   matches: TemplateMatchCandidate[];
+  /** Layout presets in accurate mode: the best score of a place not overlapping the best match (null otherwise). */
+  secondScore?: number | null;
   timings: TemplateMatchTimings;
   templateCacheHit: boolean;
 }
