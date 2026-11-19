@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activitySummary, ago, readAgentSettings } from "../../../src/bootstrap/agent-panel.js";
+import { activitySummary, ago, channelRows, readAgentSettings } from "../../../src/bootstrap/agent-panel.js";
 
 describe("agent panel helpers", () => {
   it("reads saved permissions, falling back to allow-all-and-ask", () => {
@@ -25,5 +25,28 @@ describe("agent panel helpers", () => {
     expect(ago(125_000)).toBe("2 min ago");
     expect(ago(3 * 3_600_000)).toBe("3 h ago");
     expect(ago(-5)).toBe("0 s ago");
+  });
+
+  it("lists each window's channel, folder and agents, and warns when one window has several agents", () => {
+    const now = 100_000;
+    const view = channelRows([
+      {
+        channel: 1, self: false, folder: "D:\\data\\SEM_lot_A",
+        agents: [{ client: { name: "claude-code", version: "2.1" }, since: now - 120_000 }, { client: { name: "codex", version: "" }, since: now - 5_000 }],
+        lastCall: { tool: "refine_folder", client: { name: "codex" }, at: now - 3_000 }
+      },
+      { channel: 2, self: true, folder: null, agents: [], lastCall: null },
+      { channel: 4, unknown: true }
+    ], now);
+    expect(view.rows.map(({ channel, folder, agents, agentCount }) => ({ channel, folder, agents, agentCount }))).toEqual([
+      { channel: 1, folder: "SEM_lot_A", agents: "claude-code 2.1, codex", agentCount: 2 },
+      { channel: 2, folder: "No folder open (this window)", agents: "No agent", agentCount: 0 },
+      { channel: 4, folder: "Another version", agents: "", agentCount: 0 }
+    ]);
+    expect(view.rows[0].title.split("\n")).toEqual([
+      "Channel 1", "D:\\data\\SEM_lot_A", "claude-code 2.1, attached 2 min ago", "codex, attached 5 s ago", "Last call: refine_folder by codex 3 s ago"
+    ]);
+    expect(view.warning).toBe("Channel 1 has 2 agents: their calls run one at a time on the same window. Give each agent its own window and channel.");
+    expect(channelRows([{ channel: 1, self: true, folder: "C:/x", agents: [{ client: null }], lastCall: null }], now).warning).toBe("");
   });
 });

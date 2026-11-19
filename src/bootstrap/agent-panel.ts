@@ -59,6 +59,53 @@ export function ago(ms: number): string {
   return minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
 }
 
+/** One window in the Channels list (agent_channels). */
+export interface AgentChannelRow {
+  channel: number;
+  self: boolean;
+  agentCount: number;
+  folder: string;
+  agents: string;
+  title: string;
+}
+
+const clientName = (client: unknown): string => {
+  const { name, version } = (client ?? {}) as { name?: unknown; version?: unknown };
+  return typeof name === "string" && name ? `${name}${typeof version === "string" && version ? ` ${version}` : ""}` : "Unknown client";
+};
+
+/** The Channels list from agent_channels rows, and a warning for channels with several agents on one window. */
+export function channelRows(rows: ReadonlyArray<Record<string, unknown>>, now: number): { rows: AgentChannelRow[]; warning: string } {
+  const result = rows.map((row): AgentChannelRow => {
+    const channel = Number(row.channel);
+    const self = row.self === true;
+    if (row.unknown === true) {
+      return { channel, self, agentCount: 0, folder: "Another version", agents: "", title: `Channel ${channel}: an Easy Labeling window of another version (update it to see its state)` };
+    }
+    const path = typeof row.folder === "string" ? row.folder : "";
+    const folder = path ? path.split(/[\\/]/).filter(Boolean).at(-1) ?? path : "No folder open";
+    const agents = (Array.isArray(row.agents) ? row.agents : []) as Array<{ client?: unknown; since?: number }>;
+    const last = row.lastCall as { tool?: string; client?: unknown; at?: number } | null | undefined;
+    const lines = [
+      `Channel ${channel}${self ? " (this window)" : ""}`,
+      path || "No folder open",
+      ...agents.map((agent) => `${clientName(agent.client)}${typeof agent.since === "number" ? `, attached ${ago(now - agent.since)}` : ""}`),
+      last?.at ? `Last call: ${last.tool ?? "?"} by ${clientName(last.client)} ${ago(now - last.at)}` : "No calls yet"
+    ];
+    return {
+      channel, self, agentCount: agents.length,
+      folder: `${folder}${self ? " (this window)" : ""}`,
+      agents: agents.length ? agents.map((agent) => clientName(agent.client)).join(", ") : "No agent",
+      title: lines.join("\n")
+    };
+  });
+  const crowded = result.filter((row) => row.agentCount > 1);
+  const warning = crowded.length
+    ? `${crowded.map((row) => `Channel ${row.channel} has ${row.agentCount} agents`).join("; ")}: their calls run one at a time on the same window. Give each agent its own window and channel.`
+    : "";
+  return { rows: result, warning };
+}
+
 export interface AgentPanel {
   settings(): AgentSettings;
   record(activity: AgentActivity): void;
@@ -84,6 +131,8 @@ export function createAgentPanel(input: {
   const channelSelect = byId<HTMLSelectElement>("agentChannelSelect");
   const channelMessage = byId<HTMLElement>("agentChannelMessage");
   const clientSelect = byId<HTMLSelectElement>("agentClientSelect");
+  const channelList = byId<HTMLOListElement>("agentChannelList");
+  const channelWarning = byId<HTMLElement>("agentChannelWarning");
   const clientWhere = byId<HTMLElement>("agentClientWhere");
   const clientSnippet = byId<HTMLElement>("agentClientSnippet");
   const copyStatus = byId<HTMLElement>("agentCopyStatus");
@@ -174,8 +223,35 @@ export function createAgentPanel(input: {
       const client = last?.client?.name ? `${last.client.name}${last.client.version ? ` ${last.client.version}` : ""}` : "";
       statusLine.dataset.state = error ? "error" : status.listening ? "listening" : "checking";
       statusLine.textContent = error || (!status.listening ? "Starting…" : last?.at ? `${client || "Connected"} · ${last.tool ?? "?"} ${ago(now - last.at)}` : "Waiting for an MCP client");
+      void refreshChannels(now);
       statusLine.title = [`App ${String(status.appVersion)} · protocol ${String(status.protocol)} · channel ${channel}`, `${String(status.calls)} call${status.calls === 1 ? "" : "s"} since the app started`, path].filter(Boolean).join("\n");
     }
+  };
+
+  const refreshChannels = async (now: number): Promise<void> => {
+    if (!channelList) return;
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await bridge.channels();
+    } catch {
+      return;
+    }
+    const view = channelRows(rows, now);
+    channelList.replaceChildren(...view.rows.map((row) => {
+      const item = documentRef.createElement("li");
+      item.dataset.self = String(row.self);
+      item.dataset.agents = String(row.agentCount);
+      item.title = row.title;
+      const cells = [String(row.channel), row.folder, row.agents].map((text, index) => {
+        const cell = documentRef.createElement("span");
+        cell.textContent = text;
+        if (index === 2) cell.className = "agent-channel-agents";
+        return cell;
+      });
+      item.append(...cells);
+      return item;
+    }));
+    if (channelWarning) { channelWarning.textContent = view.warning; channelWarning.hidden = !view.warning; }
   };
 
   const renderActivity = (): void => {

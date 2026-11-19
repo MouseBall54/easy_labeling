@@ -6,14 +6,14 @@
 use crate::native::{header, upload_body};
 use el_agent_protocol::{pipe_name, read_frame, write_frame, MAX_CHANNEL, PROTOCOL};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::ipc::Request;
 use tauri::{Manager, WebviewWindow};
-use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeServer, ServerOptions};
 use tokio::sync::{mpsc, oneshot, watch};
 
 const START_WITHIN: Duration = Duration::from_secs(10);
@@ -52,6 +52,20 @@ struct Status {
     pipe_error: Option<String>,
     calls: u64,
     last_call: Option<Value>,
+    /// Servers attached to this window (their idle connection said `attached`), by connection number.
+    agents: BTreeMap<u64, Value>,
+}
+
+/// This window's row in the channel overview: what other windows' panels show for it (a `status` frame).
+fn summary() -> Value {
+    let status = status();
+    json!({
+        "channel": status.channel,
+        "folder": crate::open_folder(),
+        "agents": status.agents.values().collect::<Vec<_>>(),
+        "calls": status.calls,
+        "lastCall": status.last_call,
+    })
 }
 
 fn status() -> std::sync::MutexGuard<'static, Status> {
@@ -67,21 +81,71 @@ fn now_ms() -> u64 {
 #[tauri::command]
 pub fn agent_status(app: tauri::AppHandle) -> Value {
     let server = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|folder| folder.join("easy-labeling-mcp.exe")));
+    let mut answer = summary();
     let status = status();
-    json!({
-        "channel": status.channel,
+    let fields = json!({
         "maxChannel": MAX_CHANNEL,
         "pipe": status.pipe,
         "listening": status.listening,
         "pipeError": status.pipe_error,
-        "calls": status.calls,
-        "lastCall": status.last_call,
         "protocol": PROTOCOL,
         "appVersion": app.package_info().version.to_string(),
         "serverPath": server.as_ref().map(|path| dunce::simplified(path).display().to_string()),
         "serverFound": server.is_some_and(|path| path.is_file()),
         "now": now_ms()
-    })
+    });
+    if let (Some(answer), Value::Object(fields)) = (answer.as_object_mut(), fields) {
+        answer.extend(fields);
+    }
+    answer
+}
+
+/// Every channel's window (MCP panel, Channels): this one from its own state, the others asked over their pipe
+/// with a `status` frame. A window that does not answer in time (an older version) is listed as unknown.
+#[tauri::command]
+pub async fn agent_channels() -> Vec<Value> {
+    let own = status().channel;
+    let mut rows = Vec::new();
+    for channel in 1..=MAX_CHANNEL {
+        let row = if channel == own { Some(summary()) } else { probe(channel).await };
+        if let Some(mut row) = row {
+            row["self"] = json!(channel == own);
+            rows.push(row);
+        }
+    }
+    rows
+}
+
+async fn probe(channel: u32) -> Option<Value> {
+    const ERROR_PIPE_BUSY: i32 = 231;
+    let name = pipe_name(channel);
+    let mut pipe = None;
+    for _ in 0..10 {
+        match ClientOptions::new().open(&name) {
+            Ok(opened) => {
+                pipe = Some(opened);
+                break;
+            }
+            // Every instance taken for a moment: the window makes the next one right after each connect.
+            Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY) => tokio::time::sleep(Duration::from_millis(20)).await,
+            Err(_) => return None,
+        }
+    }
+    let (mut read, mut write) = tokio::io::split(pipe?);
+    let asked = async {
+        write_frame(&mut write, &json!({ "type": "status" }), &[]).await.ok()?;
+        let (header, _) = read_frame(&mut read).await.ok()??;
+        (header["type"] == "status").then_some(header)
+    };
+    match tokio::time::timeout(Duration::from_secs(1), asked).await {
+        Ok(Some(mut row)) => {
+            if let Some(fields) = row.as_object_mut() {
+                fields.remove("type");
+            }
+            Some(row)
+        }
+        _ => Some(json!({ "channel": channel, "unknown": true })),
+    }
 }
 
 fn take(id: &str) -> Option<Pending> {
@@ -245,6 +309,9 @@ async fn serve(connection: NamedPipeServer, number: u64, window: WebviewWindow, 
         match header["type"].as_str() {
             Some("hello") => {
                 client = header["client"].clone();
+                if header["attached"] == true && !client.is_null() {
+                    status().agents.insert(number, json!({ "client": client, "since": now_ms() }));
+                }
                 let version = window.app_handle().package_info().version.to_string();
                 let hello = json!({ "type": "hello", "protocol": PROTOCOL, "app": "easy-labeling", "appVersion": version, "channel": status().channel });
                 let _ = out.send((hello, Vec::new()));
@@ -259,9 +326,15 @@ async fn serve(connection: NamedPipeServer, number: u64, window: WebviewWindow, 
             Some("cancel") => {
                 let _ = window.eval(format!("window.__easyLabelingAgent?.cancel({})", Value::String(page_id)));
             }
+            Some("status") => {
+                let mut row = summary();
+                row["type"] = json!("status");
+                let _ = out.send((row, Vec::new()));
+            }
             _ => {}
         }
     }
+    status().agents.remove(&number);
     drop(out);
     let _ = writer.await;
 }

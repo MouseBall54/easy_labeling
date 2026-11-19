@@ -2877,6 +2877,13 @@ body.dark-mode .agent-panel .agent-panel-header .btn-close { filter: invert(1) g
 .agent-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .agent-panel .form-select { font-size: var(--fs-caption); }
 .agent-setting-row .form-select { width: auto; min-width: 84px; }
+.agent-channels { margin: 0; padding: 0; list-style: none; font-size: 11px; }
+.agent-channels li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--workbench-border); }
+.agent-channels li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-channels li > span:first-child { color: var(--workbench-text-muted); font-variant-numeric: tabular-nums; }
+.agent-channels li[data-self="true"] { font-weight: 600; }
+.agent-channels .agent-channel-agents { color: var(--workbench-text-muted); }
+.agent-channels li[data-agents="0"] .agent-channel-agents { font-style: italic; }
 .agent-activity-section { display: flex; flex: 1; flex-direction: column; min-height: 0; padding-bottom: 0; }
 .agent-activity-heading { display: flex; align-items: center; justify-content: space-between; }
 .agent-activity-heading h3 { margin: 0; }

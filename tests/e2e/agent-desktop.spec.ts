@@ -1406,6 +1406,27 @@ test("each window takes its own agent channel, warns about a shared folder, and 
     await page.locator("#agentClientSelect").selectOption("claude-code");
     await expect(page.locator("#agentClientSnippet")).toHaveText(/^claude mcp add --scope user easy-labeling-2 -- ".+" --channel 2$/);
 
+    // Channels: every window with its folder and attached agents; two agents on one window are flagged.
+    const rows = page.locator("#agentChannelList li");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toHaveAttribute("data-self", "false");
+    await expect.poll(async () => (await rows.nth(0).getAttribute("title")) ?? "").toContain(`Channel 1\n${first.dataset}\ne2e 0, attached `);
+    await expect(rows.nth(0).locator(".agent-channel-agents")).toHaveText("e2e 0");
+    await expect(rows.nth(1)).toHaveAttribute("data-self", "true");
+    await expect(rows.nth(1)).toContainText("(this window)");
+    await expect(page.locator("#agentChannelWarning")).toBeHidden();
+    const extra = startMcp(pipe, 1);
+    await extra.initialize();
+    await expect(rows.nth(0).locator(".agent-channel-agents")).toHaveText("e2e 0, e2e 0");
+    await expect(page.locator("#agentChannelWarning")).toHaveText(/^Channel 1 has 2 agents: /);
+    extra.close();
+    await expect(page.locator("#agentChannelWarning")).toBeHidden();
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((dark) => document.body.classList.toggle("dark-mode", dark), theme === "dark");
+      await page.locator("#agentPanel").screenshot({ path: test.info().outputPath(`agent-channels-${theme}.png`) });
+    }
+    await page.evaluate(() => document.body.classList.remove("dark-mode"));
+
     // A channel another window holds is refused; a free one moves the window, and the old server keeps waiting.
     await page.locator("#agentChannelSelect").selectOption("1");
     await expect(page.locator("#agentChannelMessage")).toContainText("in use by another Easy Labeling window");

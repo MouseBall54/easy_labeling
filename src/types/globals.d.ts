@@ -38,6 +38,8 @@ declare global {
       status(): Promise<Record<string, unknown>>;
       /** Moves this window to another agent channel (agent_set_channel); rejects when another window holds it. */
       setChannel(channel: number): Promise<number>;
+      /** Every channel's window: folder, attached agents, last call (agent_channels). */
+      channels(): Promise<Array<Record<string, unknown>>>;
       pathOf(handle: unknown): string | null;
     };
     /** Features to keep on their TS path even in the desktop app (see src/platform/native-bridge.ts). */
