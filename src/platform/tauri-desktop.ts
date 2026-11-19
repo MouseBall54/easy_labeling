@@ -207,6 +207,7 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     confirm: (message: string) => call<boolean>("agent_confirm", { message }),
     status: () => call<Record<string, unknown>>("agent_status"),
     setChannel: (channel: number) => call<number>("agent_set_channel", { channel }),
+    channels: () => call<Array<Record<string, unknown>>>("agent_channels"),
     pathOf
   });
 

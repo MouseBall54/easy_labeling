@@ -7,13 +7,16 @@ use el_agent_protocol::{pipe_name, read_frame, write_frame, MAX_CHANNEL, PROTOCO
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
-    schemars, tool, tool_handler, tool_router, Peer, RoleServer, ServerHandler, ServiceExt,
+    schemars,
+    service::RequestContext,
+    tool, tool_handler, tool_router, ErrorData, Peer, RoleServer, ServerHandler, ServiceExt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::net::windows::named_pipe::ClientOptions;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 const ERROR_PIPE_BUSY: i32 = 231;
@@ -1690,6 +1693,19 @@ impl ServerHandler for EasyLabeling {
             .with_server_info(Implementation::new("easy-labeling", MCP_VERSION))
             .with_instructions(INSTRUCTIONS)
     }
+
+    // The agent's client, for the app's channel overview (exit_with_app reports it on its idle connection).
+    async fn initialize(&self, request: InitializeRequestParams, context: RequestContext<RoleServer>) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        client_info().send_replace(json!({ "name": request.client_info.name, "version": request.client_info.version }));
+        self.negotiate_initialize(&request)
+    }
+}
+
+/// The MCP client this server runs for (null until it sends initialize).
+fn client_info() -> &'static watch::Sender<Value> {
+    static CLIENT: OnceLock<watch::Sender<Value>> = OnceLock::new();
+    CLIENT.get_or_init(|| watch::channel(Value::Null).0)
 }
 
 fn to_value<T: Serialize>(args: &T) -> Value {
@@ -1868,17 +1884,34 @@ fn add_versions(result: &mut Value, app_version: &str) {
 /// (agent clients keep their servers until they quit). It holds one idle connection open: the app's end of the pipe
 /// closes with its process, crash included. Until the app is found it looks every APP_POLL and tools answer
 /// app_not_running as before. A window that moves to another channel says `bye` first; then the server keeps
-/// looking for a window on its channel instead of exiting.
+/// looking for a window on its channel instead of exiting. Once the agent's client is known the connection says
+/// `attached` with it, so the app lists this server as an agent on the window (MCP panel, Channels).
 async fn exit_with_app() {
     loop {
         if let Ok(pipe) = ClientOptions::new().open(pipe_name(channel())) {
             let (mut read, mut write) = tokio::io::split(pipe);
             if write_frame(&mut write, &json!({ "type": "hello", "protocol": PROTOCOL, "client": null }), &[]).await.is_ok() {
                 // The app answers hello and then sends nothing on this connection until it closes or moves.
-                let mut moved = false;
-                while let Ok(Some((header, _))) = read_frame(&mut read).await {
-                    moved |= header["type"] == "bye";
-                }
+                let mut reader = tokio::spawn(async move {
+                    let mut moved = false;
+                    while let Ok(Some((header, _))) = read_frame(&mut read).await {
+                        moved |= header["type"] == "bye";
+                    }
+                    moved
+                });
+                let mut client = client_info().subscribe();
+                let mut attached = false;
+                let moved = loop {
+                    let known = client.borrow_and_update().clone();
+                    if !attached && !known.is_null() {
+                        attached = true;
+                        let _ = write_frame(&mut write, &json!({ "type": "hello", "protocol": PROTOCOL, "client": known, "attached": true }), &[]).await;
+                    }
+                    tokio::select! {
+                        moved = &mut reader => break moved.unwrap_or(false),
+                        _ = client.changed(), if !attached => {}
+                    }
+                };
                 if !moved {
                     eprintln!("Easy Labeling closed; easy-labeling-mcp exits with it.");
                     std::process::exit(0);
