@@ -206,6 +206,7 @@ type WritablePayload = string | Blob | ArrayBuffer | ArrayBufferView;
     file: (entry: NativeEntry) => createFileHandle(entry),
     confirm: (message: string) => call<boolean>("agent_confirm", { message }),
     status: () => call<Record<string, unknown>>("agent_status"),
+    setChannel: (channel: number) => call<number>("agent_set_channel", { channel }),
     pathOf
   });
 

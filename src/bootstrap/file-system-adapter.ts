@@ -1338,6 +1338,21 @@ export function createFileSystemAdapter(input: {
     }
   };
 
+  // Desktop app: two windows on one folder (e.g. one agent per window) would overwrite each other's saves.
+  const warnIfOpenInAnotherWindow = (folder: DirectoryHandleLike): void => {
+    const native = getNativeBridge("folder-lock");
+    const path = native?.pathOf(folder);
+    if (!native || !path) return;
+    void native.invoke<boolean>("claim_folder", { path }).then((alone) => {
+      if (!alone) {
+        (connectedDeps?.uiManager as RuntimeUiManager | undefined)?.notify(
+          `"${folder.name}" is also open in another Easy Labeling window. Saves from both windows overwrite each other's label files; work on it in one window.`,
+          10000
+        );
+      }
+    }, () => undefined);
+  };
+
   const activateImageFolder = async (
     imageFolderHandle: DirectoryHandleLike,
     operation: RuntimeOperationHandle | null = null,
@@ -1348,6 +1363,7 @@ export function createFileSystemAdapter(input: {
     reportProgress?.("labels", "loading", "Checking the label workspace");
     reportProgress?.("images", "loading", "Scanning images and annotations");
     const labelSelection = await imageSessionService.selectImageFolder(imageFolderHandle);
+    warnIfOpenInAnotherWindow(imageFolderHandle);
     input.state.session.labelFolders = input.state.session.labelFolderHandle ? [input.state.session.labelFolderHandle] : [];
     input.state.session.segmentationLabelFolders = [imageFolderHandle as unknown as FileSystemDirectoryHandle];
     const segmentationPresets = await loadSegmentationToolPresetLibrary(await openProfilePresetFolder(input.windowRef, "segmentation"), imageFolderHandle);

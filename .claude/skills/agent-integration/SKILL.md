@@ -30,6 +30,13 @@ agent --stdio MCP--> easy-labeling-mcp.exe (crates/el-mcp: schema, forward, PNG 
 - Versions: `crates/el-mcp/build.rs` bakes package.json's version into the server (`MCP_VERSION`, also its MCP `serverInfo`). `el-mcp` adds `appVersion`/`mcpVersion` (and `versionWarning` when they differ) to `app_state` from the app's `hello`, and appends the warning to error messages. A changed frame format still bumps `PROTOCOL` (`version_mismatch`).
 - Lifetime: `el-mcp`'s `exit_with_app` looks for the app every 2 s, then holds one idle pipe connection (hello only); when the app's end closes (exit or crash) the server exits, so no server outlives the window. Without an app it keeps waiting (tools answer `app_not_running`). `agent-desktop.spec.ts` covers both.
 
+## Channels (several windows, one agent each)
+
+- Each window listens on one agent channel: `el_agent_protocol::pipe_name(channel)` is the base pipe for channel 1 and `<base>-<n>` up to `MAX_CHANNEL` (8). `agent.rs` `start()` claims the first free one (`first_pipe_instance`); `agent_set_channel` (MCP panel `#agentChannelSelect`) moves the window, bumping a `watch` generation that ends the old listener and connections, which first get a `bye` frame. `el-mcp` picks its channel from `--channel N` / `EASY_LABELING_AGENT_CHANNEL` (default 1); on `bye` its `exit_with_app` keeps polling instead of exiting, and a call in flight answers `app_not_running`. The hello reply carries `channel`, which `el-mcp` adds to `app_state`.
+- `client-configs.ts` `mcpClientSetup(client, path, channel)` gives channel n > 1 its own entry (`easy-labeling-<n>`, `--channel <n>`).
+- Two windows on one folder overwrite each other's saves: `claim_folder` (main.rs) holds a no-share lock file in `%TEMP%\easy-labeling-folder-locks\` per open folder (released with the process); the page warns on a conflict (`getNativeBridge("folder-lock")`) and `prepare()` passes `openElsewhere` so `open_folder` returns a `warning`.
+- One window still runs one call at a time on one canvas; parallel work means more windows, not more connections.
+
 ## Every MCP client, not only Claude
 
 - `portable_schema()` in `el-mcp` rewrites each tool's input schema to plain JSON Schema (no `$ref`/`$defs`/`$schema`/`format`, one `type` per field, untyped values as `string`) because Gemini and OpenAI-compatible clients refuse the rest; `schemas_are_plain_enough_for_every_client` checks all tools. A field the page reads as text or number (class ids) stays `serde_json::Value` in Rust and is described as a string.
@@ -57,7 +64,7 @@ agent --stdio MCP--> easy-labeling-mcp.exe (crates/el-mcp: schema, forward, PNG 
 
 ## Seams and checks
 
-- `EASY_LABELING_AGENT_PIPE` picks the pipe for both the app and the server; the desktop e2e fixture gives every test app its own. `EASY_LABELING_TEST_AGENT_APPROVE=accept|decline` answers the approval dialogs.
+- `EASY_LABELING_AGENT_PIPE` picks the pipe base for both the app and the server; the desktop e2e fixture gives every test app its own. `EASY_LABELING_TEST_AGENT_APPROVE=accept|decline` answers the approval dialogs.
 - Build: `npm run tauri:dev` (app) and `cargo build -p el-mcp` (server, `target/debug/easy-labeling-mcp.exe`), then `npx playwright test tests/e2e/agent-desktop.spec.ts --project=chromium`. If `tauri:dev` cannot rename the exe (a running debug app holds it), run the specs with `EASY_LABELING_TAURI_EXE=target/debug/easy-labeling.exe`.
 - `cargo clippy -p easy-labeling -p el-agent-protocol -p el-mcp --all-targets -- -D warnings` and `cargo test -p el-agent-protocol -p el-mcp` (Windows only: named pipes; CI runs them in the `desktop` job).
 - Installer: `src-tauri/tauri.bundle.conf.json` adds the sidecar (`bundle.externalBin`) and stages it with `scripts/stage-mcp-sidecar.mjs`; `tauri:dist:win` and `release:tauri` pass it. The base `tauri.conf.json` has no sidecar, so `tauri:dev`, clippy and CI need no prebuilt server.

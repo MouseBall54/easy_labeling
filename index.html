@@ -709,6 +709,11 @@
             <p id="agentServerWarning" class="agent-warning" hidden>easy-labeling-mcp.exe is missing next to the app. Reinstall Easy Labeling.</p>
             <section class="agent-panel-section">
                 <h3>Connect</h3>
+                <div class="agent-setting-row" title="Each Easy Labeling window listens on its own agent channel (the first free one). Register one MCP server per channel to run an agent on each window at once.">
+                    <label for="agentChannelSelect">Channel</label>
+                    <select id="agentChannelSelect" class="form-select form-select-sm"></select>
+                </div>
+                <p id="agentChannelMessage" class="agent-warning" hidden></p>
                 <select id="agentClientSelect" class="form-select form-select-sm" aria-label="MCP client"></select>
                 <div class="agent-snippet-box">
                     <pre id="agentClientSnippet" class="agent-snippet"></pre>

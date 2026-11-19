@@ -36,6 +36,8 @@ declare global {
       confirm(message: string): Promise<boolean>;
       /** The bridge's state for the MCP panel (src-tauri/src/agent.rs agent_status). */
       status(): Promise<Record<string, unknown>>;
+      /** Moves this window to another agent channel (agent_set_channel); rejects when another window holds it. */
+      setChannel(channel: number): Promise<number>;
       pathOf(handle: unknown): string | null;
     };
     /** Features to keep on their TS path even in the desktop app (see src/platform/native-bridge.ts). */

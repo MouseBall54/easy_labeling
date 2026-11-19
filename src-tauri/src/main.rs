@@ -263,6 +263,62 @@ async fn set_document_dirty(dirty: bool) {
     DOCUMENT_DIRTY.store(dirty, Ordering::SeqCst);
 }
 
+/// The lock file this window holds for its open image folder (claim_folder), with the folder's key.
+static FOLDER_LOCK: Mutex<Option<(u64, fs::File)>> = Mutex::new(None);
+
+/// A folder's key (FNV-1a of the lower-cased path: Windows paths ignore case) and its lock file in the temp folder.
+fn folder_lock_file(path: &Path) -> (u64, PathBuf) {
+    let folder = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let key =
+        folder.to_string_lossy().to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3));
+    let locks = std::env::temp_dir().join("easy-labeling-folder-locks");
+    let _ = fs::create_dir_all(&locks);
+    (key, locks.join(format!("{key:016x}.lock")))
+}
+
+/// Opens a lock file without sharing; Err(true) when another process holds it.
+fn open_folder_lock(file: &Path) -> Result<fs::File, bool> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .share_mode(0)
+        .open(file)
+        .map_err(|error| error.raw_os_error() == Some(ERROR_SHARING_VIOLATION))
+}
+
+/// Whether another Easy Labeling window has `path` open (the agent's open_folder reports it).
+pub(crate) fn folder_open_elsewhere(path: &Path) -> bool {
+    let (key, file) = folder_lock_file(path);
+    let held = FOLDER_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if held.as_ref().is_some_and(|(held_key, _)| *held_key == key) {
+        return false;
+    }
+    open_folder_lock(&file).err().unwrap_or(false)
+}
+
+/// Marks `path` as this window's image folder; false when another Easy Labeling window has it open (saves from both
+/// would overwrite each other's label files). The lock is a temp-folder file opened without sharing, so a window
+/// that closes or crashes releases it with its process.
+#[tauri::command]
+async fn claim_folder(path: String) -> bool {
+    let (key, file) = folder_lock_file(Path::new(&path));
+    let mut held = FOLDER_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if held.as_ref().is_some_and(|(held_key, _)| *held_key == key) {
+        return true;
+    }
+    *held = None;
+    match open_folder_lock(&file) {
+        Ok(lock) => {
+            *held = Some((key, lock));
+            true
+        }
+        Err(taken) => !taken,
+    }
+}
+
 // File System Access polyfill commands (see src/platform/tauri-desktop.ts).
 
 #[tauri::command]
@@ -499,6 +555,7 @@ fn main() {
             list_library_files,
             save_library_file,
             set_document_dirty,
+            claim_folder,
             fs_read_dir,
             fs_child,
             fs_read,
@@ -535,7 +592,8 @@ fn main() {
             agent::agent_reply_bytes,
             agent::agent_progress,
             agent::agent_confirm,
-            agent::agent_status
+            agent::agent_status,
+            agent::agent_set_channel
         ])
         .setup(|app| {
             // resource_dir() is a verbatim \?\ path, which breaks every subresource of a virtual host.

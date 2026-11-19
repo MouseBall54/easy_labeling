@@ -698,7 +698,7 @@ Padding 적용 후 박스가 이미지 경계를 벗어나면 후보 자체가 �
 
 ## 11. AI 에이전트 연동 (데스크톱)
 
-데스크톱 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 설치되어, AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 도구로 조종할 수 있다. 박스 읽기·편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 Undo 한 단계다. 폴더 전체 변경은 사람이 승인해야 하고, 하단의 Stop으로 언제든 멈춘다. MCP 패널의 `Live view`를 켜면 에이전트가 추가한 박스가 하나씩 나타나고, Segmentation의 AI 결과는 찾는 대로 마스크에 그려진다(결과와 Undo는 같음). 연결 방법과 도구 목록은 [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)에 있다.
+데스크톱 앱에는 MCP 서버 `easy-labeling-mcp.exe`가 함께 설치되어, AI 에이전트(Claude Code, Claude Desktop, Codex, Cursor 등)가 열려 있는 앱 창을 도구로 조종할 수 있다. 박스 읽기·편집, Refine/Reclass와 검수, 템플릿 매칭과 레이아웃, YOLO 추론을 앱의 버튼과 같은 경로로 실행하고, 호출 하나가 Undo 한 단계다. 폴더 전체 변경은 사람이 승인해야 하고, 하단의 Stop으로 언제든 멈춘다. MCP 패널의 `Live view`를 켜면 에이전트가 추가한 박스가 하나씩 나타나고, Segmentation의 AI 결과는 찾는 대로 마스크에 그려진다(결과와 Undo는 같음). 창마다 에이전트 채널이 하나씩 있어(처음 창 1, 다음 창부터 비어 있는 2~8번, MCP 패널 `Channel`에서 바꿈), 창을 여러 개 띄워 에이전트를 창마다 따로 붙일 수 있다. 다른 창이 이미 연 폴더를 열면 저장이 서로 덮어쓴다는 알림이 뜬다. 연결 방법과 도구 목록은 [AGENT_MCP_GUIDE_KO.md](AGENT_MCP_GUIDE_KO.md)에 있다.
 
 ## 12. 용어 정리
 

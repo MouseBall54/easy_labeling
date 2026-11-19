@@ -81,6 +81,8 @@ export function createAgentPanel(input: {
   const railButton = byId<HTMLButtonElement>("agentPanelBtn");
   const statusLine = byId<HTMLElement>("agentStatusLine");
   const serverWarning = byId<HTMLElement>("agentServerWarning");
+  const channelSelect = byId<HTMLSelectElement>("agentChannelSelect");
+  const channelMessage = byId<HTMLElement>("agentChannelMessage");
   const clientSelect = byId<HTMLSelectElement>("agentClientSelect");
   const clientWhere = byId<HTMLElement>("agentClientWhere");
   const clientSnippet = byId<HTMLElement>("agentClientSnippet");
@@ -97,6 +99,7 @@ export function createAgentPanel(input: {
 
   let settings = readAgentSettings(storage);
   let server = "";
+  let channel = 1;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   const activities: AgentActivity[] = [];
 
@@ -119,7 +122,7 @@ export function createAgentPanel(input: {
 
   const renderClient = (): void => {
     const id = (clientSelect?.value as McpClientId | undefined) ?? "claude-code";
-    const setup = mcpClientSetup(id, server || "<path to easy-labeling-mcp.exe>");
+    const setup = mcpClientSetup(id, server || "<path to easy-labeling-mcp.exe>", channel);
     if (clientWhere) { clientWhere.textContent = setup.where; clientWhere.title = setup.note ?? ""; }
     if (clientSnippet) { clientSnippet.textContent = setup.text; clientSnippet.dataset.language = setup.language; }
     showCopied(false);
@@ -153,7 +156,15 @@ export function createAgentPanel(input: {
       return;
     }
     const path = typeof status.serverPath === "string" ? status.serverPath : "";
-    if (path !== server) { server = path; renderClient(); }
+    const listening = typeof status.channel === "number" && status.channel > 0 ? status.channel : channel;
+    if (path !== server || listening !== channel) { server = path; channel = listening; renderClient(); }
+    if (channelSelect) {
+      const max = typeof status.maxChannel === "number" ? status.maxChannel : 8;
+      if (channelSelect.options.length !== max) {
+        channelSelect.replaceChildren(...Array.from({ length: max }, (_, index) => new Option(index === 0 ? "1 (default)" : String(index + 1), String(index + 1))));
+      }
+      if (documentRef.activeElement !== channelSelect) channelSelect.value = String(channel);
+    }
     if (serverWarning) serverWarning.hidden = status.serverFound === true;
     if (statusLine) {
       // One line: the state and the last call; the details sit in the tooltip.
@@ -163,7 +174,7 @@ export function createAgentPanel(input: {
       const client = last?.client?.name ? `${last.client.name}${last.client.version ? ` ${last.client.version}` : ""}` : "";
       statusLine.dataset.state = error ? "error" : status.listening ? "listening" : "checking";
       statusLine.textContent = error || (!status.listening ? "Starting…" : last?.at ? `${client || "Connected"} · ${last.tool ?? "?"} ${ago(now - last.at)}` : "Waiting for an MCP client");
-      statusLine.title = [`App ${String(status.appVersion)} · protocol ${String(status.protocol)}`, `${String(status.calls)} call${status.calls === 1 ? "" : "s"} since the app started`, path].filter(Boolean).join("\n");
+      statusLine.title = [`App ${String(status.appVersion)} · protocol ${String(status.protocol)} · channel ${channel}`, `${String(status.calls)} call${status.calls === 1 ? "" : "s"} since the app started`, path].filter(Boolean).join("\n");
     }
   };
 
@@ -208,6 +219,17 @@ export function createAgentPanel(input: {
   clientSelect?.addEventListener("change", () => {
     try { storage?.setItem(CLIENT_KEY, clientSelect.value); } catch { /* not remembered */ }
     renderClient();
+  });
+  channelSelect?.addEventListener("change", () => {
+    const wanted = Number(channelSelect.value);
+    if (channelMessage) channelMessage.hidden = true;
+    input.bridge.setChannel(wanted).then(
+      () => refreshStatus(),
+      (error: unknown) => {
+        channelSelect.value = String(channel);
+        if (channelMessage) { channelMessage.textContent = error instanceof Error ? error.message : String(error); channelMessage.hidden = false; }
+      }
+    );
   });
   copyButton?.addEventListener("click", () => { void copy(clientSnippet?.textContent ?? ""); });
   enabledToggle?.addEventListener("change", () => { settings = { ...settings, enabled: enabledToggle.checked }; saveSettings(); renderSettings(); });
