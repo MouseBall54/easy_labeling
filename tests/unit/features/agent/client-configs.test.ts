@@ -29,4 +29,15 @@ describe("MCP client setups", () => {
     // A TOML literal string cannot hold a quote; fall back to an escaped basic string.
     expect(mcpClientSetup("codex", "C:\\it's\\mcp.exe").text).toContain('command = "C:\\\\it\'s\\\\mcp.exe"');
   });
+
+  it("gives a window on another agent channel its own entry with --channel", () => {
+    expect(mcpClientSetup("claude-code", server, 1).text).toBe(`claude mcp add --scope user easy-labeling -- "${server}"`);
+    expect(mcpClientSetup("claude-code", server, 3).text).toBe(`claude mcp add --scope user easy-labeling-3 -- "${server}" --channel 3`);
+    expect(JSON.parse(mcpClientSetup("cursor", server, 2).text)).toEqual({ mcpServers: { "easy-labeling-2": { command: server, args: ["--channel", "2"] } } });
+    expect(JSON.parse(mcpClientSetup("vscode", server, 2).text).servers["easy-labeling-2"].args).toEqual(["--channel", "2"]);
+    expect(JSON.parse(mcpClientSetup("gemini", server, 2).text).mcpServers["easy-labeling-2"]).toEqual({ command: server, args: ["--channel", "2"], timeout: 3_600_000 });
+    expect(JSON.parse(mcpClientSetup("opencode", server, 2).text).mcp["easy-labeling-2"].command).toEqual([server, "--channel", "2"]);
+    expect(mcpClientSetup("codex", server, 2).text).toBe(`[mcp_servers.easy-labeling-2]\ncommand = '${server}'\nargs = ["--channel", "2"]\ntool_timeout_sec = 3600`);
+    expect(mcpClientSetup("other", server, 2).text).toContain("Arguments: --channel 2");
+  });
 });

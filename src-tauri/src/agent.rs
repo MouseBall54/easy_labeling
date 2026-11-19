@@ -4,7 +4,7 @@
 // START_WITHIN is dropped there (its `startBy`), so a page stalled by a dialog never applies it late.
 
 use crate::native::{header, upload_body};
-use el_agent_protocol::{pipe_name, read_frame, write_frame, PROTOCOL};
+use el_agent_protocol::{pipe_name, read_frame, write_frame, MAX_CHANNEL, PROTOCOL};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::ipc::Request;
 use tauri::{Manager, WebviewWindow};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 const START_WITHIN: Duration = Duration::from_secs(10);
 
@@ -46,6 +46,7 @@ fn pending() -> &'static Mutex<HashMap<String, Pending>> {
 /// What the Agent panel shows (agent_status): the pipe, and the last call and the client that made it.
 #[derive(Default)]
 struct Status {
+    channel: u32,
     pipe: String,
     listening: bool,
     pipe_error: Option<String>,
@@ -68,6 +69,8 @@ pub fn agent_status(app: tauri::AppHandle) -> Value {
     let server = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|folder| folder.join("easy-labeling-mcp.exe")));
     let status = status();
     json!({
+        "channel": status.channel,
+        "maxChannel": MAX_CHANNEL,
         "pipe": status.pipe,
         "listening": status.listening,
         "pipeError": status.pipe_error,
@@ -136,42 +139,88 @@ pub fn agent_progress(id: String, done: f64, total: Option<f64>, message: Option
     }
 }
 
-/// Listens for easy-labeling-mcp.exe. A second app finds the pipe taken and runs without it.
+/// Bumped when the window moves to another channel: the old channel's listener and connections end.
+fn generation() -> &'static watch::Sender<u64> {
+    static GENERATION: OnceLock<watch::Sender<u64>> = OnceLock::new();
+    GENERATION.get_or_init(|| watch::channel(0).0)
+}
+
+/// Takes `channel`'s pipe unless another window holds it.
+fn claim(channel: u32) -> std::io::Result<NamedPipeServer> {
+    ServerOptions::new().first_pipe_instance(true).create(pipe_name(channel))
+}
+
+/// Listens for easy-labeling-mcp.exe on the first free channel, so each Easy Labeling window gets its own.
 pub fn start(window: WebviewWindow) {
-    let name = pipe_name();
-    status().pipe = name.clone();
     tauri::async_runtime::spawn(async move {
-        let mut server = match ServerOptions::new().first_pipe_instance(true).create(&name) {
-            Ok(server) => server,
-            Err(error) => {
-                eprintln!("Agent pipe {name} not opened: {error}");
-                status().pipe_error = Some(format!("Another Easy Labeling window already takes agent connections ({error})."));
-                return;
-            }
-        };
-        status().listening = true;
-        let connections = AtomicU64::new(0);
-        loop {
-            let connected = server.connect().await;
-            let next = match ServerOptions::new().create(&name) {
-                Ok(next) => next,
-                Err(error) => {
-                    eprintln!("Agent pipe {name} closed: {error}");
-                    let mut status = status();
-                    status.listening = false;
-                    status.pipe_error = Some(format!("Agent connections stopped: {error}"));
-                    return;
-                }
-            };
-            let connection = std::mem::replace(&mut server, next);
-            if connected.is_ok() {
-                tauri::async_runtime::spawn(serve(connection, connections.fetch_add(1, Ordering::Relaxed), window.clone()));
+        for channel in 1..=MAX_CHANNEL {
+            if let Ok(server) = claim(channel) {
+                return listen(window, channel, server);
             }
         }
+        eprintln!("Agent pipes not opened: every channel is taken");
+        status().pipe_error = Some(format!("All {MAX_CHANNEL} agent channels are taken by other Easy Labeling windows."));
     });
 }
 
-async fn serve(connection: NamedPipeServer, number: u64, window: WebviewWindow) {
+/// The person's channel choice in the MCP panel: moves this window there if no other window holds it.
+/// Agents on the old channel get a `bye` frame and lose this window.
+#[tauri::command]
+pub async fn agent_set_channel(window: WebviewWindow, channel: u32) -> Result<u32, String> {
+    if !(1..=MAX_CHANNEL).contains(&channel) {
+        return Err(format!("Channel must be 1 to {MAX_CHANNEL}."));
+    }
+    let current = status();
+    if current.channel == channel && current.listening {
+        return Ok(channel);
+    }
+    drop(current);
+    let server = claim(channel).map_err(|_| format!("Channel {channel} is in use by another Easy Labeling window."))?;
+    listen(window, channel, server);
+    Ok(channel)
+}
+
+fn listen(window: WebviewWindow, channel: u32, server: NamedPipeServer) {
+    generation().send_modify(|generation| *generation += 1);
+    let stop = generation().subscribe();
+    let mut status = status();
+    status.channel = channel;
+    status.pipe = pipe_name(channel);
+    status.listening = true;
+    status.pipe_error = None;
+    drop(status);
+    tauri::async_runtime::spawn(accept(window, channel, server, stop));
+}
+
+async fn accept(window: WebviewWindow, channel: u32, mut server: NamedPipeServer, mut stop: watch::Receiver<u64>) {
+    // Numbers stay unique across channel moves: page ids are `<connection>:<call id>`.
+    static CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+    let name = pipe_name(channel);
+    loop {
+        let connected = tokio::select! {
+            connected = server.connect() => connected,
+            _ = stop.changed() => return,
+        };
+        let next = match ServerOptions::new().create(&name) {
+            Ok(next) => next,
+            Err(error) => {
+                eprintln!("Agent pipe {name} closed: {error}");
+                if !stop.has_changed().unwrap_or(true) {
+                    let mut status = status();
+                    status.listening = false;
+                    status.pipe_error = Some(format!("Agent connections stopped: {error}"));
+                }
+                return;
+            }
+        };
+        let connection = std::mem::replace(&mut server, next);
+        if connected.is_ok() {
+            tauri::async_runtime::spawn(serve(connection, CONNECTIONS.fetch_add(1, Ordering::Relaxed), window.clone(), stop.clone()));
+        }
+    }
+}
+
+async fn serve(connection: NamedPipeServer, number: u64, window: WebviewWindow, mut stop: watch::Receiver<u64>) {
     let (mut read, mut write) = tokio::io::split(connection);
     let (out, mut outgoing) = mpsc::unbounded_channel::<Frame>();
     let writer = tauri::async_runtime::spawn(async move {
@@ -182,13 +231,23 @@ async fn serve(connection: NamedPipeServer, number: u64, window: WebviewWindow) 
         }
     });
     let mut client = Value::Null;
-    while let Ok(Some((header, _))) = read_frame(&mut read).await {
+    loop {
+        let frame = tokio::select! {
+            frame = read_frame(&mut read) => frame,
+            _ = stop.changed() => {
+                // The window moved to another channel: the server stops treating this as the app closing.
+                let _ = out.send((json!({ "type": "bye", "reason": "channel", "channel": status().channel }), Vec::new()));
+                break;
+            }
+        };
+        let Ok(Some((header, _))) = frame else { break };
         let page_id = format!("{number}:{}", header["id"]);
         match header["type"].as_str() {
             Some("hello") => {
                 client = header["client"].clone();
                 let version = window.app_handle().package_info().version.to_string();
-                let _ = out.send((json!({ "type": "hello", "protocol": PROTOCOL, "app": "easy-labeling", "appVersion": version }), Vec::new()));
+                let hello = json!({ "type": "hello", "protocol": PROTOCOL, "app": "easy-labeling", "appVersion": version, "channel": status().channel });
+                let _ = out.send((hello, Vec::new()));
             }
             Some("call") => {
                 let mut status = status();
@@ -245,6 +304,8 @@ async fn prepare(window: &WebviewWindow, tool: &str, args: &mut Value) -> Result
     if !approve_folder(window, folder.clone()).await {
         return Err(Reply::error("declined", "The person declined to open the folder."));
     }
+    // Two windows on one folder overwrite each other's saves; the page tells the agent.
+    args["openElsewhere"] = json!(crate::folder_open_elsewhere(&folder));
     args["entry"] = serde_json::to_value(crate::entry(folder, true)).map_err(|error| Reply::error("failed", error.to_string()))?;
     Ok(())
 }

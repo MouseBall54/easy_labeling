@@ -3,7 +3,7 @@
 //! same code the app's own buttons use (docs/AGENT_MCP_PLAN_KO.md).
 
 use base64::Engine;
-use el_agent_protocol::{pipe_name, read_frame, write_frame, PROTOCOL};
+use el_agent_protocol::{pipe_name, read_frame, write_frame, MAX_CHANNEL, PROTOCOL};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
@@ -11,6 +11,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::net::windows::named_pipe::ClientOptions;
 use tokio_util::sync::CancellationToken;
@@ -1722,8 +1723,40 @@ fn io_failure(error: std::io::Error) -> Failure {
     failure("failed", format!("Connection to the app failed: {error}"))
 }
 
+/// The agent channel this server connects to: `--channel N` (or `EASY_LABELING_AGENT_CHANNEL`), default 1.
+/// Each Easy Labeling window listens on its own channel (shown in its MCP panel).
+fn parse_channel(args: &[String], env: Option<String>) -> Result<u32, String> {
+    let given = match args.iter().position(|arg| arg == "--channel") {
+        Some(at) => args.get(at + 1).cloned().ok_or("--channel needs a number")?,
+        None => match args.iter().find_map(|arg| arg.strip_prefix("--channel=")) {
+            Some(value) => value.to_string(),
+            None => env.unwrap_or_else(|| "1".into()),
+        },
+    };
+    given
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|channel| (1..=MAX_CHANNEL).contains(channel))
+        .ok_or_else(|| format!("channel must be 1 to {MAX_CHANNEL}, not {given:?}"))
+}
+
+static CHANNEL: OnceLock<u32> = OnceLock::new();
+
+fn channel() -> u32 {
+    *CHANNEL.get().unwrap_or(&1)
+}
+
+fn not_running() -> Failure {
+    let which = if channel() == 1 { String::new() } else { format!(" on agent channel {}", channel()) };
+    failure(
+        "app_not_running",
+        format!("No Easy Labeling window is listening{which}. Ask the person to start it (or to pick this channel in the window's MCP panel)."),
+    )
+}
+
 async fn open_pipe() -> Result<tokio::net::windows::named_pipe::NamedPipeClient, Failure> {
-    let name = pipe_name();
+    let name = pipe_name(channel());
     for _ in 0..50 {
         match ClientOptions::new().open(&name) {
             Ok(pipe) => return Ok(pipe),
@@ -1732,7 +1765,7 @@ async fn open_pipe() -> Result<tokio::net::windows::named_pipe::NamedPipeClient,
             Err(_) => break,
         }
     }
-    Err(failure("app_not_running", "Easy Labeling is not running, or is a version without agent support. Ask the person to start it."))
+    Err(not_running())
 }
 
 /// One call over its own pipe connection: hello, call, then progress frames until the result.
@@ -1750,6 +1783,7 @@ async fn exchange(tool: &str, args: Value, (meta, peer, ct): Context) -> Result<
         ));
     }
     let app_version = hello["appVersion"].as_str().unwrap_or("unknown").to_string();
+    let app_channel = hello["channel"].as_u64();
     write_frame(&mut write, &json!({ "type": "call", "id": "1", "tool": tool, "args": args }), &[]).await.map_err(io_failure)?;
     let token = meta.get_progress_token();
     // Progress values must grow; heartbeats and the app's own progress share this counter.
@@ -1792,9 +1826,14 @@ async fn exchange(tool: &str, args: Value, (meta, peer, ct): Context) -> Result<
                 let mut result = header["result"].clone();
                 if tool == "app_state" {
                     add_versions(&mut result, &app_version);
+                    if let (Some(fields), Some(channel)) = (result.as_object_mut(), app_channel) {
+                        fields.insert("channel".into(), json!(channel));
+                    }
                 }
                 return Ok((result, body));
             }
+            // The window moved to another agent channel mid-call.
+            Some("bye") => return Err(not_running()),
             Some("result") => {
                 let error = &header["error"];
                 let mut message = error["message"].as_str().unwrap_or("The app reported an error.").to_string();
@@ -1828,16 +1867,22 @@ fn add_versions(result: &mut Value, app_version: &str) {
 /// Ends this server when the Easy Labeling window it found closes, so no server is left running after the app
 /// (agent clients keep their servers until they quit). It holds one idle connection open: the app's end of the pipe
 /// closes with its process, crash included. Until the app is found it looks every APP_POLL and tools answer
-/// app_not_running as before.
+/// app_not_running as before. A window that moves to another channel says `bye` first; then the server keeps
+/// looking for a window on its channel instead of exiting.
 async fn exit_with_app() {
     loop {
-        if let Ok(pipe) = ClientOptions::new().open(pipe_name()) {
+        if let Ok(pipe) = ClientOptions::new().open(pipe_name(channel())) {
             let (mut read, mut write) = tokio::io::split(pipe);
             if write_frame(&mut write, &json!({ "type": "hello", "protocol": PROTOCOL, "client": null }), &[]).await.is_ok() {
-                // The app answers hello and then sends nothing on this connection until it closes.
-                while let Ok(Some(_)) = read_frame(&mut read).await {}
-                eprintln!("Easy Labeling closed; easy-labeling-mcp exits with it.");
-                std::process::exit(0);
+                // The app answers hello and then sends nothing on this connection until it closes or moves.
+                let mut moved = false;
+                while let Ok(Some((header, _))) = read_frame(&mut read).await {
+                    moved |= header["type"] == "bye";
+                }
+                if !moved {
+                    eprintln!("Easy Labeling closed; easy-labeling-mcp exits with it.");
+                    std::process::exit(0);
+                }
             }
         }
         tokio::time::sleep(APP_POLL).await;
@@ -1846,6 +1891,9 @@ async fn exit_with_app() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let channel = parse_channel(&args, std::env::var("EASY_LABELING_AGENT_CHANNEL").ok()).map_err(|error| format!("easy-labeling-mcp: {error}"))?;
+    CHANNEL.set(channel).ok();
     tokio::spawn(exit_with_app());
     let service = EasyLabeling::new().serve(rmcp::transport::stdio()).await?;
     service.waiting().await?;
@@ -1870,6 +1918,18 @@ mod tests {
         assert!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../package.json"))
             .expect("package.json")
             .contains(&format!("\"version\": \"{MCP_VERSION}\"")));
+    }
+
+    #[test]
+    fn channel_comes_from_the_argument_then_the_environment() {
+        let args = |list: &[&str]| list.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+        assert_eq!(parse_channel(&args(&[]), None), Ok(1));
+        assert_eq!(parse_channel(&args(&["--channel", "3"]), Some("5".into())), Ok(3));
+        assert_eq!(parse_channel(&args(&["--channel=4"]), None), Ok(4));
+        assert_eq!(parse_channel(&args(&[]), Some("2".into())), Ok(2));
+        assert!(parse_channel(&args(&["--channel", "0"]), None).is_err());
+        assert!(parse_channel(&args(&["--channel", "9"]), None).is_err());
+        assert!(parse_channel(&args(&["--channel"]), None).is_err());
     }
 
     #[test]

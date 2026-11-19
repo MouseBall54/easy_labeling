@@ -23,8 +23,8 @@ interface ToolResult {
 }
 
 /** A minimal MCP client over the server's stdio. */
-function startMcp(pipe: string) {
-  const child: ChildProcessWithoutNullStreams = spawn(mcpExe, [], { env: { ...process.env, EASY_LABELING_AGENT_PIPE: pipe } });
+function startMcp(pipe: string, channel?: number) {
+  const child: ChildProcessWithoutNullStreams = spawn(mcpExe, channel ? ["--channel", String(channel)] : [], { env: { ...process.env, EASY_LABELING_AGENT_PIPE: pipe } });
   const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
   const waiting = new Map<number, (message: { result?: unknown; error?: unknown }) => void>();
   let buffer = "";
@@ -94,7 +94,7 @@ async function semDataset(dataset: string): Promise<void> {
 }
 
 /** The app on a dataset with its own pipe, and an MCP client for it. */
-async function openAgentApp(options: { dataset?: (folder: string) => Promise<void>; approve?: "accept" | "decline" } = {}) {
+async function openAgentApp(options: { dataset?: (folder: string) => Promise<void>; approve?: "accept" | "decline"; pipe?: string; channel?: number } = {}) {
   const sandbox = await mkdtemp(path.join(os.tmpdir(), "easy-labeling-agent-"));
   const dataset = path.join(sandbox, "데이터셋");
   await mkdir(path.join(dataset, "label"), { recursive: true });
@@ -103,9 +103,9 @@ async function openAgentApp(options: { dataset?: (folder: string) => Promise<voi
   // The desktop app reads class files from the profile's Class Info folder.
   await mkdir(path.join(sandbox, "profiles", "Class Info"), { recursive: true });
   await copyFile(path.join(root, "assets/sample/label/classes.yaml"), path.join(sandbox, "profiles", "Class Info", "classes.yaml"));
-  const pipe = `\\\\.\\pipe\\easy-labeling-agent-e2e-${process.pid}-${Date.now()}`;
+  const pipe = options.pipe ?? `\\\\.\\pipe\\easy-labeling-agent-e2e-${process.pid}-${Date.now()}`;
   const app = await launchDesktop(exe, sandbox, [], { env: { EASY_LABELING_AGENT_PIPE: pipe, EASY_LABELING_TEST_AGENT_APPROVE: options.approve ?? "accept" } });
-  const mcp = startMcp(pipe);
+  const mcp = startMcp(pipe, options.channel);
   let appClosed = false;
   const errors: string[] = [];
   app.page.on("pageerror", (error) => errors.push(error.message));
@@ -1378,6 +1378,51 @@ test("the MCP server exits when the app closes, so no server outlives the window
     expect(outcome).toBe(0);
   } finally {
     await close();
+  }
+});
+
+test("each window takes its own agent channel, warns about a shared folder, and moves when the person picks another", async () => {
+  test.setTimeout(240_000);
+  const pipe = `\\\\.\\pipe\\easy-labeling-agent-e2e-channels-${process.pid}-${Date.now()}`;
+  const first = await openAgentApp({ pipe });
+  const second = await openAgentApp({ pipe, channel: 2 });
+  let moved: ReturnType<typeof startMcp> | null = null;
+  try {
+    expect(json(await first.mcp.call("app_state")).channel).toBe(1);
+    expect(json(await second.mcp.call("app_state")).channel).toBe(2);
+
+    // The agents work on their own windows; a folder already open in the other window comes with a warning.
+    expect(json(await first.mcp.call("open_folder", { path: first.dataset })).warning).toBeUndefined();
+    expect(json(await second.mcp.call("open_folder", { path: first.dataset })).warning).toMatch(/also open in another Easy Labeling window/);
+    await expect(second.page.locator(".toast-message", { hasText: "is also open in another Easy Labeling window" })).toBeVisible();
+    expect(json(await second.mcp.call("open_folder", { path: second.dataset })).warning).toBeUndefined();
+    expect(json(await first.mcp.call("app_state")).folder).toBe(first.dataset);
+    expect(json(await second.mcp.call("app_state")).folder).toBe(second.dataset);
+
+    // The panel shows the window's channel and a snippet for a server on it.
+    const page = second.page;
+    await page.locator("#agentPanelBtn").click();
+    await expect(page.locator("#agentChannelSelect")).toHaveValue("2");
+    await page.locator("#agentClientSelect").selectOption("claude-code");
+    await expect(page.locator("#agentClientSnippet")).toHaveText(/^claude mcp add --scope user easy-labeling-2 -- ".+" --channel 2$/);
+
+    // A channel another window holds is refused; a free one moves the window, and the old server keeps waiting.
+    await page.locator("#agentChannelSelect").selectOption("1");
+    await expect(page.locator("#agentChannelMessage")).toContainText("in use by another Easy Labeling window");
+    await expect(page.locator("#agentChannelSelect")).toHaveValue("2");
+    await page.locator("#agentChannelSelect").selectOption("5");
+    await expect(page.locator("#agentClientSnippet")).toContainText("--channel 5");
+    expect(textOf(await second.mcp.call("app_state"))).toMatch(/^app_not_running: .*channel 2/);
+    expect(await Promise.race([second.mcp.exited, new Promise((resolve) => setTimeout(() => resolve("running"), 3_000))])).toBe("running");
+    moved = startMcp(pipe, 5);
+    await moved.initialize();
+    expect(json(await moved.call("app_state"))).toMatchObject({ channel: 5, folder: second.dataset });
+    expect(json(await first.mcp.call("app_state")).channel).toBe(1);
+    expect([...first.errors, ...second.errors]).toEqual([]);
+  } finally {
+    moved?.close();
+    await second.close();
+    await first.close();
   }
 });
 

@@ -117,7 +117,10 @@ export function createAgentStateTools(deps: AgentStateToolDeps): Record<string, 
       if (opened?.toLowerCase() !== entry.path.toLowerCase()) {
         throw new AgentToolError("failed", "The folder did not open; the app shows why.");
       }
-      return { folder: opened, labelFolder: pathOrName(session.labelFolderHandle), imageCount: session.imageFiles.length, ...currentSummary() };
+      const warning = args.openElsewhere === true
+        ? "This folder is also open in another Easy Labeling window (another agent channel). Saves from both windows overwrite each other's label files: work on it in one window only."
+        : undefined;
+      return { folder: opened, labelFolder: pathOrName(session.labelFolderHandle), imageCount: session.imageFiles.length, ...currentSummary(), ...(warning ? { warning } : {}) };
     }
   };
 

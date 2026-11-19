@@ -11,17 +11,30 @@ pub const PROTOCOL: u64 = 1;
 /// Largest header or body accepted (a 4K screen capture as PNG stays far below it).
 const MAX_PART: usize = 256 * 1024 * 1024;
 
-/// The pipe the app listens on: `EASY_LABELING_AGENT_PIPE` (tests run their own app) or one per Windows user.
+/// Agent channels: each Easy Labeling window listens on one (the first free one, or the one the person picks in
+/// the MCP panel) and easy-labeling-mcp.exe connects to one (`--channel N`, default 1), so several windows can
+/// each have their own agent.
+pub const MAX_CHANNEL: u32 = 8;
+
+/// Channel `channel`'s pipe: `EASY_LABELING_AGENT_PIPE` (tests run their own app) or one per Windows user, with
+/// `-N` appended from channel 2 on (channel 1 keeps the name earlier versions used).
 /// Pipe names are machine-wide, so the user is part of the name; the pipe's default DACL already keeps
 /// other non-admin users from opening it for writing.
-pub fn pipe_name() -> String {
-    if let Some(name) = std::env::var_os("EASY_LABELING_AGENT_PIPE") {
-        return name.to_string_lossy().into_owned();
+pub fn pipe_name(channel: u32) -> String {
+    let base = match std::env::var_os("EASY_LABELING_AGENT_PIPE") {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => {
+            let user = format!("{}\\{}", std::env::var("USERDOMAIN").unwrap_or_default(), std::env::var("USERNAME").unwrap_or_default());
+            // FNV-1a: a short stable tag, not a secret.
+            let hash = user.to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3));
+            format!(r"\\.\pipe\easy-labeling-agent-{hash:016x}")
+        }
+    };
+    if channel <= 1 {
+        base
+    } else {
+        format!("{base}-{channel}")
     }
-    let user = format!("{}\\{}", std::env::var("USERDOMAIN").unwrap_or_default(), std::env::var("USERNAME").unwrap_or_default());
-    // FNV-1a: a short stable tag, not a secret.
-    let hash = user.to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3));
-    format!(r"\\.\pipe\easy-labeling-agent-{hash:016x}")
 }
 
 pub async fn write_frame<W: AsyncWrite + Unpin>(writer: &mut W, header: &Value, body: &[u8]) -> std::io::Result<()> {
@@ -101,8 +114,11 @@ mod tests {
     }
 
     #[test]
-    fn pipe_name_is_per_user_unless_overridden() {
-        let name = pipe_name();
+    fn pipe_name_is_per_user_and_per_channel() {
+        let name = pipe_name(1);
         assert!(name.starts_with(r"\\.\pipe\easy-labeling-agent"), "{name}");
+        assert_eq!(pipe_name(0), name);
+        assert_eq!(pipe_name(2), format!("{name}-2"));
+        assert_eq!(pipe_name(MAX_CHANNEL), format!("{name}-{MAX_CHANNEL}"));
     }
 }
